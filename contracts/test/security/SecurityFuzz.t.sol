@@ -22,7 +22,6 @@ contract SecurityFuzzTest is IntegrationBase {
         vm.prank(router.owner());
         router.setMaxImpactBps(router.MAX_MAX_IMPACT_BPS());
         twm = new TrampWallManager(manager, lockedLP, address(hook));
-        hook.setLiquidityManager(address(twm), true);
         twm.setKeeperTipBps(0); // legacy owner-gets-all assertions; tip covered in test/security/JitTwap.t.sol
         (curve, tok) = _launch(0, 0);
         _graduate(curve);

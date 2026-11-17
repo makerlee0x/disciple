@@ -45,8 +45,6 @@ contract LockedLPAuthTest is IntegrationBase {
         lockedLP.setMigration(address(1));
         vm.expectRevert(LockedLP.AlreadyWired.selector);
         lockedLP.setFeeRouter(address(1));
-        vm.expectRevert(LockedLP.AlreadyWired.selector);
-        lockedLP.setHook(address(1));
         vm.stopPrank();
     }
 }

@@ -190,7 +190,6 @@ contract GasBench is IntegrationBase {
         _graduateWith(uCurve, quote);
         _benchRefReadyU();
         vm.prank(hook.admin());
-        hook.setCompounder(address(0), 50_000);
         address a = _wallet("benchN");
         vm.prank(a);
         router.buyExactIn(address(uTok), 20 ether, 1, a, _dl());

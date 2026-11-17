@@ -13,7 +13,7 @@ covered by the native tests in `test/integration/UsdgRoute.t.sol`. PENGU, HMM an
 1. Deploy the new DiscipleRouter, QuotePricer, and QuoteProbe (Launchpad,
    BondingCurve, and LockedLP are unchanged).
 2. Point Launchpad at the new pricer and probe, and re-trust the new router
-   (`setTrustedRouter`, FeeRouter `setClaimRouter`, hook `setTrustedRouter`).
+   (`setTrustedRouter`, FeeRouter `setClaimRouter`). The slim hook has no router allowlist.
 3. `setUsdgRouting(usdg, launchpad)` on the router.
 4. For each row in `routes.json`:
    - `pricer.setAllowedQuote(quote, true)`

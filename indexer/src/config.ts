@@ -30,6 +30,10 @@ export interface Stack {
   /** lp-accrue CurveFeeVault (CurveFeeSettled / LpFeeEscrowReleased era): deployment json contracts.CurveFeeVault, or
    *  CURVE_FEE_VAULT for the newest stack until the json carries it. */
   curveFeeVault?: Address;
+  /** DiscipleRouter (PoolTrade / UsdgTrade name the trader behind a post-grad Swap). */
+  router?: Address;
+  /** Uniswap v4 PoolManager: slim-hook stacks read post-grad trades from its Swap event (src/v4Swap). */
+  poolManager?: Address;
 }
 
 export interface Config {
@@ -73,6 +77,8 @@ function stackOf(d: any, id: string, fromBlock: bigint): Stack {
     usdgDepositNotifier: c.UsdgDepositNotifier,
     loginGate: c.LoginGate,
     curveFeeVault: c.CurveFeeVault,
+    router: c.DiscipleRouter,
+    poolManager: d.uniswapV4?.PoolManager,
   };
 }
 

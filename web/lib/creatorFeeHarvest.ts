@@ -43,6 +43,10 @@ export const creatorFeeHarvestAbi = parseAbi([
   "function route(address token) returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)",
   // Audit PR #371: routes fees that accrued to a past creator (after transferCreator). Not on the v6 testnet harvest.
   "function routeWith(address token, address pastCreator) returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)",
+  // Slim hook (2026-11-17): keeper-only route that may also sell rocket-token fees of a burn coin, at the pool's 30-minute
+  // Swap-price average (lib/poolRef). Plain route/routeWith still lock or burn the quote half; rocket tokens then wait.
+  "function keeper() view returns (address)",
+  "function routeAtRef(address token, address pastCreator, uint160 refSqrtP) returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)",
   "function depositRocketTokens(address token, uint256 amount)",
   "function creatorFeeDestinationOf(address token) view returns (uint8)",
   "event CreatorFeeDestinationSet(address indexed token, address indexed launcher, uint8 destination)",

@@ -2,6 +2,7 @@ import { decodeEventLog, type Log, getAddress } from "viem";
 import { EVENTS } from "./abi.js";
 import { bumpDataVersion, type DB } from "./db.js";
 import { tradeUsd } from "./usd.js";
+import { hookTradeFromSwap, traderIndex, type TraderHint } from "./v4Swap.js";
 import type { Stack } from "./config.js";
 
 export type RawLog = Pick<Log, "address" | "data" | "topics" | "blockNumber" | "transactionHash" | "logIndex">;
@@ -23,6 +24,21 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
       last_ts = MAX(last_ts, excluded.last_ts)`);
   // LaunchMode is emitted just before Launched (same tx ⇒ same chunk): hold it until the coin row exists.
   const pendingMode = new Map<string, number>();
+  // Slim hook pre-pass: router events that name the trader of a post-grad Swap (same tx), and txs that already carry an
+  // old-hook Trade (their Swap is not booked twice).
+  const hints: TraderHint[] = [];
+  const hookTradeTx = new Set<string>();
+  for (const l of logs) {
+    try {
+      const ev: any = decodeEventLog({ abi: EVENTS, data: l.data, topics: l.topics as any, strict: true });
+      const src = lc(l.address);
+      if ((ev.eventName === "PoolTrade" || ev.eventName === "UsdgTrade") && stack.router && src === lc(stack.router))
+        hints.push({ tx: String(l.transactionHash), trader: lc(ev.args.trader), token: lc(ev.args.token), isBuy: Boolean(ev.args.isBuy) });
+      else if (ev.eventName === "Trade" && ev.args.sqrtPriceAfter !== undefined && src === lc(stack.hook)) hookTradeTx.add(lc(String(l.transactionHash)));
+    } catch {}
+  }
+  const traderOf = traderIndex(hints);
+  const coinByPool = db.prepare("SELECT * FROM coins WHERE stack = ? AND pool_id = ?");
   const tx = db.transaction(() => {
     for (const l of logs) {
       let ev: { eventName: string; args: any };
@@ -68,12 +84,25 @@ export function applyLogs(db: DB, stack: Stack, logs: RawLog[], tsOf: (b: bigint
         case "StealthOwnerTransferred":
           if (isAnon) db.prepare("UPDATE coins SET stealth_owner=? WHERE token=?").run(lc(a.to), lc(a.token));
           break;
+        case "Swap":
         case "Trade": {
-          const coin: any = coinBy.get(lc(a.token));
-          if (!coin) break;
-          const fromCurve = src === coin.curve;
-          const hookVariant = a.sqrtPriceAfter !== undefined; // v4 IHookTradeEvents (only the hook may emit it)
-          if (hookVariant ? !isCore(stack.hook) : !fromCurve && !isCore(stack.hook)) break;
+          let a = ev.args;
+          let fromCurve: boolean, hookVariant: boolean, coin: any;
+          if (ev.eventName === "Swap") {
+            // slim hook: a Swap on this stack's DISCIPLE pool (coins.pool_id from GraduatedToV4 / Migrated) = a post-grad trade
+            if (!stack.poolManager || src !== lc(stack.poolManager)) break;
+            coin = coinByPool.get(stack.id, String(a.id).toLowerCase()) ?? coinByPool.get(stack.id, String(a.id));
+            if (!coin || hookTradeTx.has(lc(String(l.transactionHash)))) break;
+            const pre = hookTradeFromSwap(a, coin.token, coin.quote, ZERO);
+            a = { ...pre, trader: traderOf(String(l.transactionHash), coin.token, pre.isBuy) ?? lc(a.sender) };
+            fromCurve = false; hookVariant = true;
+          } else {
+            coin = coinBy.get(lc(a.token));
+            if (!coin) break;
+            fromCurve = src === coin.curve;
+            hookVariant = a.sqrtPriceAfter !== undefined; // v4 IHookTradeEvents (only the hook may emit it)
+            if (hookVariant ? !isCore(stack.hook) : !fromCurve && !isCore(stack.hook)) break;
+          }
           // all USD math in one function (src/usd.ts): curve → mcapAfterUsd; v4 hook → from sqrtPriceAfter
           const usd = tradeUsd({
             quotePriceUsdWad: coin.quote_price_usd, quoteAmt: a.quoteAmt, priceAfterX18: a.priceAfterX18,

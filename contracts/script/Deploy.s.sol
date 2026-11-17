@@ -73,8 +73,7 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       reference DEFAULT_QUOTE/USDG v4 pool for the QuotePricer
 ///                       (RH STRATEGY/USDG deepest pool: 36900 / 369 / 0x0 → id 0x816b…245b)
 ///   MIN_LIQUIDITY       QuotePricer minimum in-range liquidity (default 0)
-///   (UNIVERSAL_ROUTER is intentionally NOT trusted: audit #10 / SEC-05 — anyone can pass arbitrary hookData
-///    through it and spoof the credited trader. Only DiscipleRouter is a trusted router.)
+///   KEEPER              LockedLP.flush + CreatorFeeHarvest.routeAtRef caller (default deployer; relayer on mainnet)
 ///   REWARDS_VAULT_OWNER community RewardsVault owner (default deployer): TEMP wallet on testnet, multisig (Safe) on
 ///                       mainnet (lee 2026-11-10). Receives the sniper tax + curve LP fees of coins not graduated
 ///                       within snipeEscrowTimeout (releaseSnipeEscrow, or a late graduation). Nominated only
@@ -149,8 +148,7 @@ contract Deploy is NetworkConfig {
 
         // Hook salt is mined against the CREATE2 factory that actually deploys it (not the EOA).
         uint160 flags = uint160(
-            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_FLAG
-                | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
         bytes memory ctorArgs = abi.encode(manager, feeRouter, address(0), deployer);
         (address hookAddr, bytes32 salt) =
@@ -166,14 +164,10 @@ contract Deploy is NetworkConfig {
 
         DiscipleRouter router = new DiscipleRouter(manager, lockedLP, address(hook));
         o.trampWall = address(new TrampWallManager(manager, lockedLP, address(hook)));
-        // SEC-02: only LockedLP + TrampWallManager may add liquidity to DISCIPLE pools.
-        hook.setLiquidityManager(address(lockedLP), true);
-        hook.setLiquidityManager(o.trampWall, true);
-        // LP auto-compound: hook calls LockedLP after fee routing; LockedLP trusts only this hook.
-        hook.setCompounder(address(lockedLP), 250_000);
-        lockedLP.setHook(address(hook));
-        hook.setTrustedRouter(address(router), true);
-        // Audit #10 (SEC-05): only our DiscipleRouter is trusted for hookData trader attribution.
+        // Slim hook (2026-11-17): no LP gate, no trader credit, no in-swap compounding. LP compounding and burn-coin
+        // token sells are keeper-run (KEEPER, default deployer; the relayer / cron wallet on mainnet).
+        address keeper = vm.envOr("KEEPER", deployer);
+        lockedLP.setKeeper(keeper);
 
         // Redeploy pack item 8: the legacy AntiSnipe is no longer deployed. Launchpad.antiSnipe is a never-read
         // immutable (v2 curves compute the sniper tax inline via FeeMath.snipeBps), so it is address(0).
@@ -240,8 +234,9 @@ contract Deploy is NetworkConfig {
         feeRouter.setClaimRouter(address(router), true); // claimCreatorFeesToUsdg (separate allowlist, audit r121 Low)
         // Later send for creator-fee destinations 1 and 2. Trades do not call this. Destination 0 does not use it.
         harvest.wire(
-            address(launchpad), address(feeRouter), address(lockedLP), address(router), address(hook), address(manager)
+            address(launchpad), address(feeRouter), address(lockedLP), address(router), address(manager)
         );
+        harvest.setKeeper(keeper);
         launchpad.setTrustedRouter(address(harvest), true);
         // curveRouter is the first trusted router (DiscipleRouter, above); later trusts no longer move it (review N-2).
         require(launchpad.curveRouter() == address(router), "curveRouter");

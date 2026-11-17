@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @title Curve trade event (emitted by every BondingCurve pre-grad). DiscipleHook emits the post-grad variant in
-///        IHookTradeEvents (same name and fields, last field = sqrtPriceAfter instead of mcapAfterUsd).
+/// @title Curve trade event (emitted by every BondingCurve pre-grad). Post-grad trades are read from the Uniswap
+///        PoolManager Swap event (the slim DiscipleHook emits nothing); IHookTradeEvents is the legacy hook variant.
 interface ITradeEvents {
     /// @param token        Launch token
     /// @param trader       Recipient of the output (buy: token receiver; sell: token seller / quote receiver)
@@ -33,7 +33,7 @@ interface ITradeEvents {
     );
 }
 
-/// @title Post-graduation trade event (emitted by DiscipleHook on every v4 swap)
+/// @title LEGACY post-graduation trade event (emitted by the pre-2026-11-17 DiscipleHook; the slim hook emits none)
 /// @notice Same fields as ITradeEvents.Trade except the last one: the hook emits the raw v4 `sqrtPriceAfter` instead of
 ///         a USD mcap (gas G-1: no on-chain QuotePricer TWAP call per swap). Different signature => different topic0:
 ///         Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint160).

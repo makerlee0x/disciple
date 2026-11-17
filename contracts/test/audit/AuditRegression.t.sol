@@ -172,7 +172,6 @@ contract AuditRegression is IntegrationBase {
         (BondingCurve curve, Token tok) = _launch(0, 0);
         _graduate(curve);
         TrampWallManager twm = new TrampWallManager(manager, lockedLP, address(hook));
-        hook.setLiquidityManager(address(twm), true);
         (int24 tick,, int24 ts, bool tIs0) = twm.poolState(address(tok));
         int24 a = tick / ts;
         if (tick < 0 && tick % ts != 0) a--;
@@ -266,16 +265,14 @@ contract AuditRegression is IntegrationBase {
         router.buyExactIn(address(tok), 100 ether, out, trader1, block.timestamp + 1);
         vm.stopPrank();
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 sig =
-            keccak256("Trade(address,address,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint160)");
+        // slim hook: the price after comes from the PoolManager Swap event (the hook emits nothing)
+        bytes32 sig = keccak256("Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)");
         bool seen;
         for (uint256 i; i < logs.length; i++) {
-            if (logs[i].topics[0] == sig && logs[i].emitter == address(hook)) {
-                (,,,,,,,, uint160 sqrtAfter) = abi.decode(
-                    logs[i].data, (bool, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint160)
-                );
+            if (logs[i].topics[0] == sig && logs[i].emitter == address(manager) && logs[i].topics[1] == PoolId.unwrap(pid)) {
+                (,, uint160 sqrtAfter,,,) = abi.decode(logs[i].data, (int128, int128, uint160, uint128, int24, uint24));
                 (uint160 sp,,,) = StateLibrary.getSlot0(manager, pid);
-                assertEq(sqrtAfter, sp, "Trade.sqrtPriceAfter == slot0");
+                assertEq(sqrtAfter, sp, "Swap.sqrtPriceX96 == slot0");
                 assertEq(qMcap, hook.mcapUsdFromSqrt(sqrtAfter, tokenIsC0, liveQ));
                 seen = true;
             }

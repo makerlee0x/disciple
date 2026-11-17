@@ -8,6 +8,7 @@ import {DisciplePaymaster} from "../../src/paymaster/DisciplePaymaster.sol";
 import {ReferralRegistry} from "../../src/ReferralRegistry.sol";
 import {UsdgDepositNotifier} from "../../src/UsdgDepositNotifier.sol";
 import {DiscipleHook} from "../../src/DiscipleHook.sol";
+import {LockedLP} from "../../src/LockedLP.sol";
 import {Migration} from "../../src/Migration.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {NetworkConfig} from "../../script/config/NetworkConfig.sol";
@@ -61,9 +62,8 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         assertEq(address(UsdgDepositNotifier(o.depositNotifier).registry()), o.referrals);
         assertEq(address(UsdgDepositNotifier(o.depositNotifier).usdg()), o.usdg);
 
-        // #10 only DiscipleRouter is trusted for hookData attribution
-        assertTrue(DiscipleHook(o.hook).isTrustedRouter(o.router));
-        assertFalse(DiscipleHook(o.hook).isTrustedRouter(ur));
+        // Slim hook: keeper wired on LockedLP + harvest (no hookData attribution anymore)
+        assertTrue(LockedLP(o.lockedLP).keeper() != address(0));
 
         // #1 migrate gated by Launchpad registry; #12 hook wired to Migration
         assertEq(Migration(o.migration).launchpad(), o.launchpad);
@@ -71,7 +71,9 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
 
         // #2 hook address carries the beforeInitialize flag
         assertTrue(uint160(o.hook) & Hooks.BEFORE_INITIALIZE_FLAG != 0);
-        assertTrue(uint160(o.hook) & Hooks.BEFORE_ADD_LIQUIDITY_FLAG != 0);
+        assertTrue(uint160(o.hook) & Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG != 0);
+        assertTrue(uint160(o.hook) & Hooks.BEFORE_ADD_LIQUIDITY_FLAG == 0);
+        assertTrue(uint160(o.hook) & Hooks.BEFORE_SWAP_FLAG == 0);
 
         // Creator-fee harvest is the claim router for destinations 1 and 2, and it pulls the curve vault.
         assertTrue(o.creatorFeeHarvest != address(0));

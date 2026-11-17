@@ -171,6 +171,11 @@ contract DiscipleRouter is IUnlockCallback {
     event UsdgTrade(
         address indexed trader, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut, bool viaCurve
     );
+    /// @notice Post-graduation buyExactIn / sellExactIn on the coin's own pool (pair coin in or out). The hook emits
+    ///         nothing; together with UsdgTrade this names the trader behind a PoolManager Swap from this router.
+    event PoolTrade(
+        address indexed trader, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut, address recipient
+    );
     /// @notice swapUsdgToQuote (`toQuote`) / swapQuoteToUsdg on the registered USDG/`quote` pool.
     event UsdgQuoteSwap(
         address indexed trader, address indexed quote, bool toQuote, uint256 amountIn, uint256 amountOut, address recipient
@@ -179,7 +184,7 @@ contract DiscipleRouter is IUnlockCallback {
     struct Hop {
         PoolKey key;
         bool zeroForOne;
-        bool disciple; // DISCIPLE (hooked) pool: impact via hook meta + trader hookData
+        bool disciple; // DISCIPLE (hooked) pool: impact via hook meta
     }
 
     /// @dev Multi-hop exact-in through one unlock. Intermediate deltas net out inside the PoolManager.
@@ -297,6 +302,7 @@ contract DiscipleRouter is IUnlockCallback {
         bool tokenIsC0 = Currency.unwrap(key.currency0) == token;
         // buying token: quote → token
         tokensOut = _swap(key, !tokenIsC0, quoteIn, minTokensOut, recipient, deadline);
+        emit PoolTrade(msg.sender, token, true, quoteIn, tokensOut, recipient);
     }
 
     /// @notice Exact-in sell: sell `tokensIn` of `token` for the quote asset, sent to `recipient`.
@@ -307,6 +313,7 @@ contract DiscipleRouter is IUnlockCallback {
         PoolKey memory key = poolKeyOf(token);
         bool tokenIsC0 = Currency.unwrap(key.currency0) == token;
         quoteOut = _swap(key, tokenIsC0, tokensIn, minQuoteOut, recipient, deadline);
+        emit PoolTrade(msg.sender, token, false, tokensIn, quoteOut, recipient);
     }
 
     /// @notice buyExactIn with an EIP-2612 permit on the quote asset (try/catch: front-run safe).
@@ -347,7 +354,7 @@ contract DiscipleRouter is IUnlockCallback {
     /// @return amountOut   net output to the trader
     /// @return impactBps   unsigned |Δprice|/price in bps (direction = isBuy), same semantics as Trade.impactBps
     /// @return mcapAfterUsd USD WAD. Curve: same as Trade.mcapAfterUsd. v4: hook.mcapUsdFromSqrt(sqrtPriceAfter) at the
-    ///         live hook.quoteUsdOf price (the hook's Trade event carries sqrtPriceAfter, no USD mcap; G-1)
+    ///         live hook.quoteUsdOf price
     function quoteExactIn(address token, bool isBuy, uint256 amountIn)
         external
         returns (uint256 amountOut, uint256 impactBps, uint256 mcapAfterUsd)
@@ -1061,7 +1068,7 @@ contract DiscipleRouter is IUnlockCallback {
                     amountSpecified: -int256(amt),
                     sqrtPriceLimitX96: h.zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
                 }),
-                h.disciple ? abi.encode(d.payer == address(this) ? d.recipient : d.payer) : bytes("")
+                ""
             );
             int128 dIn = h.zeroForOne ? delta.amount0() : delta.amount1();
             int128 dOut = h.zeroForOne ? delta.amount1() : delta.amount0();
@@ -1173,7 +1180,7 @@ contract DiscipleRouter is IUnlockCallback {
                 amountSpecified: -int256(d.amountIn),
                 sqrtPriceLimitX96: d.zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
             }),
-            abi.encode(d.payer) // hook attributes trade/referral to the real trader
+            ""
         );
 
         (Currency cin, Currency cout) =

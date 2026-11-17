@@ -30,8 +30,9 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         super.setUp();
         vm.startPrank(owner);
         harvest.wire(
-            address(launchpad), address(feeRouter), address(lockedLP), address(router), address(hook), address(manager)
+            address(launchpad), address(feeRouter), address(lockedLP), address(router), address(manager)
         );
+        harvest.setKeeper(address(this));
         launchpad.setTrustedRouter(address(harvest), true);
         // setTrustedRouter also stores curveRouter. Put DiscipleRouter back so private USDG launches still find it.
         launchpad.setTrustedRouter(address(router), true);
@@ -263,7 +264,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         uint256 lpTok0 = tok.balanceOf(address(lockedLP));
         (uint256 bT0,) = lockedLP.compoundBucket(address(tok));
         vm.roll(block.number + 1);
-        (uint256 qAmt, uint256 tAmt, uint256 bought) = harvest.route(address(tok));
+        (uint256 qAmt, uint256 tAmt, uint256 bought) = _routeAtSpot(address(tok)); // keeper: sells at a reference
         console2.log("ROUTE_GAS dest2 after-orbit", vm.lastCallGas().gasTotalUsed);
         assertEq(qAmt, qAcc, "quote half burned as quote");
         assertEq(tAmt, tAcc, "rocket-token half was sold, not locked");
@@ -505,12 +506,39 @@ contract CreatorFeeRoutingTest is IntegrationBase {
 
         uint256 dead0 = quote.balanceOf(BURN);
         vm.roll(block.number + 1);
-        (uint256 qAmt, uint256 tAmt, uint256 bought) = harvest.route(burned.token);
+        (uint256 qAmt, uint256 tAmt, uint256 bought) = _routeAtSpot(burned.token);
         assertEq(qAmt, qB);
         assertEq(tAmt, tB);
         assertGt(bought, 0);
         assertEq(quote.balanceOf(BURN) - dead0, qB + bought);
         assertEq(feeRouter.creatorTokenAccrued(burned.token, address(anon)), 0);
+    }
+
+    /// Slim hook: without the keeper, a burn coin's route burns the quote half and parks the rocket tokens; only the
+    /// keeper's routeAtRef sells them, and only within 3% of its reference price.
+    function test_burn_routeWithoutKeeper_parksRocketTokens_andRouteAtRefIsKeeperOnly() public {
+        (BondingCurve curve, Token tok) = _launchDest(2, 0);
+        _graduate(curve);
+        _swapExactInQuoteForToken(tok, trader1, 1 ether);
+        _swapExactInTokenForQuote(tok, trader1, tok.balanceOf(trader1) / 2);
+        uint256 tAcc = feeRouter.creatorTokenAccrued(address(tok), creator);
+        assertGt(tAcc, 0);
+        vm.roll(block.number + 1);
+        (, uint256 tAmt, uint256 bought) = harvest.route(address(tok));
+        assertEq(tAmt, 0, "no sell without the keeper");
+        assertEq(bought, 0);
+        assertEq(harvest.rocketDeposited(address(tok)), tAcc, "rocket tokens parked");
+        uint160 sp = _spotOf(address(tok));
+        vm.prank(trader1);
+        vm.expectRevert(CreatorFeeHarvest.OnlyKeeper.selector);
+        harvest.routeAtRef(address(tok), address(0), sp);
+        // a reference far from spot: the keeper's sell is refused too (nothing else to route ⇒ PriceGuard)
+        vm.expectRevert(CreatorFeeHarvest.PriceGuard.selector);
+        harvest.routeAtRef(address(tok), address(0), sp / 2);
+        vm.roll(block.number + 1);
+        (, tAmt, bought) = harvest.routeAtRef(address(tok), address(0), sp);
+        assertEq(tAmt, tAcc, "keeper sells the parked tokens");
+        assertGt(bought, 0);
     }
 
     function test_crewTip_stillGoesToHolders() public {

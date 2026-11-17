@@ -37,8 +37,9 @@ contract AuditFixes202611Test is IntegrationBase {
         super.setUp();
         vm.startPrank(owner);
         harvest.wire(
-            address(launchpad), address(feeRouter), address(lockedLP), address(router), address(hook), address(manager)
+            address(launchpad), address(feeRouter), address(lockedLP), address(router), address(manager)
         );
+        harvest.setKeeper(address(this));
         launchpad.setTrustedRouter(address(harvest), true);
         launchpad.setTrustedRouter(address(router), true);
         feeRouter.setClaimRouter(address(harvest), true);
@@ -165,7 +166,7 @@ contract AuditFixes202611Test is IntegrationBase {
         vm.roll(block.number + 1);
         PoolId id = _poolKey(tok).toId();
         (uint160 sp0,,,) = manager.getSlot0(id);
-        (, uint256 sold, uint256 bought) = harvest.route(address(tok));
+        (, uint256 sold, uint256 bought) = _routeAtSpot(address(tok));
         (uint160 sp1,,,) = manager.getSlot0(id);
         assertGt(sold, 0, "a chunk sold");
         assertGt(bought, 0);
@@ -212,8 +213,9 @@ contract AuditFixes202611Test is IntegrationBase {
             _swapExactInQuoteForToken(tok, makeAddr("obs"), dust);
             vm.roll(vm.getBlockNumber() + 1);
             vm.warp(vm.getBlockTimestamp() + 30);
-            vm.recordLogs();
             _swapExactInQuoteForToken(tok, trader1, 25 * U);
+            vm.recordLogs();
+            _flush(address(tok)); // the keeper compounds outside swaps
             Vm.Log[] memory logs = vm.getRecordedLogs();
             for (uint256 j; j < logs.length; j++) {
                 if (logs[j].topics.length != 0 && logs[j].topics[0] == COMPOUNDED) adds++;
