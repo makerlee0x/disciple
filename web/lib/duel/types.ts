@@ -21,7 +21,12 @@ export interface DuelResult {
   rating: Record<string, number>;
   books: Record<string, Book>;
   price: number;
+  /** ranked only: season points after this duel, per pid (lib/duel/season) */
+  season?: Record<string, SeasonLine>;
+  /** ranked only: win streak after this duel, per pid */
+  streak?: Record<string, number>;
 }
+export interface SeasonLine { pts: number; delta: number; league: string }
 
 export interface DuelRoom {
   id: string;

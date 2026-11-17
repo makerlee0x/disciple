@@ -47,6 +47,13 @@ const nextConfig = {
     : {}),
   // Next 15: serverComponentsExternalPackages → serverExternalPackages;
   // outputFileTracingIncludes moved out of experimental.
+  // X player cards (maker 2026-11-16): /duel is the page X frames in the timeline, so it allows x.com / twitter.com to frame
+  // it. Nothing else on the site sends a frame policy, and none sends X-Frame-Options.
+  ...(isStatic ? {} : {
+    async headers() {
+      return [{ source: "/duel", headers: [{ key: "Content-Security-Policy", value: "frame-ancestors 'self' https://x.com https://*.x.com https://twitter.com https://*.twitter.com" }] }];
+    },
+  }),
   serverExternalPackages: ["sharp", "nsfwjs", "@tensorflow/tfjs", "@napi-rs/canvas", "undici"],
   outputFileTracingIncludes: {
     // the art plates (public/art) are read from disk by these routes, so they must ship with the functions

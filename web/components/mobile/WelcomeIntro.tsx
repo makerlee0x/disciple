@@ -59,8 +59,10 @@ export default function WelcomeIntro() {
         .wi-top img { height: 22px; }
         .wi-skip { border: 0; background: none; color: rgba(215,217,228,.75); font: 700 16px/1 var(--dsc-font-game, sans-serif); letter-spacing: .6px; padding: 10px 0 10px 16px; }
         .wi-card { flex: 1; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; padding: 0 24px 24px; box-sizing: border-box; position: relative; }
-        .wi-art { flex: 1; display: grid; place-items: center; }
-        .wi-art img { max-height: 52vh; max-width: 82%; border-radius: 20px; object-fit: contain; filter: drop-shadow(0 20px 50px rgba(242,193,78,.18)); }
+        .wi-top { position: relative; z-index: 1; }
+        /* the art shrinks to the space left under the logo, so it can't ride up over it on shorter phones */
+        .wi-art { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 12px 0 20px; }
+        .wi-art img { max-height: min(100%, 52vh); max-width: 82%; height: auto; border-radius: 20px; object-fit: contain; filter: drop-shadow(0 20px 50px rgba(242,193,78,.18)); }
         .wi-h { margin: 0; font: italic 800 clamp(40px, 11vw, 54px)/.92 var(--dsc-font-game, sans-serif); text-transform: uppercase; }
         .wi-s { margin: 12px 0 0; font-size: 17px; line-height: 1.4; color: #D7D9E4; max-width: 30ch; }
         .wi-btns { display: flex; flex-direction: column; gap: 10px; padding: 0 20px; }

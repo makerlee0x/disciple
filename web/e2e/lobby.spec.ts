@@ -1,4 +1,4 @@
-/** First visit: the signed-out lobby is the landing page, and "Pick a mode" is the first thing on it. */
+/** First visit: the signed-out lobby is the landing page. With a rocket in the air the climbing hero leads (BOOST, Launch yours) and "Pick a mode" follows; with none, Pick a mode leads. */
 import { test, expect, isPhone, hydrated } from "./support/fixtures";
 import type { Page } from "@playwright/test";
 

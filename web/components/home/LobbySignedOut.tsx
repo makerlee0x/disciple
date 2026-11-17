@@ -59,16 +59,26 @@ function TickLine({ t }: { t: TickerItem }) {
   return <span><b className={s.dn}>● {titleCase(t.bomb ?? "Bomb")}</b> hit {t.coinName}{t.dropPct ? ` −${pct(t.dropPct)}` : ""}</span>;
 }
 
-// unused since Pick a mode replaced it (2026-11-14); kept so it can come back
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function Hero({ data, hero }: { data: HomeData; hero: HomeCoin | null }) {
+/** Launch prep (maker, 2026-11-16): "lead with what's climbing, one boost, and launch yours second". The lift-off hero is back
+ *  on top of the signed-out lobby, built around the rocket climbing hardest right now, in dollars, with one BOOST button.
+ *  Pick a mode moves under it. With nothing in the air it steps aside and Pick a mode leads, as before. */
+const usdShort = (v: number) => v >= 1e6 ? `$${(v / 1e6).toFixed(1).replace(/\.0$/, "")}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(1).replace(/\.0$/, "")}K` : `$${Math.round(v)}`;
+function Hero({ data, hero }: { data: HomeData; hero: HomeCoin }) {
   const live = data.coins.filter((c) => !c.graduated);
   const pilots = live.reduce((n, c) => n + (c.stats?.crew ?? 0), 0);
   const tier = hero ? tierProgress(hero.mcapUsd) : null;
   const orbit = hero && (hero.progressBps != null || hero.graduated) ? orbitPct(hero) : null;
   // the three latest plays on the hero rocket float past it (boosts up, bombs in red)
   const plays = (data.ticker ?? []).filter((t) => hero && t.coin === hero.token).slice(0, 3);
-  const play = hero ? flightHref(hero) : "/create";
+  const play = flightHref(hero);
+  const sym = (hero.ticker || hero.name).toUpperCase();
+  const chg = hero.stats?.chg24;
+  const facts = [
+    `${usdShort(hero.mcapUsd)} market cap`,
+    chg != null && Number.isFinite(chg) && chg > 0 ? `+${pct(chg)} today` : null,
+    hero.stats?.vol24 ? `${usdShort(hero.stats.vol24)} traded` : null,
+    hero.stats?.crew ? `${hero.stats.crew.toLocaleString("en-US")} aboard` : null,
+  ].filter(Boolean).join(" · ");
   return (
     <section className={s.hero} aria-labelledby="so-hero-title" data-testid="so-hero">
       <div className={s.heroSky} style={{ backgroundImage: `url(${withBase(HERO_SKY)})` }} aria-hidden />
@@ -107,16 +117,14 @@ function Hero({ data, hero }: { data: HomeData; hero: HomeCoin | null }) {
         </Link>
       )}
       <div className={s.heroCopy}>
-        {pilots > 0 && (
-          <span className={s.eyebrow}><span className={s.liveTag}>Live</span>{pilots.toLocaleString("en-US")} {pilots === 1 ? "pilot" : "pilots"} flying right now</span>
-        )}
-        <h1 id="so-hero-title" className={s.heroTitle}>Ride it<br />to orbit</h1>
-        <p className={s.lede}>Every rocket is a live match. The crew boosts it up, and anyone can bomb it down.</p>
+        <span className={s.eyebrow}><span className={s.liveTag}>Live</span>{pilots > 0 ? `${pilots.toLocaleString("en-US")} ${pilots === 1 ? "pilot" : "pilots"} flying right now` : "Fresh off the pad"}</span>
+        <h1 id="so-hero-title" className={s.heroTitle}>${sym}<br />is climbing</h1>
+        <p className={s.lede} data-testid="so-hero-facts">{facts}. Boost to grab a seat, dump to cash out.</p>
         <div className={s.actions}>
-          <Link href={play} prefetch={false} className={`${s.btn} ${s.gold}`} data-testid="so-play">Play now</Link>
-          <Link href="/create" className={`${s.btn} ${s.ghost}`} data-testid="so-launch">Launch your own</Link>
+          <Link href={play} prefetch={false} className={`${s.btn} ${s.gold}`} data-testid="so-play">▲ Boost ${sym}</Link>
+          <Link href="/create" className={`${s.btn} ${s.ghost}`} data-testid="so-launch">Launch yours</Link>
         </div>
-        <span className={s.trader}>Trader? <Link href="/how-it-works#pro">See the spec sheet</Link></span>
+        <span className={s.trader}>New here? <Link href="/turbo/duel?first=1" data-testid="so-duel">Play a free 1v1 duel</Link> · <Link href="/how-it-works#pro">Spec sheet</Link></span>
       </div>
     </section>
   );
@@ -271,12 +279,13 @@ export default function LobbySignedOut({ initial }: { initial: HomeData }) {
     const more = coins.filter((c) => !c.graduated && !up.includes(c)).sort((a, b) => (b.stats?.vol24 ?? 0) - (a.stats?.vol24 ?? 0) || b.block - a.block);
     return [...up, ...more].slice(0, 5);
   }, [coins]);
+  const heroCoin = useMemo(() => coins.find((c) => c.token === data.hero && !c.graduated) ?? climbingNow(coins, 1)[0] ?? flying[0] ?? null, [coins, data.hero, flying]);
   return (
     <div className={s.wrap} data-testid="lobby-signed-out">
-      {/* game modes board, option A (maker 2026-11-14): Pick a mode replaces the hero; signed out it opens on Free play.
-          The old "Ride it to orbit" Hero below is kept in the file, unused, in case it comes back. */}
-      <ModeSelect signedIn={false} flying={coins.filter((c) => !c.graduated).length} />
+      {/* what's climbing leads (maker 2026-11-16); Pick a mode follows, or leads when nothing is in the air */}
+      {heroCoin && <Hero data={data} hero={heroCoin} />}
       <div className={s.modes}><Ticker data={data} /></div>
+      <ModeSelect signedIn={false} flying={coins.filter((c) => !c.graduated).length} />
       <HowItPlays />
       {flying.length > 0 && (
         <section className={s.flying} aria-labelledby="so-flying-title">

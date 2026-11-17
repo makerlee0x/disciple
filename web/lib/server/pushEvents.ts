@@ -32,7 +32,7 @@ export async function runPushEvents(budgetMs = 45_000, now = Date.now()): Promis
   const s = kv(), t0 = Date.now(), seeded = !!(await s.get(S.seeded));
   const coins = (await getHomeData()).coins;
   const orbited = new Set(await s.smembers(S.orbited));
-  const sent: Record<PushKind, number> = { orbit: 0, host: 0, crew: 0 };
+  const sent: Record<PushKind, number> = { orbit: 0, host: 0, crew: 0, duel: 0 };
   const count = (k: PushKind) => (r: string) => { if (r === "sent") sent[k]++; };
 
   if (!seeded) {

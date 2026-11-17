@@ -17,7 +17,7 @@ type Here = { endpoint: string; unsubscribe?: () => Promise<boolean> } | { apns:
 const savedToken = () => { try { return localStorage.getItem(NATIVE_PUSH_TOKEN_KEY); } catch { return null; } };
 const SW = "/push-sw.js", SCOPE = "/push-sw/";
 /** row icons in the Settings v2 layout */
-const KIND_ICON: Partial<Record<PushKind, IconName>> = { orbit: "altitude", host: "rocket", crew: "crew" };
+const KIND_ICON: Partial<Record<PushKind, IconName>> = { orbit: "altitude", host: "rocket", crew: "crew" };   // duel: no icon yet
 const keyBytes = (b64u: string) => { const s = atob(b64u.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64u.length + 3) % 4)); return Uint8Array.from(s, (c) => c.charCodeAt(0)); };
 
 export const PUSH_SETTINGS_COPY = {

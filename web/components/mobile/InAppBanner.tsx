@@ -4,7 +4,11 @@
  * app's own browser (X, Telegram, Instagram…). Google sign-in can't work there and sound/haptics are patchy, so we say so
  * once, offer the way out, and let the player carry on. Android: an intent link opens Chrome. iOS has no such link, so we
  * copy the page link and show where the app's "Open in browser" lives. Dismissed for the session.
+ * Launch prep (maker, 2026-11-16, "play free version in x browser"): X traffic is mostly phones, so the bar no longer says
+ * "open in Safari to play". It leads with a free duel that works right here (email and X sign-in work too), and the
+ * browser switch is the quieter second option.
  */
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { chromeIntent, currentInApp, inAppName, isAndroid, type InAppKind } from "@/lib/inAppBrowser";
 
@@ -42,12 +46,10 @@ export default function InAppBanner() {
   return (
     <div ref={bar} className="iab" role="region" aria-label={`Open in ${browser}`} data-testid="inapp-banner">
       <div className="iab-t">
-        <b>Open in {browser} to play</b>
-        <span>{copied ? `Link copied. Paste it in ${browser}.` : `${app}'s browser blocks Google sign-in and sound. Tap ··· then Open in browser.`}</span>
+        <b>Play free right here</b>
+        <span>{copied ? `Link copied. Paste it in ${browser}.` : <>Email and X sign-in work in {app}. For sound and Google, {intent ? <a href={intent}>open in {browser}</a> : <button type="button" className="iab-link" onClick={copy}>copy the link</button>}.</>}</span>
       </div>
-      {intent
-        ? <a className="iab-go" href={intent}>Open</a>
-        : <button type="button" className="iab-go" onClick={copy}>{copied ? "Copied" : "Copy link"}</button>}
+      <Link className="iab-go" href="/turbo/duel?first=1" onClick={close} data-testid="inapp-play">Free duel</Link>
       <button type="button" className="iab-x" aria-label="Dismiss" onClick={close}>
         <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden><path d="M2 2l10 10M12 2L2 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
       </button>

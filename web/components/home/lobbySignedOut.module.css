@@ -202,8 +202,13 @@
   .f1 { right: auto; left: 6%; top: 170px; }
   .f2 { right: 6%; top: 240px; }
   .heroCopy { padding: 0 20px 48px; gap: 16px; }
-  .heroTitle { font-size: 64px; }
+  .heroTitle { font-size: 56px; }
   .lede { font-size: 16px; }
+  /* launch prep: the climbing hero keeps BOOST above the fold on a phone, under the X banner too */
+  .hero { min-height: 600px; }
+  .heroShip { top: 36px; }
+  .heroCopy { gap: 12px; padding-bottom: 28px; }
+  .eyebrow { flex-wrap: wrap; row-gap: 6px; }
   .actions .btn { flex: 1 1 auto; justify-content: center; min-height: 52px; font-size: 20px; padding: 0 18px; }
   .how { margin-top: 40px; gap: 20px; }
   .scene { flex-basis: 100%; height: 280px; }
