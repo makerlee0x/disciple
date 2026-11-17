@@ -7,7 +7,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { dailyOpen, pilotOf, readRun } from "@/lib/server/daily";
 import LevelRing from "@/components/xp/LevelRing";
-import { dailyToday, fmtMultiple, DAILY } from "@/lib/sim/daily";
+import { dailyToday, dailyRealSeconds, fmtMultiple, DAILY } from "@/lib/sim/daily";
 import { serverDailySeed } from "@/lib/server/dailySeed";
 import { cloneConfig, PLAYER } from "@/lib/sim/config";
 
@@ -66,7 +66,7 @@ export default async function DailyChallenge(p: P) {
           <span style={{ fontSize: 15, color: "#D7D9E4", lineHeight: 1.45 }}>Same market, same crew. Their ghost flies next to you, so you&apos;ll see when they cashed out.</span>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <span style={tag("#FFB48F", "#FF7A3D")}>{label}</span>
-            <span style={tag("#D7D9E4", "#2E323A")}>{PLAYER.dailyMinutes} MIN</span>
+            <span style={tag("#D7D9E4", "#2E323A")}>{Math.round(dailyRealSeconds())} SEC</span>
             <span style={tag("#D7D9E4", "#2E323A")}>${PLAYER.startBalanceUsd} PRACTICE CASH</span>
           </div>
         </div>

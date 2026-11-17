@@ -22,16 +22,26 @@ export const DAILY_EPOCH_MS = Date.UTC(2026, 10, 13);
 export const DAY_MS = 86_400_000;
 export const DAILY = {
   difficulty: "pvp" as DifficultyId,   // Hard, every day (the approved boards)
+  /** the clock runs this fast: the 2-minute market plays in 80 s (maker 2026-11-17: "it feels too long"). Scoring, seeds and
+   *  replays count game time (blocks), so they don't change; only the wall clock does */
+  speed: 1.5,
   /** a scored run's input log: at most this many actions */
   maxInputs: 240,
   /** screen at most this many candidate seeds before taking the last one */
   maxCandidates: 24,
 };
+/** Daily buy sizes, % of your cash (maker 2026-11-17: cash grows with PnL, so fixed $ shots shrink as you win). 100 = ALL. */
+export const DAILY_BUY_PCTS: readonly number[] = [10, 25, 50, 100];
+/** what a % buy spends: cents, rounded down so ALL never asks for more than the cash */
+export const pctBuyUsd = (cash: number, pct: number) => (cash > 0 ? Math.floor(cash * pct) / 100 : 0);
+export const pctBuyLabel = (pct: number) => (pct >= 100 ? "ALL" : `${pct}%`);
 export const dailyIdAt = (ms: number) => Math.floor((ms - DAILY_EPOCH_MS) / DAY_MS) + 1;
 export const dailyToday = () => dailyIdAt(Date.now());
 /** ms when daily `id` ends (the next one starts) */
 export const dailyEndsAt = (id: number) => DAILY_EPOCH_MS + id * DAY_MS;
 export const dailySeconds = (cfg: SimConfig = SIM_CONFIG) => cfg.player.dailyMinutes * 60;
+/** how long a daily takes on the wall clock (game seconds / DAILY.speed): 80 s */
+export const dailyRealSeconds = () => dailySeconds() / DAILY.speed;
 
 const seedCache = new Map<string, number>();
 /** the fair, pre-screened seed of daily `id` for a day `salt` (cached; ~2 sims per candidate, a few ms) */
