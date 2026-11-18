@@ -8,7 +8,7 @@ import { withBase } from "@/lib/base-path";
 import { aaSession, onPrivy, onSessionChange, privyAccessToken, privyLogin } from "@/lib/aa/sessionState";
 import { onWallet } from "@/lib/walletState";
 import { aaSignMessage } from "@/lib/aa/session";
-import { LighterTaps, lighterClose, lighterOpen, lighterSetUp, lighterStatus, type LighterStep, type LighterTicket, type TapKind } from "@/lib/lighter/client";
+import { LighterTaps, lighterClose, lighterOpen, lighterSetUp, lighterStatus, type LighterStep, type LighterTicket, type TapKind, type TapVia } from "@/lib/lighter/client";
 
 type Status = Awaited<ReturnType<typeof lighterStatus>> & { collateral?: string; positions?: { symbol?: string; position?: string; sign?: number }[]; lookup?: string[] };
 const MARKETS = ["BTC", "ETH", "SOL", "HYPE"] as const;
@@ -51,9 +51,11 @@ export default function LighterTest() {
   const taps = useRef<LighterTaps | null>(null);
   const [ticket, setTicket] = useState<LighterTicket | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const logged = useRef(false);
   useEffect(() => {
     if (st?.step !== "ready") return;
     const t = new LighterTaps(f, market, usd);
+    t.wantSocket = true;
     taps.current = t;
     const off = t.onTicket(setTicket);
     t.start();
@@ -63,12 +65,13 @@ export default function LighterTest() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [st?.step, f]);
   useEffect(() => { taps.current?.set(market, usd); }, [market, usd]);
-  const tap = async (kind: TapKind) => {
+  const tap = async (kind: TapKind, how: TapVia = "http") => {
     const t = taps.current; if (!t) return;
     try {
-      const r = await t.tap(kind);
+      const r = await t.tap(kind, how);
       say(`${kind} ${market} ✓ tap→Lighter ${r.ms} ms via ${r.via}${r.waited ? " (waited for a fresh set)" : ""}  idle ${r.idle} ms  nonce ${r.nonce}  size ${r.base}  cap ${r.cap}  ${r.hash.slice(0, 10)}…`);
-    } catch (e) { say(`${kind} ${market} ✗ ${(e as Error).message}`); }
+      if (r.raw && !logged.current) { logged.current = true; say(`ws answer looks like: ${r.raw}`); }
+    } catch (e) { say(`${kind} ${market}${how === "ws" ? " (ws)" : ""} ✗ ${(e as Error).message}`); }
     setTimeout(() => void refresh(), 1500);
   };
 
@@ -118,6 +121,12 @@ export default function LighterTest() {
           {ticket ? `signed set: nonce ${ticket.nonce} · ${Math.max(0, Math.round((ticket.exp - now) / 1000))} s left · ${ticket.close ? `close ${ticket.close.side}` : "nothing to close"} · signed in ${ticket.ms?.server ?? "?"} ms` : taps.current?.lastError ?? "signing…"}
         </div>
       )}
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+        <span className="opacity-60">via websocket:</span>
+        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("long", "ws")}>Long</button>
+        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("short", "ws")}>Short</button>
+        <button className={btn} disabled={step !== "ready" || !ticket?.close} onClick={() => void tap("close", "ws")}>Close</button>
+      </div>
       <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
         <span className="opacity-60">via server:</span>
         <button className={btn} disabled={busy || step !== "ready"} onClick={() => void run(`long ${market} $${usd}`, () => lighterOpen(f, market, "long", usd))}>Long</button>

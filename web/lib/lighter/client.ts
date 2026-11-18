@@ -41,7 +41,73 @@ export const lighterWarm = (f: Fetcher) => call(f, { op: "warm" });
 export type TapKind = "long" | "short" | "close";
 type Signed = { txType: number; txInfo: string; cap: number; base: number };
 export type LighterTicket = { url: string; nonce: number; exp: number; market: number; lev: number; mid: number; long: Signed; short: Signed; close?: Signed & { side: "long" | "short" }; ms?: Record<string, number> };
-export type TapResult = { hash: string; ms: number; via: "direct" | "relay"; waited: boolean; nonce: number; cap: number; base: number; idle: number };
+export type TapResult = { hash: string; ms: number; via: "direct" | "relay" | "ws"; waited: boolean; nonce: number; cap: number; base: number; idle: number; raw?: string };
+export type TapVia = "http" | "ws";
+
+/**
+ * Lighter's WebSocket (/stream), for sending taps over a connection that's already open. `jsonapi/sendtx` takes
+ * { tx_type, tx_info } with tx_info as the signed JSON object itself. Lighter's docs give no answer shape, so any frame
+ * with a tx_hash, a code or an error answers the oldest pending send (one tap at a time, so that's always the right one).
+ */
+class LighterSocket {
+  private ws: WebSocket | null = null;
+  private opening: Promise<WebSocket> | null = null;
+  private pending: { ok: (r: { hash: string; raw: string }) => void; no: (e: Error) => void; timer: ReturnType<typeof setTimeout> }[] = [];
+  private ping: ReturnType<typeof setInterval> | null = null;
+  last = "";
+  constructor(private url: string) {}
+
+  open(): Promise<WebSocket> {
+    if (this.ws?.readyState === WebSocket.OPEN) return Promise.resolve(this.ws);
+    if (this.opening) return this.opening;
+    this.opening = new Promise<WebSocket>((ok, no) => {
+      const ws = new WebSocket(this.url);
+      const fail = () => { this.opening = null; no(new TypeError("Lighter's WebSocket didn't open.")); };
+      ws.onopen = () => {
+        this.ws = ws; this.opening = null; ok(ws);
+        if (this.ping) clearInterval(this.ping);
+        this.ping = setInterval(() => { if (ws.readyState === WebSocket.OPEN) ws.send('{"type":"ping"}'); }, 20_000);
+      };
+      ws.onerror = () => { if (this.opening) fail(); };
+      ws.onclose = () => {
+        if (this.ws === ws) this.ws = null;
+        if (this.opening) fail();
+        this.pending.splice(0).forEach((p) => { clearTimeout(p.timer); p.no(new TypeError("Lighter's WebSocket closed.")); });
+      };
+      ws.onmessage = (ev) => this.frame(String(ev.data));
+    });
+    return this.opening;
+  }
+  close() { if (this.ping) clearInterval(this.ping); this.ping = null; this.ws?.close(); this.ws = null; }
+
+  private frame(raw: string) {
+    let j: { type?: string; code?: number; message?: string; tx_hash?: string; error?: { code?: number; message?: string }; data?: { code?: number; message?: string; tx_hash?: string } };
+    try { j = JSON.parse(raw); } catch { return; }
+    if (j.type === "pong" || j.type === "ping") return;
+    this.last = raw.slice(0, 200);
+    if (j.type === "connected") return;
+    const d = j.data && typeof j.data === "object" ? { ...j.data, ...j } : j;
+    if (!(d.tx_hash || d.code !== undefined || d.error || /sendtx/i.test(d.type ?? ""))) return;
+    const p = this.pending.shift(); if (!p) return;
+    clearTimeout(p.timer);
+    const code = d.error?.code ?? d.code;
+    if (d.error || (code !== undefined && code !== 200) || !d.tx_hash) {
+      const e = new Error(d.error?.message || d.message || `Lighter ${code ?? "?"}`); e.name = "LighterRejected"; p.no(e);
+    } else p.ok({ hash: d.tx_hash, raw: this.last });
+  }
+
+  async send(o: { txType: number; txInfo: string }, id: string) {
+    const ws = await this.open();
+    return new Promise<{ hash: string; raw: string }>((ok, no) => {
+      const timer = setTimeout(() => {
+        const i = this.pending.findIndex((p) => p.timer === timer); if (i >= 0) this.pending.splice(i, 1);
+        no(new Error(`Lighter's WebSocket didn't answer. Last frame: ${this.last || "none"}`));
+      }, 4_000);
+      this.pending.push({ ok, no, timer });
+      ws.send(`{"type":"jsonapi/sendtx","data":{"id":${JSON.stringify(id)},"tx_type":${o.txType},"tx_info":${o.txInfo}}}`);
+    });
+  }
+}
 
 const REFRESH_MS = 5_000;
 const WARM_MS = 2_000; // Lighter's side can drop an idle connection quickly; a fresh one costs a TLS handshake on the tap
@@ -59,6 +125,9 @@ export class LighterTaps {
   private gen = 0;
   private warmTimer: ReturnType<typeof setInterval> | null = null;
   private lastLighter = 0; // when this browser last talked to Lighter
+  private sock: LighterSocket | null = null;
+  /** test page: open Lighter's WebSocket too, so a "ws" tap finds it already connected */
+  wantSocket = false;
 
   constructor(private f: Fetcher, public market: string, public usd: number) {}
 
@@ -72,13 +141,20 @@ export class LighterTaps {
     this.warmTimer = setInterval(() => { if (!this.tapping) this.warm(); }, WARM_MS);
   }
   stop() {
+    this.sock?.close(); this.sock = null;
     if (this.timer) clearInterval(this.timer);
     if (this.warmTimer) clearInterval(this.warmTimer);
     this.timer = this.warmTimer = null;
   }
   /** Keeps the browser's connection to Lighter open so a tap skips the TCP + TLS handshake. Same request shape as a tap
    *  (CORS, no credentials) so the browser reuses one connection for both. */
+  private socket(url: string) {
+    const ws = url.replace(/^http/, "ws") + "/stream";
+    if (!this.sock) this.sock = new LighterSocket(ws);
+    return this.sock;
+  }
   private warm() {
+    if (this.ticket && this.wantSocket) void this.socket(this.ticket.url).open().catch(() => {});
     if (!this.ticket || !this.direct) return;
     this.lastLighter = performance.now();
     void fetch(`${this.ticket.url}/api/v1/status`, { cache: "no-store" }).catch(() => {});
@@ -97,7 +173,7 @@ export class LighterTaps {
   }
 
   /** Sends the tapped order. `ms` is tap → Lighter's answer, as the browser saw it. */
-  async tap(kind: TapKind): Promise<TapResult> {
+  async tap(kind: TapKind, how: TapVia = "http"): Promise<TapResult> {
     if (this.tapping) throw new Error("One at a time.");
     this.tapping = true;
     const t0 = performance.now();
@@ -109,10 +185,12 @@ export class LighterTaps {
       if (!o) throw new Error("Nothing open.");
       this.ticket = null; this.emit(); // spent: every order in the set shares its nonce
       const idle = this.lastLighter ? Math.round(t0 - this.lastLighter) : -1;
-      let hash: string, via: TapResult["via"] = "direct";
+      let hash: string, via: TapResult["via"] = how === "ws" ? "ws" : "direct", raw: string | undefined;
       try {
-        hash = await this.send(t.url, o);
+        if (how === "ws") { const r = await this.socket(t.url).send(o, `t${t.nonce}`); hash = r.hash; raw = r.raw; }
+        else hash = await this.send(t.url, o);
       } catch (e) {
+        if (how === "ws" && (e as Error).name !== "LighterRejected") { this.floor = t.nonce; void this.refresh(); throw e; }
         if ((e as Error).name === "LighterRejected") { this.floor = t.nonce; void this.refresh(); throw e; }
         // couldn't reach Lighter from here: same signed order through the server (a duplicate can't land, same nonce)
         via = "relay"; this.direct = false;
@@ -127,7 +205,7 @@ export class LighterTaps {
       this.lastLighter = performance.now();
       this.floor = t.nonce + 1;
       void this.refresh({ nonce: t.nonce, kind });
-      return { hash, ms, via, waited, nonce: t.nonce, cap: o.cap, base: o.base, idle };
+      return { hash, ms, via, waited, nonce: t.nonce, cap: o.cap, base: o.base, idle, raw };
     } finally { this.tapping = false; }
   }
 
