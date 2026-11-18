@@ -47,8 +47,8 @@ export default function RocketPage() {
         </div>
       ) : (
         <>
-          <YourRocket col={col} wallet={wallet || null} handle={handle} sell={sell} />
-          <HangarTrades col={col} wallet={wallet || null} mine={mine} />
+          <YourRocket col={col} wallet={wallet || null} handle={handle} sell={sell}
+            side={<HangarTrades col={col} wallet={wallet || null} mine={mine} />} />
         </>
       )}
     </div>
