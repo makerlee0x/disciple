@@ -45,7 +45,9 @@ export const maxDuration = 300;
 function lfail(e: unknown) {
   if (e instanceof LighterError || e instanceof DuelError) return out(e.status >= 400 && e.status < 600 ? e.status : 502, { ok: false, reason: e.message });
   console.error("[lighter]", e);
-  return out(500, { ok: false, reason: "Lighter didn't answer. Try again." });
+  // the cause rides along (cut short) so a failed step can be traced from the page; no keys or tokens reach these messages
+  const why = e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}`.slice(0, 160) : "";
+  return out(500, { ok: false, reason: `Lighter didn't answer. Try again.${why ? ` (${why})` : ""}` });
 }
 function on() {
   const cfg = lighterConfig();
