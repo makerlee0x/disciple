@@ -56,7 +56,7 @@ export const HIW_GAMES: HiwGame[] = [
     steps: [
       { art: "versus", title: "1v1 duel", line: "Best trader wins." },
       { art: "call", title: "Pick a side", line: "BTC going up? Boost. Going down? Dump." },
-      { art: "clock", title: "Beat the clock", line: "Most profit at 0:00 wins." },
+      { art: "clock", title: "Beat the clock", line: "Most profit before time runs out wins." },
     ],
     win: { ok: "More profit than your rival", bad: "Less profit, or liquidated" },
     keys: [
