@@ -26,7 +26,7 @@ import { after } from "next/server";
 import { getRoom } from "@/lib/server/duel/store";
 import { OT_MS } from "@/lib/duel/rules";
 import { armMatch, buzzer, sleep } from "@/lib/server/lighter/match";
-import { DEPOSIT_MIN, DEPOSIT_MIN_NEW, depositAddress, depositStatus } from "@/lib/server/lighter/bridge";
+import { depositAddress, depositMins, depositStatus } from "@/lib/server/lighter/bridge";
 import { finishWithdraw, startWithdraw, withdrawable } from "@/lib/server/lighter/withdraw";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
@@ -101,7 +101,7 @@ export async function POST(req: Request) {
         return out(200, { ok: true, ...(await finishSigned(cfg, me.pid, b.op === "key-finish" ? "key" : "approve", b.sig)) });
       }
       case "tier": await setTier(cfg, me.pid); return out(200, { ok: true });
-      case "deposit-address": return out(200, { ok: true, ...(await depositAddress(me.pid)), minNew: DEPOSIT_MIN_NEW, min: DEPOSIT_MIN });
+      case "deposit-address": return out(200, { ok: true, ...(await depositAddress(me.pid)), ...depositMins(cfg) });
       case "deposit-status": return out(200, { ok: true, ...(await depositStatus(me.pid)) });
       case "withdraw-info": return out(200, { ok: true, ...(await withdrawable(cfg, me.pid)) });
       case "withdraw-start": {

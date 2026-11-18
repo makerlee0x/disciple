@@ -133,13 +133,12 @@ function CardFund({ addr, empty, onPaid, onClose, onSend }: { addr: string; empt
 
 /** To Turbo: cash → the player's Lighter account (lighterAddCash: gasless cash-out to the Lighter deposit address, then
  *  Lighter set-up runs on its own). The cash-out network fee comes off the amount, so "Lands in Turbo cash" is net. */
-function ToTurbo({ balUsd, feeUsd, firstMove, onMoved }: { balUsd: number; feeUsd: number; firstMove: boolean; onMoved: () => void }) {
+function ToTurbo({ balUsd, feeUsd, min, onMoved }: { balUsd: number; feeUsd: number; min: number; onMoved: () => void }) {
   const [amt, setAmt] = useState("");
   const [step, setStep] = useState<keyof typeof CASH_COPY.turboSteps | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const n = Number(amt) || 0;
-  const min = firstMove ? 5 : 3;
   const pickOn = (f: number) => amt !== "" && Math.abs(Math.floor(balUsd * f * 100) / 100 - n) < 0.005;
   const go = async () => {
     setErr(null); setDone(null);
@@ -433,7 +432,7 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
             )}
             {dir === "back" && turbo?.canWithdraw
               ? <FromTurbo cashAddr={addr} onMoved={() => { void refresh(addr); void refreshTurboCash(); }} />
-              : <ToTurbo balUsd={balUsd} feeUsd={feeUsd} firstMove={turbo?.lighterStep === "deposit"}
+              : <ToTurbo balUsd={balUsd} feeUsd={feeUsd} min={turbo?.minIn ?? 3}
                   onMoved={() => { void refresh(addr); void refreshTurboCash(); }} />}
           </>
         ) : (

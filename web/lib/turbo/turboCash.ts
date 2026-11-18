@@ -17,6 +17,8 @@ export type TurboCash = {
   canAdd: boolean;
   /** Turbo cash can go back to Cash (a venue whose withdrawals pay USDG on our chain, set-up finished) */
   canWithdraw: boolean;
+  /** smallest move into Turbo: Lighter on Robinhood Chain $1; Lighter main $5 for a first deposit, then $3 */
+  minIn: number;
   /** Lighter set-up step, once read ("deposit" = no Lighter account yet) */
   lighterStep: string | null;
   /** Nova fuel and its move-back, when Turbo published one */
@@ -34,7 +36,7 @@ let serverOff = false;
 let dev = false;
 
 function snap(): TurboCash {
-  return { usd: lighter.usd + (fuel?.usd ?? 0), canAdd: lighter.on, canWithdraw: !!lighter.out && lighter.step === "ready", lighterStep: lighter.step, fuel };
+  return { usd: lighter.usd + (fuel?.usd ?? 0), canAdd: lighter.on, canWithdraw: !!lighter.out && lighter.step === "ready", minIn: lighter.out ? 1 : lighter.step === "deposit" ? 5 : 3, lighterStep: lighter.step, fuel };
 }
 const emit = () => { const s = snap(); subs.forEach((cb) => cb(s)); };
 
