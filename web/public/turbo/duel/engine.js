@@ -125,7 +125,8 @@ function mount(root,host){
   const mmss=ms=>{const s=Math.max(0,Math.ceil(ms/1000));return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");};
 
   /* ---------- rules ---------- */
-  const LEV=50 /* Lighter BTC max, feel test */, FEE=0.000055 /* 0.55 bp a side = 1.1 bp round trip: Lighter Plus + 0.1 bp ours, locked (feel test, lib/duel/rules) */, FILL_MS=300 /* Lighter taker speed bump */, LIQ=0.8 /* NUKE at 80% of the fuel in it lost */;
+  const DUEL_LEV=50 /* Lighter BTC max, feel test */, DUEL_FEE=0.000055 /* 0.55 bp a side = 1.1 bp round trip: Lighter Plus + 0.1 bp ours, locked (feel test, lib/duel/rules) */, FILL_MS=300 /* Lighter taker speed bump */, LIQ=0.8 /* NUKE at 80% of the fuel in it lost */;
+  let LEV=DUEL_LEV, FEE=DUEL_FEE;   // Climb (host.climb) flies its own gear and fee per run
   let FUEL0=20;
   const TIERS={rookie:{fuel:20,sizes:[1,2,5,10,0]},pro:{fuel:50,sizes:[2,5,10,25,0]},shark:{fuel:150,sizes:[5,10,25,50,0]}};
   const BOTS={
@@ -137,6 +138,9 @@ function mount(root,host){
   try{botKey=localStorage.getItem("duel.tier")||botKey; if(!BOTS[botKey]) botKey="pro";}catch(e){}
   /* match: null, or {net:true, startAt, endAt, me:pid, opp:{pid,name}} for a live duel, or {net:false} for practice */
   let M=null, OFF=0; const now_=()=>Date.now()+OFF;
+  /* Climb (solo Turbo, maker 2026-11-17): host.climb turns the duel into a solo run, no rival. CLR = the run being flown:
+     {level, fuel, gear, goal (null in free mode), len} */
+  const CL=host.climb||null; let CLR=null;
 
   /* ---------- state ---------- */
   let G=null;
@@ -148,9 +152,9 @@ function mount(root,host){
     pl.tag=tagFx(l.tag); pl.trak=fx.skin&&fx.skin.trak!=null?fx.skin.trak:null; pl.fl=FLOURISH_ART[l.flourish]||(art&&okSrc(art.flourish)?art.flourish:null); }
   function newPlayer(name,me){return {name,me,fuel:FUEL0,pos:null,fees:0,trades:0,up:0,dn:0,green:0,best:0,y:0,vy:0,flame:0,flameC:"255,200,120",sq:0,lastTrade:-1e9,next:0,moments:[]};}
   function newGame(){
-    FUEL0=curFuel(); SIZES=PCTS; if(!SIZES.includes(stake)) stake=25; paintSizes(); resizeK();
+    FUEL0=curFuel(); LEV=CLR?CLR.gear:DUEL_LEV; FEE=CLR?CL.fee:DUEL_FEE; SIZES=PCTS; if(!SIZES.includes(stake)) stake=25; paintSizes(); resizeK();
     const startAt=M&&M.startAt||Date.now()+3500, h=host.history();
-    G={t:now_()-startAt,startAt,len:(M&&M.endAt?M.endAt-startAt:LEN),ot:false,over:false,price:h.length?h[h.length-1].p:0,ticks:[],marks:[],
+    G={t:now_()-startAt,startAt,solo:!!CLR,len:CLR?CLR.len:(M&&M.endAt?M.endAt-startAt:LEN),ot:false,over:false,price:h.length?h[h.length-1].p:0,ticks:[],marks:[],
        me:newPlayer("you",true),bot:newPlayer(M&&M.opp?M.opp.name:BOTS[botKey].name,false),cfg:BOTS[botKey],started:false};
     if(!(M&&M.opp&&!M.opp.bot)) G.bot.hull=hullFor();   // bots fly a random hull + skin
     else if(host.shipOf){ const os=host.shipOf(M.opp.pid); if(os) wearLook(G.bot,os); }   // a real rival flies their own look
@@ -187,6 +191,7 @@ function mount(root,host){
     G.marks.push({t:G.t,p:price,me:pl.me,k:"x"});
     moment(pl,`${pl.me?"you":esc(pl.name)} got NUKED on a ${side>0?"BOOST":"DUMP"}`,-lost);
     fxBomb(pl); feed(pl,"r",`${pl.me?"you":esc(pl.name)} got <b>NUKED</b>`);
+    if(pl.me&&G.solo){ G.nuked=true; if(pl.fuel<1) setTimeout(()=>{ if(G&&G.solo&&!G.over) end(); },1400); }   // Climb: out of fuel ends the run
     if(pl.me){sfx("bomb");buzz([60,40,90]);} else sfx("bomb",.5,(lane(pl)/SW)*2-1);
   }
   function open(pl,side,stake,why){
@@ -226,7 +231,7 @@ function mount(root,host){
     const down=v=>{ const k=10**Math.floor(Math.log10(v)), m=Math.round(v/k); return m===5?2*k:m===2?k:5*(k/10); };
     if(f<20) return [1,2,3,Math.max(4,Math.floor(f/2)),0];   // under $20: whole dollars, the $1 minimum trade
     const out=[nice(f/2)]; while(out.length<4) out.unshift(down(out[0])); return [...out,0]; }
-  function curFuel(){ return M&&M.fuel&&okBud(M.fuel)?M.fuel:TIERS[botKey].fuel; }
+  function curFuel(){ if(CLR) return CLR.fuel; return M&&M.fuel&&okBud(M.fuel)?M.fuel:TIERS[botKey].fuel; }
   function curSizes(){ return M&&M.fuel&&okBud(M.fuel)?sizesFor(M.fuel):TIERS[botKey].sizes; }
   function paintSizes(){ const f=G&&G.me?G.me.fuel:FUEL0; document.querySelectorAll(".size button").forEach(b=>{const v=SIZES[+b.dataset.i]; if(v==null){ b.hidden=true; return; } const d=pctUsd(v,f);
     b.innerHTML=(v===0?"ALL":v+"%")+`<span class="u">${d>=1?"$"+(d>=10?Math.floor(d):d.toFixed(2).replace(/\.00$/,"")):"\u2013"}</span>`; b.classList.toggle("on",v===stake); b.classList.toggle("lo",d<1);}); }
@@ -237,7 +242,7 @@ function mount(root,host){
     if(M&&M.net){
       if(kind==="x"&&!me.pos){toast("Nothing open.");return;}
       if(kind==="f") return;
-      if((kind==="b"||kind==="d")&&me.pos&&me.pos.side!==(kind==="b"?1:-1)){ toast("Cash out first."); return; }
+      if((kind==="b"||kind==="d")&&me.pos&&me.pos.side!==(kind==="b"?1:-1)){ fuelOut(me.pos.side); return; }
       const action=kind==="b"?"boost":kind==="d"?"dump":"close";
       host.trade(action,stake===0?0:stakeUsd()).then(r=>{ if(r&&r.error) toast(r.error); });
       return;
@@ -246,7 +251,7 @@ function mount(root,host){
     if(kind==="b"||kind==="d"){
       const side=kind==="b"?1:-1;
       // no flips (maker 2026-11-17, Nova fills are slow): the other side waits for a cash out
-      if(me.pos&&me.pos.side!==side){ toast("Cash out first."); return; }
+      if(me.pos&&me.pos.side!==side){ fuelOut(me.pos.side); return; }
       const amt=stake===0?me.fuel:stakeUsd();
       fillLater(()=>{ if(!(me.pos&&me.pos.side!==side)) open(me,side,stake===0?me.fuel:amt); });
     } else if(kind==="x"){
@@ -306,14 +311,15 @@ function mount(root,host){
   function frame(now){
     const dt=Math.min(.05,(now-(last||now))/1000); last=now;
     humTick(!!(G&&G.started&&!G.over), G&&G.me?Math.min(1,(G.me.flame||0)/2.2):0);
-    if(G&&G.started&&!G.over&&G.bot){ const ld=profitOf(G.me)-profitOf(G.bot), side=ld>0.05?1:ld<-0.05?-1:0; if(side&&G.leadSide&&side!==G.leadSide&&now>(G.leadAt||0)){ G.leadAt=now+2500; sfx("lead"); } if(side) G.leadSide=side; }
+    if(G&&G.started&&!G.over&&G.bot&&!G.solo){ const ld=profitOf(G.me)-profitOf(G.bot), side=ld>0.05?1:ld<-0.05?-1:0; if(side&&G.leadSide&&side!==G.leadSide&&now>(G.leadAt||0)){ G.leadAt=now+2500; sfx("lead"); } if(side) G.leadSide=side; }
     if(G&&G.started&&!G.over){
       G.t=now_()-G.startAt;
       if(!(M&&M.net)){
       for(const pl of [G.me,G.bot]) if(pl.pos&&pnlOf(pl.pos,G.price)<=-LIQ*pl.pos.coll) liquidate(pl);
-      botThink();
+      if(!G.solo) botThink();
       }
-      if(!(M&&M.net)&&G.t>=G.len){
+      if(!(M&&M.net)&&G.t>=G.len&&G.solo) end();
+      else if(!(M&&M.net)&&G.t>=G.len){
         const d=profitOf(G.me)-profitOf(G.bot);
         if(!G.ot&&Math.abs(d)<0.25*FUEL0/20){ G.ot=true; G.len+=30000; toast("Overtime! 30 more seconds."); sfx("ot"); bed("amb_tension"); }
         else end();
@@ -332,7 +338,7 @@ function mount(root,host){
     const me=G.me,b=G.bot, pm=profitOf(me), pb=profitOf(b), d=pm-pb;
     $("meP").textContent=usd(pm,true); $("meP").style.color=pm>0?"var(--green)":pm<0?"var(--pinkl)":"var(--text)";
     $("botP").textContent=usd(pb,true); $("botP").style.color=pb>0?"var(--green)":pb<0?"var(--pinkl)":"var(--text)";
-    $("meN").innerHTML=tally(me); $("botN").innerHTML=tally(b);
+    if(!G.solo){ $("meN").innerHTML=tally(me); $("botN").innerHTML=tally(b); }
     $("clock").textContent=mmss(Math.min(G.len,G.len-G.t)); $("mid").classList.toggle("ot",G.ot);
     const w=Math.min(50,Math.abs(d)*25); const li=$("leadI");
     li.style.left=d>=0?(50-w)+"%":"50%"; li.style.width=w+"%";   // the bar leans toward whoever leads (you: left, rival: right) li.style.background=d>=0?"var(--green)":"var(--pink)";
@@ -355,6 +361,7 @@ function mount(root,host){
     $("bDumpS").textContent="DUMP"; $("bDumpA").textContent=ld?"cash out first":pos?(stake===0?"+all of it":"+"+amt+" more"):amt;
     $("bBoost").classList.toggle("off",!!lb); $("bDump").classList.toggle("off",!!ld);
     paintSizes();
+    if(G.solo) soloUi();
   }
   function feed(pl,k,html){
     const f=$("feed"), d=document.createElement("div"); d.className="ev";
@@ -379,7 +386,7 @@ function mount(root,host){
     if(!pl.me&&$("chat").hidden) $("chatDot").hidden=false;
     sfx("tick");
   }
-  let botSayT=0; function botSay(txt,delay){ clearTimeout(botSayT); botSayT=setTimeout(()=>{ if(G&&!G.over||txt==="gg") say(G.bot,txt); },delay||rnd(900,2000)); }
+  let botSayT=0; function botSay(txt,delay){ if(G&&G.solo) return; clearTimeout(botSayT); botSayT=setTimeout(()=>{ if(G&&!G.over||txt==="gg") say(G.bot,txt); },delay||rnd(900,2000)); }
   function meSay(txt){
     if(M&&M.net){ host.chat(txt).then(r=>{ if(r&&r.error) toast(r.error); }); return; }
     say(G.me,txt);
@@ -388,13 +395,15 @@ function mount(root,host){
   }
   // out of fuel (maker 2026-11-17: the plain toast was "bad"): a game callout over the trade bar pointing at CASH OUT, and the pill pulses.
   // Server errors with the same words land here too (toast below).
-  let fuelT=0; function fuelOut(){
+  // the same callout covers "Cash out first" (BOOST open and you hit DUMP, or the other way; maker 2026-11-18: the toast was old design)
+  let fuelT=0; function fuelOut(open){
     let n=$("fuelOut"); const bar=document.querySelector(".duel-root .bottom");
-    if(!n&&bar){ n=document.createElement("div"); n.id="fuelOut"; n.className="fuelout"; n.setAttribute("role","status"); n.innerHTML='<b><i aria-hidden="true"></i>OUT OF FUEL</b><span>CASH OUT \u25bc</span>'; bar.prepend(n); }
+    if(!n&&bar){ n=document.createElement("div"); n.id="fuelOut"; n.className="fuelout"; n.setAttribute("role","status"); bar.prepend(n); }
+    if(n) n.innerHTML=open?`<b>${open>0?"\u25b2 BOOST":"\u25bc DUMP"} OPEN</b><span>CASH OUT \u25bc</span>`:'<b><i aria-hidden="true"></i>OUT OF FUEL</b><span>CASH OUT \u25bc</span>';
     const o=$("bOut"); for(const el of [n,o]) if(el){ el.classList.remove("show","nudge"); void el.offsetWidth; }
     if(n) n.classList.add("show"); if(o) o.classList.add("nudge"); $("toast").classList.remove("show"); buzz([30,40,30]);
     clearTimeout(fuelT); fuelT=setTimeout(()=>{ if(n) n.classList.remove("show"); if(o) o.classList.remove("nudge"); },2200); }
-  let toastT=0; function toast(m){ if(/^out of duel fuel/i.test(m)){ fuelOut(); return; } const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1800);}
+  let toastT=0; function toast(m){ if(/^out of duel fuel/i.test(m)){ fuelOut(); return; } if(/^cash out first/i.test(m)&&G&&G.me&&G.me.pos){ fuelOut(G.me.pos.side); return; } const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1800);}
 
   /* ---------- chart ---------- */
   const cc=$("cc"), cx=cc.getContext("2d");
@@ -519,7 +528,7 @@ function mount(root,host){
   function steerTo(pl,off){ const b=lane0(pl); pl.sxt=Math.max(34-b,Math.min(SW-34-b,off)); }
   const TRICKS={spin:{dur:.7,txt:"SPIN!",c:"#8FE3FF"},flip:{dur:.85,txt:"FLIP!",c:"#F2C14E"}};
   function trick(pl,kind){
-    if(!G||!G.started||G.over||!pl) return; if(pl.trick&&pl.trick.t<pl.trick.dur) return;
+    if(!G||!G.started||G.over||!pl||(G.solo&&!pl.me)) return; if(pl.trick&&pl.trick.t<pl.trick.dur) return;
     pl.trick={kind,t:0,dur:TRICKS[kind].dur};
     FX.pops.push({txt:TRICKS[kind].txt,c:TRICKS[kind].c,x:lane(pl),y:pl.y-RH()*.75,age:0,max:1.1,size:pl.me?28:22});
     FX.rings.push({x:lane(pl),y:pl.y,r:20,vr:420,life:.5,max:.5,w:5,col:kind==="spin"?"143,227,255":"242,193,78"});
@@ -576,6 +585,8 @@ function mount(root,host){
   const SPACE=new Set(["sky3","sky4"]);
   // where the journey is: f = position in the theme's layers (0 = ground), fin = 0..1 fade into the final sky
   function skyStage(pan){ const N=SKY_ORDER.length; if(!G||!G.started) return {f:0,fin:0};
+    if(G.solo&&CLR&&CLR.goal!=null){ const u=Math.min(1.4,soloProg()); G.sp=G.sp==null?u:G.sp+(u-G.sp)*.05;
+      return {f:Math.max(0,Math.min(N-1,Math.min(1,G.sp)*(N-1))),fin:Math.max(0,Math.min(1,(G.sp-1)/.3))}; }
     const run=Math.max(1,G.len-FINAL_MS), p=Math.max(0,Math.min(1,G.t/run));
     if(G.finalAt==null&&G.t>=run&&!G.over){ G.finalAt=G.t; toast("Final 12 seconds"); }   // latched: overtime stays on the moon
     const fin=G.finalAt!=null?Math.min(1,(G.t-G.finalAt)/1500):0;
@@ -691,7 +702,7 @@ function mount(root,host){
             if(r<.2){ const d=rnd(100,140), sd=mx-d<50?1:mx+d>SW-50?-1:(Math.random()<.5?-1:1); steerTo(pl,mx+sd*d-b0); }          // fly over next to you, on the side with room
             else if(r<.9) steerTo(pl,rnd(60,SW-60)-b0);                                // roam the sky
             else steerTo(pl,(pl.sxt||0)+rnd(-60,60));                                    // drift
-            if(Math.random()<.12&&G.started&&!G.over&&!(M&&M.net)) trick(pl,Math.random()<.5?"spin":"flip"); }
+            if(Math.random()<.12&&G.started&&!G.over&&!G.solo&&!(M&&M.net)) trick(pl,Math.random()<.5?"spin":"flip"); }
           const gap=lane(pl)-lane(G.me); if(Math.abs(gap)<90){ const roomR=SW-lane(G.me), roomL=lane(G.me); const dir=(gap>=0?(roomR>110?1:-1):(roomL>110?-1:1)); steerTo(pl,(pl.sxt||0)+dir*320*dt); }
         }
         pl.syo=(pl.syo||0)+((pl.syt||0)-(pl.syo||0))*Math.min(1,dt*8);
@@ -722,7 +733,9 @@ function mount(root,host){
       // can't climb past). The flying feel comes from the clouds and the sky journey, not from roaming apart.
       const [oLo,oHi]=myOffRange(); G.me.syt=Math.max(oLo,Math.min(oHi,G.me.syt||0)); G.me.syo=Math.max(oLo,Math.min(oHi,G.me.syo||0));
       for(const [pl,y0] of [[G.me,yMe0],[G.bot,yRv0]]){ const [a,b]=lim(pl); pl.y=Math.max(a,Math.min(b,y0+(pl.syo||0))); }
+      if(G.solo){ const [a,b]=lim(G.me); G.me.y=Math.max(a,Math.min(b,soloY())); }   // Climb: the sky zooms to the run (START, goal, NUKE)
       LAY.pan=0; LAY.dPan=0;
+      if(G.solo&&G.me.sVy) camDy+=G.me.sVy*(CLR&&CLR.goal!=null?1:2.2);
     }
     sx.save(); if(sh) sx.translate(rnd(-sh,sh)*.5,rnd(-sh,sh)*.5);
     const pan=LAY&&G?LAY.pan||0:0, dPan=LAY&&G?LAY.dPan||0:0; if(LAY) LAY.dPan=0;
@@ -734,15 +747,15 @@ function mount(root,host){
     sx.fillStyle="rgba(255,255,255,.75)";
     for(const s of stars){ s.y+=v*s.z; if(s.y>SH){s.y-=SH;s.x=Math.random()*SW;} if(s.y<0){s.y+=SH;s.x=Math.random()*SW;} sx.fillRect(s.x,s.y,1.3*s.z,Math.max(1.5,Math.min(26,Math.abs(v)*1.6))*s.z); }
     if(G){
-      drawRuler(); drawGap();
+      if(G.solo) soloLines(); else { drawRuler(); drawGap(); }
       const lead=Math.abs(profitOf(G.me)-profitOf(G.bot))>0.005?(profitOf(G.me)>profitOf(G.bot)?G.me:G.bot):null;
-      for(const pl of [G.bot,G.me]){
+      for(const pl of (G.solo?[G.me]:[G.bot,G.me])){
         const climbing=pl.wvy<-20;
         if(Math.random()<(climbing?.9:.5)*(pl.tf?.35:1)) part({x:lane(pl)+pl.dx+rnd(-4,4),y:pl.y+(pl.me?RH():RH()*.82)*.55,vx:rnd(-20,20),vy:rnd(120,220)+Math.max(0,-pl.wvy*.3),life:rnd(.5,.9),size:rnd(8,15),col:pl.tf?pl.flameC:pl.me?"255,226,160":"255,170,210",kind:"smoke",add:false});
-        drawRocket(pl,now,lead===pl);
+        drawRocket(pl,now,!G.solo&&lead===pl);
       }
       FLY.step(sx,SW,SH,dt,cdy,skyDens(pan)*.8,[2],speed);
-      offPointer();
+      if(!G.solo) offPointer();
     }
     for(let i=FX.parts.length-1;i>=0;i--){const p=FX.parts[i]; p.life-=dt; if(p.life<=0){FX.parts.splice(i,1);continue;}
       p.vx*=1-p.drag*dt; p.vy=p.vy*(1-p.drag*dt)+p.g*dt; p.x+=p.vx*dt; p.y+=p.vy*dt - camDy*cam.z - dPan; const a=p.life/p.max;
@@ -828,15 +841,17 @@ function mount(root,host){
     const c=$("count"), pc=$("preCount"); c.hidden=true; let shown=null;
     const bot=!!(M&&!M.net); $("lH").textContent=bot?"BOT MATCH":"BOTH READY"; $("lCancel").hidden=!bot;
     $("lSub").textContent=bot?`${G.bot.name} \u00b7 ${botKey.toUpperCase()} \u00b7 ${money(curFuel())} fuel \u00b7 no rating`:"";
+    if(G.solo) climbLaunch();
     clearInterval(launchIv); const iv=launchIv=setInterval(()=>{ if(dead){clearInterval(iv);return;} const left=G.startAt-now_(); const n=Math.ceil(left/1000);
       if(left>0){ if(n!==shown){ shown=n; pc.textContent=n; pc.style.animation="none"; void pc.offsetWidth; pc.style.animation=""; if(n<=3) sfx("count"); } return; }
       if(!priceReady()){ if(shown!=="wait"){ shown="wait"; pc.textContent="\u2026"; $("lSub").textContent="Waiting for the live BTC price. GO as soon as it lands."; } return; }
       clearInterval(iv); const pre=$("pre"); pre.classList.add("out"); setTimeout(()=>{ if(pre.classList.contains("out")) pre.hidden=true; },380);
       c.hidden=false; c.textContent="GO"; sfx("go"); buzz(30); G.started=true; track("duel_start"); music(true); if(coachStep()!=="done") coach(coachStep()==="out"?"out":"boost"); setTimeout(()=>c.hidden=true,450);
-      if(!(M&&M.net)&&Math.random()<.6) botSay(pick(["glhf","let's go","you're going down","\ud83e\udee1"]),1500);
-      toast(SW>=900?"WASD to fly \u00b7 Space boost \u00b7 Shift dump \u00b7 Enter cash out \u00b7 T chat \u00b7 Q spin \u00b7 E flip":"Drag the sky to steer \u00b7 swipe up to spin \u00b7 double-tap to flip"); },100);
+      if(!G.solo&&!(M&&M.net)&&Math.random()<.6) botSay(pick(["glhf","let's go","you're going down","\ud83e\udee1"]),1500);
+      if(G.solo) toast(SW>=900?"Space boost \u00b7 Shift dump \u00b7 Enter cash out":"Tap boost or dump \u00b7 tap the pill to cash out"); else toast(SW>=900?"WASD to fly \u00b7 Space boost \u00b7 Shift dump \u00b7 Enter cash out \u00b7 T chat \u00b7 Q spin \u00b7 E flip":"Drag the sky to steer \u00b7 swipe up to spin \u00b7 double-tap to flip"); },100);
   }
   function end(){
+    if(G.solo){ climbEnd(); return; }
     G.over=true; openChat(false); if(Math.random()<.8) setTimeout(()=>say(G.bot,pick(["gg","gg wp","rematch?"])),200);
     for(const pl of [G.me,G.bot]) if(pl.pos) close(pl);
     showResult(profitOf(G.me),profitOf(G.bot),null);
@@ -1005,7 +1020,7 @@ function mount(root,host){
   on(window,"keydown",e=>{
     if($("intro").hidden===false||$("vs").hidden===false||$("search").hidden===false||$("invite").hidden===false){ if(e.target&&(e.target.id==="joinI"||e.target.id==="budI")) return; }
     if(e.target&&e.target.id==="sayI"){ if(e.key==="Escape") openChat(false); return; }
-    if(e.key.toLowerCase()==="t"&&!e.repeat){ e.preventDefault(); openChat(true); return; }
+    if(e.key.toLowerCase()==="t"&&!e.repeat&&!(G&&G.solo)){ e.preventDefault(); openChat(true); return; }
     if(e.key==="Escape"&&!$("chat").hidden){ openChat(false); return; }
     const k=e.key.toLowerCase(), m=KEYMAP[k];
     if(m){ e.preventDefault(); keys[m]=true; return; }
@@ -1106,6 +1121,154 @@ function mount(root,host){
 
   // first launch of the app (maker 2026-11-15: "straight into a bot duel"): skip the lobby, 1 MIN against the rookie bot
   if(host.first){ botKey="rookie"; setTimeout(()=>{ practice(); setTimeout(()=>{ if(!$("vs").hidden) $("vReady").click(); },700); },300); }
+
+  /* ---------- Climb: solo Turbo (maker 2026-11-17/18) ----------
+     Five levels you keep. Each is a fuel, a gear and a $ goal in 60 s. Hit the goal once and the next level unlocks; beat a
+     higher level's $ goal and you jump to it. After level 5 is free mode: any fuel, up to 50x, no clock. Levels and
+     the unlock rule live in lib/climb/rules.ts (host.climb); this block only draws and flies. */
+  const CLIMB_CSS=".duel-root.climb #slotR,.duel-root.climb #aVs,.duel-root.climb #aRadar,.duel-root.climb .steps,.duel-root.climb #chatB,.duel-root.climb #chat,.duel-root.climb #vMeR,.duel-root.climb .arena .tag.me{display:none!important}"
+    +".duel-root .land{width:auto;padding:0 12px;font:800 16px/1 var(--f-game);letter-spacing:1px;color:var(--text)}"
+    +".duel-root .choices.ladder{gap:6px}.duel-root .choices.ladder .choice{min-height:0;padding-top:8px;padding-bottom:8px}"
+    +".duel-root .choice.lock .ci,.duel-root .choice.lock .ct{opacity:.5}.duel-root .choice.done .ci{color:var(--green)}"
+    +".duel-root .choice .tout{margin-left:auto;flex:none;font:800 14px/1 var(--f-game);letter-spacing:.8px;padding:7px 10px;border-radius:9px;background:rgba(242,193,78,.16);color:var(--gold);border:1px solid rgba(242,193,78,.5)}"
+    +".duel-root .cbig{display:flex;flex-direction:column;align-items:center;gap:6px;padding:6px 0 10px;text-align:center}"
+    +".duel-root .cbig small{font:700 14px/1 var(--f-game);letter-spacing:1.5px;color:var(--muted)}"
+    +".duel-root .cbig b{font:800 64px/1 var(--f-game);color:var(--gold)}.duel-root .cbig b.dn{color:var(--pinkl)}.duel-root .cbig b.up{color:var(--green)}"
+    +".duel-root .cbig strong{font:800 26px/1 var(--f-game);color:var(--text)}.duel-root .cbig em{font:700 15px/1.2 var(--f-game);font-style:normal;letter-spacing:.8px;color:var(--green)}";
+  const ICO={bolt:'<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>',
+    check:'<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>',
+    lock:'<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+    go:'<svg class="cgo" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>'};
+  const gx=g=>g+"×", m2=v=>"$"+(v>=1000?v.toLocaleString("en-US"):v%1?v.toFixed(2):String(v));
+  const LVS=CL?CL.levels:[], FREE=LVS.length+1, MAXG=CL?CL.maxGear:50;
+  const lvl=n=>LVS.find(l=>l.n===n)||null;
+  const pctOf=l=>"+"+(Math.round(l.goal/l.fuel*1000)/10)+"%";
+  let cFree={fuel:LVS.length?LVS[LVS.length-1].fuel:100,gear:MAXG};
+  function climbChip(){ const u=CL.state().unlocked, l=lvl(u);
+    $("lRat").textContent=u>=FREE?"FREE":"LVL "+u; $("lRec").textContent=l?`${m2(l.fuel)} · ${gx(l.gear)}`:`${gx(MAXG)} MAX`; }
+  function climbHome(){ M=null; CLR=null; show("climb"); climbChip();
+    const u=CL.state().unlocked, rows=[];
+    const fr=u>=FREE;
+    rows.push(`<button class="choice${fr?" main":" lock"}" type="button" data-cl="free">${`<i class="ci">${fr?ICO.bolt:ICO.lock}</i>`}<span class="ct"><b>FREE MODE</b><small>any fuel · up to ${gx(MAXG)} · no clock</small></span>${fr?ICO.go:""}</button>`);
+    for(const l of LVS.slice().reverse()){ const k=l.n>u?"lock":l.n===u?"cur":"done";
+      rows.push(`<button class="choice${k==="cur"?" main":""} ${k}" type="button" data-cl="${l.n}"><i class="ci">${k==="lock"?ICO.lock:k==="done"?ICO.check:ICO.bolt}</i><span class="ct"><b>LEVEL ${l.n} · MAKE ${pctOf(l).slice(1)}</b><small>+${m2(l.goal)} on ${m2(l.fuel)} · ${gx(l.gear)} · 60s${k==="done"?" · cleared":""}</small></span>${k==="lock"?'<span class="tout">TEST OUT</span>':k==="cur"?ICO.go:""}</button>`); }
+    $("climb").innerHTML=`<div class="choices ladder">${rows.join("")}</div>`;
+    $("climb").querySelectorAll("[data-cl]").forEach(b=>b.addEventListener("click",()=>{ ensureAudio(); const v=b.dataset.cl;
+      if(v==="free"){ if(CL.state().unlocked>=FREE) climbFreeSetup(); else toast("Clear level "+LVS.length+" to unlock free mode."); return; }
+      const n=+v; if(n<=CL.state().unlocked){ climbPlay(n); return; }
+      climbTestOut(n); })); }
+  function climbTestOut(n){ const l=lvl(n); show("cres");
+    $("cres").innerHTML=`<div class="cbig"><small>TEST OUT</small><b>LEVEL ${n}</b><strong>${m2(l.fuel)} · ${gx(l.gear)}</strong><em>HIT +${m2(l.goal)} (${pctOf(l)}) IN 60s</em></div>`
+      +`<div class="choices"><button class="choice main" type="button" id="cTo"><i class="ci">${ICO.bolt}</i><span class="ct"><b>TEST OUT</b><small>${m2(l.fuel)} · real money · 1 try a day</small></span>${ICO.go}</button></div>`
+      +`<button class="sec wide" type="button" id="cBack" style="margin-top:8px">LEVELS</button>`;
+    $("cBack").addEventListener("click",climbHome);
+    $("cTo").addEventListener("click",()=>{ const r=CL.testOut?CL.testOut(n):{error:"Test out opens with real money."}; if(r&&r.error){ toast(r.error); return; } climbPlay(n,true); }); }
+  function climbFreeSetup(){ show("cres");
+    const fuels=LVS.map(l=>l.fuel), gears=[]; for(let g=10;g<=MAXG;g+=10) gears.push(g);
+    const opt=(k,v,lab)=>`<button class="opt${cFree[k]===v?" on":""}" type="button" data-${k}="${v}">${lab}</button>`;
+    $("cres").innerHTML=`<div class="opts" role="group" aria-label="Fuel"><span>FUEL</span>${fuels.map(f=>opt("fuel",f,m2(f))).join("")}</div>`
+      +`<div class="opts" role="group" aria-label="Gear"><span>GEAR</span>${gears.map(g=>opt("gear",g,gx(g)+`<small class="ob">NUKE −${Math.round(LIQ/g*1000)/10}%</small>`)).join("")}</div>`
+      +`<div class="choices"><button class="choice main" type="button" id="cFly"><i class="ci">${ICO.bolt}</i><span class="ct"><b>FLY · ${gx(cFree.gear)}</b><small>${m2(cFree.fuel)} fuel · no clock</small></span>${ICO.go}</button></div>`
+      +`<button class="sec wide" type="button" id="cBack" style="margin-top:8px">LEVELS</button>`;
+    $("cres").querySelectorAll("[data-fuel],[data-gear]").forEach(b=>b.addEventListener("click",()=>{ if(b.dataset.fuel) cFree.fuel=+b.dataset.fuel; if(b.dataset.gear) cFree.gear=+b.dataset.gear; climbFreeSetup(); }));
+    $("cBack").addEventListener("click",climbHome);
+    $("cFly").addEventListener("click",()=>climbPlay(FREE)); }
+  function climbPlay(n,test){ const l=lvl(n), free=n>=FREE;
+    CLR=free?{level:FREE,free:true,fuel:cFree.fuel,gear:cFree.gear,goal:null,len:Infinity}:{level:n,test:!!test,fuel:l.fuel,gear:l.gear,goal:l.goal,len:CL.runMs};
+    M={net:false,ranked:false,solo:true}; OFF=0; show("launch"); $("lH").textContent=free?"FREE MODE":"LEVEL "+n; $("lSub").textContent="";
+    waitForPrice(()=>{ if(!M||!M.solo) return; M.startAt=Date.now()+3500; start(); }); }
+  function climbLaunch(){ root.classList.add("climb"); $("lCancel").hidden=false;
+    $("lH").textContent=CLR.free?"FREE MODE":(CLR.test?"TEST OUT · ":"")+"LEVEL "+CLR.level;
+    $("lSub").textContent=`${m2(CLR.fuel)} · ${gx(CLR.gear)}`+(CLR.goal!=null?` · make +${m2(CLR.goal)}`:" · no clock")+(CL.real?"":" · play money");
+    const who=$("meN").parentElement; who.innerHTML=(CLR.free?"FREE · ":`LEVEL ${CLR.level} · ${m2(CLR.fuel)} · `)+`<span id="meN" style="color:var(--gold)">${gx(CLR.gear)}</span>`;
+    const nx=lvl(CLR.level+1); $("botLab").innerHTML=(CLR.free?"FUEL":"NEXT")+'<span id="botN"></span>';
+    $("botP").textContent=CLR.free?m2(CLR.fuel):nx?m2(nx.fuel):"FREE"; $("botP").style.color="var(--gold)";
+    $("landB").hidden=!CLR.free; }
+  function soloUi(){ const p=profitOf(G.me), li=$("leadI"), nx=lvl(CLR.level+1);
+    $("botP").textContent=CLR.free?m2(CLR.fuel):nx?m2(nx.fuel):"FREE"; $("botP").style.color="var(--gold)";
+    if(CLR.free){ $("clock").textContent=mmss(Math.max(0,G.t)); li.style.width="0"; $("leadT").textContent=""; return; }
+    const pr=Math.max(0,Math.min(1,p/CLR.goal)); li.style.left="0%"; li.style.width=Math.max(2,pr*100)+"%"; li.style.background="var(--green)";
+    $("leadT").textContent="GOAL +"+m2(CLR.goal); $("leadT").style.color="var(--green)"; }
+  // the sky for a level run (maker 2026-11-18: "make the target way visually higher so it feels like you're climbing"):
+  // START sits low, the GOAL gate near the top, and the first cents move the rocket the most (ease-out), so every tick
+  // up reads as climbing closer. Past the goal you keep rising toward the top edge; losses sink toward the NUKE.
+  const SOLO_START=.78, SOLO_GOAL=.14;
+  function soloFrac(v){ const me=G.me, pos=me.pos;
+    if(CLR.goal!=null){ const u=v/CLR.goal;
+      if(u>=1) return SOLO_GOAL-SOLO_GOAL*.85*Math.tanh((u-1)*1.5);
+      if(u>=0) return SOLO_START-(SOLO_START-SOLO_GOAL)*(1-Math.pow(1-u,1.7));
+      const lossTo=pos?LIQ*pos.coll:CLR.goal*3; return SOLO_START+(1-SOLO_START)*Math.min(1.05,Math.pow(-v/lossTo,.75)); }
+    const r=Math.max(CLR.fuel*.01,Math.abs(profitOf(me))*1.5,.5); G.sR=G.sR==null?r:G.sR+(r-G.sR)*.03;
+    return .5-.42*Math.max(-1.1,Math.min(1.1,v/G.sR)); }
+  // level runs fly a tall sky (maker 2026-11-18: "the line needs to be way taller ... i shouldn't see either line on my
+  // screen at the start"): PnL maps to sky heights, measured in rooms (one room = the visible sky). The GOAL gate is
+  // SOLO_UP rooms above START and the NUKE SOLO_DN rooms below it, so both start off screen. The camera follows the
+  // rocket a beat behind, which is what makes the clouds and stars rush past while you climb.
+  const SOLO_UP=2.4, SOLO_DN=1.7, SOLO_ANCHOR=.62;
+  function soloW(v){ if(CLR.goal==null) return 0; const u=v/CLR.goal;
+    if(u>=0) return SOLO_UP*(1-Math.pow(1-Math.min(u,1),1.35))+Math.max(0,u-1)*1.2;   // ease-out: the first cents climb the most
+    const lossTo=G.me.pos?LIQ*G.me.pos.coll:CLR.goal*3; return -SOLO_DN*Math.pow(Math.min(1.2,-v/lossTo),.7); }
+  function soloRoom(){ const a=LAY.under+40, z=LAY.barTop-10; return [a,z,z-a]; }
+  function soloYOf(v){ const [a,z,H]=soloRoom();
+    if(CLR.goal==null) return a+soloFrac(v)*(z-a);
+    return a+SOLO_ANCHOR*H-(soloW(v)-(G.camW||0))*H; }
+  function soloProg(){ return CLR.goal!=null?Math.max(0,profitOf(G.me)/CLR.goal):0; }
+  function soloY(){ const [a,z,H]=soloRoom();
+    if(CLR.goal!=null){ const w=soloW(profitOf(G.me)); G.rW=G.rW==null?w:G.rW+(w-G.rW)*.1;
+      const c0=G.camW==null?G.rW:G.camW; G.camW=c0+(G.rW-c0)*.045; G.me.sVy=-(G.camW-c0)*H;   // px the camera moved this frame (negative = climbing)
+      if(G.me.sVy<-.3) G.me.flame=Math.min(2.2,G.me.flame+Math.min(.15,-G.me.sVy*.03));
+      return a+SOLO_ANCHOR*H-(G.rW-G.camW)*H+(G.me.syo||0)*.2; }
+    const t=soloYOf(profitOf(G.me)), was=G.me.sY; G.me.sY=was==null?t:was+(t-was)*.12; G.me.sVy=was==null?0:G.me.sY-was;
+    return G.me.sY+(G.me.syo||0)*.2; }
+  function soloLines(){ const me=G.me, pos=me.pos, p=profitOf(me), top=LAY.under+6, bot=LAY.barTop+10, f=n=>Math.round(n).toLocaleString("en-US");
+    const L=[{v:0,label:"START",plain:1,col:"242,243,247"}];
+    const priceAt=v=>pos?pos.entry*(1+pos.side*(v-(p-pnlOf(pos,G.price)))/pos.size):null;   // the price at which your profit reads v
+    if(CLR.goal!=null) L.push({v:CLR.goal,label:"GOAL +"+m2(CLR.goal),sub:pos?f(priceAt(CLR.goal)):null,col:"95,240,160",gate:1,w:3});
+    if(pos){ const nv=p-pnlOf(pos,G.price)-LIQ*pos.coll, np=pos.entry*(1-pos.side*LIQ*pos.coll/pos.size);
+      L.push({v:nv,label:"NUKE",pin:"NUKE "+f(np)+" · "+usd(-LIQ*pos.coll),sub:f(np),col:"240,48,127",ink:"#fff",band:60}); }
+    for(const l of L){ let y=soloYOf(l.v), pin=0; if(CLR.goal!=null&&(y<top-30||y>bot+30)) continue; if(y<top){y=top;pin=-1;} if(y>bot){y=bot;pin=1;}
+      if(l.plain){ if(pin) continue; sx.strokeStyle="rgba(255,255,255,.45)"; sx.lineWidth=1.5; sx.setLineDash([6,5]); sx.beginPath(); sx.moveTo(0,y); sx.lineTo(SW,y); sx.stroke(); sx.setLineDash([]);
+        sx.font="700 11px "+GF+",sans-serif"; sx.textAlign="right"; sx.textBaseline="bottom"; sx.fillStyle="rgba(242,243,247,.85)"; sx.fillText(l.label,SW-12,y-3); continue; }
+      if(!pin){ if(l.band){ const g=sx.createLinearGradient(0,y,0,y+l.band); g.addColorStop(0,`rgba(${l.col},.28)`); g.addColorStop(1,`rgba(${l.col},0)`); sx.fillStyle=g; sx.fillRect(0,y,SW,l.band); }
+        if(l.gate){ const g=sx.createLinearGradient(0,y-26,0,y+26); g.addColorStop(0,`rgba(${l.col},0)`); g.addColorStop(.5,`rgba(${l.col},.22)`); g.addColorStop(1,`rgba(${l.col},0)`); sx.fillStyle=g; sx.fillRect(0,y-26,SW,52); }
+        sx.strokeStyle=`rgba(${l.col},.9)`; sx.lineWidth=l.w||2; sx.beginPath(); sx.moveTo(0,y); sx.lineTo(SW,y); sx.stroke(); }
+      const txt=(pin<0?"▲ ":pin>0?"▼ ":"")+(pin&&l.pin?l.pin:l.label); sx.font="800 14px "+GF+",sans-serif"; const tw=sx.measureText(txt).width+16, hh=22, ly=pin<0?y:pin>0?y-hh:y-hh/2;
+      // right-aligned: the trade feed lives top left
+      let sw=0; if(l.sub&&!pin){ sx.font="700 12px "+GF+",sans-serif"; sw=sx.measureText(l.sub).width+12; }
+      const x1=SW-12-tw; sx.font="800 14px "+GF+",sans-serif";
+      sx.fillStyle=`rgba(${l.col},.95)`; rr(x1,ly,tw,hh,7); sx.fill(); sx.fillStyle=l.ink||"#121327"; sx.textAlign="left"; sx.textBaseline="middle"; sx.fillText(txt,x1+8,ly+hh/2+1);
+      if(sw){ const x2=x1-4-sw; sx.font="700 12px "+GF+",sans-serif"; sx.fillStyle="rgba(11,10,22,.86)"; rr(x2,ly+2,sw,hh-4,6); sx.fill(); sx.fillStyle=`rgba(${l.col},1)`; sx.fillText(l.sub,x2+6,ly+hh/2+1); } } }
+  function climbEnd(){ G.over=true; if(G.me.pos) close(G.me); music(false); ui();
+    const pnl=profitOf(G.me), run=CLR, before=CL.state().unlocked;
+    const res=run.free?{unlocked:before}:CL.finish({level:run.level,pnl,test:run.test});
+    const up=res.unlocked>before, n=res.unlocked, nl=lvl(n);
+    setTimeout(()=>{ if(dead) return; show("cres"); climbChip(); sfx(up?"win":"lose");
+      let big;
+      if(run.free) big=`<small>LANDED</small><b class="${pnl>=0?"up":"dn"}">${usd(pnl,true)}</b><strong>${m2(run.fuel)} · ${gx(run.gear)}</strong>`;
+      else if(up) big=`<small>${n-run.level>1?"LEVEL JUMP":"LEVEL UP"}</small><b>${n>=FREE?"FREE MODE":"LEVEL "+n}</b><strong>${n>=FREE?"UNLOCKED":`${m2(nl.fuel)} · ${gx(nl.gear)} UNLOCKED`}</strong><em>${usd(pnl,true)}${nl?` · NEXT GOAL +${m2(nl.goal)}`:""}</em>`;
+      else big=`<small>${G.nuked?"NUKED":"MISSED"}</small><b class="${pnl>=0?"up":"dn"}">${usd(pnl,true)}</b><em style="color:var(--muted)">GOAL +${m2(run.goal)}</em>`;
+      const again=run.free?"FLY AGAIN":up?(n>=FREE?"FREE MODE":"PLAY LEVEL "+n):"AGAIN";
+      const sub=run.free?`${m2(run.fuel)} · ${gx(run.gear)}`:up&&nl?`${m2(nl.fuel)} · ${gx(nl.gear)}`:up?`up to ${gx(MAXG)} · no clock`:`${m2(run.fuel)} · ${gx(run.gear)}`;
+      $("cres").innerHTML=`<div class="cbig">${big}</div><div class="choices"><button class="choice main" type="button" id="cAgain"><i class="ci">${ICO.bolt}</i><span class="ct"><b>${again}</b><small>${sub}</small></span>${ICO.go}</button></div><button class="sec wide" type="button" id="cBack" style="margin-top:8px">LEVELS</button>`;
+      $("cBack").addEventListener("click",climbHome);
+      $("cAgain").addEventListener("click",()=>{ ensureAudio(); if(run.free) climbPlay(FREE); else if(up&&n>=FREE) climbFreeSetup(); else climbPlay(up?n:run.level); });
+    },G.nuked&&!G.me.fuel?1400:700); }
+  if(CL){
+    const sty=document.createElement("style"); sty.textContent=CLIMB_CSS; st.after(sty); offs.push(()=>sty.remove());
+    const pnl=root.querySelector(".panel"); pnl.insertAdjacentHTML("beforeend",'<div class="pane" id="climb" hidden></div><div class="pane" id="cres" hidden></div>');
+    PANES.push("climb","cres");
+    $("chatB").insertAdjacentHTML("afterend",'<button class="mute chatb land" id="landB" type="button" hidden>LAND</button>');
+    $("landB").addEventListener("click",()=>{ if(G&&G.solo&&G.started&&!G.over) end(); });
+    root.classList.add("climb"); const t=root.querySelector(".pre-title"); if(t) t.textContent="CLIMB";
+    // BACK: from a test out, free mode setup or a result it goes to the levels; from the levels, to wherever you came from
+    const bk=root.querySelector(".pre-back"); if(bk){ if(CL.back) bk.href=CL.back;
+      const onBk=e=>{ if(!$("climb").hidden){ let same=false; try{ same=!!document.referrer&&new URL(document.referrer).origin===location.origin; }catch(_){}
+          if(same&&history.length>1){ e.preventDefault(); history.back(); } return; }
+        e.preventDefault(); if(M&&M.solo&&!$("launch").hidden&&G&&!G.started){ M=null; } climbHome(); };
+      bk.addEventListener("click",onBk); offs.push(()=>bk.removeEventListener("click",onBk)); }
+    $("lCancel").addEventListener("click",()=>{ if(CLR) climbHome(); });
+    climbHome();
+  }
 
   return {
     price:(p,ts)=>pushPrice(p,ts),
