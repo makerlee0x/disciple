@@ -79,6 +79,8 @@ contract DevToken is ERC20, ERC20Permit {
 ///   RENOUNCE_HARVEST    renounce CreatorFeeHarvest ownership at the end of deploy (always on mainnet 4663)
 ///   RENOUNCE_HOOK_ADMIN drop the DiscipleHook admin once wired (always on 4663)
 ///   RENOUNCE_LOCKED_LP  renounce LockedLP ownership (treasury + compound caps fixed) at the end (always on 4663)
+///   KOL_CREATOR_SHARE_BPS launch-KOL slice of the creator share, bps (default 0 on 4663, maker 2026-11-17: KOLs
+///                       are paid by hand; elsewhere the FeeRouter default 200). Fixed for good on 4663 by lockSettings().
 ///   LOCK_FEE_SETTINGS   FeeRouter.lockSettings(): KOL share, referral sink and claim routers fixed (always on 4663)
 ///   SAFE                protocol Safe (optional). Set: every contract that keeps an owner is NOMINATED to it
 ///                       (two-step) and the Safe calls acceptOwnership() on each (one batched Safe tx); it is also the
@@ -297,6 +299,10 @@ contract Deploy is NetworkConfig {
             // set before lockSettings() below, so mainnet defaults the sink to the treasury.
             address sink = vm.envOr("REFERRAL_SINK", mainnet ? treasury : address(0));
             if (sink != address(0)) feeRouter.setReferralSink(sink);
+            // maker 2026-11-17: no automatic KOL cut either ("pay it by hand"). Mainnet sets the launch-KOL slice of
+            // the creator share to 0 before lockSettings(), so creators keep their full 33% and KOLs are paid by hand.
+            uint256 kolBps = vm.envOr("KOL_CREATOR_SHARE_BPS", mainnet ? uint256(0) : uint256(feeRouter.kolCreatorShareBps()));
+            if (kolBps != feeRouter.kolCreatorShareBps()) feeRouter.setKolCreatorShareBps(kolBps);
         }
         if (mainnet || vm.envOr("LOCK_FEE_SETTINGS", false)) feeRouter.lockSettings();
         if (safe != address(0)) {

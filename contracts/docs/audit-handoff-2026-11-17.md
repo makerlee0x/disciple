@@ -117,7 +117,7 @@ No contract is upgradeable or behind a proxy.
 2. Only LockedLP, via Migration at graduation, can initialize a pool with DiscipleHook. A pool with this hook can't be created any other way.
 3. Every swap on a DISCIPLE pool, routed or direct, exact-in or exact-out, pays exactly 1% of the unspecified amount to FeeRouter. The hook never takes from the wrong currency or over-takes.
 4. **FeeRouter solvency.** The sum of claimable balances (creator, treasury, referral, LP bucket, per asset) never exceeds the tokens FeeRouter holds. Only authorized callers can book fee credit.
-5. Creator fees of a lock/burn coin can't be claimed by the creator or anyone else. They can only go to LockedLP or `0x…dEaD`. Exception by design (maker 2026-11-17): when the coin has a launch KOL, the KOL's cut of the creator share (KOL share bps of the creator's 33% of the 1% fee: at the default 2% that is 0.66% of the fee, about 0.0066% of volume) is paid to the KOL in cash.
+5. Creator fees of a lock/burn coin can't be claimed by the creator or anyone else. They can only go to LockedLP or `0x…dEaD`. On mainnet the launch-KOL slice of the creator share is set to 0 before `lockSettings()` (maker 2026-11-17: KOLs are paid by hand from the treasury), so no exception applies there. Off mainnet the FeeRouter default (2% of the creator share) still pays a KOL in cash.
 6. `flush` can't move value out of LockedLP or overspend its bucket. A permissionless or sandwiched flush can't extract more than the per-window cap.
 7. **Curve.**
    - Graduation happens exactly once, at the configured target.
