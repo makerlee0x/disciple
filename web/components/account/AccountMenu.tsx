@@ -1,7 +1,7 @@
 "use client";
 /**
  * The pilot chip's menu (step 5 board "Sign in, account menu, Hangar signed out", maker 2026-11-13): your ring, name and
- * level bar on top, then Your Hangar, Cash (balance), Rewards (what's ready), Settings, and Sign out on its own.
+ * level bar on top, then Your Hangar, Rewards (what's ready), Settings, and Sign out on its own.
  * Opens under the chip on desktop; a bottom sheet over the tab bar on phones (CSS, ≤720px).
  */
 import { CREW_ENABLED, LOGBOOK_ENABLED } from "@/lib/features";
@@ -9,7 +9,8 @@ import Link from "next/link";
 import { useMemo, type ReactNode } from "react";
 import { useXp } from "@/lib/xpClient";
 import { MAX_LEVEL, levelInfo } from "@/lib/xp";
-import { SETTINGS_HREF, onSettingsClick, openCash } from "@/lib/cashLink";
+import { SETTINGS_HREF, onSettingsClick } from "@/lib/cashLink";
+import { usePilotPfp } from "@/lib/pilotPfp";
 import { useRewards } from "@/components/claims/useRewards";
 import { usd2 } from "@/components/cash/bits";
 
@@ -45,10 +46,11 @@ const I = {
 };
 const Ico = ({ d }: { d: ReactNode }) => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>{d}</svg>;
 
-export default function AccountMenu({ wallet, name, initial, cashUsd, onClose, onSignOut }: {
-  wallet: string; name: string; initial: string; cashUsd: number | null; onClose: () => void; onSignOut: () => void;
+export default function AccountMenu({ wallet, name, initial, onClose, onSignOut }: {
+  wallet: string; name: string; initial: string; /** unused since maker 2026-11-17 (Cash left the menu: the cash pill sits beside it) */ cashUsd?: number | null; onClose: () => void; onSignOut: () => void;
 }) {
   const { xp } = useXp(wallet);
+  const pfp = usePilotPfp(wallet);
   const L = xp?.level ?? levelInfo(0);
   const r = useRewards(true);
   const left = xp ? xp.daily.missions.filter((m) => !m.done).length : 0;
@@ -62,7 +64,10 @@ export default function AccountMenu({ wallet, name, initial, cashUsd, onClose, o
       <div className="am-menu" role="menu" aria-label="Your account" data-testid="account-menu">
         <span className="am-grab" aria-hidden />
         <div className="am-who">
-          <span className="am-av" aria-hidden>{initial}</span>
+          {pfp.img
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <span className={`am-av has-img${pfp.nft ? " pfp-hex" : ""}`} aria-hidden><img src={pfp.img} alt="" width={48} height={48} /></span>
+            : <span className="am-av" aria-hidden>{initial}</span>}
           <div className="am-id">
             <b>{name}</b>
             <span>{ACCOUNT_COPY.level(L.level)} · {L.level >= MAX_LEVEL ? ACCOUNT_COPY.max : ACCOUNT_COPY.xpTo(Math.max(0, L.need - L.into), L.level + 1)}</span>
@@ -76,7 +81,6 @@ export default function AccountMenu({ wallet, name, initial, cashUsd, onClose, o
         <Link role="menuitem" className="am-i am-phone" href="/leaderboard" onClick={onClose}><Ico d={I.topPilots} />{ACCOUNT_COPY.topPilots}</Link>
         {LOGBOOK_ENABLED && <Link role="menuitem" className="am-i" href="/logbook" onClick={onClose}><Ico d={I.logbook} />{ACCOUNT_COPY.logbook}</Link>}
         {CREW_ENABLED && <Link role="menuitem" className="am-i" href="/crew" onClick={onClose}><Ico d={I.crew} />{ACCOUNT_COPY.crew}</Link>}
-        <button role="menuitem" type="button" className="am-i" onClick={() => { onClose(); openCash("add"); }}><Ico d={I.cash} />{ACCOUNT_COPY.cash}{cashUsd != null && <span className="am-r">{usd2(cashUsd)}</span>}</button>
         <a role="menuitem" className="am-i" href={REWARDS_HREF} onClick={onClose} data-testid="account-rewards"><Ico d={I.rewards} />{ACCOUNT_COPY.rewards}{ready > 0.004 && <span className="am-r gold">{ACCOUNT_COPY.ready(usd2(ready))}</span>}</a>
         <Link role="menuitem" className="am-i" href={SETTINGS_HREF} scroll={false} onClick={(e) => { onClose(); onSettingsClick(e); }}><Ico d={I.settings} />{ACCOUNT_COPY.settings}</Link>
         <span className="am-sep" />

@@ -29,6 +29,8 @@ export default function CardChrome() {
   const lastDom = useRef<Partial<Record<CardId, R>>>({});
   const drag = useRef<{ id: CardId; x0: number; y0: number; dx: number; dy: number; pid: number } | null>(null);
   const pillMoved = useRef(false);
+  // Pilot: the radio is a fixed pill in the top bar (GameRadio), not a layout card: no ⠿ / – / × bar, no ▸ RADIO pill, not in LAYOUT
+  const skipCard = (id: CardId) => id === "radio" && hud !== "pro";
   useEffect(() => { startSidebarOverlay(); const f = () => setPhone(isPhoneUI()); f(); addEventListener("resize", f); return () => removeEventListener("resize", f); }, []);
 
   // PR #221 snap-to-grid: measure the content area + fixed obstacles, flow the cards into the slots (lib/game/slots)
@@ -117,7 +119,7 @@ export default function CardChrome() {
     const mv = (e: PointerEvent) => {
       if (drag.current) return;
       let hit: CardId | null = null;
-      for (const id of CARD_IDS) { const l = getLayout()[id]; if (l?.min || l?.closed) continue; const r = rectOf(id); if (!r) continue;
+      for (const id of CARD_IDS) { const l = getLayout()[id]; if (l?.min || l?.closed || skipCard(id)) continue; const r = rectOf(id); if (!r) continue;
         if (e.clientX >= r.x && e.clientX <= r.x + r.w && e.clientY >= r.y - 20 && e.clientY <= r.y + r.h) { hit = id; break; } }
       setHover((h) => (h === hit ? h : hit));
     };
@@ -151,8 +153,8 @@ export default function CardChrome() {
   const act = (id: CardId, patch: { min?: boolean; closed?: boolean }) => { updateLayout((l) => setCard(l, id, patch)); setHover(null); };
 
   const hov = hover && !layout[hover]?.min && !layout[hover]?.closed ? rectOf(hover) : null;
-  const pills = CARD_IDS.filter((id) => layout[id]?.min);
-  const hidden = hiddenCards(layout);
+  const pills = CARD_IDS.filter((id) => layout[id]?.min && !skipCard(id));
+  const hidden = hiddenCards(layout).filter((id) => !skipCard(id));
   return (
     <div data-testid="card-chrome" style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 61 }}>
       {tabs.row && tabs.ids.length > 0 && <div data-testid="card-tabs" style={{ position: "fixed", left: tabs.row.x, top: tabs.row.y, width: tabs.row.w, height: tabs.row.h, display: "flex", gap: 6, justifyContent: "flex-end", alignItems: "center", pointerEvents: "auto" }}>
@@ -196,17 +198,17 @@ export default function CardChrome() {
       <div style={{ position: "fixed", left: wrapXY().x + 20, bottom: 3, pointerEvents: "auto", display: hud === "pro" || menu || hidden.length ? "block" : "none" }}>
         <button data-testid="layout-menu" onClick={() => setMenu((m) => !m)} title="Cards: restore closed ones or reset the layout"
           style={{ ...btn, fontSize: 9.5, opacity: menu || hidden.length ? 0.95 : 0.55, letterSpacing: ".08em" }}>⧉ LAYOUT{hidden.length ? ` · ${hidden.length} hidden` : ""}</button>
-        {menu && <LayoutMenu layout={layout} close={() => setMenu(false)} />}
+        {menu && <LayoutMenu layout={layout} skip={skipCard} close={() => setMenu(false)} />}
       </div>
     </div>
   );
 }
 
-function LayoutMenu({ layout, close }: { layout: Layout; close: () => void }) {
+function LayoutMenu({ layout, skip, close }: { layout: Layout; skip: (id: CardId) => boolean; close: () => void }) {
   return (
     <div data-testid="layout-pop" style={{ position: "absolute", left: 0, bottom: 20, minWidth: 190, padding: 8, borderRadius: 10, background: "rgba(10,12,30,.96)",
       border: "1px solid rgba(255,231,163,.35)", font: `11px ${mono}`, color: "#e8ecff", boxShadow: "0 8px 24px rgba(0,0,0,.5)" }}>
-      {CARD_IDS.map((id) => { const s = layout[id], st = s?.closed ? "closed" : s?.min ? "minimized" : s?.dx || s?.dy ? "moved" : s?.w ? "resized" : "";
+      {CARD_IDS.filter((id) => !skip(id)).map((id) => { const s = layout[id], st = s?.closed ? "closed" : s?.min ? "minimized" : s?.dx || s?.dy ? "moved" : s?.w ? "resized" : "";
         return <div key={id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "2px 0" }}>
           <span>{CARD_TITLES[id]}{st && <span style={{ opacity: 0.55 }}> · {st}</span>}</span>
           {(s?.closed || s?.min) && <button data-testid={`layout-show-${id}`} onClick={() => updateLayout((l) => restoreCard(l, id))} style={{ ...btn, padding: 0 }}>show</button>}

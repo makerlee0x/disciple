@@ -12,9 +12,9 @@ test.describe("first visit", () => {
     const modes = out(page).getByTestId("mode-select");
     await expect(modes.getByRole("heading", { name: "Pick a mode" })).toBeVisible();
     for (const id of ["launch", "live", "free"]) await expect(out(page).getByTestId(`mode-${id}`)).toBeAttached();
-    // Turbo is on for everyone: Trading duel and Turbo royale are in the row
+    // Turbo is on for everyone: Trading duel is in the row. Turbo royale is held for launch (lib/features ROYALE_ENABLED)
     await expect(out(page).getByTestId("mode-duel")).toBeAttached();
-    await expect(out(page).getByTestId("mode-royale")).toBeAttached();
+    await expect(out(page).getByTestId("mode-royale")).toHaveCount(0);
   });
 
   test("the top bar has Live flights, Launch, Top pilots and Play now (the mark is the lobby)", async ({ page }) => {
@@ -28,16 +28,11 @@ test.describe("first visit", () => {
     await expect(bar.getByTestId("nav-turbo").first()).toBeVisible();
   });
 
-  test("Turbo tab opens a menu with Trading duel and Turbo royale", async ({ page }) => {
+  test("Turbo tab goes straight to Trading duel while Royale is held", async ({ page }) => {
     await page.goto("/");
-    const btn = page.locator(isPhone(page) ? ".lb-dock [data-testid=nav-turbo]" : ".lb-top [data-testid=nav-turbo]").first();
-    await hydrated(btn);
-    await btn.click();
-    const menu = page.getByTestId("turbo-menu");
-    await expect(menu.getByRole("menuitem", { name: /trading duel/i })).toBeVisible();
-    await expect(menu.getByRole("menuitem", { name: /turbo royale/i })).toHaveAttribute("href", "/turbo/royale");
-    await page.keyboard.press("Escape");
-    await expect(menu).toHaveCount(0);
+    const tab = page.locator(isPhone(page) ? ".lb-dock [data-testid=nav-turbo]" : ".lb-top [data-testid=nav-turbo]").first();
+    await expect(tab).toHaveAttribute("href", /\/turbo\/duel/);
+    await expect(page.getByTestId("turbo-menu")).toHaveCount(0);
   });
 
   test("Live flights opens every rocket", async ({ page }) => {
@@ -61,7 +56,7 @@ test.describe("first visit", () => {
     await hydrated(out(page).getByTestId("mode-free"));
     await out(page).getByTestId("mode-free").focus();
     await page.keyboard.press("ArrowLeft");
-    await expect(out(page).getByTestId("mode-royale")).toBeFocused();
+    await expect(out(page).getByTestId("mode-duel")).toBeFocused();
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("ArrowRight"); // wraps round
     await expect(out(page).getByTestId("mode-launch")).toBeFocused();
@@ -80,11 +75,10 @@ test.describe("first visit", () => {
     await expect(page).toHaveURL(/\/live$/);
   });
 
-  test("the Trading duel and Turbo royale cards open their modes", async ({ page }) => {
+  test("the Trading duel card opens its mode", async ({ page }) => {
     await page.goto("/");
     await expect(out(page).getByTestId("mode-duel")).toBeAttached();
     await expect(out(page).getByTestId("mode-duel")).toHaveAttribute("href", /\/turbo\/duel/);
-    await expect(out(page).getByTestId("mode-royale")).toHaveAttribute("href", /\/turbo\/royale/);
   });
 
   test("the help button opens How to play and Docs", async ({ page }) => {

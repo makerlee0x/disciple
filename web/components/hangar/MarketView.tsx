@@ -11,6 +11,7 @@ import { onWallet } from "@/lib/walletState";
 import { useCollection } from "@/lib/collectionClient";
 import { Crates } from "./Collection";
 import { MarketShop } from "./MarketShop";
+import HolderShelf from "@/components/nft/HolderShelf";
 
 export default function MarketView() {
   const [wallet, setWallet] = useState<string | null>(null);
@@ -37,7 +38,8 @@ export default function MarketView() {
   ) : null;
   return (
     <div className="profile-page hg mkt-page">
-      <MarketShop wallet={wallet} crates={strip} />
+      {/* Disciple NFTs (maker 2026-11-17): The Twelve, Disciples → /mint, sealed holders crate */}
+      <MarketShop wallet={wallet} crates={<>{strip}<HolderShelf /></>} />
     </div>
   );
 }

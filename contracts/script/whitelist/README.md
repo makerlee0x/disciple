@@ -78,3 +78,11 @@ Two deeper ETH / USDG pools are hooked (`0xbac3aa3b…` hook `0x06a88987…` ~$7
 They are not used until those hooks are reviewed.
 
 USDG and ETH (WETH) are optional pairs, off at launch (`NEXT_PUBLIC_PAIR_USDG`, `NEXT_PUBLIC_PAIR_ETH`).
+
+## DELTA replaces HMM (Nov 17, 2026)
+
+maker swapped HMM for DELTA. HMM moved to `removed` in `routes.json`. DELTA routes in one hop, USDG → DELTA:
+
+| Quote | Pool | Depth |
+| --- | --- | --- |
+| DELTA `0xe8ffd7e2…a791` | id `0xebd2fbb4…cd66`, USDG / DELTA, fee 19900 (1.99%), tickSpacing 199, no hook. Initialize at block 53049314, key hash matches the id. | TVL ~$39.0K on Nov 17 (~27.5K USDG / 3.5M DELTA), so about $19.5K per side. Thin: big pair-coin swaps move it. |

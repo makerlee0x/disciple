@@ -30,7 +30,8 @@ const COUNTRY_SET = new Set(COUNTRY_CODES);
 
 /** title: optional chosen title id (lib/titles); "" / missing = the default title. Earned status is checked by the server. */
 /** banner: optional image id from the same moderated store as pfp (pilot-uploaded banner, profile r3); "" / missing = plain panel. */
-export type ProfileMeta = { pfp: string; bio: string; flag: string; title?: string; banner?: string };
+/** nft: read-only (GET /api/profile/meta): the Disciple NFT behind the picture, when it is one. Never posted. */
+export type ProfileMeta = { pfp: string; bio: string; flag: string; title?: string; banner?: string; nft?: { chain: "sol" | "eth"; id: string; name: string } | null };
 export const EMPTY_META: ProfileMeta = { pfp: "", bio: "", flag: "", banner: "" };
 
 // C0/C1 controls (newlines too: the bio is one line), zero-width, bidi embeddings/overrides/isolates, BOM.

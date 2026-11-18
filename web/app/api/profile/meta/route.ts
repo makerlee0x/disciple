@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 /**
  * Profile meta: picture / bio / country flag, keyed by wallet (lib/server/profileMeta). Same auth as the username claim
  * (/api/profile/username): single-use server nonce + wallet signature over profileMetaMessage, which covers every field.
- * GET  ?address=0x…          → { pfp, pfpUrl, bio, flag, banner, bannerUrl }
+ * GET  ?address=0x…          → { pfp, pfpUrl, bio, flag, banner, bannerUrl, nft: { chain, id, name } | null }
  * GET  ?nonce=1&address=0x…  → { nonce, ttlSec }
  * POST { address, pfp, bio, flag, title?, banner?, nonce, signature, owner? } → { ok, reason? }
  *   banner = id of an image that passed /api/moderate-image (same store and checks as pfp) or "" (plain panel).
@@ -19,6 +19,7 @@ import { verifyWalletSignature } from "@/lib/server/chat/identity";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { getImage } from "@/lib/server/imageStore";
 import { metaOf, setMeta } from "@/lib/server/profileMeta";
+import { mayUseImage, nftPfpOf } from "@/lib/server/nft/holders";
 import { usernameOf } from "@/lib/server/usernames";
 import { earnedTitlesFor, profileStatsSeed, validateTitle } from "@/lib/titles";
 import { BIO_MAX, BIO_RAW_MAX, normalizeFlag, pfpUrl, profileMetaMessage, sanitizeBio, validateMeta, type ProfileMeta } from "@/lib/profileMeta";
@@ -42,7 +43,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ nonce, ttlSec: NONCE_TTL }, { headers: { "cache-control": "no-store" } });
   }
   const m = await metaOf(address).catch(() => ({ pfp: "", bio: "", flag: "", title: "", banner: "" }));
-  return NextResponse.json({ ...m, pfpUrl: pfpUrl(m.pfp) || null, bannerUrl: pfpUrl(m.banner ?? "") || null }, { headers: { "cache-control": "no-store" } });
+  // an NFT picture whose NFT left the linked wallet is cleared here (lib/server/nft/holders, re-checked every few hours)
+  const nft = m.pfp ? await nftPfpOf(address, m.pfp).catch(() => null) : null;
+  if (nft === null && m.pfp && !(await mayUseImage(address, m.pfp).catch(() => true))) m.pfp = "";
+  return NextResponse.json({ ...m, nft, pfpUrl: pfpUrl(m.pfp) || null, bannerUrl: pfpUrl(m.banner ?? "") || null }, { headers: { "cache-control": "no-store" } });
 }
 
 export async function POST(req: Request) {
@@ -80,6 +84,9 @@ export async function POST(req: Request) {
   if (who !== addr) return NextResponse.json({ ok: false, reason: "Signature didn't match this wallet." }, { status: 401 });
   // Pictures only from the moderated store: /api/moderate-image stores an image only on an "allow" verdict.
   if (m.pfp && !(await getImage(m.pfp).catch(() => null))) return NextResponse.json({ ok: false, reason: "Picture not found. Upload it again." }, { status: 400 });
+  // NFT art (picked through /api/nft/pfp) is only for the profile that holds the NFT
+  if (m.pfp && !(await mayUseImage(addr, m.pfp))) return NextResponse.json({ ok: false, reason: "That picture belongs to another holder." }, { status: 403 });
+  if (m.banner && !(await mayUseImage(addr, m.banner))) return NextResponse.json({ ok: false, reason: "That picture belongs to another holder." }, { status: 403 });
   if (m.banner && !(await getImage(m.banner).catch(() => null))) return NextResponse.json({ ok: false, reason: "Banner not found. Upload it again." }, { status: 400 });
   if (!(await consumeNonce(kv(), NONCE_PREFIX, nonce, addr))) return NextResponse.json({ ok: false, reason: "Sign-in expired. Try again." }, { status: 401 });
   await setMeta(addr, m);

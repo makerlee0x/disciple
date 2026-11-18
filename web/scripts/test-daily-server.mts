@@ -1,15 +1,16 @@
-/** Daily flight server rules (lib/server/daily.ts): the start ticket, the 2-minute floor, one scored run per device, 5 per IP. */
+/** Daily flight server rules (lib/server/daily.ts): the start ticket, the 80 s floor, one scored run per device, 5 per IP. */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { startDaily, submitDaily, runIdOf, ipBucket, netOf, bindOwner, boardRun, dailyBoard, DAILY_PER_IP } from "../lib/server/daily";
 import { sameSitePost } from "../lib/server/limits";
 import { issueTicket } from "../lib/server/dailySeed";
+import { claim } from "../lib/server/usernames";
 import { dailyToday } from "../lib/sim/daily";
 
 const id = dailyToday(), ip = `10.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}.7`;
 const dev = () => randomUUID();
-const oldTicket = (device: string, from = ip) => issueTicket(id, runIdOf(device), netOf(from), Date.now() - 125_000);
+const oldTicket = (device: string, from = ip) => issueTicket(id, runIdOf(device), netOf(from), Date.now() - 85_000);
 
 test("a fresh ticket is refused (the flight ended too fast), no ticket is refused", async () => {
   const d = dev(), st = await startDaily(id, d, ip);
@@ -70,6 +71,9 @@ test("only signed-in pilots are on the board, one run per wallet", async () => {
   assert.ok(ra.ok && (await bindOwner(id, ra.run.runId, w)) && (await boardRun(id, ra.run, w)));
   assert.equal((await dailyBoard(id)).count, before + 1, "saved: on the board");
   const mb = (await dailyBoard(id, { me: runIdOf(a) })).me; assert.ok(mb && mb.boarded);
+  const uname = "pilot" + randomUUID().replace(/-/g, "").slice(0, 8);
+  assert.ok((await claim(uname, w)).ok);
+  assert.equal((await dailyBoard(id)).top.find((r) => r.runId === runIdOf(a))?.name, uname, "a saved run shows its pilot's username");
   const b = dev(), rb = await submitDaily(id, b, [], await oldTicket(b, net));
   assert.ok(rb.ok && !(await boardRun(id, rb.run, w)), "a second run from the same wallet stays off");
   assert.ok(ra.ok && (await boardRun(id, ra.run, w)), "saving the same run again is fine");

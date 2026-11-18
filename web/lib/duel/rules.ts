@@ -2,15 +2,19 @@
  * Trading Duel rules (shared by the server, the live match screen and the practice bot). Pure, no I/O.
  *
  * A duel: two pilots, same tier fuel, same live BTC price, 1 minute. Each pilot BOOSTs (long) or DUMPs (short)
- * at 500×, as often as they like; pressing the other side flips with the same fuel. Most profit at the buzzer wins.
+ * at 50× (Lighter's BTC max), as often as they like, and can add to an open position (the entry averages). No flips (maker 2026-11-17, Nova
+ * fills are slow): to go the other way, cash out first. Most profit at the buzzer wins.
  * If it's within OT_GAP of a tie at the buzzer, the duel gets one 30 s overtime.
  *
- * Amounts are dollars, prices $ per coin, times ms. FEE is a placeholder until Nova confirms duel fees.
+ * Amounts are dollars, prices $ per coin, times ms. FEE and FILL_MS mimic Lighter Plus for a feel test; Nova numbers replace them later.
  */
 
-export const LEV = 500;
-/** 0.5 bp a side on notional. Placeholder until Nova confirms what a duel trade costs (a 1 bp trial felt too harsh). */
-export const FEE = 0.00005;
+/** Lighter's BTC max (50×) for the Lighter Plus feel test; was 500× for Nova. */
+export const LEV = 50;
+/** 0.55 bp a side on notional = 1.1 bp round trip: Lighter Plus (1 bp) + 0.1 bp Disciple partner fee. Locked by maker 2026-11-17 (1.2 "felt too heavy"). */
+export const FEE = 0.000055;
+/** Every duel fill waits this long after the tap, like a Lighter Standard/Plus taker order (300 ms speed bump). */
+export const FILL_MS = 300;
 /** NUKE when the open position has lost 80% of the fuel in it. */
 export const LIQ = 0.8;
 export const OT_MS = 30_000;
@@ -52,6 +56,14 @@ export function sizesFor(fuel: number): number[] {
 /** a room's starting fuel and trade sizes: its custom budget, else its tier's */
 export const fuelOf = (r: { tier: TierId; fuel?: number }) => (r.fuel && isCustomFuel(r.fuel) ? r.fuel : TIERS[r.tier].fuel);
 export const sizesOf = (r: { tier: TierId; fuel?: number }) => (r.fuel && isCustomFuel(r.fuel) ? sizesFor(r.fuel) : TIERS[r.tier].sizes);
+/**
+ * Trade size buttons are a share of the fuel you have left (maker 2026-11-17, like Sell % in live flight): 10%, 25%, 50%,
+ * ALL (0). The client turns the % into dollars at the tap, so the server takes any whole-cent amount from $1 (or 0 = ALL);
+ * openStep still caps it at the fuel left.
+ */
+export const PCTS = [10, 25, 50, 0] as const;
+export const pctUsd = (pct: number, fuel: number) => (pct === 0 ? fuel : Math.floor(fuel * pct) / 100);
+export const okStake = (usd: number) => usd === 0 || (Number.isFinite(usd) && usd >= 1 && usd <= CUSTOM_FUEL_MAX && Math.abs(usd * 100 - Math.round(usd * 100)) < 1e-6);
 
 export type SideN = 1 | -1;
 export interface DuelPos { side: SideN; size: number; coll: number; entry: number; t: number }
@@ -107,7 +119,7 @@ export function bombAt(b0: Book, price: number): { book: Book; step: BookStep } 
 /**
  * Apply a pilot's press at `price`:
  * - boost / dump with nothing open or the same side open: put `usd` in (0 = ALL fuel left; adds average the entry)
- * - boost / dump with the other side open: FLIP (close, then open the other side with the same fuel)
+ * - boost / dump with the other side open: refused (null). No flips: cash out first.
  * - close: cash out
  * An NUKE at this price is applied first. Returns null when nothing could happen (no fuel, nothing to close).
  */
@@ -118,9 +130,8 @@ export function applyTrade(b0: Book, action: TradeAction, usd: number, price: nu
   const bomb = bombAt(b, price); if (bomb) { b = bomb.book; steps.push(bomb.step); }
   if (action === "close") { if (!b.pos) return steps.length ? { book: b, steps } : null; closeStep(b, price, steps); return { book: b, steps }; }
   const side: SideN = action === "boost" ? 1 : -1;
-  if (b.pos && b.pos.side !== side) {
-    const c = b.pos.coll; closeStep(b, price, steps); openStep(b, side, c, price, t, steps);
-  } else if (!openStep(b, side, usd === 0 ? b.fuel : usd, price, t, steps)) return steps.length ? { book: b, steps } : null;
+  if (b.pos && b.pos.side !== side) return steps.length ? { book: b, steps } : null;
+  if (!openStep(b, side, usd === 0 ? b.fuel : usd, price, t, steps)) return steps.length ? { book: b, steps } : null;
   return { book: b, steps };
 }
 /** Close whatever is open at the buzzer (bomb first if it's already gone). */

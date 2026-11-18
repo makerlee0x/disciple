@@ -253,3 +253,13 @@ Apply these once #450 merges, or fold them into #450:
 - Launch builder: panel head `4 steps · about a minute` and More options sub `All optional. Locked in when you launch.`
 - `lib/protocol-viem.ts:283` error `Easy rocket: sign in with X, email or wallet to BOOST.` still says wallet.
 - Invite, Crew, Logbook, Streaks, Creator dashboard, Rewards popup, Royale in-match HUD, duel result flavor.
+
+## 2026-11-17 follow-up: tooltips + How to play tightened
+
+Before → after (restore by swapping back):
+- Top pilots tabs: `Banked $` → `Banked`, `Best % ($20+ in)` → `Best %`, `Orbits aboard` → `Orbits` (the $20 rule is in the ⓘ).
+- Top pilots ⓘ: "Only cashed-out profit counts, after fees. Red flights count against you." / "Rockets you launched don't count." / "Best % only counts flights with $20 or more in." → "Banked: cashed-out profit after fees. Losses count." / "Best %: flights with $20+ in." / "Your own launches don't count."
+- Duel rating ⓘ: 5 long lines → "Seasons run monthly. Win +30 (+25 max streak bonus), lose −15. Rookie to Champion." / "Rating starts at 1,200. Upsets swing more." / "First 10 duels move faster." / "Ranked only. Friendlies and bots don't count."
+- Crews empty: "No crews on the board yet" + "Join a crew and fly together. Crews rank by orbits aboard, then green rockets." → "No crews yet" + button.
+- How to play (content/how-it-works.ts): eyebrows "How to play" / "The rules" removed; Pilot sub "Seats cost real cash. Cash out for more than you paid in, and you win." → "Seats cost real cash."; Pro sub removed; legend, rules cards, mode tags, host line, Ready up sub shortened (old strings in git history of that file at 0482960).
+- Hover titles (PnlHud, TradeBridge, WalletButton, GameRadio, HudModeToggle, FlightCanvas, SettingsMenu, SwapSettingsModal, FirstBoostField, OneTapSlippagePicker, quickLaunch firstBoostTip) shortened; "Trade settings" menu sub "amounts, price protection" removed.

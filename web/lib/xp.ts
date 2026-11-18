@@ -240,15 +240,15 @@ export const MILESTONE_XP_OVERRIDE: Record<string, number> = { first_blessing: 1
 /** Player-facing name + one line per live milestone (the achievement rules the server scores, lib/achievements V1_RULES). */
 export const MILESTONE_COPY: Record<string, { name: string; desc: string }> = {
   first_blessing: { name: "First boost", desc: "Boost any rocket." },
-  pad_ignition: { name: "First launch", desc: "Launch your first rocket." },
-  graduated_dev: { name: "Blessed Dev", desc: "Launch a rocket that reaches orbit." },
-  through_pearly_gates: { name: "Outer Space", desc: "Be aboard with $10 or more when a rocket reaches orbit." },
-  final_boost: { name: "Final Push", desc: "Make the boost that sends a rocket to orbit." },
-  first_grenade: { name: "Bunker Buster", desc: "Drop a bunker buster: a $10+ dump that moves the price 2%." },
-  cruise_missile_ach: { name: "Mother of All Bombs", desc: "Drop a MOAB: a $25+ dump that moves the price 12%." },
-  nuke_ach: { name: "Atom Smasher", desc: "Drop an atom bomb: a $50+ dump that moves the price 25%." },
+  pad_ignition: { name: "First launch", desc: "Launch a rocket." },
+  graduated_dev: { name: "Blessed Dev", desc: "Launch a rocket that hits orbit." },
+  through_pearly_gates: { name: "Outer Space", desc: "Be aboard with $10+ when a rocket hits orbit." },
+  final_boost: { name: "Final Push", desc: "Make the boost that hits orbit." },
+  first_grenade: { name: "Bunker Buster", desc: "Dump $10+ and drop the price 2%." },
+  cruise_missile_ach: { name: "Mother of All Bombs", desc: "Dump $25+ and drop the price 12%." },
+  nuke_ach: { name: "Atom Smasher", desc: "Dump $50+ and drop the price 25%." },
   unfumbled: { name: "Unfumbled", desc: "Take $500 profit in one sale." },
-  best_x_10: { name: "Tenfold Halo", desc: "Sell at 10× what you paid, on $10 or more." },
+  best_x_10: { name: "Tenfold Halo", desc: "Sell at 10× your entry, on $10+." },
 };
 export const milestoneXp = (id: string, rarity: string) => MILESTONE_XP_OVERRIDE[id] ?? MILESTONE_XP_BY_RARITY[rarity.toUpperCase()] ?? 100;
 

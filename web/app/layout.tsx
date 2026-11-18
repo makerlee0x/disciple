@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import IosZoomLock from "@/components/app/IosZoomLock";
 import "./brand-tokens.css";
 import "./brand-tokens-v2.css";
 import "./brand-tokens-v3.css";
@@ -10,11 +11,13 @@ import "./profile-r5.css";
 import "./hangar-v3.css";
 import "./hangar-profile.css";
 import "./market.css";
+import "./nft.css";
 import "./refresh-r2.css";
 import { barlowCondensed, geist, instrumentSerif } from "./fonts";
 import AppShell from "@/components/AppShell";
 import ChatBridge from "@/components/chat/ChatBridge";
 import AppSounds from "@/components/AppSounds";
+import LevelUpFlash from "@/components/xp/LevelUpFlash";
 import PrivyProviders from "@/components/PrivyProviders";
 import IconSprite from "@/components/icons/IconSprite";
 import { sponsorshipConfig } from "@/lib/server/sponsorshipConfig";
@@ -25,6 +28,13 @@ const GAME_ROUTE_JS = `(function(){try{var b=${JSON.stringify(process.env.NEXT_P
 /** The iPhone app (Capacitor shell, user agent tail "DiscipleApp/", lib/native) gets html.app before the first paint: its
  *  own home (components/app/AppSwitch) and tab bar (LobbyTopBar). */
 const APP_JS = `(function(){try{if(navigator.userAgent.indexOf("DiscipleApp/")>-1)document.documentElement.classList.add("app")}catch(e){}})()`;
+
+/** Top bar holds still on a refresh (maker 2026-11-18): a browser with a saved, unexpired session (lib/aa/sessionState
+ *  SESSION_LS) gets html[data-you] before the first paint, so the server-rendered bar is already the signed-in one.
+ *  LobbyTopBar keeps it in sync once Privy answers. */
+// …and paints the pill saved last time (lib/walletState LastPill) into the wallet placeholder (components/AppShell WalletSlot)
+// through CSS vars, so cash, name, level and picture show before any script has loaded
+const YOU_JS = `(function(){try{var d=document.documentElement,L=localStorage,s=JSON.parse(L.getItem("disciple.aa.session.v2")||"null");if(!(s&&s.owner&&(!s.expiresAt||s.expiresAt>Date.now())))return;d.setAttribute("data-you","");var w=(L.getItem("disciple.lastWallet")||"").toLowerCase(),p=JSON.parse(L.getItem("disciple.lastPill")||"null");if(!p||!w||String(p.address||"").toLowerCase()!==w)return;var q=function(v){return JSON.stringify(String(v).slice(0,40))},S=function(k,v){d.style.setProperty(k,v)};if(p.cash)S("--pp-cash",q(p.cash));if(p.label)S("--pp-name",q(p.label));if(p.level){S("--pp-lv",q(p.level));d.setAttribute("data-pp-lv","")}var i=p.img;if(typeof i=="string"&&(i.charAt(0)=="/"||i.indexOf("https://")===0)&&!/["'()<>]|[\\s\\\\]/.test(i)){S("--pp-img","url("+JSON.stringify(i)+")");d.setAttribute("data-pp-img","");if(p.nft)d.setAttribute("data-pp-nft","")}}catch(e){}})()`;
 
 const SITE_TITLE = "DISCIPLE · Ride it to orbit";
 const SITE_LINE = "Every rocket is a live match. The crew boosts it up, and anyone can bomb it down.";
@@ -70,12 +80,17 @@ export default function RootLayout({
             load. Same test as Sidebar's isCollapsibleRoute, before the first paint; Sidebar keeps it in sync after that. */}
         <script dangerouslySetInnerHTML={{ __html: GAME_ROUTE_JS }} />
         <script dangerouslySetInnerHTML={{ __html: APP_JS }} />
+        <script dangerouslySetInnerHTML={{ __html: YOU_JS }} />
+        {/* Privy's session check and wallet iframe live on auth.privy.io: open the connection while the page loads */}
+        <link rel="preconnect" href="https://auth.privy.io" />
         <script id={SPONSORSHIP_CONFIG_ID} type="application/json" dangerouslySetInnerHTML={{ __html: JSON.stringify(sponsorshipConfig()) }} />
         <IconSprite />
+        <IosZoomLock />
         <AppSounds />
         <PrivyProviders>
           <AppShell>{children}</AppShell>
           <ChatBridge />
+          <LevelUpFlash />
         </PrivyProviders>
       </body>
     </html>

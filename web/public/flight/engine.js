@@ -2572,7 +2572,7 @@ function detonate(b){ draftKnock();
   const who=b.trader||'—', lbl=`${b.T.name} −${b.pct>=10?b.pct.toFixed(0):b.pct.toFixed(1)}%${b.fullStack?' · FULL STACK':''} · ${who}${b.usd>0?' '+(b.usd<10?fmtShot(b.usd):fmtUsd(b.usd)):''}${b.n>1?' ×'+b.n:''}`;
   if (!IS_TURBO&&!NEW_BLAST()&&(S.pro||b.tier>=4)){ if(!S.pro) S.bombLabels.length=0; S.bombLabels.push({txt:lbl,x,y,tier:b.tier,age:0,life:k==='atom'?3.2:k==='grenade'?1.4:2.0}); if(S.bombLabels.length>2) S.bombLabels.shift(); }
   { for(let i=0;i<Math.min(5,S.feed.length);i++){ const r=S.feed[i]; if(r&&r.t&&r.c==='#ffb0c8'&&!r.ic){ r.ic=BOMB_ICON[b.tier]||'bomb-puff'; r.bomb=b.T.name; break; } } }   /* crew feed: the sell row carries its bomb icon */
-  sfx('bomb',{tier:b.tier});
+  sfx('bomb',{tier:b.tier,fx:x/W,fy:y/H});   /* fx/fy: where it went off, as 0..1 of #wrap (the page lays the Grok blast clip there) */
   if (NEW_BLAST()){ phBlast(b,x,y); return; }   /* the throttle prototype's blast + pop instead of the tiered set pieces (phone + desktop, maker 2026-11-14) */
   if (k==='grenade'){
     burst(x,y,16,320,{k:'streak',r:1.6,life:0.45,max:0.45,drag:5,c:'255,236,170'});

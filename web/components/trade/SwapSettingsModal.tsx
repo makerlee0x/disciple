@@ -79,7 +79,7 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
           <div className="p5-sbox">
             <div className="p5-srow col">
               <div className="p5-trade-cells">
-                {DEFAULT_SELLS.map((v, i) => <span key={i} className="p5-trade-cell dump" title="Fixed: % of your bag. Use the custom sell field for any other size.">
+                {DEFAULT_SELLS.map((v, i) => <span key={i} className="p5-trade-cell dump" title="% of your bag">
                   <kbd>{["Z", "X", "C", "V"][i]}</kbd><output data-testid={`swap-sell-${i}`}>{v >= 100 ? "ALL" : v === 50 ? "HALF" : `${v}%`}</output></span>)}
               </div>
               <span className="p5-fine">Share of your bag. Fixed, so the keys always mean the same thing.</span>

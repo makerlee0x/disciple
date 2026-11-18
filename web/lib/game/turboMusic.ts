@@ -26,6 +26,7 @@ export function useTurboMusic(): void {
     let inMatch = false;
 
     const apply = () => {
+      radio.setStation(getGameSettings().radio.station);   // the lobby gear's station pick (components/turbo/LobbySettings)
       const level = audioLevel("music");
       if (last <= 0 && level > 0) radio.clearPause();
       last = level;

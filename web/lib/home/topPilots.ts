@@ -10,6 +10,7 @@ import { BOMB_TIERS } from "@/lib/config";
 import { bombTierIndex } from "@/lib/flight/bombTier";
 import { playerUsd, type Fill } from "@/lib/trades";
 import { DAY_MS, prePriceOf } from "./trending";
+import { rocketsDaySp } from "@/lib/season/points";
 
 /**
  * Board guardrails (maker 2026-11-13, main mode hook loop): the board keeps PnL and % gain, but only for good calls.
@@ -228,6 +229,8 @@ export type BoardPilot = {
   aboardMs: number;
   /** rockets that reached orbit with this pilot aboard, in the window */
   orbits: number;
+  /** the rockets behind the PnL, biggest first (up to 3 tokens) */
+  coins: string[];
 };
 export type PilotBoard = Record<BoardWindow, BoardPilot[]>;
 
@@ -254,6 +257,7 @@ export function pilotBoard(fillsByCoin: Fill[][], now: number, o: BoardOpts = {}
     for (const x of orbits) if (inWin(x.ts)) get(x.wallet).orbits++;
     out[win.k] = [...m.entries()].filter(([, r]) => r.coins.size > 0 || r.orbits > 0).map(([wallet, r]) => {
       let best: number | null = null, pnl = 0, lost = 0, green = 0, red = 0;
+      const coins = [...r.coinPnl.entries()].sort((x, y) => y[1].pnl - x[1].pnl).slice(0, 3).map(([k]) => k);
       for (const c of r.coinPnl.values()) {
         pnl += c.pnl;
         if (c.pnl > 0.005) green++; else if (c.pnl < -0.005) { red++; lost -= c.pnl; }
@@ -261,7 +265,7 @@ export function pilotBoard(fillsByCoin: Fill[][], now: number, o: BoardOpts = {}
       }
       return {
         wallet, flights: r.coins.size, green, red, pnlUsd: Math.round(pnl * 100) / 100, lostUsd: Math.round(lost * 100) / 100,
-        bestPct: best == null ? null : Math.round(best * 10) / 10, boostedUsd: Math.round(r.boosted * 100) / 100, aboardMs: Math.round(r.aboard), orbits: r.orbits,
+        bestPct: best == null ? null : Math.round(best * 10) / 10, boostedUsd: Math.round(r.boosted * 100) / 100, aboardMs: Math.round(r.aboard), orbits: r.orbits, coins,
       };
     });
   }
@@ -270,9 +274,9 @@ export function pilotBoard(fillsByCoin: Fill[][], now: number, o: BoardOpts = {}
 
 const sortValue = (p: BoardPilot, s: BoardSort) => (s === "pnl" ? p.pnlUsd : s === "pctGain" ? p.bestPct ?? -Infinity : p.orbits);
 
-/** One window ranked by `sort`. Banked and Best % list only pilots who cashed out higher (like the lobby shelf). */
+/** One window ranked by `sort`. PnL ranks every pilot with a cash-out, red ones included (so everyone has a rank). */
 export function rankBoard(rows: BoardPilot[], sort: BoardSort): BoardPilot[] {
-  const keep = rows.filter((p) => (sort === "pnl" ? p.pnlUsd >= 0.01 : sort === "pctGain" ? p.bestPct != null && p.bestPct > 0 && p.pnlUsd >= 0.01 : p.orbits > 0));
+  const keep = rows.filter((p) => (sort === "pnl" ? p.green + p.red > 0 : sort === "pctGain" ? p.bestPct != null && p.bestPct > 0 && p.pnlUsd >= 0.01 : p.orbits > 0));
   return keep.sort((a, b) => sortValue(b, sort) - sortValue(a, sort) || b.pnlUsd - a.pnlUsd || a.wallet.localeCompare(b.wallet));
 }
 
@@ -280,6 +284,61 @@ export function rankBoard(rows: BoardPilot[], sort: BoardSort): BoardPilot[] {
 export function gapToNext(ranked: BoardPilot[], i: number, sort: BoardSort): number {
   if (i <= 0 || i >= ranked.length) return 0;
   return Math.max(0, sortValue(ranked[i - 1], sort) - sortValue(ranked[i], sort));
+}
+
+/* ── Positions tab (maker 2026-11-18): the biggest single cash-outs, one row per trip aboard a rocket ──────────────── */
+
+export type BoardPosition = {
+  wallet: string;
+  coin: string;
+  /** $ cost of what was sold */
+  sizeUsd: number;
+  pnlUsd: number;
+  /** pnl ÷ size, % */
+  pct: number;
+  /** mcap at boarding, and at the last counted cash-out */
+  entryMcap: number;
+  exitMcap: number;
+  openedAt: number;
+  closedAt: number;
+};
+export type PositionBoard = Record<BoardWindow, BoardPosition[]>;
+export const POSITIONS_TOP = 100;
+
+/** Each window's best trips (wallet + rocket + boarding), by realized $ PnL, winners only. Pure. */
+export function positionBoard(fillsByCoin: Fill[][], now: number, o: BoardOpts = {}, n = POSITIONS_TOP): PositionBoard {
+  const { closes } = walk(fillsByCoin, now, o);
+  const out = {} as PositionBoard;
+  for (const win of BOARD_WINDOWS) {
+    const m = new Map<string, BoardPosition>();
+    for (const c of closes) {
+      const age = now - c.ts;
+      if (age < 0 || age > win.ms) continue;
+      const k = `${c.wallet}|${c.coin}|${c.since}`;
+      const r = m.get(k);
+      if (!r) m.set(k, { wallet: c.wallet, coin: c.coin, sizeUsd: c.basis, pnlUsd: c.pnl, pct: 0, entryMcap: c.openMcap, exitMcap: c.mcap, openedAt: c.since, closedAt: c.ts });
+      else { r.sizeUsd += c.basis; r.pnlUsd += c.pnl; if (c.ts >= r.closedAt) { r.closedAt = c.ts; r.exitMcap = c.mcap; } }
+    }
+    out[win.k] = [...m.values()]
+      .filter((p) => p.pnlUsd >= 0.01)
+      .sort((a, b) => b.pnlUsd - a.pnlUsd || b.closedAt - a.closedAt)
+      .slice(0, n)
+      .map((p) => ({ ...p, sizeUsd: Math.round(p.sizeUsd * 100) / 100, pnlUsd: Math.round(p.pnlUsd * 100) / 100, pct: p.sizeUsd > 0 ? Math.round((p.pnlUsd / p.sizeUsd) * 1000) / 10 : 0 }));
+  }
+  return out;
+}
+
+/** Rockets season points (lib/season/points): each UTC day's realized PnL inside [from, to) pays SP, capped a day. Pure. */
+export function rocketSeasonSp(fillsByCoin: Fill[][], now: number, from: number, to: number, o: BoardOpts = {}): Record<string, number> {
+  const days = new Map<string, number>();
+  for (const c of walk(fillsByCoin, now, o).closes) {
+    if (c.ts < from || c.ts >= to) continue;
+    const k = `${c.wallet}|${Math.floor(c.ts / DAY_MS)}`;
+    days.set(k, (days.get(k) ?? 0) + c.pnl);
+  }
+  const out: Record<string, number> = {};
+  for (const [k, pnl] of days) { const sp = rocketsDaySp(pnl); if (sp > 0) { const w = k.split("|")[0]; out[w] = (out[w] ?? 0) + sp; } }
+  return out;
 }
 
 /* ── Crews tab (maker 2026-11-13): crews ranked by orbits aboard, then green rockets, then banked ─────────────────── */

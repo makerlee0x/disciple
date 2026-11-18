@@ -22,15 +22,21 @@ export function useWalletAddr(): Address | null {
 
 const NONE: Caps = { creatorFees: false, referrerFees: false, creatorTokenFees: false, crew: false, referralGate: false, anonClaims: false };
 /** Capabilities after the on-chain probe (redeploy features stay off until it passes). Demo mode: sample caps. */
+// probed once per page session; later mounts (Hangar after the account menu) start ready
+let probed: Caps | null = null;
+let probing: Promise<Caps> | null = null;
+
 export function useCaps(): { caps: Caps; ready: boolean; demo: boolean } {
-  const [st, setSt] = useState<{ caps: Caps; ready: boolean; demo: boolean }>({ caps: NONE, ready: false, demo: false });
+  const [st, setSt] = useState<{ caps: Caps; ready: boolean; demo: boolean }>(() => (probed ? { caps: probed, ready: true, demo: false } : { caps: NONE, ready: false, demo: false }));
   useEffect(() => {
     if (demoEnabled()) { setSt({ caps: DEMO_CAPS(demoRedeploy()), ready: true, demo: true }); return; }
     if (!isDeployed()) { setSt({ caps: NONE, ready: true, demo: false }); return; }
+    if (probed) { const c = probed; setSt((x) => (x.ready && x.caps === c ? x : { caps: c, ready: true, demo: false })); return; }
     const s = staticCaps();
     setSt({ caps: { ...s, creatorTokenFees: false, crew: false, referralGate: false }, ready: false, demo: false });
     let alive = true;
-    probeCaps(pc()).then((c) => { if (alive) setSt({ caps: c, ready: true, demo: false }); }).catch(() => { if (alive) setSt((x) => ({ ...x, ready: true })); });
+    probing ??= probeCaps(pc()).then((c) => (probed = c)).finally(() => { probing = null; });
+    probing.then((c) => { if (alive) setSt({ caps: c, ready: true, demo: false }); }).catch(() => { if (alive) setSt((x) => ({ ...x, ready: true })); });
     return () => { alive = false; };
   }, []);
   return st;

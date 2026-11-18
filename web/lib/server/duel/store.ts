@@ -8,12 +8,13 @@ import "server-only";
  * request and on the stream's 1 s tick, so a pilot who closes their tab still gets settled.
  * Not yet: Nova orders. Until Nova's SDK lands, duel fuel is a duel-only book (lib/duel/rules) at live prices.
  */
+import { buzzer } from "@/lib/server/lighter/match";
 import { DUEL_RANKED_LIVE, applySp, leagueOf, seasonAt, spDelta, type Season } from "@/lib/duel/season";
 import type { SeasonLine } from "@/lib/duel/types";
 import { kv, type Kv } from "@/lib/server/kv";
 import { ulid } from "@/lib/chat/ulid";
 import {
-  COUNTDOWN_MS, OT_MS, applyTrade, bombAt, makeCode, matchWindow, needsOvertime, newBook, newRating, profitOf, rate, settleBook, fuelOf, sizesOf, isCustomFuel,
+  COUNTDOWN_MS, OT_MS, applyTrade, bombAt, makeCode, matchWindow, needsOvertime, newBook, newRating, profitOf, rate, settleBook, fuelOf, okStake, isCustomFuel,
   type LengthMs, type Rating, type TierId, type TradeAction,
   DUEL_LEN_MS,
 } from "@/lib/duel/rules";
@@ -428,36 +429,45 @@ export async function tick(id: string, price: number | null, s: Kv = kv()) {
   if (!pre || pre.status !== "live") return null;
   const tape = await tapeFor(pre, Date.now());
   if (!price && !tape && Date.now() < (pre.endAt ?? 0) + LATE_GIVEUP_MS) return null;
-  return mutate(id, async (r, now) => {
+  let ended = false;
+  const out = await mutate(id, async (r, now) => {
     const evs: NewDuelEvent[] = [];
     const p = tickInto(r, now, price, evs, tape);
-    if (typeof p === "number") evs.push(await settle(r, p, s));
+    if (typeof p === "number") { evs.push(await settle(r, p, s)); ended = true; }
     return evs;
   }, s);
+  if (ended) await lighterBuzzer(out.room, s);
+  return out;
+}
+/** the buzzer closes real Lighter positions for any seat that armed this duel (lib/server/lighter/match) */
+async function lighterBuzzer(r: DuelRoom, s: Kv) {
+  await Promise.all(r.players.map((p) => buzzer(p.pid, r.id, s).catch((e) => console.error("[duel] lighter buzzer", e))));
 }
 
 export async function trade(id: string, pid: string, action: TradeAction, usd: number, price: number | null, s: Kv = kv()) {
   if (!price) throw new DuelError(503, "Price feed is catching up, try again.");
   const tape = await tapeFor(await getRoom(id, s), Date.now());
-  let held = false;
+  let held = false, ended = false;
   const res = await mutate(id, async (r, now) => {
     if (!seatOf(r, pid)) throw new DuelError(403, "You're not in this duel.");
     if (r.status !== "live") throw new DuelError(409, r.status === "done" ? "The duel is over." : "The duel hasn't started.");
     if (now < (r.startAt ?? 0)) throw new DuelError(409, "Wait for GO.");
     const evs: NewDuelEvent[] = [];
     const p = tickInto(r, now, price, evs, tape);
-    if (typeof p === "number") { evs.push(await settle(r, p, s)); return evs; }
+    if (typeof p === "number") { evs.push(await settle(r, p, s)); ended = true; return evs; }
     if (r.gap && now < (r.endAt ?? Infinity)) { held = true; return evs; } // keep the gap (and any bombs), refuse the trade
     if (p === "wait" || now >= (r.endAt ?? Infinity)) throw new DuelError(409, "Time's up.");
-    const sizes = sizesOf(r);
-    if (action !== "close" && !sizes.includes(usd)) throw new DuelError(400, "Pick a trade size.");
-    const out = applyTrade(r.books[pid], action, usd, price, now - (r.startAt ?? now));
-    if (!out) throw new DuelError(409, action === "close" ? "Nothing open." : "Out of duel fuel. Cash out to free some.");
+    if (action !== "close" && !okStake(usd)) throw new DuelError(400, "Pick a trade size.");
+    const before = r.books[pid];
+    const out = applyTrade(before, action, usd, price, now - (r.startAt ?? now));
+    const other = action !== "close" && !!before.pos && before.pos.side !== (action === "boost" ? 1 : -1);
+    if (!out) throw new DuelError(409, action === "close" ? "Nothing open." : other ? "Cash out first." : "Out of duel fuel. Cash out to free some.");
     r.books[pid] = out.book;
     (r.lastTradeAt ??= {})[pid] = now;
     evs.push({ type: "trade", pid, action, price, steps: out.steps, book: out.book });
     return evs;
   }, s);
+  if (ended) await lighterBuzzer(res.room, s);
   if (held) throw new DuelError(409, "Catching up on the price, one sec.");
   return res;
 }

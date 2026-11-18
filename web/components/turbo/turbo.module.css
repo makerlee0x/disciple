@@ -154,6 +154,11 @@
 .novaRing2 { animation-delay: .35s; border-width: 4px; }
 .novaScorch { position: absolute; inset: 0; background: radial-gradient(circle at 50% 55%, rgba(255, 120, 40, .35), rgba(60, 10, 0, .65)); opacity: 0; animation: scorch 6s ease-out forwards; }
 .novaLabel { position: absolute; left: 0; right: 0; top: 30%; text-align: center; font-size: 34px; font-weight: 900; letter-spacing: .06em; color: #fff; text-shadow: 0 0 24px #ff3d5a; opacity: 0; animation: label 6s ease-out forwards; }
+.novaClip { position: absolute; left: 50%; top: 50%; width: min(96vmin, 900px); height: min(96vmin, 900px); transform: translate(-50%, -50%);
+  -webkit-mask-image: radial-gradient(closest-side, #000 70%, transparent); mask-image: radial-gradient(closest-side, #000 70%, transparent); }
+/* with the clip playing, the CSS core only does the implosion and the flash, then gets out of the mushroom cloud's way */
+.novaHasClip .novaCore { animation-name: coreClip; }
+@keyframes coreClip { 0% { transform: scale(1); } 10% { transform: scale(1.4); } 16% { transform: scale(1.4); } 22% { transform: scale(.3); } 28% { transform: scale(30); opacity: 1; } 36%, 100% { transform: scale(30); opacity: 0; } }
 .novaShort .novaCore, .novaShort .novaWhite, .novaShort .novaRing, .novaShort .novaScorch, .novaShort .novaLabel { animation-duration: 1.2s; }
 @keyframes core { 0% { transform: scale(1); } 10% { transform: scale(1.4); } 16% { transform: scale(1.4); } 22% { transform: scale(.3); } 30% { transform: scale(30); opacity: 1; } 70% { transform: scale(18); opacity: .5; } 100% { transform: scale(14); opacity: 0; } }
 @keyframes whiteout { 0%, 22% { opacity: 0; } 28% { opacity: 1; } 40% { opacity: 0; } 100% { opacity: 0; } }

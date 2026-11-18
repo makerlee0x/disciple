@@ -2,7 +2,7 @@
 
 import { tapPending } from "@/lib/trade/tapPending";
 import { TRADE_PENDING_EVENT } from "@/lib/game/exitGuard";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { chipUsd } from "./flight/PhoneTradeBar";
 import { useIsPhoneHud } from "./flight/PhoneHud";
 import { deployment, isDeployed, usdgRouters } from "@/lib/chains";
@@ -45,6 +45,7 @@ const CASH_RAW: { v: bigint | null } = { v: null };
 import { activeWarning, chipTag, moveWarnings, plainTradeMessage, type MoveWarn, type TradeSide } from "@/lib/flight/tradeGate";
 import { graduationStatus, liveMaxImpactBps } from "@/lib/flight/gradAdapter";
 import { longHidden, onTabVisible } from "@/lib/tabIdle";
+import { pctBuyLabel, pctBuyUsd } from "@/lib/sim/daily";
 
 type Ammo = { tier: number | null; rocketTier?: number | null; name: string | null; usd: number[]; names: string[]; mode: number };
 
@@ -102,7 +103,8 @@ async function ownBalance(pc: PcLike, erc20: Address, me: Address, plain: () => 
 
 const ownHint = async (pc: PcLike, erc20: Address, me: Address, maxAge: number) => OWN.get(erc20, me) ?? balanceHint(pc, erc20, me, maxAge);
 
-export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { token: string; storagePrefix?: string }) {
+/** buyPcts: the 4 buy presets as % of cash (the Daily flight, where cash grows with PnL) instead of $ amounts */
+export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPcts }: { token: string; storagePrefix?: string; buyPcts?: readonly number[] }) {
   const [mode, setMode] = useState(0);
   const phone = useIsPhoneHud();
   const [custom, setCustom] = useState("");
@@ -198,15 +200,29 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   useEffect(() => { setCfg(loadSettings(scope)); }, [scope]);
   const SELLS = toSells(cfg.sells);
   const freePlay = token === "SIMULATOR";
+  // % buys (Daily flight): each preset is that share of the sim's cash right now, re-read 4× a second and on every shot
+  const pctMode = freePlay && !!buyPcts && buyPcts.length === 4;
+  const simCash = () => window.__discipleSim?.balance() ?? 0;
+  const [pctCash, setPctCash] = useState(0);
+  useEffect(() => {
+    if (!pctMode) return;
+    const f = () => { const c = simCash(); setPctCash((x) => (x === c ? x : c)); };
+    f(); const iv = setInterval(f, 250); return () => clearInterval(iv);
+  }, [pctMode]);
+  const pctUsd = useMemo(() => (pctMode ? buyPcts!.map((p) => Math.max(0.01, pctBuyUsd(pctCash, p))) : null), [pctMode, buyPcts, pctCash]);
+  const pctUsdRef = useRef(pctUsd); pctUsdRef.current = pctUsd;
   // push overrides + tag state to the engine (again whenever it (re)announces ammo, i.e. after boot)
   const pushCfg = useRef(() => {});
-  pushCfg.current = () => { dispatchEvent(new CustomEvent("disciple:ammo-override", { detail: { usd: cfgRef.current.buy } })); dispatchEvent(new CustomEvent("disciple:pnltag", { detail: { on: cfgRef.current.tag } }));
+  pushCfg.current = () => { dispatchEvent(new CustomEvent("disciple:ammo-override", { detail: { usd: pctUsdRef.current ?? cfgRef.current.buy } })); dispatchEvent(new CustomEvent("disciple:pnltag", { detail: { on: cfgRef.current.tag } }));
     dispatchEvent(new CustomEvent("disciple:custombuy", { detail: { usd: customRef.current } })); pushPresets(); };
   // ESC settings menu (components/flight/SettingsMenu.tsx) edits the same Swap-settings amounts: it reads them via
   // disciple:presets and writes them back with disciple:presets-set (one book for the trade bar, ammo panel and menu).
   const pushPresets = () => dispatchEvent(new CustomEvent("disciple:presets", { detail: { buy: cfgRef.current.buy, sells: cfgRef.current.sells } }));
   const booted = useRef(false);
   useEffect(() => { pushCfg.current(); }, [cfg]);
+  // % buys: the engine's presets (Space, the 1–4 keys) follow the cash; back to the player's $ amounts when % mode ends
+  const pctSig = pctUsd ? pctUsd.join() : "";
+  useEffect(() => { dispatchEvent(new CustomEvent("disciple:ammo-override", { detail: { usd: pctUsdRef.current ?? cfgRef.current.buy } })); }, [pctSig]);
   useEffect(() => {
     const q = () => pushPresets();
     const set = (e: Event) => { const d = (e as CustomEvent<{ buy?: number[] | null; sells?: SellSlot[] }>).detail; if (!d) return;
@@ -699,7 +715,11 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   useEffect(() => { setLast((l) => (l.startsWith("✕") ? "" : l)); setHint(""); }, [amtKey]);
   // every trade-bar click / key (BOOST + DUMP buttons, custom $ Enter / SPACE, custom sell Enter) goes through here
   const shoot = (side: "buy" | "sell", extra?: { usd?: number; frac?: number; all?: boolean }) =>
-    (tradeClick(), window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { side, mode, ...(extra || (customUsd ? { usd: customUsd } : {})) } })));
+    (tradeClick(), window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { side, mode, ...(extra || (customUsd ? { usd: customUsd } : side === "buy" && pctMode ? { usd: pctShot(mode) } : {})) } })));
+  // a % buy sized from the cash at the moment of the tap (the 250 ms poll can lag a fill)
+  const pctShot = (i: number) => Math.max(0.01, pctBuyUsd(simCash(), buyPcts![i]));
+  const presetUsd = (i: number) => pctUsd?.[i] ?? ammo.usd[i] ?? MODES[i].usd;
+  const presetLabel = (i: number) => (pctMode ? pctBuyLabel(buyPcts![i]) : chipUsd(ammo.usd[i] ?? MODES[i].usd));
   // sell sizing. LIVE (Fix 4): frac of the smart account's REAL balanceOf × the real mark (the bridge re-reads balanceOf before
   // quoting; this $ only labels the shot) — was the PnL ledger's value, or $0.01 for a bag the ledger didn't know (blocked by
   // the engine's MIN_SHOT guard ⇒ DUMP did nothing). The $ here is only a label: sells are never size-filtered and the chart
@@ -782,7 +802,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     onKeyUp: (e: React.KeyboardEvent) => { if (e.key === " ") e.preventDefault(); } };
   const btn: React.CSSProperties = { all: "unset", cursor: "pointer", padding: "8px 14px", borderRadius: 9, fontWeight: 800, fontSize: 13, letterSpacing: 0.5, textAlign: "center" };
   const autoUsd = DEFAULT_BUY.slice();
-  const shotUsd = customUsd || (ammo.usd[mode] ?? MODES[mode].usd);
+  const shotUsd = customUsd || presetUsd(mode);
   const cashUsd = live ? liveCash : paperCash;
   // spendable = cash − Σ pending (spend + gas reserve) − this op's gas (live: the reservation registry; paper: the engine checks)
   const rawLive = live && CASH_RAW.v !== null;   // live: raw bigint compare (decimals from config); $ only for the label
@@ -853,17 +873,17 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     <>
     <AmmoTierNotice />
     {alertStrip}
-    <PhoneThrottle buyLabel={chipUsd(shotUsd)} sellLabel={freePlay ? "HALF" : phoneDumpAll ? "ALL" : customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
+    <PhoneThrottle buyLabel={pctMode && !customUsd ? presetLabel(mode) : chipUsd(shotUsd)} sellLabel={freePlay ? "HALF" : phoneDumpAll ? "ALL" : customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
       onBoost={() => shoot("buy")} onDump={() => dumpRef.current?.()}
       dumpAll={phoneDumpAll} dumpSub={has ? (phoneDumpUsd > 0 ? `≈ ${chipUsd(+phoneDumpUsd.toFixed(2))}` : "") : "no bag yet"}
       boostDisabled={short} dumpDisabled={!has} inFlightFull={full} boostTitle={boostTitle} dumpTitle={dumpTitle}
-      buyOpts={[0, 1, 2, 3].map((i) => chipUsd(ammo.usd[i] ?? MODES[i].usd))} buySel={customUsd ? -1 : mode}
-      buyOver={[0, 1, 2, 3].map((i) => room != null && (ammo.usd[i] ?? MODES[i].usd) > room + 0.005)}
+      buyOpts={[0, 1, 2, 3].map(presetLabel)} buySel={customUsd ? -1 : mode}
+      buyOver={[0, 1, 2, 3].map((i) => room != null && presetUsd(i) > room + 0.005)}
       onSide={setPhoneSide}
       onPickBuy={(i) => { setCustom(""); setMode(i); window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: i } })); }}
       sellOpts={PH_SELLS.map((x) => x.label)} sellFracs={PH_SELLS.map((x) => x.frac)} sellSel={freePlay ? 0 : sellCustomN ? -1 : sellSel}
       onPickSell={(i) => { if (freePlay) return; setSellCustom(""); selSell.current(i); }}
-      onBoostAt={(i) => shoot("buy", { usd: ammo.usd[i] ?? MODES[i].usd })}
+      onBoostAt={(i) => shoot("buy", { usd: pctMode ? pctShot(i) : ammo.usd[i] ?? MODES[i].usd })}
       onDumpAt={(i) => { const x = PH_SELLS[i]; if (x) sell(x); }}
       buyWarn={warns.buy.map((w) => chipTag("buy", w))} sellWarn={warns.sell.map((w) => chipTag("sell", w))}
       warn={warnText} warnOver={warnOver}
@@ -887,14 +907,14 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
   const field = (on: boolean, side: TradeSide): React.CSSProperties => ({ width: 76, minHeight: 32, boxSizing: "border-box", font: `600 15px ${HUD.game}`, padding: "0 8px", borderRadius: 10, outline: "none",
     border: `1px ${on ? "solid" : "dashed"} ${on ? (side === "buy" ? HUD.up : HUD.down) : side === "buy" ? "rgba(243,223,168,.4)" : "rgba(240,48,127,.45)"}`, background: "rgba(11,12,14,.5)", color: HUD.text });
   const boostChips = [0, 1, 2, 3].map((i) => <button key={i} type="button" role="radio" aria-checked={!customUsd && mode === i} data-testid={`boost-chip-${i}`} {...noKeyActivate} {...hoverSide("buy")}
-    title={`select ${chipUsd(ammo.usd[i] ?? MODES[i].usd)} (${keyLabel(gs.keys.buy[i] || "")}), then BOOST / Space`}
+    title={`select ${pctMode ? `${presetLabel(i)} of your cash (${chipUsd(presetUsd(i))})` : presetLabel(i)} (${keyLabel(gs.keys.buy[i] || "")}), then BOOST / Space`}
     onClick={() => { setCustom(""); setMode(i); window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { mode: i } })); }}
-    style={chip(!customUsd && mode === i, "buy")}>{chipUsd(ammo.usd[i] ?? MODES[i].usd)}{keyTag(keyLabel(gs.keys.buy[i] || ""))}</button>);
+    style={chip(!customUsd && mode === i, "buy")}>{presetLabel(i)}{keyTag(keyLabel(gs.keys.buy[i] || ""))}</button>);
   const dumpChips = SELLS.slice(0, 4).map((x, i) => <button key={x.id} type="button" role="radio" aria-checked={!sellCustomN && sellSel === i} data-testid={`dump-chip-${i}`} {...noKeyActivate} {...hoverSide("sell")}
     title={`select ${x.label} (${keyLabel(gs.keys.sell[i] || x.key)}), then DUMP / Shift`}
     onClick={() => { setSellCustom(""); selSell.current(i); }}
     style={chip(!sellCustomN && sellSel === i, "sell")}>{x.frac >= 1 ? "ALL" : x.frac === 0.5 ? "HALF" : x.label}{keyTag(keyLabel(gs.keys.sell[i] || x.key))}</button>);
-  const customBuyInput = <input aria-label="custom amount" {...hoverSide("buy")} inputMode="decimal" placeholder="$ custom" value={custom} title="custom $: when filled it overrides the selected BUY preset for BOOST / Space (clear it to use the preset)"
+  const customBuyInput = <input aria-label="custom amount" {...hoverSide("buy")} inputMode="decimal" placeholder="$ custom" value={custom} title="Custom $. Overrides the preset while filled."
     onChange={(e) => setCustom(e.target.value.replace(/[^\d.]/g, ""))}
     onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.repeat) { e.preventDefault(); }   // held Enter / SPACE never auto-fires
       else if ((e.key === "Enter" || e.key === " ") && customUsd) { e.preventDefault(); shoot("buy"); }   // SPACE here = BOOST the custom $ (as in game)
@@ -903,7 +923,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
     style={field(!!customUsd, "buy")} />;
   const customSellInput = <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
     <input aria-label="custom sell amount" data-testid="custom-sell" {...hoverSide("sell")} inputMode="decimal" placeholder={sellUnit === "%" ? "% custom" : "$ value"} value={sellCustom}
-      title={`custom sell: ${sellUnit === "%" ? "% of holdings" : "$ value, capped at your position value"}. When filled it overrides the selected SELL preset for DUMP / Shift (clear it to use the preset)`}
+      title={`Custom ${sellUnit === "%" ? "% of your bag" : "$, up to your bag"}. Overrides the preset while filled.`}
       onChange={(e) => setSellCustom(e.target.value.replace(/[^\d.]/g, ""))}
       onKeyDown={(e) => { if (e.key === "Enter" && e.repeat) e.preventDefault();   // held Enter never auto-fires DUMPs
       else if (e.key === "Enter" && sellCustomN) { e.preventDefault(); dumpRef.current?.(); } e.stopPropagation(); }}
@@ -969,7 +989,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX }: { to
             <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} {...hoverSide("sell")} title={dumpTitle} aria-disabled={!has || full} disabled={!has} data-inflight={full ? "1" : "0"} onClick={() => dumpRef.current?.()}
               style={{ all: "unset", flex: 1, minHeight: 56, boxSizing: "border-box", borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, whiteSpace: "nowrap", border: `1.5px solid ${HUD.down}`, background: "rgba(240,48,127,.12)", color: HUD.downSoft,
                 font: `800 25px/1 ${HUD.game}`, opacity: has && !full ? 1 : 0.45, cursor: has && !full ? "pointer" : "not-allowed" }}>
-              {full && has ? COPY.inFlight : <>{t("tb.dump")} {dumpLabel}{dumpBack > 0 && <span data-testid="dump-back" title="about what this dump pays back after the 1% fee" style={{ font: `600 15px ${HUD.game}`, opacity: 0.85 }}>≈ {fmtShot(dumpBack)}</span>}{cap("SHIFT")}</>}</button>
+              {full && has ? COPY.inFlight : <>{t("tb.dump")} {dumpLabel}{dumpBack > 0 && <span data-testid="dump-back" title="≈ payout after the 1% fee" style={{ font: `600 15px ${HUD.game}`, opacity: 0.85 }}>≈ {fmtShot(dumpBack)}</span>}{cap("SHIFT")}</>}</button>
           </div>
           </>}
         </div>

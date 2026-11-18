@@ -6,7 +6,7 @@
  * 3 · 2 · 1 · GO before the market starts. There is no difficulty: one market, the same for everyone.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { dailyEndsAt, fmtMultiple } from "@/lib/sim/daily";
+import { dailyEndsAt, dailyRealSeconds, fmtMultiple } from "@/lib/sim/daily";
 import { usePilotWallet } from "@/lib/xpClient";
 import { fetchDailyBoard, type Board } from "./FreePlay";
 import s from "./preflight.module.css";
@@ -81,7 +81,7 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
         <h1 className={s.h}>Same chart.<br />Everyone apes it.</h1>
         <p className={s.p}>One shot. Best cash-out takes the board.</p>
         <div className={s.facts}>
-          <span><b>2 min</b></span><span><b>$250</b>fake cash</span><span><b>1</b>shot</span>
+          <span><b>{Math.round(dailyRealSeconds())} sec</b></span><span><b>$250</b>fake cash</span><span><b>1</b>shot</span>
         </div>
       </div>
 

@@ -13,8 +13,10 @@ import s from "./hangarBay.module.css";
 const fmt = (n: number) => n.toLocaleString("en-US");
 export type DashStat = { k: string; v: string };
 
-export default function HangarBay({ handle, bio, avatar, xp, actions, spend, eyebrow, lines, stats }: {
+export default function HangarBay({ handle, bio, avatar, xp, actions, spend, eyebrow, lines, stats, tags, nftAvatar }: {
   handle: string; bio: ReactNode; avatar: ReactNode; xp: XpSummary | null; actions?: ReactNode; spend: boolean;
+  /** holder chips (DISCIPLE / FOUNDER) under the name; nftAvatar = the picture is a Disciple NFT (hex frame) */
+  tags?: ReactNode; nftAvatar?: boolean;
   /** kept for callers; the cockpit banner shows no rocket */
   loadout?: Loadout;
   /** signed-out Hangar: its own eyebrow and title lines in place of the pilot's */
@@ -37,12 +39,13 @@ export default function HangarBay({ handle, bio, avatar, xp, actions, spend, eye
       <div className={s.card}>
         <div>
           <div className={s.eyebrow}>
-            {eyebrow ?? <><span className={s.av}>{avatar}</span>
+            {eyebrow ?? <><span className={nftAvatar ? `${s.av} ${s.hex}` : s.av} data-nft={nftAvatar ? "1" : undefined}>{avatar}</span>
             <span>{L ? `Pilot · Level ${L.level} · ${L.prestige ? `Prestige ${L.prestige} · ` : ""}${L.prestigeName}` : "Pilot"}</span></>}
           </div>
           <h1 className={s.name}>
-            {words.length > 1 ? words.map((w, i) => <span key={i}>{w}</span>) : <span>{handle}</span>}
+            {words.length > 1 ? words.map((w, i) => <span key={i}>{w}</span>) : <span>{handle.replace(/^@/, "")}</span>}
           </h1>
+          {tags && <div className={s.tags}>{tags}</div>}
           {bio && <div className={s.bio}>{bio}</div>}
           {L && (
             <div className={s.level}>

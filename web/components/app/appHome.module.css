@@ -12,6 +12,7 @@
 /* featured event */
 .feat { position: relative; display: block; height: 236px; border-radius: 22px; overflow: hidden; isolation: isolate; background: var(--dsc3-sky-ink); }
 .feat img, .duel img, .tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 35%; z-index: -2; }
+.clip { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 35%; z-index: -2; }
 .feat::after, .tile::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, rgba(8,9,18,0) 25%, rgba(8,9,18,.95)); }
 .featTag { position: absolute; top: 12px; left: 12px; padding: 6px 10px; border-radius: 999px; background: var(--dsc3-signal-down); font: 700 12px/1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .08em; }
 .featTime { position: absolute; top: 12px; right: 12px; padding: 6px 10px; border-radius: 999px; background: rgba(8,9,18,.7); font: 500 11px/1 var(--dsc-font-mono); }
@@ -53,6 +54,7 @@
 
 /* practice tiles */
 .prac { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.prac1 { grid-template-columns: 1fr; }
 .tile { position: relative; display: block; height: 168px; border-radius: 18px; overflow: hidden; isolation: isolate; background: var(--dsc3-sky-ink); }
 .tileTag { position: absolute; top: 10px; left: 10px; padding: 5px 9px; border-radius: 999px; background: rgba(8,9,18,.7); font: 700 11px/1 var(--dsc-font-game); letter-spacing: .08em; text-transform: uppercase; }
 .tileTx { position: absolute; left: 12px; right: 12px; bottom: 12px; display: grid; gap: 3px; }

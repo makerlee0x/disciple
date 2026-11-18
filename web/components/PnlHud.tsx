@@ -330,7 +330,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
           <span>{t("pnl.banked")} <Num value={v.realized} fmt={usd} style={{ color: col(v.realized) }} /></span>
         </div>
         {feeNote > 0 && <div data-testid="pnl-buy-fees" style={{ fontSize: 11, color: HUD.dim, marginTop: 2 }}>{t("pnl.inclBuyFees", { fee: fmtMoney(feeNote) })}</div>}
-        <div style={{ ...row, marginTop: 10, paddingTop: 8, borderTop: "1px solid rgba(46,50,58,.9)" }} title="about what selling it all pays back after the 1% fee (price move not included)">
+        <div style={{ ...row, marginTop: 10, paddingTop: 8, borderTop: "1px solid rgba(46,50,58,.9)" }} title="≈ sell-all payout after the 1% fee">
           <span style={label}>{t("pnl.dumpAll")}</span>
           <span data-testid="pnl-dump-all" style={{ font: `700 18px ${HUD.game}` }}>≈ {fmtMoney(dumpAll)} <span style={{ font: `600 13px ${HUD.game}`, color: HUD.dim }}>{t("pnl.afterFees")}</span></span>
         </div>
@@ -342,13 +342,13 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
           {holding && <><div style={line}><span style={label}>{t("pnl.holdings")}</span>
             <span data-testid="pnl-holdings" style={big}><span data-testid="pnl-holdings-tokens">{fmtTokens(v.size)}</span>{supplyPct > 0 && <span style={{ color: HUD.dim }}> · {supplyPct < 0.01 ? "<0.01" : supplyPct.toFixed(2)}%</span>}<span style={{ display: "none" }}><Num value={v.valueUsd} fmt={fmtMoney} /></span></span></div>
           <div style={line}><span style={label}>{t("pnl.boardedAt")}</span><span style={big}>{tracked ? `${fmtUsd(v.entryMcap)} altitude` : "—"}</span></div></>}
-          {capBps != null && <div style={line} title="the most of the supply one wallet may hold right now (this rocket's difficulty)"><span style={label}>{t("pnl.holdLimit")}{rules ? ` (${rules === "TRENCH" ? "Expert" : rules.charAt(0) + rules.slice(1).toLowerCase()})` : ""}</span><span style={{ ...big, color: HUD.hard }}>{(capBps / 100).toFixed(2)}% of supply</span></div>}
+          {capBps != null && <div style={line} title="Max one wallet can hold on this rocket"><span style={label}>{t("pnl.holdLimit")}{rules ? ` (${rules === "TRENCH" ? "Expert" : rules.charAt(0) + rules.slice(1).toLowerCase()})` : ""}</span><span style={{ ...big, color: HUD.hard }}>{(capBps / 100).toFixed(2)}% of supply</span></div>}
           {cash != null && <div style={line}><span style={label}>{t("pnl.cash")}</span><span style={big}>{fmtMoney(cash)}</span></div>}
-          {v.fees > 0 && <div style={line} title="exit fee (kept out of realized so realized = closed uPnL)"><span style={label}>{t("pnl.exitFees")}</span><span style={{ ...big, opacity: 0.75 }}>{usd(-v.fees)}</span></div>}
+          {v.fees > 0 && <div style={line} title="1% exit fee"><span style={label}>{t("pnl.exitFees")}</span><span style={{ ...big, opacity: 0.75 }}>{usd(-v.fees)}</span></div>}
 
           {/* POINTS (off by default: lib/features POINTS_ENABLED, lee Oct 30) — off-chain points multiplier only (lib/config HOLD_BONUS, a proposal) — grows with
               unrealized PnL + hold time. Never money: it scales season points, not payouts or fees. */}
-          {POINTS_ENABLED && <div title={`Off-chain points multiplier: grows with unrealized PnL and hold time, up to ×${maxMult.toFixed(2)}. Points only, never money.`} style={{ marginTop: 6 }}>
+          {POINTS_ENABLED && <div title={`Points multiplier, up to ×${maxMult.toFixed(2)}. Grows with profit and hold time. Points, not cash.`} style={{ marginTop: 6 }}>
             <div style={{ ...row, color: v.bonus > 1 ? "#ffd98a" : "rgba(220,228,255,.6)", fontWeight: 700 }}>
               <span>{t("pnl.points")}</span><span>×{v.bonus.toFixed(2)} <span style={{ opacity: 0.55, fontWeight: 400 }}>/ ×{maxMult.toFixed(2)}</span></span>
             </div>

@@ -11,7 +11,7 @@ import { playerError } from "@/lib/playerError";
 export const ONE_TAP_SLIP_COPY = {
   label: "Max price move per trade",
   choice: (bps: number) => (bps >= 5000 ? "50% (most allowed)" : `${bps / 100}%`),
-  hint: "One-tap trades fill as long as the price moves less than this between your tap and the fill.",
+  hint: "Max price move between tap and fill.",
   saving: "Updating…",
 };
 

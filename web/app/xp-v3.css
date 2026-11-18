@@ -7,6 +7,10 @@
 .xp-ring circle:last-child { transition: stroke-dasharray 600ms var(--dsc3-ease); }
 .xp-ring-n { position: relative; font-family: var(--dsc-font-game); font-weight: 800; line-height: 1; color: var(--dsc-text); }
 .xp-ring[data-prestige] .xp-ring-n { color: var(--dsc3-light-gold); }
+.xp-ring-pfp { position: absolute; width: auto; height: auto; border-radius: 50%; object-fit: cover; aspect-ratio: 1; }
+.xp-ring-badge { position: absolute; right: -4px; bottom: -4px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
+  display: grid; place-items: center; font: 800 11px / 1 var(--dsc-font-game); color: #0B0C0E; background: var(--dsc3-light-gold);
+  box-shadow: 0 0 0 2px var(--dsc-bg, #0B0C0E); }
 
 /* top bar chip */
 .xp-chip {

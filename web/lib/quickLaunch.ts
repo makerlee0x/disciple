@@ -40,7 +40,7 @@ export const QUICK_LAUNCH_COPY = {
   changeImage: "Change image",
   useGenerated: "Use the badge we made",
   firstBoost: "First BOOST",
-  firstBoostTip: "This is your first buy, at launch. You get first dibs on your own rocket.",
+  firstBoostTip: "Your buy at launch. First in on your own rocket.",
   custom: "Custom",
   chip0: "$0",
   chip5: "$5",

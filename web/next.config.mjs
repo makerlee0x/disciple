@@ -54,8 +54,13 @@ const nextConfig = {
       return [{ source: "/duel", headers: [{ key: "Content-Security-Policy", value: "frame-ancestors 'self' https://x.com https://*.x.com https://twitter.com https://*.twitter.com" }] }];
     },
   }),
+  // PR 470 (Solana mint libs) pushed the Vercel build near its RAM cap: one preview build was OOM-killed during the type
+  // check. Next's webpack memory optimizations trade a little build time for a lower peak.
+  experimental: { webpackMemoryOptimizations: true },
   serverExternalPackages: ["sharp", "nsfwjs", "@tensorflow/tfjs", "@napi-rs/canvas", "undici"],
   outputFileTracingIncludes: {
+    // Lighter's WASM signer is read from disk at run time (lib/server/lighter/signer.ts)
+    "/api/lighter": ["./lib/server/lighter/signer/**"],
     // the art plates (public/art) are read from disk by these routes, so they must ship with the functions
     "/api/share/card": ["./public/fonts/share/**", "./public/assets/**", "./public/brand/**", "./public/art/pnl/**"],
     "/api/daily/card": ["./public/fonts/share/**", "./public/free-play/**", "./public/brand/**", "./public/art/share/**"],
