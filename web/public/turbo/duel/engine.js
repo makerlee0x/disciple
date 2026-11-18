@@ -242,7 +242,7 @@ function mount(root,host){
     if(M&&M.net){
       if(kind==="x"&&!me.pos){toast("Nothing open.");return;}
       if(kind==="f") return;
-      if((kind==="b"||kind==="d")&&me.pos&&me.pos.side!==(kind==="b"?1:-1)){ toast("Cash out first."); return; }
+      if((kind==="b"||kind==="d")&&me.pos&&me.pos.side!==(kind==="b"?1:-1)){ fuelOut(me.pos.side); return; }
       const action=kind==="b"?"boost":kind==="d"?"dump":"close";
       host.trade(action,stake===0?0:stakeUsd()).then(r=>{ if(r&&r.error) toast(r.error); });
       return;
@@ -250,7 +250,7 @@ function mount(root,host){
     if(kind==="b"||kind==="d"){
       const side=kind==="b"?1:-1;
       // no flips (maker 2026-11-17, Nova fills are slow): the other side waits for a cash out
-      if(me.pos&&me.pos.side!==side){ toast("Cash out first."); return; }
+      if(me.pos&&me.pos.side!==side){ fuelOut(me.pos.side); return; }
       open(me,side,stake===0?me.fuel:stakeUsd());
     } else if(kind==="x"){
       if(!me.pos){toast("Nothing open.");return;}
@@ -391,13 +391,15 @@ function mount(root,host){
   }
   // out of fuel (maker 2026-11-17: the plain toast was "bad"): a game callout over the trade bar pointing at CASH OUT, and the pill pulses.
   // Server errors with the same words land here too (toast below).
-  let fuelT=0; function fuelOut(){
+  // the same callout covers "Cash out first" (BOOST open and you hit DUMP, or the other way; maker 2026-11-18: the toast was old design)
+  let fuelT=0; function fuelOut(open){
     let n=$("fuelOut"); const bar=document.querySelector(".duel-root .bottom");
-    if(!n&&bar){ n=document.createElement("div"); n.id="fuelOut"; n.className="fuelout"; n.setAttribute("role","status"); n.innerHTML='<b><i aria-hidden="true"></i>OUT OF FUEL</b><span>CASH OUT \u25bc</span>'; bar.prepend(n); }
+    if(!n&&bar){ n=document.createElement("div"); n.id="fuelOut"; n.className="fuelout"; n.setAttribute("role","status"); bar.prepend(n); }
+    if(n) n.innerHTML=open?`<b>${open>0?"\u25b2 BOOST":"\u25bc DUMP"} OPEN</b><span>CASH OUT \u25bc</span>`:'<b><i aria-hidden="true"></i>OUT OF FUEL</b><span>CASH OUT \u25bc</span>';
     const o=$("bOut"); for(const el of [n,o]) if(el){ el.classList.remove("show","nudge"); void el.offsetWidth; }
     if(n) n.classList.add("show"); if(o) o.classList.add("nudge"); $("toast").classList.remove("show"); buzz([30,40,30]);
     clearTimeout(fuelT); fuelT=setTimeout(()=>{ if(n) n.classList.remove("show"); if(o) o.classList.remove("nudge"); },2200); }
-  let toastT=0; function toast(m){ if(/^out of duel fuel/i.test(m)){ fuelOut(); return; } const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1800);}
+  let toastT=0; function toast(m){ if(/^out of duel fuel/i.test(m)){ fuelOut(); return; } if(/^cash out first/i.test(m)&&G&&G.me&&G.me.pos){ fuelOut(G.me.pos.side); return; } const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1800);}
 
   /* ---------- chart ---------- */
   const cc=$("cc"), cx=cc.getContext("2d");
