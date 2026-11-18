@@ -8,6 +8,9 @@
  *  - Sent: a plain receipt. Errors: plain words (never "relayer not configured").
  *  - Signed out: a sign-in moment.
  * Withdraw logic is the old CashPanel's (gasless quote + signed withdraw, or a plain USDG transfer), unchanged.
+ * Cash and Turbo cash side by side (maker 2026-11-18): two balances, never one total here (the top-bar pill is the
+ * combined one). "To Turbo" moves cash into Turbo's venue (Lighter, lib/lighter/deposit) where this browser trades there.
+ * Desktop fits a ~790px-tall window with no scroll (like Settings, #482).
  */
 import { useCallback, useEffect, useState } from "react";
 import { encodeFunctionData, formatUnits, isAddress, parseAbi, parseUnits, type Hex } from "viem";
@@ -24,7 +27,7 @@ import { withBase } from "@/lib/base-path";
 import { CashHead, Check, ErrIcon, usd2 } from "./bits";
 import { FUND_CARD_FEE_EST, FUND_COPY, FUND_DEFAULT_USD, FUND_PICKS, startFunding } from "@/lib/fund";
 import { DEPOSIT_COPY } from "@/lib/deposit";
-import { onCashFuel, type CashFuel } from "@/lib/turbo/cashFuel";
+import { onTurboCash, refreshTurboCash, setTurboWallet, type TurboCash } from "@/lib/turbo/turboCash";
 import SendCrypto from "./SendCrypto";
 import SignInMarks from "@/components/SignInMarks";
 
@@ -32,13 +35,17 @@ const erc20 = parseAbi(["function transfer(address to, uint256 amount) returns (
 
 export const CASH_COPY = {
   title: "Cash",
-  yourCash: "Your cash",
-  ready: "Ready to spend",
-  inTurbo: "In Turbo fuel",
-  moveBack: "Move to cash",
+  yourCash: "Cash",
+  turboCash: "Turbo cash",
+  moveBack: "To cash",
   moving: "Moving…",
   moveFailed: "Couldn't move it right now. Your fuel is still in Turbo.",
-  tabs: { add: "Add cash", out: "Cash out" },
+  tabs: { add: "Add cash", turbo: "To Turbo", out: "Cash out" },
+  toTurbo: (v: string) => `Move ${v} to Turbo`,
+  lands: "Lands in Turbo cash",
+  turboSteps: { address: "Sending…", sending: "Sending…", arriving: "Landing in Turbo…", setup: "Setting up Turbo…", done: "Done" },
+  turboFine: (min: number) => `Lands in a few minutes. Min $${min}.`,
+  turboDone: (v: string) => `${v} moved to Turbo cash.`,
   addTitle: "Send USDG to your cash address",
   addBody: "From an exchange or another wallet, on Robinhood Chain. It shows up as cash when it lands.",
   addBodyPhone: "Send USDG on Robinhood Chain to this address. It shows up as cash when it lands.",
@@ -97,7 +104,7 @@ function CardFund({ addr, empty, onPaid, onClose, onSend }: { addr: string; empt
       <div className="r2-chips" role="group" aria-label="Amount to add">
         {FUND_PICKS.map((v) => <button key={v} type="button" className={usd === v ? "on" : ""} aria-pressed={usd === v} onClick={() => setUsd(v)}>${v}</button>)}
       </div>
-      <div className="r2-box">
+      <div className="r2-box cx-paygrid">
         <div className="r2-r"><div className="t"><span>{FUND_COPY.youPay}</span></div><b>{usd2(usd)}</b></div>
         <div className="r2-r"><div className="t"><span>{FUND_COPY.youGet}</span></div><b className="cx-get" data-testid="cash-card-get">{usd2(usd * (1 - FUND_CARD_FEE_EST))}</b></div>
       </div>
@@ -113,6 +120,61 @@ function CardFund({ addr, empty, onPaid, onClose, onSend }: { addr: string; empt
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M6 3l5 5-5 5" /></svg>
       </button>
     </div>
+  );
+}
+
+/** To Turbo: cash → the player's Lighter account (lighterAddCash: gasless cash-out to the Lighter deposit address, then
+ *  Lighter set-up runs on its own). The cash-out network fee comes off the amount, so "Lands in Turbo cash" is net. */
+function ToTurbo({ balUsd, feeUsd, firstMove, onMoved }: { balUsd: number; feeUsd: number; firstMove: boolean; onMoved: () => void }) {
+  const [amt, setAmt] = useState("");
+  const [step, setStep] = useState<keyof typeof CASH_COPY.turboSteps | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const n = Number(amt) || 0;
+  const min = firstMove ? 5 : 3;
+  const pickOn = (f: number) => amt !== "" && Math.abs(Math.floor(balUsd * f * 100) / 100 - n) < 0.005;
+  const go = async () => {
+    setErr(null); setDone(null);
+    if (n > balUsd + 1e-9) return setErr(CASH_COPY.tooMuch(usd2(balUsd)));
+    setStep("sending");
+    try {
+      const [{ lighterAddCash }, { lighterFetcher }, { aaSignMessage }] = await Promise.all([import("@/lib/lighter/deposit"), import("@/lib/lighter/duel"), import("@/lib/aa/session")]);
+      const owner = gaslessSigner();
+      if (!owner) { window.dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT)); return; }
+      const sign = async (m: string) => { const r = await aaSignMessage(m); if (!r) throw new Error("Your wallet didn't sign."); return r.sig; };
+      await lighterAddCash(lighterFetcher(owner.address.toLowerCase()), n, sign, (st) => setStep(st));
+      setDone(CASH_COPY.turboDone(usd2(Math.max(0, n - feeUsd)))); setAmt("");
+    } catch (e) {
+      const t = playerError(e);
+      setErr(t === CANCELLED_MSG ? t : t.replace(/Adding cash to Lighter/g, "Moving to Turbo").replace(/Lighter/g, "Turbo"));
+    } finally { setStep(null); onMoved(); }
+  };
+  return (
+    <>
+      <div>
+        <div className="cx-split"><label className="r2-lbl" htmlFor="cx-tamt">{CASH_COPY.howMuch}</label><span className="r2-lbl">{CASH_COPY.youHave(usd2(balUsd))}</span></div>
+        <div className="r2-field cx-big">
+          <span className="r2-g cx-dollar">$</span>
+          <input id="cx-tamt" inputMode="decimal" placeholder="0.00" value={amt} autoComplete="off" data-testid="cash-turbo-amount"
+            onChange={(e) => { setErr(null); setDone(null); setAmt(e.target.value.replace(/[^0-9.]/g, "")); }} />
+        </div>
+        <div className="r2-chips">
+          {PICKS.map(([l, f]) => (
+            <button key={l} type="button" className={pickOn(f) ? "on" : ""} onClick={() => { setErr(null); setDone(null); setAmt((Math.floor(balUsd * f * 100) / 100).toFixed(2)); }}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div className="r2-box">
+        <div className="r2-r"><div className="t"><b>{CASH_COPY.lands}</b></div><span className="r2-g cx-recv">{usd2(Math.max(0, n - feeUsd))}</span></div>
+        {feeUsd > 0 && <div className="r2-r"><div className="t"><span>{CASH_COPY.fee}</span></div><span className="cx-fee">{usd2(feeUsd)}</span></div>}
+      </div>
+      {err && <div className="r2-note err" role="alert"><ErrIcon /><span>{err}</span></div>}
+      {done && <div className="r2-note ok" role="status"><span>{done}</span></div>}
+      <button type="button" className="r2-gold" disabled={!!step || n <= 0} onClick={go} data-testid="cash-turbo-btn">
+        {step ? CASH_COPY.turboSteps[step] : n > 0 ? CASH_COPY.toTurbo(usd2(n)) : CASH_COPY.tabs.turbo}
+      </button>
+      <span className="cx-fine">{CASH_COPY.turboFine(min)}</span>
+    </>
   );
 }
 
@@ -135,12 +197,14 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
   const [err, setErr] = useState<string | null>(null);
   const [sent, setSent] = useState<{ recv: number; to: string; left: number; tx: Hex | null } | null>(null);
   const [sendView, setSendView] = useState(false);
-  const [fuel, setFuel] = useState<CashFuel>(null);
+  const [turbo, setTurbo] = useState<TurboCash | null>(null);
+  const fuel = turbo?.fuel ?? null;
   const [fuelBusy, setFuelBusy] = useState(false);
   const [fuelErr, setFuelErr] = useState<string | null>(null);
-  useEffect(() => onCashFuel(setFuel), []);
+  useEffect(() => onTurboCash(setTurbo), []);
   const [quote, setQuote] = useState<{ fee: bigint; minAmount: bigint; feeTo: string; usdgDecimals: number } | null>(null);
   useEffect(() => onWallet(setAddr), []);
+  useEffect(() => { setTurboWallet(addr); }, [addr]);
 
   const refresh = useCallback(async (a: Address) => {
     if (!isDeployed()) return;
@@ -168,7 +232,7 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
 
   const gasless = clientGaslessMode();
   useEffect(() => {
-    if (!gasless || tab !== "out" || !addr) return;
+    if (!gasless || tab === "add" || !addr) return;
     let alive = true;
     import("@/lib/trade/gaslessWithdrawClient").then(({ quoteGaslessWithdraw }) => quoteGaslessWithdraw({ signer: addr }))
       .then((q) => { if (alive) setQuote({ fee: q.fee, minAmount: q.minAmount, feeTo: q.feeTo, usdgDecimals: q.usdgDecimals }); })
@@ -176,6 +240,8 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
     return () => { alive = false; };
   }, [gasless, tab, addr]);
 
+  // "To Turbo" only where this browser can move cash there; a turbo link elsewhere lands on Add cash
+  useEffect(() => { if (tab === "turbo" && turbo && !turbo.canAdd) setTab("add"); }, [tab, turbo]);
   const balUsd = bal ? Number(formatUnits(bal.raw, bal.dec)) : 0;
   const amtNum = Number(amt) || 0;
   const feeUsd = gasless && quote ? Number(formatUnits(quote.fee, quote.usdgDecimals)) : 0;
@@ -250,35 +316,39 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
     <>
       <CashHead title={sendView ? DEPOSIT_COPY.title : CASH_COPY.title} onClose={onClose} onBack={sendView ? () => setSendView(false) : undefined} />
       <div className="r2-body">
-        {tab === "add" && !sendView && (
-          <div className="cx-bal" data-testid="cash-balance">
-            <span className="r2-lbl up">{CASH_COPY.yourCash}</span>
-            <Amount v={balUsd + (fuel?.usd ?? 0)} big />
-          </div>
-        )}
-        {tab === "add" && !sendView && fuel && (
-          <div className="r2-box" data-testid="cash-fuel-rows">
-            <div className="r2-r"><div className="t"><span>{CASH_COPY.ready}</span></div><b>{usd2(balUsd)}</b></div>
-            <div className="r2-r"><div className="t"><span>{CASH_COPY.inTurbo}</span></div>
-              <span className="cx-fuelr"><b>{usd2(fuel.usd)}</b>
-                <button type="button" className="r2-btn" disabled={fuelBusy} data-testid="cash-fuel-back"
+        {!sendView && (
+          <div className="cx-bals">
+            <div className="cx-bal" data-testid="cash-balance">
+              <span className="r2-lbl up">{CASH_COPY.yourCash}</span>
+              <Amount v={balUsd} big />
+            </div>
+            <div className="cx-bal cx-turbo" data-testid="turbo-balance">
+              <span className="r2-lbl cx-tlbl">{CASH_COPY.turboCash}</span>
+              <Amount v={turbo?.usd ?? 0} big />
+              {fuel && (
+                <button type="button" className="cx-tback" disabled={fuelBusy} data-testid="cash-fuel-back"
                   onClick={async () => {
                     if (!fuel.toCash) { onClose(); window.location.assign(withBase("/turbo/duel")); return; }
                     setFuelErr(null); setFuelBusy(true);
                     try { await fuel.toCash(fuel.usd); void refresh(addr); } catch { setFuelErr(CASH_COPY.moveFailed); } finally { setFuelBusy(false); }
-                  }}>{fuelBusy ? CASH_COPY.moving : CASH_COPY.moveBack}</button></span></div>
-            {fuelErr && <div className="r2-r"><span className="cx-help">{fuelErr}</span></div>}
+                  }}>{fuelBusy ? CASH_COPY.moving : CASH_COPY.moveBack}</button>
+              )}
+            </div>
           </div>
         )}
+        {fuelErr && <span className="cx-help">{fuelErr}</span>}
         {sendView && <button type="button" className="cx-backlink" onClick={() => setSendView(false)} data-testid="cash-send-back">← {CASH_COPY.tabs.add}</button>}
         {!sendView && <div className="r2-tabs" role="tablist" aria-label="Cash">
-          {(["add", "out"] as const).map((t) => (
+          {(turbo?.canAdd ? (["add", "turbo", "out"] as const) : (["add", "out"] as const)).map((t) => (
             <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => { setTab(t); setErr(null); }} data-testid={`cash-tab-${t}`}>{CASH_COPY.tabs[t]}</button>
           ))}
         </div>}
         {tab === "add" ? (
           sendView ? <SendCrypto cashAddr={addr} />
             : <CardFund addr={addr} empty={balUsd < 0.01} onPaid={() => { void refresh(addr); }} onClose={onClose} onSend={() => setSendView(true)} />
+        ) : tab === "turbo" ? (
+          <ToTurbo balUsd={balUsd} feeUsd={feeUsd} firstMove={turbo?.lighterStep === "deposit"}
+            onMoved={() => { void refresh(addr); void refreshTurboCash(); }} />
         ) : (
           <>
             <div>

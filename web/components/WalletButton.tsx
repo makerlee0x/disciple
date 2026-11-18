@@ -40,6 +40,7 @@ import { GUILDS_ENABLED } from "@/lib/features";
 import { PROFILE_CHANGED_EVENT } from "@/lib/profile";
 import { DEPOSIT_HREF, SETTINGS_HREF, onDepositClick, onSettingsClick } from "@/lib/cashLink";
 import { CASH_ARRIVED_EVENT } from "@/lib/testCash";
+import { onTurboCash, setTurboWallet } from "@/lib/turbo/turboCash";
 
 /** $1,234.56 (cash / portfolio cards). */
 const usd2 = (n: number) => `$${(Math.round(n * 100) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -236,7 +237,11 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
     saveLastPill({ address: addr, name: uname, cashUsd, cash: cashUsd == null ? undefined : usd2(cashUsd), label: chipLabel(uname, addr),
       img: pilot.img, nft: pilot.nft, level: pilot.info.level, progress: pilot.info.progress });
   }, [addr, uname, pf?.cashUsd, pilot.img, pilot.nft, pilot.info.level, pilot.info.progress]);
-  const cashUsd = pf?.cashUsd ?? (guess && shown === guess.address ? guess.cashUsd : null) ?? 0;
+  // the top-bar pill is ONE combined balance (maker 2026-11-18): Cash + Turbo cash. The Cash popup splits them.
+  const [turboUsd, setTurboUsd] = useState(0);
+  useEffect(() => onTurboCash((t) => setTurboUsd(t.usd)), []);
+  useEffect(() => { setTurboWallet(addr); }, [addr]);
+  const cashUsd = (pf?.cashUsd ?? (guess && shown === guess.address ? guess.cashUsd : null) ?? 0) + turboUsd;
 
   // premium sidebar: the Sidebar's account card shows the same address + name (display only; lib/walletCta.ts)
   useEffect(() => {
@@ -366,14 +371,30 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
                       <svg className="wb-cash-plus" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
                     </a>
                   )}
-                  <button type="button" className="wb-pilot" aria-label="Your pilot menu" aria-haspopup={smart ? "menu" : undefined} aria-expanded={smart ? acct : undefined} aria-busy={!addr || undefined}
-                    onClick={() => { if (!addr) return; if (smart) { if (!acct) dispatchEvent(new Event(TOPBAR_POPOVER_EVENT)); setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>
-                    {pilot.avatar}
-                    <span>{copied ? "Copied" : chipLabel(uname, shown)}</span>
-                    {pilot.hasPfp && <b className="wb-lv" aria-label={`Level ${pilot.info.level}`}>{pilot.info.level}</b>}
-                    <PillProgress progress={pilot.info.progress} />
-                    {(smart || !addr) && <svg className="wb-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M6 9l6 6 6-6" /></svg>}
-                  </button>
+                  {addr && smart ? (
+                    /* pilot pill (maker 2026-11-18): the pill goes straight to the Hangar, only the arrow opens the menu.
+                       Phones have no arrow, so there the arrow button covers the whole pill and a tap opens the menu. */
+                    <div className="wb-pilot wb-pilot-split">
+                      {pilot.avatar}
+                      <span>{chipLabel(uname, shown)}</span>
+                      {pilot.hasPfp && <b className="wb-lv" aria-label={`Level ${pilot.info.level}`}>{pilot.info.level}</b>}
+                      <PillProgress progress={pilot.info.progress} />
+                      <Link href="/profile" className="wb-pilot-go" aria-label="Your Hangar" data-testid="pilot-hangar" onClick={() => setAcct(false)} />
+                      <button type="button" className="wb-chevbtn" aria-label="Your pilot menu" aria-haspopup="menu" aria-expanded={acct} data-testid="pilot-menu"
+                        onClick={() => { if (!acct) dispatchEvent(new Event(TOPBAR_POPOVER_EVENT)); setAcct((v) => !v); }}>
+                        <svg className="wb-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M6 9l6 6 6-6" /></svg>
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" className="wb-pilot" aria-label="Your pilot menu" aria-haspopup={smart ? "menu" : undefined} aria-expanded={smart ? acct : undefined} aria-busy={!addr || undefined}
+                      onClick={() => { if (!addr) return; if (smart) { if (!acct) dispatchEvent(new Event(TOPBAR_POPOVER_EVENT)); setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>
+                      {pilot.avatar}
+                      <span>{copied ? "Copied" : chipLabel(uname, shown)}</span>
+                      {pilot.hasPfp && <b className="wb-lv" aria-label={`Level ${pilot.info.level}`}>{pilot.info.level}</b>}
+                      <PillProgress progress={pilot.info.progress} />
+                      {(smart || !addr) && <svg className="wb-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M6 9l6 6 6-6" /></svg>}
+                    </button>
+                  )}
                 </>
               ) : (
               <>
