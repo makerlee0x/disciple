@@ -8,13 +8,15 @@ import type { ReactNode } from "react";
 import { withBase } from "@/lib/base-path";
 import { MAX_LEVEL, type XpSummary } from "@/lib/xp";
 import type { Loadout } from "./hangarData";
+import { XGlyph } from "@/components/profile/Glyphs";
 import s from "./hangarBay.module.css";
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 export type DashStat = { k: string; v: string };
 
-export default function HangarBay({ handle, at, bio, avatar, xp, actions, spend, eyebrow, lines, stats, tags, nftAvatar }: {
-  handle: string; /** the @username, shown under a display name */ at?: string; bio: ReactNode; avatar: ReactNode; xp: XpSummary | null; actions?: ReactNode; spend: boolean;
+export default function HangarBay({ handle, at, x, bio, avatar, xp, actions, spend, eyebrow, lines, stats, tags, nftAvatar }: {
+  handle: string; /** the @username, shown under a display name */ at?: string;
+  /** the linked X handle (no "@"), shown beside the @username when X is connected (maker 2026-11-18) */ x?: string | null; bio: ReactNode; avatar: ReactNode; xp: XpSummary | null; actions?: ReactNode; spend: boolean;
   /** holder chips (DISCIPLE / FOUNDER) under the name; nftAvatar = the picture is a Disciple NFT (hex frame) */
   tags?: ReactNode; nftAvatar?: boolean;
   /** kept for callers; the cockpit banner shows no rocket */
@@ -45,7 +47,12 @@ export default function HangarBay({ handle, at, bio, avatar, xp, actions, spend,
           <h1 className={s.name}>
             {words.length > 1 ? words.map((w, i) => <span key={i}>{w}</span>) : <span>{handle.replace(/^@/, "")}</span>}
           </h1>
-          {at && <div className={s.at} data-testid="hangar-at">{at}</div>}
+          {(at || x) && (
+            <div className={s.ids}>
+              {at && <span className={s.at} data-testid="hangar-at">{at}</span>}
+              {x && <a className={s.x} href={`https://x.com/${x}`} target="_blank" rel="noopener noreferrer" data-testid="hangar-x"><XGlyph size={13} />@{x}</a>}
+            </div>
+          )}
           {tags && <div className={s.tags}>{tags}</div>}
           {bio && <div className={s.bio}>{bio}</div>}
           {L && (
