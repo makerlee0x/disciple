@@ -288,6 +288,18 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
     };
   }, [menu, acct]);
 
+  // the top bar keeps clear of this fixed strip by its real width (cash amount and name length vary), so Play now never slides under the "?"
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!compact || !el || typeof ResizeObserver === "undefined") return;
+    const html = document.documentElement;
+    const set = () => html.style.setProperty("--wb-w", `${Math.ceil(el.getBoundingClientRect().width)}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => { ro.disconnect(); html.style.removeProperty("--wb-w"); };
+  }, [compact, addr]);
+
   if (!isDeployed()) return null;
   const smart = isSmartMode();
   const sess = aaSession();
