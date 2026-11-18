@@ -25,6 +25,7 @@ maker. Duel leverage is Lighter's max: 50x BTC/ETH, 25x SOL, 20x HYPE. Market or
 |---|---|
 | `LIGHTER_ENABLED` | `1` |
 | `LIGHTER_NETWORK` | `testnet` (default) or `mainnet` |
+| `LIGHTER_API_URL` | optional host override (testnet default `https://api.testnet.lighter.xyz`, the one the testnet app uses) |
 | `LIGHTER_KEY_SECRET` | a long random string |
 | `LIGHTER_INTEGRATOR_INDEX` | Disciple's own Lighter account index (fees land here) |
 | `LIGHTER_PARTNER_FEE_BP` | `0.05` (default) |

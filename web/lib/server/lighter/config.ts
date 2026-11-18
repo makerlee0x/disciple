@@ -16,7 +16,8 @@ import { bpToFeeUnits } from "@/lib/lighter/math";
 export type LighterNetwork = "testnet" | "mainnet";
 const NETS: Record<LighterNetwork, { url: string; chainId: number }> = {
   mainnet: { url: "https://mainnet.zklighter.elliot.ai", chainId: 304 },
-  testnet: { url: "https://testnet.zklighter.elliot.ai", chainId: 300 },
+  // the testnet app (testnet.app.lighter.xyz) talks to api.testnet.lighter.xyz; the docs' testnet.zklighter host doesn't know its accounts (2026-11-17)
+  testnet: { url: "https://api.testnet.lighter.xyz", chainId: 300 },
 };
 
 export function lighterConfig() {
@@ -28,6 +29,7 @@ export function lighterConfig() {
     enabled: process.env.LIGHTER_ENABLED === "1",
     network,
     ...NETS[network],
+    ...(process.env.LIGHTER_API_URL ? { url: process.env.LIGHTER_API_URL.replace(/\/$/, "") } : {}),
     integratorIndex,
     /** partner fee per side, Lighter units (100 = 1 bp). 0 when no integrator account is set. */
     partnerFee: integratorIndex && Number.isFinite(feeBp) && feeBp > 0 ? bpToFeeUnits(feeBp) : 0,

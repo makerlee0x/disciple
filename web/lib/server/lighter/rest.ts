@@ -57,6 +57,16 @@ export async function accountIndexOf(cfg: LighterConfig, l1: string, trace?: str
   const forms = [...new Set([safeChecksum(l1), l1.toLowerCase()])];
   for (const a of forms) {
     try {
+      // the app uses /account?by=l1_address (accountsByL1Address 400s on testnet for real accounts)
+      const r = await get<Resp & { accounts?: { index: number; account_type?: number }[] }>(cfg, "/api/v1/account", { by: "l1_address", value: a });
+      trace?.push(`${a.slice(0, 8)} account: ${JSON.stringify(r.accounts?.map((x) => [x.index, x.account_type]) ?? r).slice(0, 200)}`);
+      const main = r.accounts?.find((x) => !x.account_type) ?? r.accounts?.[0];
+      if (main) return Number(main.index);
+    } catch (e) {
+      trace?.push(`${a.slice(0, 8)} account: ${e instanceof LighterError ? `${e.status} ${e.code ?? ""} ${e.message}` : String(e)}`.slice(0, 200));
+      if (!(e instanceof LighterError && (e.status === 400 || e.status === 404))) throw e;
+    }
+    try {
       const r = await get<Resp & { sub_accounts?: { index: number; account_type?: number }[] }>(cfg, "/api/v1/accountsByL1Address", { l1_address: a });
       trace?.push(`${a.slice(0, 8)}: ${JSON.stringify(r).slice(0, 200)}`);
       const main = r.sub_accounts?.find((x) => !x.account_type) ?? r.sub_accounts?.[0];
