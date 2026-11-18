@@ -22,11 +22,12 @@ import AnimClip from "@/components/ui/AnimClip";
 const CLIP: Partial<Record<ModeId, string>> = { launch: "A3-mode-launch", duel: "A3-mode-duel", climb: "A3-mode-live", daily: "A3-mode-free" };
 
 type ModeId = "launch" | "duel" | "royale" | "climb" | "daily";
-type Mode = { id: ModeId; title: [string, string]; tag: string; tone: string; href: string; art: string; pos: string };
+type Mode = { id: ModeId; title: [string, string]; tag: string; turbo?: boolean; tone: string; href: string; art: string; pos: string };
 
 export const MODE_COPY = {
   title: "Pick a mode",
   play: "Play",
+  turbo: "Turbo",
 } as const;
 
 const LAST = "disciple.lobby.mode";
@@ -37,9 +38,9 @@ const LAST = "disciple.lobby.mode";
 function modes(duel: boolean): Mode[] {
   const all: Mode[] = [
     { id: "launch", title: ["Launch", ""], tag: "Your own coin", tone: "#F3DFA8", href: "/create", art: "/art/modes/launch.webp", pos: "50% 30%" },
-    { id: "duel", title: ["Duel", ""], tag: DUEL_RANKED_LIVE ? "Ranked" : "1v1", tone: "#FF9CC4", href: DUEL_HREF, art: "/art/modes/duel.webp", pos: "50% 30%" },
-    { id: "royale", title: ["Royale", ""], tag: "Practice", tone: "#F2C14E", href: "/turbo/royale", art: "/art/modes/last-pilot.webp", pos: "50% 30%" },
-    { id: "climb", title: ["Climb", ""], tag: "Solo", tone: "#5FF0A0", href: CLIMB_HREF, art: "/art/modes/live.webp", pos: "50% 30%" },
+    { id: "duel", turbo: true, title: ["Duel", ""], tag: DUEL_RANKED_LIVE ? "Ranked" : "1v1", tone: "#FF9CC4", href: DUEL_HREF, art: "/art/modes/duel.webp", pos: "50% 30%" },
+    { id: "royale", turbo: true, title: ["Royale", ""], tag: "Practice", tone: "#F2C14E", href: "/turbo/royale", art: "/art/modes/last-pilot.webp", pos: "50% 30%" },
+    { id: "climb", turbo: true, title: ["Climb", ""], tag: "Solo", tone: "#5FF0A0", href: CLIMB_HREF, art: "/art/modes/live.webp", pos: "50% 30%" },
     { id: "daily", title: ["Daily", "mission"], tag: "Solo", tone: "#8FE3FF", href: "/flight/sim?daily=1", art: "/art/modes/free.webp", pos: "50% 30%" },
   ];
   return all.filter((m) => (m.id !== "duel" && m.id !== "royale" && m.id !== "climb") || duel).filter((m) => m.id !== "royale" || ROYALE_ENABLED);
@@ -132,7 +133,7 @@ export default function ModeSelect({ signedIn }: { signedIn: boolean; flying?: n
               prefetch={false}
               data-mode={m.id}
               className={s.card}
-              aria-label={`${m.title.join(" ").trim()}. ${m.tag}`}
+              aria-label={`${m.title.join(" ").trim()}. ${m.tag}${m.turbo ? `. ${MODE_COPY.turbo}` : ""}`}
               data-testid={`mode-${m.id}`}
               data-sfx="none"
               onClick={() => { if (appFeel()) playSfx("mode_select"); go(m); }}
@@ -143,6 +144,7 @@ export default function ModeSelect({ signedIn }: { signedIn: boolean; flying?: n
               {CLIP[m.id] && <AnimClip id={CLIP[m.id]!} ratio="none" loop poster whenVisible className={s.art} style={{ objectPosition: m.pos }} />}
               <span className={s.scrim} aria-hidden />
               <span className={s.tag} style={{ color: m.tone }}>{m.tag}</span>
+              {m.turbo && <span className={`${s.tag} ${s.turbo}`}>{MODE_COPY.turbo}</span>}
               <span className={s.body}>
                 <b className={s.name}>{m.title[0]}{m.title[1] && <><br />{m.title[1]}</>}</b>
                 <span className={s.play} aria-hidden>{MODE_COPY.play}</span>
