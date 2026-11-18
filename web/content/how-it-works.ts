@@ -55,7 +55,7 @@ export const HIW_GAMES: HiwGame[] = [
     id: "duel", tab: "Duel", tag: "1v1", art: "/art/modes/duel.webp", tone: "#FF9CC4",
     steps: [
       { art: "versus", title: "1v1 duel", line: "Best trader wins." },
-      { art: "call", title: "Pick a side", line: "BTC going up? Boost. Going down? Dump." },
+      { art: "call", title: "Lock in", line: "Boost LONGS. Dump SHORTS." },
       { art: "clock", title: "Beat the clock", line: "Most profit before time runs out wins." },
     ],
     win: { ok: "More profit than your rival", bad: "Less profit, or liquidated" },
