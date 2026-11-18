@@ -51,4 +51,4 @@ section: Reference
 | **USDG** | A dollar stablecoin on Robinhood Chain. You BOOST with it, and DUMPs pay you in it. |
 | **Verified** | A checkmark the team grants after reviewing a rocket. |
 | **WARHEAD** | A bomb with 5–12% price impact. |
-| **XP** | Off-chain progress from missions and milestones. Levels you up and unlocks rocket looks. Not a token. |
+| **XP** | Off-chain progress from orders and milestones. Levels you up and unlocks rocket looks. Not a token. |

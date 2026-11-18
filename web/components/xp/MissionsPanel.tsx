@@ -22,7 +22,7 @@ function Mission({ m }: { m: MissionStatus }) {
   );
 }
 
-export default function MissionsPanel({ xp, weekly = false, title = "Daily missions", footer, className }: { xp: XpSummary | null; weekly?: boolean; title?: string; footer?: ReactNode; className?: string }) {
+export default function MissionsPanel({ xp, weekly = false, title = "Orders", footer, className }: { xp: XpSummary | null; weekly?: boolean; title?: string; footer?: ReactNode; className?: string }) {
   const [now, setNow] = useState(() => Date.now());
   // the lobby is ISR (30 s) so the server's "New in …" can be minutes older than the browser's: keep the server text
   // through hydration (no React #418, found by the e2e suite 2026-11-14), then correct it straight after mount
@@ -38,7 +38,7 @@ export default function MissionsPanel({ xp, weekly = false, title = "Daily missi
       {weekly && (
         <>
           <header className="xp-missions-head xp-missions-head-week">
-            <h2 className="dsc3-h3">Weekly missions</h2>
+            <h2 className="dsc3-h3">Weekly orders</h2>
             <span className="xp-reset" suppressHydrationWarning>New in {untilLabel(xp.weekly.resetsAt, now)}</span>
           </header>
           <ul className="xp-mission-list">{xp.weekly.missions.map((m) => <Mission key={m.id} m={m} />)}</ul>

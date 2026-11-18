@@ -183,7 +183,7 @@ export default function TrophiesPage() {
           )}
         </section>
 
-        <section className={`${s.card} ${s.missions}`} aria-label="Missions" data-testid="missions-panel">
+        <section className={`${s.card} ${s.missions}`} aria-label="Orders" data-testid="missions-panel">
           <div className={s.col}>
             <div className={s.colHead}><h2 className={s.h2}>Today</h2><span className={s.meta} suppressHydrationWarning>New in {untilLabel(shown.daily.resetsAt, now)}</span></div>
             <ul className={s.list}>{shown.daily.missions.map((m) => <Mission key={m.id} m={m} />)}</ul>
@@ -192,7 +192,7 @@ export default function TrophiesPage() {
             <div className={s.colHead}><h2 className={s.h2}>This week</h2><span className={s.meta} suppressHydrationWarning>New in {untilLabel(shown.weekly.resetsAt, now)}</span></div>
             <ul className={s.list}>{shown.weekly.missions.map((m) => <Mission key={m.id} m={m} />)}</ul>
           </div>
-          <div className={`${s.meta} ${s.missionsFoot}`}>Everyone gets the same missions. XP lands within a couple of minutes of the trade.</div>
+          <div className={`${s.meta} ${s.missionsFoot}`}>Everyone gets the same orders. XP lands within a couple of minutes of the trade.</div>
         </section>
       </div>
 

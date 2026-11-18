@@ -179,7 +179,7 @@ export function HangarTrades({ col, wallet, mine }: { col: Col | null; wallet: s
   return (
     <section className="hg-sec hgu-sec" aria-labelledby="hg-trades" data-testid="hangar-trades">
       <header className="hg-sech">
-        <div><h2 id="hg-trades" className="dsc3-h2">Trades</h2><span>Copies from ranked duel crates and weekly missions trade. Each keeps its serial, burn, pattern and history when it moves.</span></div>
+        <div><h2 id="hg-trades" className="dsc3-h2">Trades</h2><span>Copies from ranked duel crates and weekly orders trade. Each keeps its serial, burn, pattern and history when it moves.</span></div>
         {web && <Link href="/market" className="hg-ghost" data-testid="open-market">Open the market</Link>}
       </header>
       {note && <p className="hg-sub" role="status">{note}</p>}

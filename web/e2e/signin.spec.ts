@@ -27,7 +27,7 @@ test("sign in from the lobby, see the welcome toast and the pilot chip, then sig
   await page.getByRole("button", { name: "Your pilot menu" }).filter({ visible: true }).first().click();
   const menu = page.getByTestId("account-menu");
   await expect(menu).toBeVisible();
-  for (const name of [/hangar/i, /missions \+ trophies/i, /cash/i, /rewards/i, /settings/i]) await expect(menu.getByRole("menuitem", { name })).toBeVisible();
+  for (const name of [/hangar/i, /orders \+ trophies/i, /cash/i, /rewards/i, /settings/i]) await expect(menu.getByRole("menuitem", { name })).toBeVisible();
   await page.getByTestId("account-signout").click();
   await expect(page.getByTestId("lobby-signed-out")).toBeVisible();
   await expect(page.getByRole("button", { name: /^sign in$/i }).filter({ visible: true }).first()).toBeVisible();
