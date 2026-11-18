@@ -65,7 +65,8 @@ export const PROFILE_COPY = {
   // on the website, email in the app: two logins, two accounts), so say how to get back to it.
   "edit.username.taken": "Taken. If it's yours, sign in the way you first did (Google, X or email).",
   "edit.username.mine": "That's you",
-  "edit.username.skipped": "Saved. Your call sign didn't change: that one is taken.",
+  /** the picture / name / bio saved but the call sign didn't (taken, too short, reserved, cooldown): say the real reason */
+  "edit.username.skipped": (reason: string) => `Saved. Call sign not changed: ${reason}`,
   "edit.username.error.short": "Usernames need at least 3 characters.",
   // Username: one change per 24h (lee 2026-10-24). `when` is the viewer's local date + time.
   "username.cooldown.note": (when: string) => `You can change your username again on ${when}.`,

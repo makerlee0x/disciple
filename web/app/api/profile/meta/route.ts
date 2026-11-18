@@ -4,7 +4,8 @@ export const runtime = "nodejs";
  * (/api/profile/username): single-use server nonce + wallet signature over profileMetaMessage, which covers every field.
  * GET  ?address=0x…          → { pfp, pfpUrl, bio, flag, banner, bannerUrl, nft: { chain, id, name } | null }
  * GET  ?nonce=1&address=0x…  → { nonce, ttlSec }
- * POST { address, pfp, bio, flag, title?, banner?, nonce, signature, owner? } → { ok, reason? }
+ * POST { address, pfp, bio, flag, title?, banner?, name?, nonce, signature, owner? } → { ok, reason? }
+ *   name = display name (spaces allowed, ≤ DISPLAY_NAME_MAX characters), already canonical (sanitizeDisplayName), or "".
  *   banner = id of an image that passed /api/moderate-image (same store and checks as pfp) or "" (plain panel).
  *   title = "" (default) or an id from lib/titles that this address has earned (checked here, server-side).
  *   pfp = id of an image that passed /api/moderate-image (must exist in the moderated image store) or "".
@@ -22,7 +23,7 @@ import { metaOf, setMeta } from "@/lib/server/profileMeta";
 import { mayUseImage, nftPfpOf } from "@/lib/server/nft/holders";
 import { usernameOf } from "@/lib/server/usernames";
 import { earnedTitlesFor, profileStatsSeed, validateTitle } from "@/lib/titles";
-import { BIO_MAX, BIO_RAW_MAX, normalizeFlag, pfpUrl, profileMetaMessage, sanitizeBio, validateMeta, type ProfileMeta } from "@/lib/profileMeta";
+import { BIO_MAX, BIO_RAW_MAX, DISPLAY_NAME_MAX, DISPLAY_NAME_RAW_MAX, normalizeFlag, pfpUrl, profileMetaMessage, sanitizeBio, sanitizeDisplayName, validateMeta, type ProfileMeta } from "@/lib/profileMeta";
 
 const NONCE_TTL = 600;
 const NONCE_PREFIX = "meta:nonce";
@@ -52,7 +53,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const rl = await hitLimit(kv(), `meta:ip:${clientIp(req.headers)}`, 20, 60);
   if (!rl.ok) return tooMany(rl.retryAfterSec);
-  let body: { address?: unknown; pfp?: unknown; bio?: unknown; flag?: unknown; title?: unknown; banner?: unknown; nonce?: unknown; signature?: unknown; owner?: unknown };
+  let body: { address?: unknown; pfp?: unknown; bio?: unknown; flag?: unknown; title?: unknown; banner?: unknown; name?: unknown; nonce?: unknown; signature?: unknown; owner?: unknown };
   try { body = await req.json(); } catch { return NextResponse.json({ ok: false, reason: "Bad JSON" }, { status: 400 }); }
   if (!body || typeof body !== "object") return NextResponse.json({ ok: false, reason: "Bad JSON" }, { status: 400 });
   const addr = String(body.address ?? "").toLowerCase();
@@ -62,15 +63,19 @@ export async function POST(req: Request) {
 
   const rawBio = typeof body.bio === "string" ? body.bio : "";
   if (rawBio.length > BIO_RAW_MAX) return NextResponse.json({ ok: false, reason: `Bio: max ${BIO_MAX} characters.` }, { status: 400 });
+  const rawName = typeof body.name === "string" ? body.name : "";
+  if (rawName.length > DISPLAY_NAME_RAW_MAX) return NextResponse.json({ ok: false, reason: `Name: max ${DISPLAY_NAME_MAX} characters.` }, { status: 400 });
   const m: ProfileMeta = {
     pfp: typeof body.pfp === "string" ? body.pfp.trim().toLowerCase() : "",
     bio: sanitizeBio(rawBio),
     flag: normalizeFlag(typeof body.flag === "string" ? body.flag : ""),
     title: typeof body.title === "string" ? body.title.trim().toLowerCase() : "",
     banner: typeof body.banner === "string" ? body.banner.trim().toLowerCase() : "",
+    name: sanitizeDisplayName(rawName),
   };
   // The signed message covers the exact posted bio, so it must already be canonical (no silent rewrite after signing).
   if (m.bio !== rawBio) return NextResponse.json({ ok: false, reason: "Invalid bio." }, { status: 400 });
+  if (m.name !== rawName) return NextResponse.json({ ok: false, reason: "Invalid name." }, { status: 400 });
   const bad = validateMeta(m);
   if (bad) return NextResponse.json({ ok: false, reason: bad }, { status: 400 });
   // Title must be earned by THIS address (lib/titles, same computation as the profile page; never the client's word).

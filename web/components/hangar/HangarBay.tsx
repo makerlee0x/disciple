@@ -13,8 +13,8 @@ import s from "./hangarBay.module.css";
 const fmt = (n: number) => n.toLocaleString("en-US");
 export type DashStat = { k: string; v: string };
 
-export default function HangarBay({ handle, bio, avatar, xp, actions, spend, eyebrow, lines, stats, tags, nftAvatar }: {
-  handle: string; bio: ReactNode; avatar: ReactNode; xp: XpSummary | null; actions?: ReactNode; spend: boolean;
+export default function HangarBay({ handle, at, bio, avatar, xp, actions, spend, eyebrow, lines, stats, tags, nftAvatar }: {
+  handle: string; /** the @username, shown under a display name */ at?: string; bio: ReactNode; avatar: ReactNode; xp: XpSummary | null; actions?: ReactNode; spend: boolean;
   /** holder chips (DISCIPLE / FOUNDER) under the name; nftAvatar = the picture is a Disciple NFT (hex frame) */
   tags?: ReactNode; nftAvatar?: boolean;
   /** kept for callers; the cockpit banner shows no rocket */
@@ -45,6 +45,7 @@ export default function HangarBay({ handle, bio, avatar, xp, actions, spend, eye
           <h1 className={s.name}>
             {words.length > 1 ? words.map((w, i) => <span key={i}>{w}</span>) : <span>{handle.replace(/^@/, "")}</span>}
           </h1>
+          {at && <div className={s.at} data-testid="hangar-at">{at}</div>}
           {tags && <div className={s.tags}>{tags}</div>}
           {bio && <div className={s.bio}>{bio}</div>}
           {L && (
