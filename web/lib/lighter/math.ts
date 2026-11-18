@@ -19,6 +19,19 @@ export function baseAmountFor(notionalUsd: number, price: number, sizeDecimals: 
 }
 
 /**
+ * Lighter's smallest order in size units: its min base, or the base that reaches its min quote ($) at `price`,
+ * whichever is bigger. Every position is rounded up to it (maker 2026-11-18: "every position should meet the minimum").
+ */
+export function minBaseFor(minBaseAmount: string | number, minQuoteAmount: string | number, price: number, sizeDecimals: number): number {
+  const scale = 10 ** sizeDecimals;
+  const b = Math.round(Number(minBaseAmount) * scale) || 0;
+  const q = Number(minQuoteAmount) > 0 && price > 0 ? Math.ceil((Number(minQuoteAmount) / price) * scale - 1e-9) : 0;
+  return Math.max(b, q, 1);
+}
+/** a bet's size, rounded up to Lighter's minimum when there is a bet (`wanted`: its $ was above 0) */
+export const atLeastMin = (base: number, minBase: number, wanted = base > 0) => (wanted ? Math.max(base, minBase) : 0);
+
+/**
  * Worst price a market order may fill at (scaled int). Lighter market orders carry a price cap: a buy fills at or under
  * it, a sell at or over it. `slip` is a fraction (0.005 = 0.5%).
  */

@@ -12,7 +12,7 @@ import "server-only";
  *   then ready.
  */
 import { recoverMessageAddress, type Hex } from "viem";
-import { clientOrderIndex, baseAmountFor, levFraction, worstPrice } from "@/lib/lighter/math";
+import { clientOrderIndex, baseAmountFor, minBaseFor, atLeastMin, levFraction, worstPrice } from "@/lib/lighter/math";
 import { LIGHTER_MARKETS, type LighterConfig, type LighterMarket } from "./config";
 import { getPlayer, putPlayer, seal, open, type LighterPlayer } from "./keys";
 import { account, accountIndexOf, book, fillFrom, midOf, type Book, changeTier, accountLimits, marketBySymbol, nextNonce, sendTx, LighterError, type LighterPosition } from "./rest";
@@ -196,8 +196,8 @@ export async function openMarket(cfg: LighterConfig, pid: string, m: LighterMark
   const isAsk = side === "short";
   const ref = midOf(b);
   if (!ref) throw new LighterError(409, "Lighter's book is empty right now.");
-  const base = baseAmountFor(fuelUsd * lev, ref, mk.size_decimals);
-  if (base < Math.round(Number(mk.min_base_amount) * 10 ** mk.size_decimals)) throw new LighterError(400, "That trade is under Lighter's minimum size.");
+  const base = atLeastMin(baseAmountFor(fuelUsd * lev, ref, mk.size_decimals), minBaseFor(mk.min_base_amount, mk.min_quote_amount, ref, mk.size_decimals), fuelUsd > 0);
+  if (!base) throw new LighterError(400, "Pick a trade size.");
   const fill = fillFrom(b, isAsk, base, mk.size_decimals);
   if (fill == null) throw new LighterError(409, "Not enough on Lighter's book for that size.");
   const fee = p.approvedFee && cfg.partnerFee ? cfg.partnerFee : 0;
@@ -307,9 +307,9 @@ export async function presign(cfg: LighterConfig, pid: string, m: LighterMarket,
   }
   const mid = midOf(b);
   if (!mid) throw new LighterError(409, "Lighter's book is empty right now.");
-  const minBase = Math.round(Number(mk.min_base_amount) * 10 ** mk.size_decimals);
-  const bases = sizes.map((usd) => { const b0 = baseAmountFor(usd * lev, mid, mk.size_decimals); return b0 > 0 && b0 >= minBase ? b0 : 0; });
-  if (!bases.some((x) => x > 0)) throw new LighterError(400, "That trade is under Lighter's minimum size.");
+  const minBase = minBaseFor(mk.min_base_amount, mk.min_quote_amount, mid, mk.size_decimals);
+  const bases = sizes.map((usd) => atLeastMin(baseAmountFor(usd * lev, mid, mk.size_decimals), minBase, usd > 0));
+  if (!bases.some((x) => x > 0)) throw new LighterError(400, "Pick a trade size.");
   const fee = p.approvedFee && cfg.partnerFee ? cfg.partnerFee : 0;
   const exp = Date.now() + TICKET_TTL_MS;
   const order = (isAsk: boolean, size: number, reduce: boolean): Signed => {

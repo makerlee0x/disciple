@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import zlib from "node:zlib";
-import { baseAmountFor, bpToFeeUnits, clientOrderIndex, levFraction, roundTripBp, worstPrice } from "../lib/lighter/math";
+import { atLeastMin, baseAmountFor, bpToFeeUnits, minBaseFor, clientOrderIndex, levFraction, roundTripBp, worstPrice } from "../lib/lighter/math";
 import { open, seal } from "../lib/server/lighter/keys";
 
 test("fees: 0.05 bp a side is 5 Lighter units; Plus + ours = 1.1 bp round trip", () => {
@@ -84,4 +84,14 @@ test("Royale charts never jump venues: once Lighter prices a coin it stays on Li
   m.lighter({ BTC: 104000 });
   m.hyperliquid({ BTC: 104050, HYPE: 44.2 });
   assert.deepEqual(m.prices(), { BTC: 104000, HYPE: 44.2 });   // BTC holds Lighter's last price; HYPE has no Lighter price yet
+});
+
+test("every position meets Lighter's minimum (rounded up)", () => {
+  // BTC on Lighter's Robinhood Chain exchange: min 0.00020 BTC, min $10, 5 size decimals
+  const m = minBaseFor("0.00020", "10.000000", 63_000, 5);
+  assert.equal(m, 20);
+  assert.equal(minBaseFor("0.00020", "10", 30_000, 5), 34);  // at a low price the $10 minimum is the bigger one
+  assert.equal(atLeastMin(baseAmountFor(0.5, 63_000, 5), m, true), 20);  // a 50-cent bet becomes the minimum
+  assert.equal(atLeastMin(baseAmountFor(500, 63_000, 5), m, true), 793); // a big bet is untouched
+  assert.equal(atLeastMin(0, m, false), 0);                               // no bet stays no bet
 });
