@@ -41,9 +41,10 @@ export const lighterWarm = (f: Fetcher) => call(f, { op: "warm" });
 export type TapKind = "long" | "short" | "close";
 type Signed = { txType: number; txInfo: string; cap: number; base: number };
 export type LighterTicket = { url: string; nonce: number; exp: number; market: number; lev: number; mid: number; long: Signed; short: Signed; close?: Signed & { side: "long" | "short" }; ms?: Record<string, number> };
-export type TapResult = { hash: string; ms: number; via: "direct" | "relay"; waited: boolean; nonce: number; cap: number; base: number };
+export type TapResult = { hash: string; ms: number; via: "direct" | "relay"; waited: boolean; nonce: number; cap: number; base: number; idle: number };
 
 const REFRESH_MS = 5_000;
+const WARM_MS = 2_000; // Lighter's side can drop an idle connection quickly; a fresh one costs a TLS handshake on the tap
 const SAFETY_MS = 2_000; // don't send a set this close to its expiry
 
 export class LighterTaps {
@@ -56,6 +57,8 @@ export class LighterTaps {
   private listeners = new Set<(t: LighterTicket | null) => void>();
   private direct = true;
   private gen = 0;
+  private warmTimer: ReturnType<typeof setInterval> | null = null;
+  private lastLighter = 0; // when this browser last talked to Lighter
 
   constructor(private f: Fetcher, public market: string, public usd: number) {}
 
@@ -65,20 +68,28 @@ export class LighterTaps {
   start() {
     this.stop();
     void this.refresh();
-    this.timer = setInterval(() => {
-      if (!this.tapping) void this.refresh();
-      // keeps the browser's connection to Lighter open so a tap skips the TLS handshake
-      if (this.ticket && this.direct) void fetch(`${this.ticket.url}/api/v1/status`, { mode: "no-cors", cache: "no-store" }).catch(() => {});
-    }, REFRESH_MS);
+    this.timer = setInterval(() => { if (!this.tapping) void this.refresh(); }, REFRESH_MS);
+    this.warmTimer = setInterval(() => { if (!this.tapping) this.warm(); }, WARM_MS);
   }
-  stop() { if (this.timer) clearInterval(this.timer); this.timer = null; }
+  stop() {
+    if (this.timer) clearInterval(this.timer);
+    if (this.warmTimer) clearInterval(this.warmTimer);
+    this.timer = this.warmTimer = null;
+  }
+  /** Keeps the browser's connection to Lighter open so a tap skips the TCP + TLS handshake. Same request shape as a tap
+   *  (CORS, no credentials) so the browser reuses one connection for both. */
+  private warm() {
+    if (!this.ticket || !this.direct) return;
+    this.lastLighter = performance.now();
+    void fetch(`${this.ticket.url}/api/v1/status`, { cache: "no-store" }).catch(() => {});
+  }
   set(market: string, usd: number) { if (market === this.market && usd === this.usd) return; this.market = market; this.usd = usd; this.ticket = null; this.loading = null; this.emit(); void this.refresh(); }
 
   refresh(used?: { nonce: number; kind: TapKind }): Promise<LighterTicket | null> {
     if (this.loading && !used) return this.loading;
     const g = ++this.gen; // only the newest answer counts; an older one may carry a spent nonce
     const p = call<LighterTicket>(this.f, { op: "presign", market: this.market, usd: this.usd, used, floor: this.floor })
-      .then((t) => { if (g !== this.gen) return this.ticket; this.ticket = t; this.lastError = null; this.emit(); return t; })
+      .then((t) => { if (g !== this.gen) return this.ticket; this.ticket = t; this.lastError = null; this.emit(); this.warm(); return t; })
       .catch((e: Error) => { if (g !== this.gen) return this.ticket; this.lastError = e.message; this.ticket = null; this.emit(); return null; })
       .finally(() => { if (this.loading === p) this.loading = null; });
     this.loading = p;
@@ -97,6 +108,7 @@ export class LighterTaps {
       const o = t[kind];
       if (!o) throw new Error("Nothing open.");
       this.ticket = null; this.emit(); // spent: every order in the set shares its nonce
+      const idle = this.lastLighter ? Math.round(t0 - this.lastLighter) : -1;
       let hash: string, via: TapResult["via"] = "direct";
       try {
         hash = await this.send(t.url, o);
@@ -112,9 +124,10 @@ export class LighterTaps {
         }
       }
       const ms = Math.round(performance.now() - t0);
+      this.lastLighter = performance.now();
       this.floor = t.nonce + 1;
       void this.refresh({ nonce: t.nonce, kind });
-      return { hash, ms, via, waited, nonce: t.nonce, cap: o.cap, base: o.base };
+      return { hash, ms, via, waited, nonce: t.nonce, cap: o.cap, base: o.base, idle };
     } finally { this.tapping = false; }
   }
 
