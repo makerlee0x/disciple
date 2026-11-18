@@ -28,7 +28,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         SceneDelegateProxy.shared.scene(scene, continue: userActivity)
     }
 
-    // Long-press the app icon: Play now, Free play, Launch a coin, Trading Duel (Info.plist UIApplicationShortcutItems).
+    // Long-press the app icon: Play now, Daily mission, Launch, Duel (Info.plist UIApplicationShortcutItems).
     func windowScene(_ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem, completionHandler: @escaping (Bool) -> Void) {
         completionHandler(openShortcut(shortcutItem))
     }
