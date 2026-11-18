@@ -47,21 +47,37 @@ export function parseRelayDeposit(j: unknown): RelayDeposit {
   return { address: step.depositAddress, outUsd: out, feeUsd: Number.isFinite(fee) ? fee : null };
 }
 
-async function relayDeposit(wallet: string, recipient: string, usd: number): Promise<RelayDeposit> {
+type RelayLeg = { from: number; fromToken: string; to: number; toToken: string };
+const TO_TURBO: RelayLeg = { from: RH_CHAIN, fromToken: RH_USDG, to: ARBITRUM_ID, toToken: ARBITRUM_USDC };
+const TO_CASH: RelayLeg = { from: ARBITRUM_ID, fromToken: ARBITRUM_USDC, to: RH_CHAIN, toToken: RH_USDG };
+
+async function relayQuote(leg: RelayLeg, wallet: string, recipient: string, usd: number): Promise<RelayDeposit> {
   const res = await fetch(`${RELAY}/quote`, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({
       user: wallet, recipient, refundTo: wallet, useDepositAddress: true, tradeType: "EXACT_INPUT",
-      originChainId: RH_CHAIN, originCurrency: RH_USDG, destinationChainId: ARBITRUM_ID, destinationCurrency: ARBITRUM_USDC,
+      originChainId: leg.from, originCurrency: leg.fromToken, destinationChainId: leg.to, destinationCurrency: leg.toToken,
       amount: String(Math.round(usd * 1e6)),
     }),
     signal: AbortSignal.timeout(10_000),
   });
   const j = await res.json().catch(() => ({}));
   if (!res.ok) throw new LighterError(502, (j as { message?: string }).message || "The swap service didn't answer.");
-  const d = parseRelayDeposit(j);
+  return parseRelayDeposit(j);
+}
+
+async function relayDeposit(wallet: string, recipient: string, usd: number): Promise<RelayDeposit> {
+  const d = await relayQuote(TO_TURBO, wallet, recipient, usd);
   if (d.outUsd < LIGHTER_INTENT_MIN) throw new LighterError(400, `Add at least $${RELAY_MIN.toFixed(2)}.`);
   return d;
+}
+
+/** Lighter main -> Cash: a Relay deposit address on Arbitrum that turns `usd` of USDC into USDG in the wallet on
+ *  Robinhood Chain. Lighter's fast withdrawal pays it. Only once LIGHTER_PAYOUT_CHAIN=42161 says that's where the fast
+ *  withdrawal pays (Lighter's docs don't name the chain; checked with a test withdrawal to the player's own wallet). */
+export async function relayCashAddress(wallet: string, usd: number): Promise<RelayDeposit> {
+  if (process.env.LIGHTER_PAYOUT_CHAIN !== String(ARBITRUM_ID)) throw new LighterError(409, "Moving Turbo cash back isn't open yet.");
+  return relayQuote(TO_CASH, wallet, wallet, usd);
 }
 export const TESTNET_FAUCET = "https://testnet.app.lighter.xyz";
 

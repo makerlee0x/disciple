@@ -15,9 +15,19 @@ import type { LighterConfig } from "./config";
 import { getPlayer, putPlayer, open } from "./keys";
 import { account, assetDetails, fastWithdrawInfo, fastWithdraw, nextNonce, transferFee, LighterError } from "./rest";
 import { checked, signerFor } from "./signer";
+import { relayCashAddress } from "./bridge";
 
 /** Lighter's floor for transfers and withdrawals ("1 USDG or equivalent"); fast withdrawals of USDC need 4. */
 export const WITHDRAW_MIN = 1;
+/** Lighter main pays fast withdrawals in USDC: 4 minimum */
+export const WITHDRAW_MIN_USDC = 4;
+const minFor = (cfg: LighterConfig) => (cfg.payoutIsCash ? WITHDRAW_MIN : WITHDRAW_MIN_USDC);
+/**
+ * Where a withdrawal may go. Robinhood Chain exchange: straight to Cash. Lighter main: through Relay back to USDG
+ * (relayCashAddress, needs LIGHTER_PAYOUT_CHAIN), or `raw` to the player's own wallet: the test that shows which chain
+ * Lighter pays on. Never anywhere else.
+ */
+const canWithdraw = (cfg: LighterConfig) => cfg.payoutIsCash || cfg.network === "mainnet";
 const PENDING_MS = 10 * 60_000;
 
 /** memo: destination address (20 bytes) followed by 12 zero bytes, as 0x + 64 hex. Pure, tested. */
@@ -37,20 +47,26 @@ async function keyedPlayer(cfg: LighterConfig, pid: string) {
 
 /** What the player can move back now: free collateral (open positions hold margin), capped by the pool's limit. */
 export async function withdrawable(cfg: LighterConfig, pid: string): Promise<{ usd: number; fee: number; min: number }> {
-  if (!cfg.payoutIsCash) throw new LighterError(409, "Moving Turbo cash back isn't open yet.");
+  if (!canWithdraw(cfg)) throw new LighterError(409, "Moving Turbo cash back isn't open yet.");
   const { p, auth } = await keyedPlayer(cfg, pid);
   const [a, info] = await Promise.all([account(cfg, p.account), fastWithdrawInfo(cfg, p.account, auth)]);
   const fee = await transferFee(cfg, p.account, info.to_account_index, auth);
   const free = Number(a?.available_balance ?? 0);
   const cap = Math.min(Number(info.max_withdrawal_amount ?? Infinity), Number(info.withdraw_limit ?? Infinity));
   const feeUsd = fee / 1e6;
-  return { usd: Math.max(0, Math.min(free - feeUsd, Number.isFinite(cap) ? cap : free)), fee: feeUsd, min: WITHDRAW_MIN };
+  return { usd: Math.max(0, Math.min(free - feeUsd, Number.isFinite(cap) ? cap : free)), fee: feeUsd, min: minFor(cfg) };
 }
 
 /** Step 1: sign the transfer to the fast-withdraw pool and hand back the message the player's wallet signs. */
-export async function startWithdraw(cfg: LighterConfig, pid: string, usd: number, to: string): Promise<{ message: string; usd: number; fee: number }> {
-  if (!cfg.payoutIsCash) throw new LighterError(409, "Moving Turbo cash back isn't open yet.");
-  if (!(usd >= WITHDRAW_MIN)) throw new LighterError(400, `Move at least $${WITHDRAW_MIN}.`);
+export async function startWithdraw(cfg: LighterConfig, pid: string, usd: number, to: string, raw = false): Promise<{ message: string; usd: number; fee: number }> {
+  if (!canWithdraw(cfg)) throw new LighterError(409, "Moving Turbo cash back isn't open yet.");
+  const min = minFor(cfg);
+  if (!(usd >= min)) throw new LighterError(400, `Move at least $${min}.`);
+  if (!cfg.payoutIsCash) {
+    // Lighter main pays USDC: raw = the player's own wallet only (test), else Relay's address back to USDG in Cash
+    if (raw) { if (to.toLowerCase() !== pid.toLowerCase()) throw new LighterError(400, "Bad address."); }
+    else to = (await relayCashAddress(pid, usd)).address;
+  }
   const memo = withdrawMemo(to);
   const { p, w, auth } = await keyedPlayer(cfg, pid);
   const [info, assets, a] = await Promise.all([fastWithdrawInfo(cfg, p.account, auth), assetDetails(cfg), account(cfg, p.account)]);

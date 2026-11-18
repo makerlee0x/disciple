@@ -120,6 +120,7 @@ export default function LighterTest() {
         <button className={btn} disabled={busy || step !== "ready"} onClick={() => void run("withdraw info", () => lighterWithdrawInfo(f))}>Can withdraw?</button>
         <button className={btn} disabled={busy || !st?.account} onClick={() => void run("tier", async () => { const r = await f("/api/lighter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op: "tier-info" }) }); return r.json(); })}>Tier?</button>
         <button className={btn} disabled={busy || step !== "ready" || !wallet} onClick={() => void run(`withdraw $${back} to ${wallet}`, () => lighterWithdraw(f, back, wallet!, sign))}>Withdraw to wallet</button>
+        <button className={btn} disabled={busy || step !== "ready" || !wallet} onClick={() => void run(`raw withdraw $4 USDC to ${wallet}`, () => lighterWithdraw(f, 4, wallet!, sign, true))}>Raw $4 (main)</button>
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <select className="rounded-lg border border-white/25 bg-black px-2 py-2" value={market} onChange={(e) => setMarket(e.target.value as typeof market)}>
