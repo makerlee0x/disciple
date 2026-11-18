@@ -11,7 +11,7 @@ import { useEffect, useRef } from "react";
 import { getTurboAdapter } from "@/lib/turbo";
 import { getGameRadio } from "@/lib/game/radio";
 import { useTurboMusic } from "@/lib/game/turboMusic";
-import { CLIMB_FEE, CLIMB_FEE_LABEL, CLIMB_LEVELS, CLIMB_MAX_GEAR, CLIMB_RUN_MS, unlockAfter, unlockAfterTest } from "@/lib/climb/rules";
+import { CLIMB_FEE, CLIMB_FEE_LABEL, CLIMB_LEVELS, CLIMB_MAX_GEAR, climbLevelsFor, CLIMB_RUN_MS, unlockAfter, unlockAfterTest } from "@/lib/climb/rules";
 import { readClimbLevel, saveClimbLevel } from "@/lib/climb/progress";
 import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "@/components/turbo/duel/engineLoader";
 import { PCTS, pctUsd } from "@/lib/duel/rules";
@@ -19,7 +19,7 @@ import { LighterMatch, lighterFetcher, lighterWanted, type MatchAction } from "@
 import { onWallet } from "@/lib/walletState";
 
 type Tick = { ts: number; p: number };
-interface EngineApi { price(p: number, ts: number): void; error?(t: string): void; destroy(): void }
+interface EngineApi { price(p: number, ts: number): void; error?(t: string): void; climbRefresh?(): void; destroy(): void }
 /** the buzzer's longest clock (app/api/lighter arm): free mode has none, so its position closes then */
 const LIGHTER_ARM_MAX = 270_000;
 
@@ -29,6 +29,13 @@ export default function ClimbScreen() {
   useEffect(() => {
     let dead = false, api: EngineApi | null = null;
     const hist: Tick[] = [];
+    // levels scale with the pilot's Turbo balance (lib/climb/rules climbLevelsFor). The engine holds this array, so it
+    // is updated in place and the levels screen redrawn when the balance moves.
+    const levels = [...CLIMB_LEVELS];
+    const setBalance = (usd: number) => { levels.splice(0, levels.length, ...climbLevelsFor(usd)); api?.climbRefresh?.(); };
+    const ad = getTurboAdapter();
+    void ad.getFuel().then((f) => { if (!dead) setBalance(f.usd); }).catch(() => {});
+    const offFuel = ad.onFuel((f) => setBalance(f.usd));
     const stopPrice = getTurboAdapter().subscribePrice("BTC", (t) => {
       const ts = t.ts || Date.now(); hist.push({ ts, p: t.price });
       while (hist.length && hist[0].ts < ts - 90_000) hist.shift();
@@ -66,11 +73,11 @@ export default function ClimbScreen() {
       signIn: () => {},
       mute: (m: boolean) => { try { const r = getGameRadio(); if (m) r.pause(); else r.clearPause(); } catch { /* no radio */ } },
       climb: {
-        levels: CLIMB_LEVELS, maxGear: CLIMB_MAX_GEAR, runMs: CLIMB_RUN_MS, fee: CLIMB_FEE, feeLabel: CLIMB_FEE_LABEL,
+        levels, maxGear: CLIMB_MAX_GEAR, runMs: CLIMB_RUN_MS, fee: CLIMB_FEE, feeLabel: CLIMB_FEE_LABEL,
         real: false, back: "/", lighter,
         state: () => ({ unlocked: readClimbLevel() }),
         finish: ({ level, pnl, test }: { level: number; pnl: number; test?: boolean }) => {
-          const u = readClimbLevel(), to = test ? unlockAfterTest(u, level, pnl) : unlockAfter(u, level, pnl);
+          const u = readClimbLevel(), to = test ? unlockAfterTest(u, level, pnl, levels) : unlockAfter(u, level, pnl, levels);
           if (to > u) saveClimbLevel(to);
           return { unlocked: Math.max(u, to) };
         },
@@ -83,7 +90,7 @@ export default function ClimbScreen() {
       if (dead || !ref.current || !w.DuelEngine) return;
       api = w.DuelEngine.mount(ref.current, host);
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load Climb. Refresh to try again."; });
-    return () => { dead = true; stopPrice(); offWallet(); api?.destroy(); };
+    return () => { dead = true; stopPrice(); offWallet(); offFuel(); api?.destroy(); };
   }, []);
   return <div ref={ref} />;
 }

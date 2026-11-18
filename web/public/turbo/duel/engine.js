@@ -154,7 +154,7 @@ function mount(root,host){
   function newPlayer(name,me){return {name,me,fuel:FUEL0,pos:null,fees:0,trades:0,up:0,dn:0,green:0,best:0,y:0,vy:0,flame:0,flameC:"255,200,120",sq:0,lastTrade:-1e9,next:0,moments:[]};}
   function newGame(){
     optim=0;
-    FUEL0=curFuel(); LEV=CLR?CLR.gear:DUEL_LEV; FEE=CLR?CL.fee:DUEL_FEE; SIZES=PCTS; if(!SIZES.includes(stake)) stake=25; paintSizes(); resizeK();
+    FUEL0=curFuel(); LEV=CLR?CLR.gear:DUEL_LEV; FEE=CLR?CL.fee:DUEL_FEE; SIZES=PCTS; if(CLR&&CLR.free) stake=cPct>=100?0:cPct; else if(!SIZES.includes(stake)) stake=25; paintSizes(); resizeK();
     const startAt=M&&M.startAt||Date.now()+3500, h=host.history();
     G={t:now_()-startAt,startAt,solo:!!CLR,len:CLR?CLR.len:(M&&M.endAt?M.endAt-startAt:LEN),ot:false,over:false,price:h.length?h[h.length-1].p:0,ticks:[],marks:[],
        me:newPlayer("you",true),bot:CLR?null:newPlayer(M&&M.opp?M.opp.name:BOTS[botKey].name,false),   // Climb flies alone (maker 2026-11-18: "there is no rival in this mode")
@@ -224,7 +224,7 @@ function mount(root,host){
 
   /* player actions */
   // trade size = a share of the duel fuel you have left (maker 2026-11-17, like Sell % in live flight); 0 = ALL
-  const PCTS=[10,25,50,0]; let stake=25, SIZES=PCTS;
+  const PCTS=[10,25,50,0]; let stake=25, SIZES=PCTS, cPct=25;   // cPct: Climb free mode's size slider, 1-100%
   const pctUsd=(pc,f)=>pc===0?f:Math.floor(f*pc)/100;   // whole cents, rounded down
   const stakeUsd=()=>pctUsd(stake,G&&G.me?G.me.fuel:FUEL0);   // open() keeps the fee back
   /* custom budgets (friend duels): same rule as lib/duel/rules sizesFor. Sizes = half the budget on a 1-2-5 step, then three steps down. */
@@ -237,7 +237,9 @@ function mount(root,host){
   function curFuel(){ if(CLR) return CLR.fuel; return M&&M.fuel&&okBud(M.fuel)?M.fuel:TIERS[botKey].fuel; }
   function curSizes(){ return M&&M.fuel&&okBud(M.fuel)?sizesFor(M.fuel):TIERS[botKey].sizes; }
   function paintSizes(){ const f=G&&G.me?G.me.fuel:FUEL0; document.querySelectorAll(".size button").forEach(b=>{const v=SIZES[+b.dataset.i]; if(v==null){ b.hidden=true; return; } const d=pctUsd(v,f);
-    b.innerHTML=(v===0?"ALL":v+"%")+`<span class="u">${d>=1?"$"+(d>=10?Math.floor(d):d.toFixed(2).replace(/\.00$/,"")):"\u2013"}</span>`; b.classList.toggle("on",v===stake); b.classList.toggle("lo",d<1);}); }
+    b.innerHTML=(v===0?"ALL":v+"%")+`<span class="u">${d>=1?"$"+(d>=10?Math.floor(d):d.toFixed(2).replace(/\.00$/,"")):"\u2013"}</span>`; b.classList.toggle("on",v===stake); b.classList.toggle("lo",d<1);});
+    const sl=$("cSlI"); if(sl&&CLR&&CLR.free){ const pc=stake===0?100:stake, d=pctUsd(stake,f); if(+sl.value!==pc) sl.value=pc; sl.style.setProperty("--p",pc+"%");
+      $("cSlV").innerHTML=`${pc}%<span class="u">${d>=1?"$"+(d>=10?Math.floor(d):d.toFixed(2)):"\u2013"}</span>`; } }
   function act(kind){
     if(!G||!G.started||G.over) return;
     if(!(G.price>0)){ toast("Waiting for the live BTC price\u2026"); return; }
@@ -275,7 +277,7 @@ function mount(root,host){
   function fillLater(fn){ filling=true; setTimeout(()=>{ filling=false; if(!G||!G.started||G.over) return; fn(); ui(); if(CLR&&CL.lighter) CL.lighter.fuel(G.me.fuel); },FILL_MS); }
   // Climb on Lighter (host.climb.lighter, hidden flag): the press goes out as a real order at the tap
   function clx(action,fuelAfter){ if(!CLR||!CL||!CL.lighter) return;
-    CL.lighter.press(action,SIZES.indexOf(stake),fuelAfter).then(r=>{ if(r&&r.error) toast(r.error); }); }
+    CL.lighter.press(action,SIZES.indexOf(stake)>=0?SIZES.indexOf(stake):(stake===0?3:stake>=38?2:stake>=18?1:0),fuelAfter).then(r=>{ if(r&&r.error) toast(r.error); }); }
 
   /* ---------- live duel: server events ---------- */
   function setBook(pl,b){ pl.fuel=b.fuel; pl.pos=b.pos?Object.assign({},b.pos):null; pl.fees=b.fees; pl.trades=b.trades; pl.green=b.green; pl.best=b.best; }
@@ -369,7 +371,7 @@ function mount(root,host){
       $("bOutS").textContent=`TAP TO CASH OUT ${usd(back)}`;
       el.classList.toggle("up",pnl>=0); el.classList.toggle("dn",pnl<0); el.disabled=false;
     } else {
-      $("posLab").textContent="DUEL FUEL"; $("posV").textContent=usd(me.fuel); $("pnlP").hidden=true;
+      $("posLab").textContent=G.solo?"FUEL":"DUEL FUEL"; $("posV").textContent=usd(me.fuel); $("pnlP").hidden=true;
       $("bOutS").textContent=""; el.classList.remove("up","dn"); el.disabled=true;
     }
     const lb=pos&&pos.side<0, ld=pos&&pos.side>0;
@@ -1169,7 +1171,13 @@ function mount(root,host){
      Five levels you keep. Each is a fuel, a gear and a $ goal in 60 s. Hit the goal once and the next level unlocks; beat a
      higher level's $ goal and you jump to it. After level 5 is free mode: any fuel, up to 50x, no clock. Levels and
      the unlock rule live in lib/climb/rules.ts (host.climb); this block only draws and flies. */
-  const CLIMB_CSS=".duel-root.climb #slotR,.duel-root.climb #aVs,.duel-root.climb #aRadar,.duel-root.climb .steps,.duel-root.climb #chatB,.duel-root.climb #chat,.duel-root.climb #vMeR,.duel-root.climb .arena .tag.me{display:none!important}"
+  const CLIMB_CSS=".duel-root .cslide{display:none}.duel-root.cfree .size.pct>button{display:none}"
+    +".duel-root.cfree .cslide{display:flex;flex:1;align-items:center;gap:14px;padding:0 6px}"
+    +".duel-root .cslide input{flex:1;-webkit-appearance:none;appearance:none;height:8px;border-radius:99px;background:linear-gradient(90deg,var(--gold) var(--p,25%),rgba(255,255,255,.14) var(--p,25%));outline:none}"
+    +".duel-root .cslide input::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:var(--gold);border:3px solid #121327;box-shadow:0 0 0 2px var(--gold);cursor:pointer}"
+    +".duel-root .cslide input::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:var(--gold);border:3px solid #121327;cursor:pointer}"
+    +".duel-root .cslide b{min-width:64px;text-align:right;font:800 20px/1 var(--f-game);color:var(--text);display:flex;flex-direction:column;align-items:flex-end;gap:2px}.duel-root .cslide b .u{font:600 11px/1 var(--f-ui,sans-serif);color:var(--muted)}"
+    +".duel-root.climb #slotR,.duel-root.climb #aVs,.duel-root.climb #aRadar,.duel-root.climb .steps,.duel-root.climb #chatB,.duel-root.climb #chat,.duel-root.climb #vMeR,.duel-root.climb .arena .tag.me{display:none!important}"
     +".duel-root .land{width:auto;padding:0 12px;font:800 16px/1 var(--f-game);letter-spacing:1px;color:var(--text)}"
     +".duel-root .choices.ladder{gap:6px}.duel-root .choices.ladder .choice{min-height:0;padding-top:8px;padding-bottom:8px}"
     +".duel-root .choice.lock .ci,.duel-root .choice.lock .ct{opacity:.5}.duel-root .choice.done .ci{color:var(--green)}"
@@ -1185,8 +1193,8 @@ function mount(root,host){
   const gx=g=>g+"×", m2=v=>"$"+(v>=1000?v.toLocaleString("en-US"):v%1?v.toFixed(2):String(v));
   const LVS=CL?CL.levels:[], FREE=LVS.length+1, MAXG=CL?CL.maxGear:50;
   const lvl=n=>LVS.find(l=>l.n===n)||null;
-  const pctOf=l=>"+"+(Math.round(l.goal/l.fuel*1000)/10)+"%";
-  let cFree={fuel:LVS.length?LVS[LVS.length-1].fuel:100,gear:MAXG};
+  const pctOf=l=>"+"+(l.pct!=null?l.pct:Math.round(l.goal/l.fuel*1000)/10)+"%";
+  let cFree={fuel:LVS.length?LVS[LVS.length-1].fuel:100,gear:MAXG}, cFreeSet=false;
   function climbChip(){ const u=CL.state().unlocked, l=lvl(u);
     $("lRat").textContent=u>=FREE?"FREE":"LVL "+u; $("lRec").textContent=l?`${m2(l.fuel)} · ${gx(l.gear)}`:`${gx(MAXG)} MAX`; }
   function climbHome(){ if(CLR&&CL.lighter) CL.lighter.end(); M=null; CLR=null; show("climb"); climbChip();
@@ -1213,7 +1221,7 @@ function mount(root,host){
       +`<div class="opts" role="group" aria-label="Gear"><span>GEAR</span>${gears.map(g=>opt("gear",g,gx(g)+`<small class="ob">NUKE −${Math.round(LIQ/g*1000)/10}%</small>`)).join("")}</div>`
       +`<div class="choices"><button class="choice main" type="button" id="cFly"><i class="ci">${ICO.bolt}</i><span class="ct"><b>FLY · ${gx(cFree.gear)}</b><small>${m2(cFree.fuel)} fuel · no clock</small></span>${ICO.go}</button></div>`
       +`<button class="sec wide" type="button" id="cBack" style="margin-top:8px">LEVELS</button>`;
-    $("cres").querySelectorAll("[data-fuel],[data-gear]").forEach(b=>b.addEventListener("click",()=>{ if(b.dataset.fuel) cFree.fuel=+b.dataset.fuel; if(b.dataset.gear) cFree.gear=+b.dataset.gear; climbFreeSetup(); }));
+    $("cres").querySelectorAll("[data-fuel],[data-gear]").forEach(b=>b.addEventListener("click",()=>{ if(b.dataset.fuel){ cFree.fuel=+b.dataset.fuel; cFreeSet=true; } if(b.dataset.gear) cFree.gear=+b.dataset.gear; climbFreeSetup(); }));
     $("cBack").addEventListener("click",climbHome);
     $("cFly").addEventListener("click",()=>climbPlay(FREE)); }
   function climbPlay(n,test){ const l=lvl(n), free=n>=FREE;
@@ -1227,7 +1235,12 @@ function mount(root,host){
     const who=$("meN").parentElement; who.innerHTML=(CLR.free?"FREE · ":`LEVEL ${CLR.level} · ${m2(CLR.fuel)} · `)+`<span id="meN" style="color:var(--gold)">${gx(CLR.gear)}</span>`;
     const nx=lvl(CLR.level+1); $("botLab").innerHTML=(CLR.free?"FUEL":"TO GOAL")+'<span id="botN"></span>';
     $("botP").textContent=CLR.free?m2(CLR.fuel):"0%"; $("botP").style.color="var(--gold)";
-    $("landB").hidden=!CLR.free; }
+    $("landB").hidden=!CLR.free;
+    // free mode: one slider, 1-100% of the fuel you have left, instead of the 10/25/50/ALL buttons (maker 2026-11-18)
+    root.classList.toggle("cfree",!!CLR.free);
+    if(CLR.free&&!$("cSlI")){ const g=root.querySelector(".size.pct"); if(g){ g.insertAdjacentHTML("beforeend",'<label class="cslide"><input id="cSlI" type="range" min="1" max="100" step="1" aria-label="Position size, % of fuel"><b id="cSlV"></b></label>');
+      $("cSlI").addEventListener("input",e=>{ cPct=+e.target.value; setStake(cPct>=100?0:cPct); }); } }
+    if(CLR.free) stake=cPct>=100?0:cPct; paintSizes(); }
   function soloUi(){ const p=profitOf(G.me), li=$("leadI");
     // top right: how far to this level's goal (maker 2026-11-18), green once you're past it
     if(CLR.free){ $("botP").textContent=m2(CLR.fuel); $("botP").style.color="var(--gold)"; }
@@ -1358,6 +1371,7 @@ function mount(root,host){
     error:(t)=>{ if(!$("intro").hidden) lerr(t); else toast(t); if(!$("search").hidden||!$("invite").hidden){ show("intro"); lerr(t); } if(!$("result").hidden){ $("rAgain").disabled=false; $("rAgain").textContent="REMATCH"; } },
     toLobby:()=>{ M=null; show("intro"); },
     firstCrate:(d)=>firstCrate(d),
+    climbRefresh:()=>{ if(!CL) return; if(!cFreeSet&&LVS.length) cFree.fuel=LVS[LVS.length-1].fuel; if(!$("climb").hidden) climbHome(); },
     _state:()=>G,
     destroy:()=>{ dead=true; if(CL&&CL.lighter) CL.lighter.end(); offs.forEach(f=>f()); removeEventListener("storage",onStore); removeEventListener("disciple:audio",onLvl); try{ if(ac) ac.close(); }catch(e){} root.innerHTML=""; root.classList.remove("duel-root"); },
   };
