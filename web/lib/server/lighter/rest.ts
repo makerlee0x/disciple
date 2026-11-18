@@ -1,7 +1,12 @@
 import "server-only";
 /** Lighter REST calls Disciple needs (shapes from Lighter's OpenAPI models, lighter-sdk 1.1.8). */
 import { getAddress } from "viem";
+import { Agent, fetch as ufetch } from "undici";
 import type { LighterConfig } from "./config";
+
+/** One pooled, long-lived connection set to Lighter. Node's default drops idle sockets after 4 s, so taps a few seconds
+ *  apart paid a fresh TCP + TLS handshake (~300 ms) each time. */
+const pool = new Agent({ keepAliveTimeout: 60_000, keepAliveMaxTimeout: 10 * 60_000, connections: 32 });
 
 export class LighterError extends Error {
   constructor(public status: number, message: string, public code?: number) { super(message); }
@@ -9,7 +14,8 @@ export class LighterError extends Error {
 
 type Resp = { code?: number; message?: string };
 async function call<T extends Resp>(cfg: LighterConfig, p: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(cfg.url + p, { ...init, cache: "no-store", signal: AbortSignal.timeout(8000) });
+  const res = await ufetch(cfg.url + p, { method: init?.method, headers: init?.headers as Record<string, string> | undefined,
+    body: init?.body as string | URLSearchParams | undefined, dispatcher: pool, signal: AbortSignal.timeout(8000) });
   const j = (await res.json().catch(() => ({}))) as T;
   // Lighter answers code 200 on success; anything else carries a message
   if (!res.ok || (j.code !== undefined && j.code !== 200)) throw new LighterError(res.status || 502, j.message || `Lighter ${p} ${res.status}`, j.code);

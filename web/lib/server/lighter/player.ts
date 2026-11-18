@@ -15,7 +15,7 @@ import { recoverMessageAddress, type Hex } from "viem";
 import { clientOrderIndex, baseAmountFor, levFraction, worstPrice } from "@/lib/lighter/math";
 import { LIGHTER_MARKETS, type LighterConfig, type LighterMarket } from "./config";
 import { getPlayer, putPlayer, seal, open, type LighterPlayer } from "./keys";
-import { account, accountIndexOf, book, fillFrom, midOf, changeTier, marketBySymbol, nextNonce, sendTx, LighterError, type LighterPosition } from "./rest";
+import { account, accountIndexOf, book, fillFrom, midOf, type Book, changeTier, marketBySymbol, nextNonce, sendTx, LighterError, type LighterPosition } from "./rest";
 import { checked, signer, signerFor } from "./signer";
 
 export type Step = "deposit" | "key" | "tier" | "approve" | "ready";
@@ -97,14 +97,16 @@ export async function startApprove(cfg: LighterConfig, pid: string): Promise<{ m
 
 /** Per-instance hot cache so a tap costs one signed send: the player's record, their nonce counter. Lighter rejects a
  *  wrong nonce, so on any send error we drop the counter and the next tap re-reads it. */
-const hot = new Map<string, { p: LighterPlayer; at: number; nonce?: number }>();
+type Hot = { p: LighterPlayer; at: number; nonce?: number; pos?: Record<number, { sign: number; base: number; at: number }> };
+const hot = new Map<string, Hot>();
 const HOT_MS = 10 * 60_000;
 function forget(cfg: LighterConfig, pid: string) { hot.delete(`${cfg.network}:${pid}`); }
 /** Loads the player, signer, key and market list into this instance ahead of a duel, so the first tap is warm. */
 export async function warm(cfg: LighterConfig, pid: string) {
-  const [h] = await Promise.all([hotPlayer(cfg, pid), marketBySymbol(cfg, "BTC").catch(() => null)]);
+  const [h, mk] = await Promise.all([hotPlayer(cfg, pid), marketBySymbol(cfg, "BTC").catch(() => null)]);
   await signerFor(keyOf(cfg, h.p), cfg.chainId, h.p.keyIndex, h.p.account);
-  if (h.nonce == null) await takeNonce(cfg, h, 0);
+  // also keeps the pooled connection to Lighter open; a duel calls this every few seconds as a heartbeat
+  await Promise.all([h.nonce == null ? takeNonce(cfg, h, 0) : null, mk ? refreshBook(cfg, mk.market_id).catch(() => null) : null]);
 }
 async function hotPlayer(cfg: LighterConfig, pid: string) {
   const k = `${cfg.network}:${pid}`;
@@ -115,7 +117,7 @@ async function hotPlayer(cfg: LighterConfig, pid: string) {
   const fresh = { p, at: Date.now() };
   hot.set(k, fresh);
   if (hot.size > 2000) hot.delete(hot.keys().next().value as string);
-  return fresh as { p: LighterPlayer; at: number; nonce?: number };
+  return fresh as Hot;
 }
 const privKeys = new Map<string, string>();
 function keyOf(cfg: LighterConfig, p: LighterPlayer) {
@@ -132,8 +134,39 @@ async function send(cfg: LighterConfig, h: { nonce?: number }, txType: number, t
 export type Timings = Record<string, number>;
 const lap = (t: Timings, k: string, t0: number) => { t[k] = Math.round(performance.now() - t0); };
 
-/** Market order for $ fuel × leverage. One parallel read (book + nonce, both skipped when warm except the book), then
- *  one signed send. Sets the market's leverage on Lighter first, once per player per market. */
+/** Last order book per market in this instance. A tap prices off a book under BOOK_MS old and refreshes it alongside
+ *  its send, so the hot path is one round trip; the duel's heartbeat (warm) keeps it fresh between taps. */
+const books = new Map<string, { b: Book; at: number }>();
+const BOOK_MS = 5_000;
+async function bookFor(cfg: LighterConfig, marketId: number, t: Timings) {
+  const k = `${cfg.network}:${marketId}`;
+  const c = books.get(k);
+  if (c && Date.now() - c.at < BOOK_MS) { t.book = 0; return c.b; }
+  const t0 = performance.now();
+  const b = await refreshBook(cfg, marketId);
+  lap(t, "book", t0);
+  return b;
+}
+async function refreshBook(cfg: LighterConfig, marketId: number) {
+  const b = await book(cfg, marketId);
+  books.set(`${cfg.network}:${marketId}`, { b, at: Date.now() });
+  return b;
+}
+/** Sends a signed tx; on a nonce clash (another server instance moved it) re-reads the nonce, re-signs once, resends. */
+async function sendSigned(cfg: LighterConfig, h: { p: LighterPlayer; nonce?: number }, sign: (n: number) => { txType: number; txInfo: string }, n: number) {
+  const r = sign(n);
+  try { return await sendTx(cfg, r.txType, r.txInfo); }
+  catch (e) {
+    h.nonce = undefined;
+    if (!(e instanceof LighterError) || !/nonce/i.test(e.message)) throw e;
+    const n2 = await takeNonce(cfg, h);
+    const r2 = sign(n2);
+    return await sendTx(cfg, r2.txType, r2.txInfo);
+  }
+}
+
+/** Market order for $ fuel × leverage: warm, it's one signed send (book and nonce come from this instance's cache).
+ *  Sets the market's leverage on Lighter first, once per player per market. */
 export async function openMarket(cfg: LighterConfig, pid: string, m: LighterMarket, side: "long" | "short", fuelUsd: number) {
   const t: Timings = {}; const t0 = performance.now();
   const { symbol, lev } = LIGHTER_MARKETS[m];
@@ -141,7 +174,7 @@ export async function openMarket(cfg: LighterConfig, pid: string, m: LighterMark
   const p = h.p;
   const w = await signerFor(keyOf(cfg, p), cfg.chainId, p.keyIndex, p.account);
   const needLev = p.lev?.[mk.market_id] !== lev;
-  const [b, n0] = await Promise.all([book(cfg, mk.market_id), takeNonce(cfg, h, needLev ? 2 : 1)]);
+  const [b, n0] = await Promise.all([bookFor(cfg, mk.market_id, t), takeNonce(cfg, h, needLev ? 2 : 1)]);
   lap(t, "read", t0);
   let n = n0;
   if (needLev) {
@@ -158,32 +191,49 @@ export async function openMarket(cfg: LighterConfig, pid: string, m: LighterMark
   const fill = fillFrom(b, isAsk, base, mk.size_decimals);
   if (fill == null) throw new LighterError(409, "Not enough on Lighter's book for that size.");
   const fee = p.approvedFee && cfg.partnerFee ? cfg.partnerFee : 0;
-  const r = checked(w.SignCreateOrder(mk.market_id, clientOrderIndex(), base, worstPrice(fill, isAsk, cfg.slippage, mk.price_decimals), isAsk ? 1 : 0,
-    1 /* market */, 0 /* IOC */, 0, 0, 0, fee ? cfg.integratorIndex : 0, fee, 0, 0, 0, 0, n, p.keyIndex, p.account));
+  const cap = worstPrice(fill, isAsk, cfg.slippage, mk.price_decimals);
   const t1 = performance.now();
-  const hash = await send(cfg, h, r.txType, r.txInfo);
+  const [hash] = await Promise.all([
+    sendSigned(cfg, h, (nn) => checked(w.SignCreateOrder(mk.market_id, clientOrderIndex(), base, cap, isAsk ? 1 : 0,
+      1 /* market */, 0 /* IOC */, 0, 0, 0, fee ? cfg.integratorIndex : 0, fee, 0, 0, 0, 0, nn, p.keyIndex, p.account)), n),
+    refreshBook(cfg, mk.market_id).catch(() => null), // for the next tap; runs alongside the send
+  ]);
   lap(t, "send", t1); lap(t, "server", t0);
+  // what this instance believes is open, so a close needn't read the account first
+  const pos = h.pos?.[mk.market_id];
+  const signed = (pos ? pos.sign * pos.base : 0) + (isAsk ? -base : base);
+  h.pos = { ...(h.pos ?? {}), [mk.market_id]: { sign: Math.sign(signed) || 1, base: Math.abs(signed), at: Date.now() } };
   return { hash, market: mk.market_id, base, price: ref, fill, lev, ms: t };
 }
 
-/** Closes the whole position on a market (reduce-only market order): position, book and nonce read in parallel. */
+/** Closes the whole position on a market (reduce-only market order). Uses this instance's record of the open when it
+ *  has one (reduce-only means Lighter never flips us if it's off), else reads the account. */
 export async function closeMarket(cfg: LighterConfig, pid: string, m: LighterMarket) {
   const t: Timings = {}; const t0 = performance.now();
   const [h, mk] = await Promise.all([hotPlayer(cfg, pid), marketBySymbol(cfg, LIGHTER_MARKETS[m].symbol)]);
   const p = h.p;
   const w = await signerFor(keyOf(cfg, p), cfg.chainId, p.keyIndex, p.account);
-  const [a, b, n] = await Promise.all([account(cfg, p.account), book(cfg, mk.market_id), takeNonce(cfg, h)]);
+  const known = h.pos?.[mk.market_id];
+  const [pos, b, n] = await Promise.all([
+    known && known.base > 0 && Date.now() - known.at < HOT_MS ? Promise.resolve(known)
+      : account(cfg, p.account).then((a) => {
+        const x = a?.positions.find((q) => q.market_id === mk.market_id && Number(q.position) !== 0);
+        return x ? { sign: x.sign, base: Math.round(Math.abs(Number(x.position)) * 10 ** mk.size_decimals), at: Date.now() } : null;
+      }),
+    bookFor(cfg, mk.market_id, t), takeNonce(cfg, h)]);
   lap(t, "read", t0);
-  const pos = a?.positions.find((x) => x.market_id === mk.market_id && Number(x.position) !== 0);
   if (!pos) { h.nonce = undefined; throw new LighterError(409, "Nothing open."); }
   const isAsk = pos.sign > 0; // close a long by selling
-  const base = Math.round(Math.abs(Number(pos.position)) * 10 ** mk.size_decimals);
-  const fill = fillFrom(b, isAsk, base, mk.size_decimals) ?? midOf(b);
+  const fill = fillFrom(b, isAsk, pos.base, mk.size_decimals) ?? midOf(b);
   const fee = p.approvedFee && cfg.partnerFee ? cfg.partnerFee : 0;
-  const r = checked(w.SignCreateOrder(mk.market_id, clientOrderIndex(), base, worstPrice(fill, isAsk, cfg.slippage, mk.price_decimals), isAsk ? 1 : 0,
-    1, 0, 1 /* reduce only */, 0, 0, fee ? cfg.integratorIndex : 0, fee, 0, 0, 0, 0, n, p.keyIndex, p.account));
+  const cap = worstPrice(fill, isAsk, cfg.slippage, mk.price_decimals);
   const t1 = performance.now();
-  const hash = await send(cfg, h, r.txType, r.txInfo);
+  const [hash] = await Promise.all([
+    sendSigned(cfg, h, (nn) => checked(w.SignCreateOrder(mk.market_id, clientOrderIndex(), pos.base, cap, isAsk ? 1 : 0,
+      1, 0, 1 /* reduce only */, 0, 0, fee ? cfg.integratorIndex : 0, fee, 0, 0, 0, 0, nn, p.keyIndex, p.account)), n),
+    refreshBook(cfg, mk.market_id).catch(() => null),
+  ]);
   lap(t, "send", t1); lap(t, "server", t0);
-  return { hash, market: mk.market_id, base, price: fill, ms: t };
+  if (h.pos) delete h.pos[mk.market_id];
+  return { hash, market: mk.market_id, base: pos.base, price: fill, ms: t };
 }

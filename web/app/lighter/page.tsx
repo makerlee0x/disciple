@@ -13,6 +13,13 @@ import { lighterClose, lighterOpen, lighterSetUp, lighterStatus, type LighterSte
 type Status = Awaited<ReturnType<typeof lighterStatus>> & { collateral?: string; positions?: { symbol?: string; position?: string; sign?: number }[]; lookup?: string[] };
 const MARKETS = ["BTC", "ETH", "SOL", "HYPE"] as const;
 
+// Privy's getAccessToken can take 100-300 ms; a token stays valid far longer than a duel, so reuse it for 30 s
+let tok: { t: string; at: number } | null = null;
+async function cachedToken() {
+  if (tok && Date.now() - tok.at < 30_000) return tok.t;
+  const t = await privyAccessToken(); if (t) tok = { t, at: Date.now() }; return t;
+}
+
 export default function LighterTest() {
   const [wallet, setWallet] = useState<string | null>(null);
   const [st, setSt] = useState<Status | null>(null);
@@ -31,7 +38,7 @@ export default function LighterTest() {
   }, []);
 
   const f = useCallback(async (input: string, init?: RequestInit) => {
-    const t = await privyAccessToken();
+    const t = await cachedToken();
     if (!t || !wallet) throw new Error("Sign in first.");
     return fetch(withBase(input), { ...init, cache: "no-store", headers: { ...((init?.headers as Record<string, string>) ?? {}), authorization: `Bearer ${t}`, "x-wallet": wallet } });
   }, [wallet]);
@@ -40,8 +47,12 @@ export default function LighterTest() {
     try { setSt((await lighterStatus(f)) as Status); } catch (e) { say(`status: ${(e as Error).message}`); }
   }, [f]);
   useEffect(() => { if (wallet) void refresh(); }, [wallet, refresh]);
-  // load the player's key, signer and market into the server before the first tap (a duel does this in its lobby)
-  useEffect(() => { if (st?.step === "ready") void f("/api/lighter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op: "warm" }) }).catch(() => {}); }, [st?.step, f]);
+  // load the player's key, signer, market and book into the server, then keep it warm (a duel does this from its lobby)
+  useEffect(() => {
+    if (st?.step !== "ready") return;
+    const ping = () => void f("/api/lighter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op: "warm" }) }).catch(() => {});
+    ping(); const id = setInterval(ping, 4000); return () => clearInterval(id);
+  }, [st?.step, f]);
 
   const run = async (label: string, fn: () => Promise<unknown>) => {
     setBusy(true);
