@@ -2,8 +2,7 @@
  * Climb: solo Turbo (maker 2026-11-17/18). Five levels you keep. Each level is a fuel, a gear and a $ goal to hit
  * inside one 60 s run. Hit the goal once and the next level unlocks. Beat a higher level's $ goal and you jump to that
  * level ("on dollars", maker). After level 5 is free mode: any level's fuel, any gear up to the venue cap, no clock.
- * Gears top out at 50x because Lighter (the backup venue) caps BTC there. Test out (one 60 s run at a locked level,
- * real money only) unlocks that level on a hit. The screens are public/turbo/duel/engine.js (host.climb).
+ * Gears top out at 50x because Lighter (the backup venue) caps BTC there. No test out (maker 2026-11-18). The screens are public/turbo/duel/engine.js (host.climb).
  */
 export interface ClimbLevel { n: number; fuel: number; gear: number; goal: number; /** goal as % of fuel, for the label */ pct?: number }
 
@@ -20,10 +19,13 @@ export const CLIMB_LEVELS: readonly ClimbLevel[] = [
  *  empty wallet) the $1,200 ladder is used. Unlocked levels are kept whatever the balance does. */
 export const CLIMB_BASE = 1200;
 export const CLIMB_MIN_BALANCE = 5;
+/** no level flies on less than this (or the whole balance, if smaller): a $1 level with a $0.01 goal barely moves the
+ *  rocket (maker 2026-11-18 playtest on a $100 balance: "my rocket was just stuck at the bottom") */
+export const CLIMB_MIN_FUEL = 10;
 export function climbLevelsFor(balance: number): ClimbLevel[] {
   const base = Number.isFinite(balance) && balance >= CLIMB_MIN_BALANCE ? balance : CLIMB_BASE;
   return CLIMB_LEVELS.map((l) => {
-    const fuel = Math.max(1, Math.floor((base * l.fuel) / CLIMB_BASE * 100) / 100);
+    const fuel = Math.max(Math.min(CLIMB_MIN_FUEL, base), Math.floor((base * l.fuel) / CLIMB_BASE * 100) / 100);
     const goal = Math.max(0.01, Math.round(fuel * (l.goal / l.fuel) * 100) / 100);
     return { ...l, fuel, goal, pct: Math.round((l.goal / l.fuel) * 1000) / 10 };
   });
