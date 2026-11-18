@@ -303,7 +303,7 @@ function DuelTable({ d, meLc }: { d: DuelBoardRes; meLc?: string }) {
   );
 }
 
-/** This month's season ladder (lib/duel/season), above the all-time duel table. Your league, your SP and the top 10. */
+/** This season's ladder (lib/duel/season), above the all-time duel table. Your league, your SP and the top 10. */
 interface SeasonRes { ok: boolean; season: { id: string; n: number; endsAt: number }; rows: { rank: number; wallet: string; name: string; pts: number; league: string }[]; total: number; me: { rank: number; pts: number; league: string } | null }
 function SeasonLadder({ d }: { d: SeasonRes }) {
   const days = Math.max(0, Math.ceil((d.season.endsAt - Date.now()) / 86_400_000));

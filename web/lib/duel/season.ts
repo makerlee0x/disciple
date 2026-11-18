@@ -1,9 +1,10 @@
 /**
  * Trading Duel seasons (maker 2026-11-16: "season ladder, win streak"). Pure, shared by server, client and tests.
  *
- * A season is one UTC calendar month. Season 1 is November 2026. Ranked duels earn season points (SP) on top of the
- * all-time rating: a win is +30, plus +5 for each win already in your streak (up to +25), a draw is +10, a loss is −15,
- * never below 0. SP climb you through leagues; everyone starts the next month at 0. Friendly and bot duels earn no SP.
+ * A season is 12 weeks (maker 2026-11-18: same length as a prestige run on the XP track). Season 1 starts at launch
+ * (SEASON_ONE_START). Ranked duels earn season points (SP) on top of the all-time rating: a win is +30, plus +5 for each
+ * win already in your streak (up to +25), a draw is +10, a loss is −15, never below 0. SP climb you through leagues;
+ * everyone starts the next season at 0. Friendly and bot duels earn no SP.
  * The numbers are a starting point for maker to tune.
  */
 /** Ranked play is real money only (maker 2026-11-17). Until real-money duels are live (Nova), the online queue is unranked:
@@ -11,7 +12,16 @@
  *  NEXT_PUBLIC_DUEL_RANKED=1 turns ranking on. */
 export const DUEL_RANKED_LIVE: boolean = process.env.NEXT_PUBLIC_DUEL_RANKED === "1" || process.env.NEXT_PUBLIC_DUEL_RANKED === "true";
 
-export const SEASON_ONE = { y: 2026, m: 11 } as const; // month is 1-based
+/** Season length: 12 weeks (84 days). */
+export const SEASON_MS = 84 * 86_400_000;
+/** Season 1 starts at launch, 00:00 UTC. Set NEXT_PUBLIC_SEASON_ONE_START (an ISO date, e.g. 2026-12-01) to the launch day;
+ *  the default below is a placeholder until launch day is set. */
+const SEASON_ONE_DEFAULT = "2026-12-01";
+function seasonOneStart(): number {
+  const t = Date.parse(`${process.env.NEXT_PUBLIC_SEASON_ONE_START || SEASON_ONE_DEFAULT}T00:00:00Z`);
+  return Number.isFinite(t) ? t : Date.parse(`${SEASON_ONE_DEFAULT}T00:00:00Z`);
+}
+export const SEASON_ONE_START: number = seasonOneStart();
 
 export const SP = { win: 30, streakStep: 5, streakMax: 25, draw: 10, loss: -15 } as const;
 
@@ -28,13 +38,12 @@ export type League = (typeof LEAGUES)[number];
 
 export interface Season { id: string; n: number; startsAt: number; endsAt: number }
 
-/** The season a moment falls in. Before Season 1 it reports Season 1. */
+/** The season a moment falls in: 12-week blocks from SEASON_ONE_START. Before launch it reports Season 1 (nothing before
+ *  its start counts, since every SP source reads its window from startsAt). */
 export function seasonAt(ms: number): Season {
-  const d = new Date(ms);
-  let y = d.getUTCFullYear(), m = d.getUTCMonth() + 1;
-  if (y < SEASON_ONE.y || (y === SEASON_ONE.y && m < SEASON_ONE.m)) { y = SEASON_ONE.y; m = SEASON_ONE.m; }
-  const n = (y - SEASON_ONE.y) * 12 + (m - SEASON_ONE.m) + 1;
-  return { id: `${y}-${String(m).padStart(2, "0")}`, n, startsAt: Date.UTC(y, m - 1, 1), endsAt: Date.UTC(y, m, 1) };
+  const i = Math.max(0, Math.floor((ms - SEASON_ONE_START) / SEASON_MS));
+  const startsAt = SEASON_ONE_START + i * SEASON_MS;
+  return { id: `s${i + 1}`, n: i + 1, startsAt, endsAt: startsAt + SEASON_MS };
 }
 
 /** SP change for one ranked result. `streakBefore` is the win streak going into this duel. */

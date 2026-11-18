@@ -106,7 +106,7 @@ const sf = (trader: string, coin: string, side: "buy" | "sell", tokens: number, 
 describe("season points (overall rank)", () => {
   it("royale by place, climb by level, rockets per $10 capped a day", () => {
     expect([1, 2, 3, 4, 10, 11].map(royaleSp)).toEqual([50, 25, 25, 10, 10, 0]);
-    expect(climbSp(3)).toBe(60);
+    expect(climbSp(3)).toBe(300);
     expect([9.99, 10, 125, 99_999, -50].map(rocketsDaySp)).toEqual([0, 1, 12, 50, 0]);
     expect(totalSp({ rockets: 12, duel: 30, climb: 60 })).toBe(102);
   });

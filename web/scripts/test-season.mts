@@ -1,16 +1,21 @@
-/** Trading Duel seasons (lib/duel/season): month boundaries, SP math, leagues. Run: pnpm test:season */
+/** Trading Duel seasons (lib/duel/season): 12-week seasons from launch, SP math, leagues. Run: pnpm test:season */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applySp, isStreakMilestone, leagueOf, leagueProgress, seasonAt, spDelta } from "../lib/duel/season.ts";
+import { SEASON_MS, SEASON_ONE_START, applySp, isStreakMilestone, leagueOf, leagueProgress, seasonAt, spDelta } from "../lib/duel/season.ts";
 
-test("a season is one UTC month, Season 1 is Nov 2026", () => {
-  assert.deepEqual(seasonAt(Date.parse("2026-11-17T02:00:00Z")).n, 1);
-  assert.equal(seasonAt(Date.parse("2026-11-17T02:00:00Z")).id, "2026-11");
-  assert.equal(seasonAt(Date.parse("2026-12-01T00:00:00Z")).n, 2);
-  assert.equal(seasonAt(Date.parse("2027-11-30T23:59:59Z")).n, 13);
-  assert.equal(seasonAt(Date.parse("2026-10-01T00:00:00Z")).n, 1); // before launch reports Season 1
-  const s = seasonAt(Date.parse("2026-11-17T02:00:00Z"));
-  assert.equal(s.endsAt, Date.parse("2026-12-01T00:00:00Z"));
+test("a season is 12 weeks from SEASON_ONE_START (launch)", () => {
+  const W = 7 * 86_400_000;
+  assert.equal(SEASON_MS, 12 * W);
+  const s1 = seasonAt(SEASON_ONE_START + 1000);
+  assert.equal(s1.n, 1);
+  assert.equal(s1.id, "s1");
+  assert.equal(s1.startsAt, SEASON_ONE_START);
+  assert.equal(s1.endsAt, SEASON_ONE_START + 12 * W);
+  assert.equal(seasonAt(SEASON_ONE_START + 12 * W - 1).n, 1);
+  assert.equal(seasonAt(SEASON_ONE_START + 12 * W).n, 2);
+  assert.equal(seasonAt(SEASON_ONE_START + 52 * W).n, 5);
+  assert.equal(seasonAt(SEASON_ONE_START - 30 * 86_400_000).n, 1); // before launch reports Season 1
+  assert.equal(seasonAt(SEASON_ONE_START - 30 * 86_400_000).startsAt, SEASON_ONE_START);
 });
 
 test("season points: wins, streak bonus capped, draws, losses floored at 0", () => {
