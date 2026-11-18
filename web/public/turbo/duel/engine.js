@@ -729,7 +729,7 @@ function mount(root,host){
       for(const [pl,y0] of [[G.me,yMe0],[G.bot,yRv0]]){ const [a,b]=lim(pl); pl.y=Math.max(a,Math.min(b,y0+(pl.syo||0))); }
       if(G.solo){ const [a,b]=lim(G.me); G.me.y=Math.max(a,Math.min(b,soloY())); }   // Climb: the sky zooms to the run (START, goal, NUKE)
       LAY.pan=0; LAY.dPan=0;
-      if(G.solo&&G.me.sVy) camDy+=G.me.sVy*2.2;
+      if(G.solo&&G.me.sVy) camDy+=G.me.sVy*(CLR&&CLR.goal!=null?1:2.2);
     }
     sx.save(); if(sh) sx.translate(rnd(-sh,sh)*.5,rnd(-sh,sh)*.5);
     const pan=LAY&&G?LAY.pan||0:0, dPan=LAY&&G?LAY.dPan||0:0; if(LAY) LAY.dPan=0;
@@ -1194,11 +1194,25 @@ function mount(root,host){
       const lossTo=pos?LIQ*pos.coll:CLR.goal*3; return SOLO_START+(1-SOLO_START)*Math.min(1.05,Math.pow(-v/lossTo,.75)); }
     const r=Math.max(CLR.fuel*.01,Math.abs(profitOf(me))*1.5,.5); G.sR=G.sR==null?r:G.sR+(r-G.sR)*.03;
     return .5-.42*Math.max(-1.1,Math.min(1.1,v/G.sR)); }
-  function soloYOf(v){ const a=LAY.under+40, z=LAY.barTop-10; return a+soloFrac(v)*(z-a); }
+  // level runs fly a tall sky (maker 2026-11-18: "the line needs to be way taller ... i shouldn't see either line on my
+  // screen at the start"): PnL maps to sky heights, measured in rooms (one room = the visible sky). The GOAL gate is
+  // SOLO_UP rooms above START and the NUKE SOLO_DN rooms below it, so both start off screen. The camera follows the
+  // rocket a beat behind, which is what makes the clouds and stars rush past while you climb.
+  const SOLO_UP=2.4, SOLO_DN=1.7, SOLO_ANCHOR=.62;
+  function soloW(v){ if(CLR.goal==null) return 0; const u=v/CLR.goal;
+    if(u>=0) return SOLO_UP*(1-Math.pow(1-Math.min(u,1),1.35))+Math.max(0,u-1)*1.2;   // ease-out: the first cents climb the most
+    const lossTo=G.me.pos?LIQ*G.me.pos.coll:CLR.goal*3; return -SOLO_DN*Math.pow(Math.min(1.2,-v/lossTo),.7); }
+  function soloRoom(){ const a=LAY.under+40, z=LAY.barTop-10; return [a,z,z-a]; }
+  function soloYOf(v){ const [a,z,H]=soloRoom();
+    if(CLR.goal==null) return a+soloFrac(v)*(z-a);
+    return a+SOLO_ANCHOR*H-(soloW(v)-(G.camW||0))*H; }
   function soloProg(){ return CLR.goal!=null?Math.max(0,profitOf(G.me)/CLR.goal):0; }
-  function soloY(){ const t=soloYOf(profitOf(G.me)), was=G.me.sY; G.me.sY=was==null?t:was+(t-was)*.12;
-    G.me.sVy=was==null?0:G.me.sY-was;   // px a frame, negative while climbing: drives the clouds, stars and flame
-    if(G.me.sVy<-.4) G.me.flame=Math.min(2.2,G.me.flame+Math.min(.12,-G.me.sVy*.02));
+  function soloY(){ const [a,z,H]=soloRoom();
+    if(CLR.goal!=null){ const w=soloW(profitOf(G.me)); G.rW=G.rW==null?w:G.rW+(w-G.rW)*.1;
+      const c0=G.camW==null?G.rW:G.camW; G.camW=c0+(G.rW-c0)*.045; G.me.sVy=-(G.camW-c0)*H;   // px the camera moved this frame (negative = climbing)
+      if(G.me.sVy<-.3) G.me.flame=Math.min(2.2,G.me.flame+Math.min(.15,-G.me.sVy*.03));
+      return a+SOLO_ANCHOR*H-(G.rW-G.camW)*H+(G.me.syo||0)*.2; }
+    const t=soloYOf(profitOf(G.me)), was=G.me.sY; G.me.sY=was==null?t:was+(t-was)*.12; G.me.sVy=was==null?0:G.me.sY-was;
     return G.me.sY+(G.me.syo||0)*.2; }
   function soloLines(){ const me=G.me, pos=me.pos, p=profitOf(me), top=LAY.under+6, bot=LAY.barTop+10, f=n=>Math.round(n).toLocaleString("en-US");
     const L=[{v:0,label:"START",plain:1,col:"242,243,247"}];
@@ -1206,7 +1220,7 @@ function mount(root,host){
     if(CLR.goal!=null) L.push({v:CLR.goal,label:"GOAL +"+m2(CLR.goal),sub:pos?f(priceAt(CLR.goal)):null,col:"95,240,160",gate:1,w:3});
     if(pos){ const nv=p-pnlOf(pos,G.price)-LIQ*pos.coll, np=pos.entry*(1-pos.side*LIQ*pos.coll/pos.size);
       L.push({v:nv,label:"NUKE",pin:"NUKE "+f(np)+" · "+usd(-LIQ*pos.coll),sub:f(np),col:"240,48,127",ink:"#fff",band:60}); }
-    for(const l of L){ let y=soloYOf(l.v), pin=0; if(y<top){y=top;pin=-1;} if(y>bot){y=bot;pin=1;}
+    for(const l of L){ let y=soloYOf(l.v), pin=0; if(CLR.goal!=null&&(y<top-30||y>bot+30)) continue; if(y<top){y=top;pin=-1;} if(y>bot){y=bot;pin=1;}
       if(l.plain){ if(pin) continue; sx.strokeStyle="rgba(255,255,255,.45)"; sx.lineWidth=1.5; sx.setLineDash([6,5]); sx.beginPath(); sx.moveTo(0,y); sx.lineTo(SW,y); sx.stroke(); sx.setLineDash([]);
         sx.font="700 11px "+GF+",sans-serif"; sx.textAlign="right"; sx.textBaseline="bottom"; sx.fillStyle="rgba(242,243,247,.85)"; sx.fillText(l.label,SW-12,y-3); continue; }
       if(!pin){ if(l.band){ const g=sx.createLinearGradient(0,y,0,y+l.band); g.addColorStop(0,`rgba(${l.col},.28)`); g.addColorStop(1,`rgba(${l.col},0)`); sx.fillStyle=g; sx.fillRect(0,y,SW,l.band); }
