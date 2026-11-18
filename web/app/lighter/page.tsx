@@ -3,12 +3,12 @@
  * Hidden Lighter test page (not linked anywhere). Runs set-up for the signed-in player's wallet, then a small market
  * open / close, through /api/lighter. Only works when LIGHTER_ENABLED=1; otherwise the API answers "Lighter isn't on."
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { withBase } from "@/lib/base-path";
 import { aaSession, onPrivy, onSessionChange, privyAccessToken, privyLogin } from "@/lib/aa/sessionState";
 import { onWallet } from "@/lib/walletState";
 import { aaSignMessage } from "@/lib/aa/session";
-import { lighterClose, lighterOpen, lighterSetUp, lighterStatus, type LighterStep } from "@/lib/lighter/client";
+import { LighterTaps, lighterClose, lighterOpen, lighterSetUp, lighterStatus, type LighterStep, type LighterTicket, type TapKind } from "@/lib/lighter/client";
 
 type Status = Awaited<ReturnType<typeof lighterStatus>> & { collateral?: string; positions?: { symbol?: string; position?: string; sign?: number }[]; lookup?: string[] };
 const MARKETS = ["BTC", "ETH", "SOL", "HYPE"] as const;
@@ -47,12 +47,30 @@ export default function LighterTest() {
     try { setSt((await lighterStatus(f)) as Status); } catch (e) { say(`status: ${(e as Error).message}`); }
   }, [f]);
   useEffect(() => { if (wallet) void refresh(); }, [wallet, refresh]);
-  // load the player's key, signer, market and book into the server, then keep it warm (a duel does this from its lobby)
+  // pre-signed orders: the server keeps the next long / short / close signed and fresh; a tap sends one straight to Lighter
+  const taps = useRef<LighterTaps | null>(null);
+  const [ticket, setTicket] = useState<LighterTicket | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (st?.step !== "ready") return;
-    const ping = () => void f("/api/lighter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op: "warm" }) }).catch(() => {});
-    ping(); const id = setInterval(ping, 4000); return () => clearInterval(id);
+    const t = new LighterTaps(f, market, usd);
+    taps.current = t;
+    const off = t.onTicket(setTicket);
+    t.start();
+    const id = setInterval(() => setNow(Date.now()), 500);
+    return () => { off(); t.stop(); clearInterval(id); taps.current = null; };
+    // market / usd changes go through t.set below, not a new instance
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [st?.step, f]);
+  useEffect(() => { taps.current?.set(market, usd); }, [market, usd]);
+  const tap = async (kind: TapKind) => {
+    const t = taps.current; if (!t) return;
+    try {
+      const r = await t.tap(kind);
+      say(`${kind} ${market} ✓ tap→Lighter ${r.ms} ms via ${r.via}${r.waited ? " (waited for a fresh set)" : ""}  nonce ${r.nonce}  size ${r.base}  cap ${r.cap}  ${r.hash.slice(0, 10)}…`);
+    } catch (e) { say(`${kind} ${market} ✗ ${(e as Error).message}`); }
+    setTimeout(() => void refresh(), 1500);
+  };
 
   const run = async (label: string, fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -91,6 +109,17 @@ export default function LighterTest() {
           {MARKETS.map((m) => <option key={m}>{m}</option>)}
         </select>
         <input className="w-20 rounded-lg border border-white/25 bg-black px-2 py-2" type="number" min={1} value={usd} onChange={(e) => setUsd(Number(e.target.value))} />
+        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("long")}>Long</button>
+        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("short")}>Short</button>
+        <button className={btn} disabled={step !== "ready" || !ticket?.close} onClick={() => void tap("close")}>Close</button>
+      </div>
+      {step === "ready" && (
+        <div className="mb-4 text-xs opacity-70">
+          {ticket ? `signed set: nonce ${ticket.nonce} · ${Math.max(0, Math.round((ticket.exp - now) / 1000))} s left · ${ticket.close ? `close ${ticket.close.side}` : "nothing to close"} · signed in ${ticket.ms?.server ?? "?"} ms` : taps.current?.lastError ?? "signing…"}
+        </div>
+      )}
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+        <span className="opacity-60">via server:</span>
         <button className={btn} disabled={busy || step !== "ready"} onClick={() => void run(`long ${market} $${usd}`, () => lighterOpen(f, market, "long", usd))}>Long</button>
         <button className={btn} disabled={busy || step !== "ready"} onClick={() => void run(`short ${market} $${usd}`, () => lighterOpen(f, market, "short", usd))}>Short</button>
         <button className={btn} disabled={busy || step !== "ready"} onClick={() => void run(`close ${market}`, () => lighterClose(f, market))}>Close</button>

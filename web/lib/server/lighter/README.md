@@ -30,6 +30,14 @@ maker. Duel leverage is Lighter's max: 50x BTC/ETH, 25x SOL, 20x HYPE. Market or
 | `LIGHTER_INTEGRATOR_INDEX` | Disciple's own Lighter account index (fees land here) |
 | `LIGHTER_PARTNER_FEE_BP` | `0.05` (default) |
 
+## Taps (pre-signed)
+A tap doesn't go through Disciple's server. `presign` (player.ts) signs the player's next long, short and close at one
+nonce, each with a price cap (`LIGHTER_SLIPPAGE`), Disciple's fee and a 15 s expiry, so only one of them can ever land and
+an unused set dies quickly. `LighterTaps` (lib/lighter/client.ts) holds the newest set, refreshes it every 5 s and right
+after each tap, and posts the tapped order straight to Lighter's `sendTx`. If the browser can't reach Lighter, the same
+signed order goes through `relay`. The trading key stays on the server. The short expiry needs our signer patch
+(`SetOrderTxExpiry`, applied by tools/lighter/build-signer.sh).
+
 ## Testing
 Hidden page `/lighter` (not linked): sign in, then Set up, Long / Short / Close with timings. The env vars must be on the
 Preview environment too, for a PR preview. Disciple's testnet fee account is 577.

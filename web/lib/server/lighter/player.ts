@@ -237,3 +237,93 @@ export async function closeMarket(cfg: LighterConfig, pid: string, m: LighterMar
   if (h.pos) delete h.pos[mk.market_id];
   return { hash, market: mk.market_id, base: pos.base, price: fill, ms: t };
 }
+
+/**
+ * Pre-signed tap orders. The server signs the player's next long, short and close ahead of time, all at the same nonce
+ * (so only one of them can ever go through), each with a tight price cap, Disciple's fee and a short expiry. The browser
+ * holds the set and a tap sends one straight to Lighter: no trip through Disciple's server on the tap. The trading key
+ * never leaves the server. After a tap the browser asks for the next set, telling us which order it used.
+ */
+export const TICKET_TTL_MS = 15_000;
+type Signed = { txType: number; txInfo: string; cap: number; base: number };
+export type Ticket = {
+  url: string; nonce: number; exp: number; market: number; lev: number; mid: number;
+  long: Signed; short: Signed; close?: Signed & { side: "long" | "short" };
+};
+type Issued = { nonce: number; market: number; long: number; short: number; close?: { sign: number; base: number } };
+const issued = new Map<string, Issued[]>(); // per player, the last few sets, to apply what the browser says it used
+
+export type Used = { nonce: number; kind: "long" | "short" | "close" };
+export async function presign(cfg: LighterConfig, pid: string, m: LighterMarket, fuelUsd: number, used?: Used, floor = 0): Promise<Ticket & { ms: Timings }> {
+  const t: Timings = {}; const t0 = performance.now();
+  const { symbol, lev } = LIGHTER_MARKETS[m];
+  const [h, mk] = await Promise.all([hotPlayer(cfg, pid), marketBySymbol(cfg, symbol)]);
+  const p = h.p;
+  const key = `${cfg.network}:${pid}`;
+  // what the browser just did moves our idea of the position and the nonce
+  const prev = used ? issued.get(key)?.find((x) => x.nonce === used.nonce && x.market === mk.market_id) : undefined;
+  if (used && prev) {
+    const pos = h.pos?.[mk.market_id];
+    const cur = pos ? pos.sign * pos.base : 0;
+    const next = used.kind === "close" ? 0 : cur + (used.kind === "long" ? prev.long : -prev.short);
+    h.pos = { ...(h.pos ?? {}), [mk.market_id]: { sign: Math.sign(next) || 1, base: Math.abs(next), at: Date.now() } };
+  }
+  const known = h.pos?.[mk.market_id];
+  const trustKnown = known && Date.now() - known.at < 3_000; // right after a tap Lighter's account read can lag
+  const [b, lighterNonce, pos] = await Promise.all([
+    bookFor(cfg, mk.market_id, t),
+    used ? Promise.resolve(used.nonce + 1) : nextNonce(cfg, p.account, p.keyIndex),
+    trustKnown ? Promise.resolve(known) : account(cfg, p.account).then((a) => {
+      const x = a?.positions.find((q) => q.market_id === mk.market_id && Number(q.position) !== 0);
+      const v = x ? { sign: x.sign, base: Math.round(Math.abs(Number(x.position)) * 10 ** mk.size_decimals), at: 0 } : { sign: 1, base: 0, at: 0 };
+      h.pos = { ...(h.pos ?? {}), [mk.market_id]: v };
+      return v;
+    }),
+  ]);
+  lap(t, "read", t0);
+  let n = Math.max(lighterNonce, floor);
+  const w = await signerFor(keyOf(cfg, p), cfg.chainId, p.keyIndex, p.account);
+  h.nonce = undefined; // the server's own open/close re-read the nonce after this
+  if (p.lev?.[mk.market_id] !== lev) { // once per market, before the first set
+    const r = checked(w.SignUpdateLeverage(mk.market_id, levFraction(lev), 0, 0, n++, p.keyIndex, p.account));
+    await sendTx(cfg, r.txType, r.txInfo);
+    p.lev = { ...(p.lev ?? {}), [mk.market_id]: lev }; void putPlayer(cfg, pid, p).catch(() => {});
+    lap(t, "leverage", t0);
+  }
+  const mid = midOf(b);
+  if (!mid) throw new LighterError(409, "Lighter's book is empty right now.");
+  const base = baseAmountFor(fuelUsd * lev, mid, mk.size_decimals);
+  if (base < Math.round(Number(mk.min_base_amount) * 10 ** mk.size_decimals)) throw new LighterError(400, "That trade is under Lighter's minimum size.");
+  const fee = p.approvedFee && cfg.partnerFee ? cfg.partnerFee : 0;
+  const exp = Date.now() + TICKET_TTL_MS;
+  const order = (isAsk: boolean, size: number, reduce: boolean): Signed => {
+    const cap = worstPrice(fillFrom(b, isAsk, size, mk.size_decimals) ?? mid, isAsk, cfg.slippage, mk.price_decimals);
+    const r = checked(w.SignCreateOrder(mk.market_id, clientOrderIndex(), size, cap, isAsk ? 1 : 0, 1 /* market */, 0 /* IOC */,
+      reduce ? 1 : 0, 0, 0, fee ? cfg.integratorIndex : 0, fee, 0, 0, 0, 0, n, p.keyIndex, p.account));
+    return { txType: r.txType, txInfo: r.txInfo, cap, base: size };
+  };
+  w.SetOrderTxExpiry(exp);
+  let tk: Ticket;
+  try {
+    tk = { url: cfg.url, nonce: n, exp, market: mk.market_id, lev, mid, long: order(false, base, false), short: order(true, base, false) };
+    // closing a long sells; reduce-only so a stale size can never flip the player
+    if (pos.base > 0) tk.close = { ...order(pos.sign > 0, pos.base, true), side: pos.sign > 0 ? "long" : "short" };
+  } finally { w.SetOrderTxExpiry(0); }
+  const list = [{ nonce: n, market: mk.market_id, long: base, short: base, close: pos.base > 0 ? { sign: pos.sign, base: pos.base } : undefined },
+    ...(issued.get(key) ?? []).filter((x) => x.nonce !== n || x.market !== mk.market_id)].slice(0, 6);
+  issued.set(key, list);
+  if (issued.size > 2000) issued.delete(issued.keys().next().value as string);
+  void refreshBook(cfg, mk.market_id).catch(() => null); // keeps the next set's caps fresh
+  lap(t, "server", t0);
+  return { ...tk, ms: t };
+}
+
+/** Fallback when the browser can't reach Lighter itself: sends one of the player's pre-signed orders as it is. */
+export async function relay(cfg: LighterConfig, pid: string, txType: number, txInfo: string) {
+  if (txType !== 14 /* create order */) throw new LighterError(400, "Bad order.");
+  const h = await hotPlayer(cfg, pid);
+  let info: { AccountIndex?: number };
+  try { info = JSON.parse(txInfo); } catch { throw new LighterError(400, "Bad order."); }
+  if (info.AccountIndex !== h.p.account) throw new LighterError(403, "Not your order.");
+  return { hash: await sendTx(cfg, txType, txInfo) };
+}

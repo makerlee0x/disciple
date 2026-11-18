@@ -16,6 +16,8 @@ interface Wasm {
   CreateAuthToken(deadlineSec: number, apiKeyIndex: number, accountIndex: number): { authToken?: string; error?: string };
   SignChangePubKey(pub: string, skipNonce: number, nonce: number, apiKeyIndex: number, accountIndex: number): SignResult;
   SignCreateOrder(...a: number[]): SignResult;
+  /** Disciple patch (tools/lighter/build-signer.sh): ExpiredAt (ms) for the next SignCreateOrder calls; 0 = 10 min default. */
+  SetOrderTxExpiry(ms: number): object;
   SignUpdateLeverage(market: number, fraction: number, marginMode: number, skipNonce: number, nonce: number, apiKeyIndex: number, accountIndex: number): SignResult;
   SignApproveIntegrator(integrator: number, maxPerpsTaker: number, maxPerpsMaker: number, maxSpotTaker: number, maxSpotMaker: number, expiryMs: number, skipNonce: number, nonce: number, apiKeyIndex: number, accountIndex: number): SignResult;
 }

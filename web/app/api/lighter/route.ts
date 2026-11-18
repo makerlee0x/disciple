@@ -8,6 +8,9 @@
  *   open { market, side: long|short, usd } → { hash, base, price, lev }
  *   close { market }                    → { hash }
  *   warm                                → loads key, signer, market and nonce into this instance before a duel
+ *   presign { market, usd, used?: { nonce, kind }, floor? } → ticket: the next long, short and close, signed at one
+ *                                         nonce with a short expiry; the browser sends the one it taps straight to Lighter
+ *   relay { txType, txInfo }            → { hash }   fallback when the browser can't reach Lighter: sends a pre-signed order
  *   open / close / warm answer with ms: { auth, read, send, server, total } (server-side timings)
  */
 import { kv } from "@/lib/server/kv";
@@ -17,7 +20,7 @@ import { body, out, pilotOf, requirePass } from "@/lib/server/duel/http";
 import { DuelError } from "@/lib/server/duel/store";
 import { lighterConfig, isLighterMarket } from "@/lib/server/lighter/config";
 import { LighterError } from "@/lib/server/lighter/rest";
-import { closeMarket, finishSigned, openMarket, setTier, startApprove, startKey, status, warm } from "@/lib/server/lighter/player";
+import { closeMarket, finishSigned, openMarket, presign, relay, setTier, startApprove, startKey, status, warm, type Used } from "@/lib/server/lighter/player";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -56,11 +59,12 @@ export async function POST(req: Request) {
   const t0 = performance.now();
   try {
     const cfg = on();
-    const b = await body<{ op?: unknown; sig?: unknown; market?: unknown; side?: unknown; usd?: unknown }>(req);
-    if (b.op === "open" || b.op === "close" || b.op === "warm") {
+    const b = await body<{ op?: unknown; sig?: unknown; market?: unknown; side?: unknown; usd?: unknown; used?: unknown; floor?: unknown; txType?: unknown; txInfo?: unknown }>(req);
+    if (b.op === "open" || b.op === "close" || b.op === "warm" || b.op === "presign" || b.op === "relay") {
       const pid = await fastPilot(req);
       const authMs = Math.round(performance.now() - t0);
-      const r = b.op === "warm" ? (await warm(cfg, pid), {}) : b.op === "open" ? await openGuarded(cfg, pid, b) : await closeGuarded(cfg, pid, b);
+      const r = b.op === "warm" ? (await warm(cfg, pid), {}) : b.op === "open" ? await openGuarded(cfg, pid, b) : b.op === "close" ? await closeGuarded(cfg, pid, b)
+        : b.op === "presign" ? await presignGuarded(cfg, pid, b) : await relayGuarded(cfg, pid, b);
       const total = Math.round(performance.now() - t0);
       const res = out(200, { ok: true, ...r, ms: { auth: authMs, ...("ms" in r ? (r.ms as object) : {}), total } });
       res.headers.set("server-timing", `auth;dur=${authMs}, total;dur=${total}`);
@@ -91,4 +95,16 @@ function openGuarded(cfg: Cfg, pid: string, b: { market?: unknown; side?: unknow
 function closeGuarded(cfg: Cfg, pid: string, b: { market?: unknown }) {
   if (!isLighterMarket(b.market)) throw new LighterError(400, "Bad market.");
   return closeMarket(cfg, pid, b.market);
+}
+function presignGuarded(cfg: Cfg, pid: string, b: { market?: unknown; usd?: unknown; used?: unknown; floor?: unknown }) {
+  const usd = Number(b.usd);
+  if (!isLighterMarket(b.market) || !(usd >= 1 && usd <= 10_000)) throw new LighterError(400, "Bad order.");
+  const u = b.used as Partial<Used> | undefined;
+  const used = u && Number.isSafeInteger(u.nonce) && (u.nonce as number) >= 0 && (u.kind === "long" || u.kind === "short" || u.kind === "close") ? (u as Used) : undefined;
+  const floor = Number.isSafeInteger(b.floor) && (b.floor as number) >= 0 ? (b.floor as number) : 0;
+  return presign(cfg, pid, b.market, usd, used, floor);
+}
+function relayGuarded(cfg: Cfg, pid: string, b: { txType?: unknown; txInfo?: unknown }) {
+  if (!Number.isSafeInteger(b.txType) || typeof b.txInfo !== "string" || b.txInfo.length > 4000) throw new LighterError(400, "Bad order.");
+  return relay(cfg, pid, b.txType as number, b.txInfo);
 }
