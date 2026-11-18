@@ -37,6 +37,9 @@ function mount(root,host){
   const on=(t,ev,f,o)=>{ t.addEventListener(ev,f,o); offs.push(()=>t.removeEventListener(ev,f,o)); };
   // result card fits one screen (maker 2026-11-17: "cropped weird"): tighter blocks, the card scrolls inside the overlay
   // instead of centring off the top, and short screens drop the promo and keep 2 log rows. Kept apart from CSS so the big line stays untouched.
+  const GEAR_CSS=".duel-root .pre-r{justify-self:end;display:flex;align-items:center;gap:10px;min-width:0}"
+    +".duel-root .pre-gear{flex:none;display:grid;place-items:center;width:36px;height:36px;padding:0;border-radius:12px;background:rgba(18,19,39,.7);border:1px solid var(--line);color:var(--text);cursor:pointer}"
+    +".duel-root .pre-gear:hover{border-color:rgba(242,193,78,.55);color:var(--gold)}.duel-root .pre-gear:focus-visible{outline:3px solid #fff;outline-offset:2px}";
   const RES_CSS=".duel-root #result{overflow-y:auto;overscroll-behavior:contain;padding-top:calc(12px + env(safe-area-inset-top,0px))}"
     +".duel-root #result .res{margin:auto 0 0;gap:10px;padding:16px}"
     +"@media (min-width:900px) and (min-height:600px){.duel-root #result{padding:16px}.duel-root #result .res{margin:auto}}"
@@ -117,7 +120,8 @@ function mount(root,host){
     if(hull&&hull.look&&!hull.cv&&ready(hull.img)) hull.cv=bake(hull);
     const im=hull&&hull.cv?hull.cv:hull&&hull.img.complete&&hull.img.naturalWidth?hull.img:img, ww=im===img?h*221/609:w; if(im&&(im.tagName==="CANVAS"||im.complete)) c2.drawImage(im,-ww/2,-h/2,ww,h); return w; }
   { const u=`url("${A.art||"/art/modes/duel.webp"}")`; $("preBg").style.backgroundImage=u; $("preArt").style.backgroundImage=u; }   // the lobby hero: the whole duel art, your gold ship vs the pink one
-  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Reduce motion = the phone's own setting, or the lobby gear's (lib/game/settings reduceFx, readPrefs below)
+  const RM=matchMedia('(prefers-reduced-motion: reduce)').matches; let reduce=RM;
   const rnd=(a,b)=>a+Math.random()*(b-a);
   const gauss=()=>{let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);};
   const usd=(v,s)=>!isFinite(v)?"$0.00":(s&&v>0?"+":"")+(v<0?"\u2212":"")+"$"+Math.abs(v).toFixed(2);
@@ -846,6 +850,12 @@ function mount(root,host){
   const SETK="disciple.game.settings.v1"; let sfxLvl=.7, bus=null, lastRival=0;
   function readLvl(){ try{ const o=JSON.parse(localStorage.getItem(SETK)||"null"); if(o&&o.sfx) sfxLvl=o.sfx.on===false?0:(typeof o.sfx.vol==="number"?o.sfx.vol:.7); }catch(e){} if(bus) bus.gain.value=sfxLvl*1.3; }
   readLvl(); const onStore=e=>{ if(e.key===SETK) readLvl(); }, onLvl=e=>{ if(e.detail&&typeof e.detail.sfx==="number"){ sfxLvl=e.detail.sfx; if(bus) bus.gain.value=sfxLvl*1.3; } };
+  // the lobby gear (components/turbo/LobbySettings): Vibration, Reduce motion and the start size, from the same settings key
+  let hapt=true;
+  function readPrefs(){ let o=null; try{ o=JSON.parse(localStorage.getItem(SETK)||"null"); }catch(e){} o=o||{};
+    hapt=o.haptics!==false; reduce=RM||o.reduceFx===true;
+    if(PCTS.includes(o.turboSize)&&o.turboSize!==stake&&!(G&&G.started&&!G.over)){ stake=o.turboSize; if(G) paintSizes(); } }
+  readPrefs(); on(window,"disciple:audio",readPrefs); on(window,"storage",e=>{ if(e.key===SETK) readPrefs(); });
   addEventListener("storage",onStore); addEventListener("disciple:audio",onLvl);
   function outBus(){ if(!bus&&ac){ bus=ac.createGain(); bus.gain.value=sfxLvl*1.3; bus.connect(ac.destination); } return bus; }
   // vol: 1 for you; a rival's boosts and blasts play quieter and panned to their side (pan -1 left … 1 right)
@@ -872,7 +882,7 @@ function mount(root,host){
     if(!hum){ try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; src.loop=true; g.gain.value=0; src.connect(g); g.connect(outBus()); src.start(); hum={s:src,g}; humV=humR=-1; }catch(e){ return; } }
     const v=Math.round((.16+.2*boost)*50)/50, r=Math.round((.92+.3*boost)*50)/50;
     if(v!==humV){ humV=v; hum.g.gain.setTargetAtTime(v,ac.currentTime,.15); } if(r!==humR){ humR=r; hum.s.playbackRate.setTargetAtTime(r,ac.currentTime,.2); } }
-  function buzz(p){ try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
+  function buzz(p){ if(!hapt) return; try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
   function setMute(m){ muted=m; if(m){ const o=bedOn; bedOn=null; if(o) try{o.s.stop();}catch(e){} } else bedSync(); try{ host.mute&&host.mute(m); }catch(e){} $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); $("mute").setAttribute("aria-label",m?"Unmute sound":"Mute sound"); try{localStorage.setItem("duel.mute",m?"1":"0");}catch(e){} }
   $("mute").addEventListener("click",()=>{ensureAudio(); setMute(!muted);});
   root.addEventListener("pointerdown",()=>ensureAudio(),true);   // the ambience starts on the first tap anywhere, not only on a launch button
@@ -999,6 +1009,12 @@ function mount(root,host){
   // the duel-only demo page (/duel, host.guest): guests play a bot or a friend's link; no ranked queue, no sign-in
   // the X timeline player (/duel?embed=1, about 480 x 480): a thin chart strip, no feed or size row, so the rockets get the frame
   if(host.embed) $("app").classList.add("embed");
+  // lobby gear (maker 2026-11-18): next to the rating chip, opens the host's settings sheet (components/turbo/LobbySettings)
+  if(host.settings){ const mc=root.querySelector(".pre-top .me-chip");
+    if(mc){ const box=document.createElement("div"), g=document.createElement("button"); box.className="pre-r"; g.type="button"; g.className="pre-gear"; g.id="preGear"; g.setAttribute("aria-label","Settings");
+      g.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18.18 9.67 20.43 10.29 20.43 13.71 18.18 14.33 18.01 14.72 19.17 16.75 16.75 19.17 14.72 18.01 14.33 18.18 13.71 20.43 10.29 20.43 9.67 18.18 9.28 18.01 7.25 19.17 4.83 16.75 5.99 14.72 5.82 14.33 3.57 13.71 3.57 10.29 5.82 9.67 5.99 9.28 4.83 7.25 7.25 4.83 9.28 5.99 9.67 5.82 10.29 3.57 13.71 3.57 14.33 5.82 14.72 5.99 16.75 4.83 19.17 7.25 18.01 9.28z"/><circle cx="12" cy="12" r="2.75"/></svg>';
+      mc.replaceWith(box); box.append(mc,g); g.addEventListener("click",()=>{ try{ host.settings(); }catch(e){} });
+      if(!document.getElementById("duel-gear-css")){ const gs=document.createElement("style"); gs.id="duel-gear-css"; gs.textContent=GEAR_CSS; document.head.appendChild(gs); } } }
   if(host.guest){ $("go").hidden=true; const bk=root.querySelector(".pre-back"); if(bk) bk.style.visibility="hidden"; const mc=root.querySelector(".me-chip"); if(mc) mc.style.visibility="hidden"; const tb=document.querySelectorAll(".duel-root .tab"); if(tb[0]) tb[0].textContent="VS BOT"; if(tb[1]) tb[1].textContent="VS FRIEND";
     $("botSub").textContent="Practice \u00b7 play money \u00b7 no rating"; }
   $("mkLink").addEventListener("click",()=>{ ensureAudio(); if(!SIGNED&&!host.guest){ host.signIn(); return; } mode="friend"; lerr(""); host.createLink(botKey,LEN,CFUEL); });
@@ -1051,6 +1067,7 @@ function mount(root,host){
     if(m&&G&&G.bot){ G.bot.say=null; $("chatDot").hidden=true; } try{ localStorage.setItem("duel.chatMute",m?"1":"0"); }catch(e){} }
   setChatMute(chatMute);
   $("cMute").addEventListener("click",()=>setChatMute(!chatMute));
+  on(window,"disciple:duelchat",e=>{ const m=!!(e.detail&&e.detail.mute); if(m!==chatMute) setChatMute(m); });   // Rival chat in the lobby gear
   let repArm=0;
   function resetReport(){ const b=$("cRep"); clearTimeout(repArm); repArm=0; b.disabled=false; b.classList.remove("warn"); b.textContent="REPORT"; b.hidden=!(M&&M.net); }
   $("cRep").addEventListener("click",()=>{ const b=$("cRep"); if(!(M&&M.net)) return;

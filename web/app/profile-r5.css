@@ -354,3 +354,7 @@
 .p5-ibtn { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; color: #9095A0; }
 .p5-ibtn:hover, .p5-ibtn[aria-expanded="true"] { color: #F2F3F7; }
 .p5-ibtn:focus-visible { outline: 2px solid rgba(201,206,214,.55); outline-offset: 1px; }
+
+/* Turbo lobby gear (components/turbo/LobbySettings, maker 2026-11-18): the Settings modal cut down to sound + play */
+.p5-settings.p5-lobby.p5-modal { width: min(480px, 100%); }
+.p5-settings.p5-lobby .p5-srow > .tx { flex: 1; min-width: 0; }

@@ -7,7 +7,8 @@
  * (`?lighter=1`, lib/lighter/duel) each press is also a real order on the pilot's Lighter account, and the server's
  * buzzer closes it when the run's clock runs out.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import LobbySettings from "@/components/turbo/LobbySettings";
 import { getTurboAdapter } from "@/lib/turbo";
 import { getGameRadio } from "@/lib/game/radio";
 import { useTurboMusic } from "@/lib/game/turboMusic";
@@ -25,6 +26,7 @@ const LIGHTER_ARM_MAX = 270_000;
 
 export default function ClimbScreen() {
   const ref = useRef<HTMLDivElement>(null);
+  const [gear, setGear] = useState(false);
   useTurboMusic();
   useEffect(() => {
     let dead = false, api: EngineApi | null = null;
@@ -72,6 +74,7 @@ export default function ClimbScreen() {
       history: () => hist.filter((h) => h.ts > Date.now() - 60_000),
       signIn: () => {},
       mute: (m: boolean) => { try { const r = getGameRadio(); if (m) r.pause(); else r.clearPause(); } catch { /* no radio */ } },
+      settings: () => setGear(true),   // the lobby gear (components/turbo/LobbySettings)
       climb: {
         levels, maxGear: CLIMB_MAX_GEAR, runMs: CLIMB_RUN_MS, fee: CLIMB_FEE, feeLabel: CLIMB_FEE_LABEL,
         real: false, back: "/", lighter,
@@ -90,5 +93,5 @@ export default function ClimbScreen() {
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load Climb. Refresh to try again."; });
     return () => { dead = true; stopPrice(); offWallet(); offFuel(); api?.destroy(); };
   }, []);
-  return <div ref={ref} />;
+  return <><div ref={ref} /><LobbySettings mode="climb" open={gear} onClose={() => setGear(false)} /></>;
 }

@@ -10,8 +10,8 @@ import { playerError } from "@/lib/playerError";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import Icon from "@/components/icons/Icon";
 import { SETTINGS_KEYS } from "@/lib/config";
-import { setGameSettings, useGameSettings, type AudioChannel } from "@/lib/game/settings";
-import { previewBlip } from "@/lib/game/audio";
+import { setGameSettings, useGameSettings } from "@/lib/game/settings";
+import SoundRow from "./SoundRow";
 
 /** Settings copy (profile r3 README copy list). */
 export const SETTINGS_COPY = {
@@ -206,30 +206,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
               <section className="p5-sgrp" aria-label={SETTINGS_COPY.sound} data-testid="settings-sound">
                 <span className="gh">{SETTINGS_COPY.sound}</span>
                 <div className="p5-sbox">
-                  <div className="p5-srow p5-split">
-                    {([["music", SETTINGS_COPY.music], ["sfx", SETTINGS_COPY.sfx]] as const).map(([ch, label]) => {
-                      const c: AudioChannel = gs[ch];
-                      const set = (n: Partial<AudioChannel>) => setGameSettings((g) => ({ ...g, [ch]: { ...g[ch], ...n } }));
-                      return (
-                        <div className="p5-cell snd" key={ch}>
-                          <div className="hd">
-                            <b>{label}</b>
-                            {/* the speaker is the on/off switch (same music.on / sfx.on the flight radio pill's mute flips) */}
-                            <button type="button" role="switch" aria-checked={c.on} aria-label={label} className={`p5-mute${c.on ? " on" : ""}`} data-testid={`settings-${ch}`}
-                              onClick={() => set({ on: !c.on })}>
-                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                                <path d="M11 5L6 9H2v6h4l5 4V5z" fill={c.on ? "currentColor" : "none"} />{c.on ? <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" /> : <path d="M23 9l-6 6M17 9l6 6" />}
-                              </svg>
-                            </button>
-                          </div>
-                          <input type="range" className="p5-vol" min={0} max={100} step={5} value={Math.round(c.vol * 100)} disabled={!c.on}
-                            aria-label={`${label} volume`} data-testid={`settings-${ch}-vol`}
-                            onChange={(e) => set({ vol: Number(e.target.value) / 100 })}
-                            onPointerUp={() => { if (ch === "sfx") previewBlip(c.vol); }} />
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <SoundRow music={SETTINGS_COPY.music} sfx={SETTINGS_COPY.sfx} />
                 </div>
               </section>
               <section className="p5-sgrp" aria-label={SETTINGS_COPY.security} data-testid="settings-security">

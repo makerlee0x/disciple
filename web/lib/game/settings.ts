@@ -36,13 +36,20 @@ export interface GameSettings {
    * `fullScreen`; the old `calm` key (on by default in build 1) is ignored so nobody stays opted in without choosing it.
    */
   calm: boolean;
+  /** Turbo lobbies' gear (components/turbo/LobbySettings): less shake, sparks and clips in Duel / Climb / Royale. Off by default. */
+  reduceFx: boolean;
+  /** Turbo trade size a Duel / Climb run starts on: 10 / 25 / 50 % of fuel, 0 = ALL (engine PCTS). */
+  turboSize: TurboSize;
 }
+export type TurboSize = 10 | 25 | 50 | 0;
+export const TURBO_SIZES: readonly TurboSize[] = [10, 25, 50, 0];
 export const DEFAULT_BUY_KEYS = ["Digit1", "Digit2", "Digit3", "Digit4"];   // 4 buy presets (was 6: an older 6-key save keeps its first 4)
 export const DEFAULT_SELL_KEYS = ["KeyZ", "KeyX", "KeyC", "KeyV"];
 export const DEFAULT_GAME_SETTINGS: GameSettings = {
   v: 1, keys: { buy: DEFAULT_BUY_KEYS, sell: DEFAULT_SELL_KEYS },
   sfx: { on: true, vol: 0.7 }, music: { on: true, vol: 0.5 },
   radio: { station: DEFAULT_STATION_ID, shuffle: false, repeat: "station" }, lang: "en", haptics: true, tilt: false, calm: false,
+  reduceFx: false, turboSize: 25,
 };
 /** Keys the game already uses for something else (SPACE boost, SHIFT dump, steering, toggles, chat, menu). Not bindable. */
 export const RESERVED_CODES = new Set([
@@ -92,6 +99,8 @@ export function sanitizeGameSettings(x: unknown): GameSettings {
     haptics: o.haptics !== false,
     tilt: o.tilt === true,
     calm: (o as { fullScreen?: unknown }).fullScreen === true,
+    reduceFx: o.reduceFx === true,
+    turboSize: TURBO_SIZES.includes(o.turboSize as TurboSize) ? (o.turboSize as TurboSize) : 25,
   };
 }
 

@@ -5,7 +5,8 @@
  * server call (lib/duel/client), feeds live BTC from the Turbo adapter, and passes the room's events through.
  * Practice bots run inside the engine and are always labelled as bots.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import LobbySettings from "@/components/turbo/LobbySettings";
 import { getTurboAdapter } from "@/lib/turbo";
 import { onPrivy, privyAccessToken, privyAuthenticated, privyLogin } from "@/lib/aa/sessionState";
 import { duelApi, followRoom, setDuelGuest, type Follow, type RoomRes, type Res } from "@/lib/duel/client";
@@ -60,6 +61,7 @@ const REMATCH_PUSH_MS = 20_000;
 /** `guest`: the duel-only demo page (/duel). No sign-in: a guest pilot from /api/duel/guest, bots and friend links only. */
 export default function DuelScreen({ guest = false, embed = false }: { guest?: boolean; embed?: boolean } = {}) {
   const ref = useRef<HTMLDivElement>(null);
+  const [gear, setGear] = useState(false);
   useTurboMusic();
   useEffect(() => {
     let dead = false, api: EngineApi | null = null, me: string | null = null, roomId: string | null = null;
@@ -286,6 +288,7 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
       myShip: () => lookOf(me, rival),
       shipOf: (pid: string) => lookOf(pid, me),
       mute: (m: boolean) => { try { const r = getGameRadio(); if (m) r.pause(); else r.clearPause(); } catch { /* no radio */ } },
+      settings: () => setGear(true),   // the lobby gear (components/turbo/LobbySettings)
     };
 
     loadEngine().then(() => {
@@ -298,5 +301,5 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
 
     return () => { dead = true; setDuelGuest(false); stopQueue(); unfollow(); stopPrice(); offPrivy(); api?.destroy(); };
   }, []);
-  return <div ref={ref} />;
+  return <><div ref={ref} /><LobbySettings mode="duel" open={gear} onClose={() => setGear(false)} /></>;
 }
