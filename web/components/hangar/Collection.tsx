@@ -7,7 +7,6 @@
 import Link from "next/link";
 import AnimClip, { reducedMotion } from "@/components/ui/AnimClip";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import Icon from "@/components/icons/Icon";
 import { MILESTONE_COPY } from "@/lib/xp";
 import { withBase } from "@/lib/base-path";
 import { playSfx } from "@/lib/game/sfx";
@@ -120,7 +119,8 @@ function CopyList({ col, item, onEquip, onScrap, busy, sell }: { col: Col | null
   );
 }
 
-export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wallet: string | null; handle: string; sell?: SellHooks }) {
+/** `side` sits beside the square rocket card (the /rocket page puts Trades there). */
+export function YourRocket({ col, wallet, handle, sell, side }: { col: Col | null; wallet: string | null; handle: string; sell?: SellHooks; side?: ReactNode }) {
   const now = Date.now();
   const owned = useMemo(() => new Set(col?.owned ?? []), [col]);
   const eq = col?.equipped ?? { skin: skinId("bullet", "white-gloss"), trail: trailId("gold"), tag: STARTER_TAG, flourish: "" };
@@ -195,20 +195,24 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
   return (
     <section className="hg-sec hgu-sec" aria-labelledby="hg-looks" data-testid="rocket-collection">
       <header className="hg-sech"><div><h2 id="hg-looks" className="dsc3-h2">Your rocket</h2></div></header>
-      <div className="hgu-equip" style={{ ["--sw" as string]: SW[eqItem.rar] }}>
-        <span className="hgu-equip-art"><SkinArt i={eqItem} h={210} copy={copyById(eqc.skin)} /><Plume id={eq.trail} h={120} /></span>
-        <div className="hgu-equip-tx">
-          <span className="hg-look-r" style={{ color: SW[eqItem.rar] }}>{RL[eqItem.rar]}{eqItem.series ? ` · Series ${eqItem.series}` : " · Prestige"}</span>
-          <b>{title(eqItem)}</b>
-          {(() => { const c = copyById(eqc.skin); return c ? <span>{c.serial ? `#${fmt(c.serial)}` : "Starter"} · {burnGrade(c.burn).name}{c.trak != null ? ` · FlightTrak ${c.trak}` : ""}{c.fe ? " · First edition" : ""}</span> : null; })()}
-          <span>{itemById(eq.trail)?.name ?? "Gold"} trail</span>
-          <Tag id={eq.tag} name={handle} w={220} />
+      <div className="hgu-top">
+        <div className="hgu-equip sq" style={{ ["--sw" as string]: SW[eqItem.rar] }} data-testid="rocket-flying">
+          <span className="hgu-equip-art"><SkinArt i={eqItem} h={200} copy={copyById(eqc.skin)} /><Plume id={eq.trail} h={110} /></span>
+          <div className="hgu-equip-tx">
+            <span className="hg-look-r" style={{ color: SW[eqItem.rar] }}>{RL[eqItem.rar]}{eqItem.series ? ` · Series ${eqItem.series}` : " · Prestige"}</span>
+            <b>{title(eqItem)}</b>
+            {(() => { const c = copyById(eqc.skin); return <span>{c ? <>{c.serial ? `#${fmt(c.serial)}` : "Starter"} · {burnGrade(c.burn).name}{c.trak != null ? ` · FlightTrak ${c.trak}` : ""}{c.fe ? " · First edition" : ""} · </> : null}{itemById(eq.trail)?.name ?? "Gold"} trail</span>; })()}
+            <Tag id={eq.tag} name={handle} w={200} />
+          </div>
         </div>
-      </div>
-      <div className="hgu-series">
-        <div><span className="hg-look-r" style={{ color: "var(--dsc3-light-champagne)" }}>Series {live.n} · {live.name}</span><b>{found} of {liveSkins.length} found</b></div>
-        <span className="hgu-meter"><i style={{ width: `${Math.round((found / Math.max(1, liveSkins.length)) * 100)}%` }} /></span>
-        {next && next.series === live.n ? <span className="hgu-leaves">{next.name} in {untilDays(next.start - now)}</span> : daysLeft != null ? <span className="hgu-leaves">Ends in {daysLeft}d</span> : null}
+        <div className="hgu-top-side">
+          <div className="hgu-series">
+            <div><span className="hg-look-r" style={{ color: "var(--dsc3-light-champagne)" }}>Series {live.n} · {live.name}</span><b>{found} of {liveSkins.length} found</b></div>
+            {next && next.series === live.n ? <span className="hgu-leaves">{next.name} in {untilDays(next.start - now)}</span> : daysLeft != null ? <span className="hgu-leaves">Ends in {daysLeft}d</span> : null}
+            <span className="hgu-meter"><i style={{ width: `${Math.round((found / Math.max(1, liveSkins.length)) * 100)}%` }} /></span>
+          </div>
+          {side}
+        </div>
       </div>
       <div className="hg-ranges hgu-hulls" role="tablist" aria-label="Hulls">
         {hullTabs.map((h) => <button key={h} type="button" role="tab" aria-selected={hull === h} className={hull === h ? "on" : ""} onClick={() => setHull(h)}>{HULL_NAMES[h]} · {count(h)}</button>)}
@@ -437,11 +441,6 @@ function TradeUpGraphic() {
           <span><b>{RL.mythic}</b> crates only</span>
         </li>
       </ol>
-      <ul className="hgu-tug-rules">
-        <li><Icon name="copy" size={16} />Only your spare copies</li>
-        <li><Icon name="rocket" size={16} />Never what you fly</li>
-        <li><Icon name="star" size={16} />Never your best copy</li>
-      </ul>
     </div>
   );
 }
