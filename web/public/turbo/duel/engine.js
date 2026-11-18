@@ -37,6 +37,17 @@ function mount(root,host){
   const on=(t,ev,f,o)=>{ t.addEventListener(ev,f,o); offs.push(()=>t.removeEventListener(ev,f,o)); };
   // result card fits one screen (maker 2026-11-17: "cropped weird"): tighter blocks, the card scrolls inside the overlay
   // instead of centring off the top, and short screens drop the promo and keep 2 log rows. Kept apart from CSS so the big line stays untouched.
+  const GEAR_CSS=".duel-root .pre-r{justify-self:end;display:flex;align-items:center;gap:10px;min-width:0}"
+    +".duel-root .pre-gear{flex:none;display:grid;place-items:center;width:36px;height:36px;padding:0;border-radius:12px;background:rgba(18,19,39,.7);border:1px solid var(--line);color:var(--text);cursor:pointer}"
+    +".duel-root .pre-gear:hover{border-color:rgba(242,193,78,.55);color:var(--gold)}.duel-root .pre-gear:focus-visible{outline:3px solid #fff;outline-offset:2px}";
+  // the in-match X takes the top of the right-hand column; sound, chat and LAND each move down one slot
+  const QUIT_CSS=".duel-root #quitB{top:calc(var(--ch) + 86px + env(safe-area-inset-top,0px))}"
+    +".duel-root #mute{top:calc(var(--ch) + 138px + env(safe-area-inset-top,0px))}"
+    +".duel-root #chatB,.duel-root #landB{top:calc(var(--ch) + 190px + env(safe-area-inset-top,0px))!important}"
+    +".duel-root.climb #landB{top:calc(var(--ch) + 190px + env(safe-area-inset-top,0px))!important}"
+    +".duel-root .quitov{z-index:70}.duel-root .qcard{max-width:420px}.duel-root .qcard h2{margin:0;font:800 32px/1 var(--f-game);letter-spacing:.5px}"
+    +".duel-root .qwarn{margin:0;display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:12px;background:rgba(240,48,127,.10);border:1px solid rgba(240,48,127,.4);color:var(--pinkl);font:700 15px/1.2 var(--f-ui,system-ui,sans-serif)}"
+    +".duel-root .qcard .rrow>*{flex:1}";
   const RES_CSS=".duel-root #result{overflow-y:auto;overscroll-behavior:contain;padding-top:calc(12px + env(safe-area-inset-top,0px))}"
     +".duel-root #result .res{margin:auto 0 0;gap:10px;padding:16px}"
     +"@media (min-width:900px) and (min-height:600px){.duel-root #result{padding:16px}.duel-root #result .res{margin:auto}}"
@@ -117,7 +128,8 @@ function mount(root,host){
     if(hull&&hull.look&&!hull.cv&&ready(hull.img)) hull.cv=bake(hull);
     const im=hull&&hull.cv?hull.cv:hull&&hull.img.complete&&hull.img.naturalWidth?hull.img:img, ww=im===img?h*221/609:w; if(im&&(im.tagName==="CANVAS"||im.complete)) c2.drawImage(im,-ww/2,-h/2,ww,h); return w; }
   { const u=`url("${A.art||"/art/modes/duel.webp"}")`; $("preBg").style.backgroundImage=u; $("preArt").style.backgroundImage=u; }   // the lobby hero: the whole duel art, your gold ship vs the pink one
-  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // Reduce motion = the phone's own setting, or the lobby gear's (lib/game/settings reduceFx, readPrefs below)
+  const RM=matchMedia('(prefers-reduced-motion: reduce)').matches; let reduce=RM;
   const rnd=(a,b)=>a+Math.random()*(b-a);
   const gauss=()=>{let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);};
   const usd=(v,s)=>!isFinite(v)?"$0.00":(s&&v>0?"+":"")+(v<0?"\u2212":"")+"$"+Math.abs(v).toFixed(2);
@@ -846,6 +858,12 @@ function mount(root,host){
   const SETK="disciple.game.settings.v1"; let sfxLvl=.7, bus=null, lastRival=0;
   function readLvl(){ try{ const o=JSON.parse(localStorage.getItem(SETK)||"null"); if(o&&o.sfx) sfxLvl=o.sfx.on===false?0:(typeof o.sfx.vol==="number"?o.sfx.vol:.7); }catch(e){} if(bus) bus.gain.value=sfxLvl*1.3; }
   readLvl(); const onStore=e=>{ if(e.key===SETK) readLvl(); }, onLvl=e=>{ if(e.detail&&typeof e.detail.sfx==="number"){ sfxLvl=e.detail.sfx; if(bus) bus.gain.value=sfxLvl*1.3; } };
+  // the lobby gear (components/turbo/LobbySettings): Vibration, Reduce motion and the start size, from the same settings key
+  let hapt=true;
+  function readPrefs(){ let o=null; try{ o=JSON.parse(localStorage.getItem(SETK)||"null"); }catch(e){} o=o||{};
+    hapt=o.haptics!==false; reduce=RM||o.reduceFx===true;
+    if(PCTS.includes(o.turboSize)&&o.turboSize!==stake&&!(G&&G.started&&!G.over)){ stake=o.turboSize; if(G) paintSizes(); } }
+  readPrefs(); on(window,"disciple:audio",readPrefs); on(window,"storage",e=>{ if(e.key===SETK) readPrefs(); });
   addEventListener("storage",onStore); addEventListener("disciple:audio",onLvl);
   function outBus(){ if(!bus&&ac){ bus=ac.createGain(); bus.gain.value=sfxLvl*1.3; bus.connect(ac.destination); } return bus; }
   // vol: 1 for you; a rival's boosts and blasts play quieter and panned to their side (pan -1 left … 1 right)
@@ -872,7 +890,7 @@ function mount(root,host){
     if(!hum){ try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; src.loop=true; g.gain.value=0; src.connect(g); g.connect(outBus()); src.start(); hum={s:src,g}; humV=humR=-1; }catch(e){ return; } }
     const v=Math.round((.16+.2*boost)*50)/50, r=Math.round((.92+.3*boost)*50)/50;
     if(v!==humV){ humV=v; hum.g.gain.setTargetAtTime(v,ac.currentTime,.15); } if(r!==humR){ humR=r; hum.s.playbackRate.setTargetAtTime(r,ac.currentTime,.2); } }
-  function buzz(p){ try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
+  function buzz(p){ if(!hapt) return; try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
   function setMute(m){ muted=m; if(m){ const o=bedOn; bedOn=null; if(o) try{o.s.stop();}catch(e){} } else bedSync(); try{ host.mute&&host.mute(m); }catch(e){} $("mWave").toggleAttribute("hidden",m); $("mX").toggleAttribute("hidden",!m); $("mute").setAttribute("aria-label",m?"Unmute sound":"Mute sound"); try{localStorage.setItem("duel.mute",m?"1":"0");}catch(e){} }
   $("mute").addEventListener("click",()=>{ensureAudio(); setMute(!muted);});
   root.addEventListener("pointerdown",()=>ensureAudio(),true);   // the ambience starts on the first tap anywhere, not only on a launch button
@@ -883,7 +901,7 @@ function mount(root,host){
   let launchIv=null;
   function start(){
     ensureAudio(); openChat(false); pickSky(M&&M.net?M.startAt:null); newGame(); resetReport(); show("launch"); $("feed").innerHTML="";
-    $("aLab").innerHTML=`LAUNCH IN<em>SKY \u00b7 ${THEME.n}</em>`;
+    $("aLab").textContent="";   // no "LAUNCH IN · SKY" label (maker 2026-11-18): the big count says it
     $("lKeys").innerHTML=(SW>=900?[["SPACE","boost"],["SHIFT","dump"],["ENTER","cash out"],["WASD","fly"],["Q E","tricks"],["T","chat"]]:[["TAP","boost or dump"],["PILL","cash out"],["DRAG","steer"]]).map(([k,v])=>`<span><kbd>${k}</kbd>${v}</span>`).join("");
     if(G.bot) $("botLab").innerHTML=`${esc(G.bot.name).toUpperCase()} \u00b7 <span id="botN">0</span>`;
     FX.parts.length=0; FX.pops.length=0; cam={y:0,vy:0,z:1}; if(LAY){LAY.pan=0;LAY.dPan=0;} ui();
@@ -958,7 +976,7 @@ function mount(root,host){
   const PANES=["intro","search","invite","vs","launch"], STEP={intro:1,search:2,invite:2,vs:3,launch:4};
   // music only plays in a match (lib/game/turboMusic): on at GO, off back in the lobby
   function music(on){ try{ dispatchEvent(new CustomEvent("disciple:turbomusic",{detail:{on}})); }catch(e){} }
-  function show(id){ for(const k of [...PANES,"result"]) $(k).hidden=k!==id; if(id!=="launch"&&id!=="result") music(false); bed(id==="launch"?"amb_wind_high":"amb_mission_control");
+  function show(id){ for(const k of [...PANES,"result"]) $(k).hidden=k!==id; if(id!=="result") resultClipOff();   /* the win/lose clip sat on top of the next match (maker 2026-11-18: rematch "frozen") */ if(id!=="launch"&&id!=="result") music(false); bed(id==="launch"?"amb_wind_high":"amb_mission_control");
     const pre=PANES.includes(id); $("pre").hidden=!pre; $("pre").classList.remove("out"); if(pre) stage(id);
     if(id==="intro"){ paintLobby(); lerr(""); } }
   // Grok clips (public/anim, handoff 2026-11-17): C1 while searching, C3 before the result card, C6 on a NUKE
@@ -983,7 +1001,7 @@ function mount(root,host){
   function stage(id){ $("arena").dataset.stage=id; const n=STEP[id]; searchClip(id==="search");
     document.querySelectorAll("#steps li").forEach(li=>{ const k=+li.dataset.s; li.classList.toggle("on",k===n); li.classList.toggle("done",k<n); if(k===n) li.setAttribute("aria-current","step"); else li.removeAttribute("aria-current"); });
     const live=id==="vs"||id==="launch"; $("vMeR").hidden=!live; $("vThemR").hidden=!live; $("preCount").hidden=id!=="launch"; $("aVs").hidden=id==="launch";
-    $("aLab").textContent=id==="launch"?"LAUNCH IN":"";
+    $("aLab").textContent="";
     if(!live){ $("vAv").textContent="?";
       $("vName").textContent=id==="search"?"searching\u2026":id==="invite"?"your friend":"your rival";
       $("vThem").textContent=id==="search"&&RL?`near ${REC.rating.toLocaleString("en-US")}`:""; } }
@@ -999,6 +1017,30 @@ function mount(root,host){
   // the duel-only demo page (/duel, host.guest): guests play a bot or a friend's link; no ranked queue, no sign-in
   // the X timeline player (/duel?embed=1, about 480 x 480): a thin chart strip, no feed or size row, so the rockets get the frame
   if(host.embed) $("app").classList.add("embed");
+  // lobby gear (maker 2026-11-18): next to the rating chip, opens the host's settings sheet (components/turbo/LobbySettings)
+  if(host.settings){ const mc=root.querySelector(".pre-top .me-chip");
+    if(mc){ const box=document.createElement("div"), g=document.createElement("button"); box.className="pre-r"; g.type="button"; g.className="pre-gear"; g.id="preGear"; g.setAttribute("aria-label","Settings");
+      g.innerHTML='<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18.18 9.67 20.43 10.29 20.43 13.71 18.18 14.33 18.01 14.72 19.17 16.75 16.75 19.17 14.72 18.01 14.33 18.18 13.71 20.43 10.29 20.43 9.67 18.18 9.28 18.01 7.25 19.17 4.83 16.75 5.99 14.72 5.82 14.33 3.57 13.71 3.57 10.29 5.82 9.67 5.99 9.28 4.83 7.25 7.25 4.83 9.28 5.99 9.67 5.82 10.29 3.57 13.71 3.57 14.33 5.82 14.72 5.99 16.75 4.83 19.17 7.25 18.01 9.28z"/><circle cx="12" cy="12" r="2.75"/></svg>';
+      mc.replaceWith(box); box.append(mc,g); g.addEventListener("click",()=>{ try{ host.settings(); }catch(e){} });
+      if(!document.getElementById("duel-gear-css")){ const gs=document.createElement("style"); gs.id="duel-gear-css"; gs.textContent=GEAR_CSS; document.head.appendChild(gs); } } }
+  // leave mid-match (maker 2026-11-18): an X at the top of the right-hand buttons, then a confirm. Climb closes your trade
+  // right away; a duel's trades stay open until the clock ends (the server settles a leaver's book at the buzzer).
+  { const app=$("app"); app.insertAdjacentHTML("beforeend",'<button class="mute quit" id="quitB" type="button" aria-label="Leave"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>'
+      +'<div class="ov quitov" id="quitOv" hidden><div class="card qcard" role="dialog" aria-modal="true" aria-labelledby="qH"><h2 id="qH">LEAVE?</h2><p class="qwarn" id="qW" hidden></p>'
+      +'<div class="rrow"><button class="sec" type="button" id="qStay">STAY</button><button class="go" type="button" id="qGo">LEAVE</button></div></div></div>');
+    const live=()=>!!(G&&G.started&&!G.over);
+    const qOpen=()=>{ if(!live()) return; const solo=!!G.solo, net=!!(M&&M.net), w=$("qW");
+      $("qH").textContent=solo?"LEAVE THE RUN?":"LEAVE THE DUEL?";
+      const txt=solo?(G.me.pos?"Your trade closes now.":""):(net?"Your trades stay open until the clock ends.":"");
+      w.textContent=txt; w.hidden=!txt; $("quitOv").hidden=false; $("qStay").focus(); };
+    const qShut=()=>{ $("quitOv").hidden=true; };
+    const qLeave=()=>{ qShut(); if(!live()) return;
+      if(G.solo){ if(G.me.pos) close(G.me); G.over=true; music(false); climbHome(); return; }   // climbHome ends the Lighter run (closes it there too)
+      G.over=true; if(M&&M.net) void host.leave(); M=null; show("intro"); };
+    $("quitB").addEventListener("click",qOpen); $("qStay").addEventListener("click",qShut); $("qGo").addEventListener("click",qLeave);
+    $("quitOv").addEventListener("pointerdown",e=>{ if(e.target===e.currentTarget) qShut(); });
+    on(window,"keydown",e=>{ if($("quitOv").hidden) return; e.stopPropagation(); if(e.key==="Escape") qShut(); },true);   // no boost / cash-out keys behind the confirm
+    if(!document.getElementById("duel-quit-css")){ const qs=document.createElement("style"); qs.id="duel-quit-css"; qs.textContent=QUIT_CSS; document.head.appendChild(qs); } }
   if(host.guest){ $("go").hidden=true; const bk=root.querySelector(".pre-back"); if(bk) bk.style.visibility="hidden"; const mc=root.querySelector(".me-chip"); if(mc) mc.style.visibility="hidden"; const tb=document.querySelectorAll(".duel-root .tab"); if(tb[0]) tb[0].textContent="VS BOT"; if(tb[1]) tb[1].textContent="VS FRIEND";
     $("botSub").textContent="Practice \u00b7 play money \u00b7 no rating"; }
   $("mkLink").addEventListener("click",()=>{ ensureAudio(); if(!SIGNED&&!host.guest){ host.signIn(); return; } mode="friend"; lerr(""); host.createLink(botKey,LEN,CFUEL); });
@@ -1051,6 +1093,7 @@ function mount(root,host){
     if(m&&G&&G.bot){ G.bot.say=null; $("chatDot").hidden=true; } try{ localStorage.setItem("duel.chatMute",m?"1":"0"); }catch(e){} }
   setChatMute(chatMute);
   $("cMute").addEventListener("click",()=>setChatMute(!chatMute));
+  on(window,"disciple:duelchat",e=>{ const m=!!(e.detail&&e.detail.mute); if(m!==chatMute) setChatMute(m); });   // Rival chat in the lobby gear
   let repArm=0;
   function resetReport(){ const b=$("cRep"); clearTimeout(repArm); repArm=0; b.disabled=false; b.classList.remove("warn"); b.textContent="REPORT"; b.hidden=!(M&&M.net); }
   $("cRep").addEventListener("click",()=>{ const b=$("cRep"); if(!(M&&M.net)) return;

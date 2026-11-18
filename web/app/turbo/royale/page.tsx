@@ -16,10 +16,12 @@ import { isTurboEnabled } from "@/lib/turbo/flag";
 import { royaleOpenHere } from "@/lib/features";
 import { useTurboMusic } from "@/lib/game/turboMusic";
 import { trackFunnel } from "@/lib/funnelClient";
+import LobbySettings from "@/components/turbo/LobbySettings";
 
 export default function RoyalePage() {
   const [on, setOn] = useState<boolean | null>(null);
   const frame = useRef<HTMLIFrameElement>(null);
+  const [gear, setGear] = useState(false);
   useTurboMusic();
   useEffect(() => { setOn(isTurboEnabled() && royaleOpenHere()); }, []);   // held for launch: lib/features ROYALE_ENABLED
   // funnel: the first round a browser plays (the game turns its music on when a round starts), lib/funnel TURBO_STEPS
@@ -35,7 +37,9 @@ export default function RoyalePage() {
     const offW = onWallet((a) => { wallet = a; });
     const lx = lighterWanted() ? new RoyaleLighter(() => wallet, (t) => post({ type: "disciple:toast", t })) : null;
     const f = (e: MessageEvent) => {
-      if (e.origin !== location.origin || e.source !== frame.current?.contentWindow || e.data?.type !== "disciple:royale") return;
+      if (e.origin !== location.origin || e.source !== frame.current?.contentWindow) return;
+      if (e.data?.type === "disciple:settings") { setGear(true); return; }   // the lobby gear in play.html
+      if (e.data?.type !== "disciple:royale") return;
       lx?.handle(e.data);
     };
     window.addEventListener("message", f);
@@ -43,12 +47,15 @@ export default function RoyalePage() {
   }, [on]);
   if (!on) return null;
   return (
+    <>
     <iframe
       ref={frame}
       title="Turbo Royale"
-      src={withBase("/turbo/royale/play.html?v=17")}
+      src={withBase("/turbo/royale/play.html?v=18")}
       style={{ position: "fixed", inset: 0, width: "100%", height: "100%", border: 0, zIndex: 60, background: "#07080c" }}
       allow="autoplay; web-share; clipboard-write"
     />
+    <LobbySettings mode="royale" open={gear} onClose={() => setGear(false)} />
+    </>
   );
 }
