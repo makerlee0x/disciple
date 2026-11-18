@@ -123,6 +123,10 @@ export async function changeTier(cfg: LighterConfig, accountIndex: number, tier:
   return form<Resp>(cfg, "/api/v1/changeAccountTier", { account_index: accountIndex, new_tier: tier }, { authorization: authToken });
 }
 
+/** The account's tier and limits as Lighter sees them (auth token), so set-up's tier step can be checked */
+export async function accountLimits(cfg: LighterConfig, accountIndex: number, authToken: string) {
+  return call<Resp & Record<string, unknown>>(cfg, `/api/v1/accountLimits?account_index=${accountIndex}`, { headers: { authorization: authToken } });
+}
 /** Lighter's assets (USDC on Lighter mainnet, USDG on Lighter on Robinhood Chain), for transfers and withdrawals. */
 /** Lighter calls the id `asset_id` (USDG is 3 on Robinhood Chain); asset_index kept for older answers */
 export interface AssetDetail { asset_id?: number; asset_index?: number; symbol: string; decimals?: number }

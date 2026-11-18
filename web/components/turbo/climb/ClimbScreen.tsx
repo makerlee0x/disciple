@@ -17,10 +17,12 @@ import { readClimbLevel, saveClimbLevel } from "@/lib/climb/progress";
 import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "@/components/turbo/duel/engineLoader";
 import { PCTS, pctUsd } from "@/lib/duel/rules";
 import { LighterMatch, lighterFetcher, lighterWanted, type MatchAction } from "@/lib/lighter/duel";
+import { lighterStatus } from "@/lib/lighter/client";
+import { streamLighterMids } from "@/lib/turbo/royalePrices";
 import { onWallet } from "@/lib/walletState";
 
 type Tick = { ts: number; p: number };
-interface EngineApi { price(p: number, ts: number): void; error?(t: string): void; climbRefresh?(): void; destroy(): void }
+interface EngineApi { price(p: number, ts: number): void; error?(t: string): void; climbRefresh?(): void; climbFill?(entry: number): void; destroy(): void }
 /** the buzzer's longest clock (app/api/lighter arm): free mode has none, so its position closes then */
 const LIGHTER_ARM_MAX = 270_000;
 
@@ -36,21 +38,58 @@ export default function ClimbScreen() {
     const levels = [...CLIMB_LEVELS];
     const setBalance = (usd: number) => { levels.splice(0, levels.length, ...climbLevelsFor(usd)); api?.climbRefresh?.(); };
     const ad = getTurboAdapter();
-    void ad.getFuel().then((f) => { if (!dead) setBalance(f.usd); }).catch(() => {});
-    const offFuel = ad.onFuel((f) => setBalance(f.usd));
-    const stopPrice = getTurboAdapter().subscribePrice("BTC", (t) => {
-      const ts = t.ts || Date.now(); hist.push({ ts, p: t.price });
+    // on Lighter (maker 2026-11-18: "this should be real fills now") the balance is the pilot's Lighter cash, the chart
+    // is that exchange's BTC price, entries are Lighter's fills and the result is the cash Lighter says it moved
+    const onLighter = lighterWanted();
+    let realCash: number | null = null;
+    if (!onLighter) void ad.getFuel().then((f) => { if (!dead) setBalance(f.usd); }).catch(() => {});
+    const offFuel = onLighter ? () => {} : ad.onFuel((f) => setBalance(f.usd));
+    const tick = (price: number, at: number) => {
+      const ts = at || Date.now(); hist.push({ ts, p: price });
       while (hist.length && hist[0].ts < ts - 90_000) hist.shift();
-      api?.price(t.price, ts);
-    });
+      api?.price(price, ts);
+    };
+    let stopPrice = onLighter ? () => {} : ad.subscribePrice("BTC", (t) => tick(t.price, t.ts));
+    let lf: ReturnType<typeof lighterFetcher> | null = null;
+    /** the Lighter account now: cash, and the BTC position's real entry */
+    const readLighter = async () => {
+      if (!lf) return null;
+      const s = await lighterStatus(lf);
+      const cash = Number(s.collateral);
+      const p = s.positions?.find((x) => x.symbol === "BTC");
+      const open = p && Number(p.position) !== 0 ? Number(p.avg_entry_price) : null;
+      return { s, cash: Number.isFinite(cash) ? cash : null, entry: open && open > 0 ? open : null };
+    };
     // Lighter: Lighter's BTC leverage is set once at 50x (CLIMB_MAX_GEAR), so a lower gear sends a smaller margin for
     // the same size of bet: $ × gear / 50
     let wallet: string | null = null, gear = CLIMB_MAX_GEAR, lxP: Promise<LighterMatch | null> = Promise.resolve(null);
-    const offWallet = onWallet((a) => { wallet = a; });
+    const offWallet = onWallet((a) => {
+      wallet = a;
+      if (!onLighter || !a) return;
+      lf = lighterFetcher(a);
+      void readLighter().then((r) => {
+        if (dead || !r || r.s.step !== "ready") return;
+        host.climb.real = true;
+        if (r.cash != null) { realCash = r.cash; setBalance(r.cash); }
+        const h = r.s.url ? new URL(r.s.url).host : undefined;
+        // Lighter's smallest BTC order as a position in $ (its min size at the mark, or its min $, whichever is bigger)
+        if (r.s.url) void fetch(`${r.s.url}/api/v1/orderBookDetails?filter=perp`).then((x) => x.json()).then((j: { order_book_details?: { symbol?: string; min_base_amount?: string; min_quote_amount?: string; mark_price?: string; last_trade_price?: number }[] }) => {
+          const d = j.order_book_details?.find((o) => o.symbol === "BTC");
+          const px = Number(d?.mark_price ?? d?.last_trade_price);
+          const min = Math.max(Number(d?.min_base_amount) * px || 0, Number(d?.min_quote_amount) || 0);
+          if (!dead && min > 0 && lighter) { lighter.minUsd = min; api?.climbRefresh?.(); }
+        }).catch(() => {});
+        stopPrice(); stopPrice = streamLighterMids((m) => { if (m.BTC) tick(m.BTC, Date.now()); }, h);
+      }).catch(() => {});
+    });
+    if (onLighter) stopPrice(); // no play-money price under real orders; Lighter's own starts once the account is read
+    let startCash: number | null = null, ended: Promise<void> = Promise.resolve();
     const sizesFor = (fuel: number) => PCTS.map((p) => (p === 0 ? fuel / (1 + gear * CLIMB_FEE) : pctUsd(p, fuel)) * gear / CLIMB_MAX_GEAR);
     const lighter = !lighterWanted() ? undefined : {
+      /** Lighter's smallest BTC order, a position in $ (read once the account is ready); the engine rounds bets up to it */
+      minUsd: 0,
       begin: (run: { fuel: number; gear: number }) => {
-        gear = run.gear;
+        gear = run.gear; startCash = realCash;
         lxP = (async () => {
           if (!wallet) { api?.error?.("Sign in to fly on Lighter."); return null; }
           const f = lighterFetcher(wallet);
@@ -62,11 +101,29 @@ export default function ClimbScreen() {
         const id = `climb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
         void lxP.then((lx) => lx?.arm("climb", id, { ms: Math.max(5_000, Math.min(LIGHTER_ARM_MAX, endAt - Date.now())), markets: ["BTC"] }));
       },
-      press: (action: MatchAction, i: number, fuelAfter: number) => lxP.then((lx) => (lx ? lx.press(action, i, fuelAfter) : null)),
+      press: (action: MatchAction, i: number, fuelAfter: number) => lxP.then(async (lx) => {
+        if (!lx) return null;
+        const r = await lx.press(action, i, fuelAfter);
+        // the fill lands a moment after Lighter takes the order: read the real entry back for the chart and the PnL
+        if (!("error" in r) && action !== "close") setTimeout(() => { void readLighter().then((x) => { if (x?.entry) api?.climbFill?.(x.entry); }).catch(() => {}); }, 700);
+        return r;
+      }),
       fuel: (fuel: number) => { void lxP.then((lx) => lx?.fuel(fuel)); },
       end: () => {
         const p = lxP; lxP = Promise.resolve(null);
-        void p.then(async (lx) => { if (!lx) return; await lx.closeAll().catch(() => {}); lx.stop(); });
+        ended = p.then(async (lx) => { if (!lx) return; await lx.closeAll().catch(() => {}); lx.stop(); });
+        return ended;
+      },
+      /** the run's real result: Lighter cash once the BTC position is gone, minus the cash before the run */
+      result: async (): Promise<number | null> => {
+        await ended;
+        if (startCash == null) return null;
+        for (let i = 0; i < 8; i++) {
+          const r = await readLighter().catch(() => null);
+          if (r && r.cash != null && r.entry == null) { realCash = r.cash; setBalance(r.cash); return Math.round((r.cash - startCash) * 100) / 100; }
+          await new Promise((ok) => setTimeout(ok, 600));
+        }
+        return null;
       },
     };
     const host = {
