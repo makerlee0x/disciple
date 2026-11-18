@@ -91,7 +91,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* the plain "Test network" marker lives in the wallet strip (WalletButton), so it shows on every route incl. the game */}
       {!isGame && !IS_STATIC_PREVIEW && <InviteBanner />}
       {/* profile r3: no cash pill on a profile (the page's portfolio block shows Cash); every other route unchanged */}
-      <WalletButton compact={!isGame} hideCash={/^\/(profile|u\/)/.test(pathname ?? "")} />
+      <WalletButton compact={!isGame} />
       <FunnelBeacon />
       <TouchKit />
       {isGame ? children : <div className="main-offset main-offset-lobby min-h-screen">{children}</div>}
