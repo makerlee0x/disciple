@@ -72,6 +72,13 @@ export default function ClimbScreen() {
         host.climb.real = true;
         if (r.cash != null) { realCash = r.cash; setBalance(r.cash); }
         const h = r.s.url ? new URL(r.s.url).host : undefined;
+        // Lighter's smallest BTC order as a position in $ (its min size at the mark, or its min $, whichever is bigger)
+        if (r.s.url) void fetch(`${r.s.url}/api/v1/orderBookDetails?filter=perp`).then((x) => x.json()).then((j: { order_book_details?: { symbol?: string; min_base_amount?: string; min_quote_amount?: string; mark_price?: string; last_trade_price?: number }[] }) => {
+          const d = j.order_book_details?.find((o) => o.symbol === "BTC");
+          const px = Number(d?.mark_price ?? d?.last_trade_price);
+          const min = Math.max(Number(d?.min_base_amount) * px || 0, Number(d?.min_quote_amount) || 0);
+          if (!dead && min > 0 && lighter) { lighter.minUsd = min; api?.climbRefresh?.(); }
+        }).catch(() => {});
         stopPrice(); stopPrice = streamLighterMids((m) => { if (m.BTC) tick(m.BTC, Date.now()); }, h);
       }).catch(() => {});
     });
@@ -79,6 +86,8 @@ export default function ClimbScreen() {
     let startCash: number | null = null, ended: Promise<void> = Promise.resolve();
     const sizesFor = (fuel: number) => PCTS.map((p) => (p === 0 ? fuel / (1 + gear * CLIMB_FEE) : pctUsd(p, fuel)) * gear / CLIMB_MAX_GEAR);
     const lighter = !lighterWanted() ? undefined : {
+      /** Lighter's smallest BTC order, a position in $ (read once the account is ready); the engine rounds bets up to it */
+      minUsd: 0,
       begin: (run: { fuel: number; gear: number }) => {
         gear = run.gear; startCash = realCash;
         lxP = (async () => {

@@ -260,7 +260,11 @@ function mount(root,host){
   const PCTS=[10,25,50,0]; let stake=25, SIZES=PCTS, cPct=25;   // cPct: Climb free mode's size slider, 1-100%
   const pctUsd=(pc,f)=>pc===0?f:Math.floor(f*pc)/100;   // whole cents, rounded down
   const minT=()=>CLR?.1:1;   // smallest trade: Climb 10 cents (Lighter has no minimum, maker 2026-11-18: ".10 minimum to limit spam"); duels keep the server $1
-  const stakeUsd=()=>pctUsd(stake,G&&G.me?G.me.fuel:FUEL0);   // open() keeps the fee back
+  // Climb on Lighter: a bet under Lighter's smallest order (host.climb.lighter.minUsd, a position in $) goes out at that
+  // minimum, so the button shows the real amount (maker 2026-11-18: "if its .25 not show .5"); 0 = can't (fuel too low)
+  const lxMin=()=>CLR&&CL&&CL.lighter&&CL.lighter.minUsd>0?CL.lighter.minUsd/LEV:0;
+  const realUsd=(pc,f)=>{ const d=pctUsd(pc,f), m=lxMin(); if(!m||pc===0||!(d>0)) return d; const r=Math.ceil(m*100)/100; return d>=r?d:(f>=r?r:0); };
+  const stakeUsd=()=>realUsd(stake,G&&G.me?G.me.fuel:FUEL0);   // open() keeps the fee back
   /* custom budgets (friend duels): same rule as lib/duel/rules sizesFor. Sizes = half the budget on a 1-2-5 step, then three steps down. */
   const BUD_MIN=5, BUD_MAX=10000, okBud=v=>Number.isInteger(v)&&v>=BUD_MIN&&v<=BUD_MAX;
   const money=v=>v<1?"$"+v.toFixed(2):v>=1000?"$"+(v%1000?(v/1000).toFixed(1).replace(/\.0$/,""):v/1000)+"K":"$"+v;
@@ -270,9 +274,9 @@ function mount(root,host){
     const out=[nice(f/2)]; while(out.length<4) out.unshift(down(out[0])); return [...out,0]; }
   function curFuel(){ if(CLR) return CLR.fuel; return M&&M.fuel&&okBud(M.fuel)?M.fuel:TIERS[botKey].fuel; }
   function curSizes(){ return M&&M.fuel&&okBud(M.fuel)?sizesFor(M.fuel):TIERS[botKey].sizes; }
-  function paintSizes(){ const f=G&&G.me?G.me.fuel:FUEL0; document.querySelectorAll(".size button").forEach(b=>{const v=SIZES[+b.dataset.i]; if(v==null){ b.hidden=true; return; } const d=pctUsd(v,f);
+  function paintSizes(){ const f=G&&G.me?G.me.fuel:FUEL0; document.querySelectorAll(".size button").forEach(b=>{const v=SIZES[+b.dataset.i]; if(v==null){ b.hidden=true; return; } const d=realUsd(v,f);
     b.innerHTML=(v===0?"ALL":v+"%")+`<span class="u">${d>=minT()?"$"+(d>=10?Math.floor(d):d.toFixed(2).replace(/\.00$/,"")):"\u2013"}</span>`; b.classList.toggle("on",v===stake); b.classList.toggle("lo",d<minT());});
-    const sl=$("cSlI"); if(sl&&CLR&&CLR.free){ const pc=stake===0?100:stake, d=pctUsd(stake,f); if(+sl.value!==pc) sl.value=pc; sl.style.setProperty("--p",pc+"%");
+    const sl=$("cSlI"); if(sl&&CLR&&CLR.free){ const pc=stake===0?100:stake, d=realUsd(stake,f); if(+sl.value!==pc) sl.value=pc; sl.style.setProperty("--p",pc+"%");
       $("cSlV").innerHTML=`${pc}%<span class="u">${d>=minT()?"$"+(d>=10?Math.floor(d):d.toFixed(2)):"\u2013"}</span>`; } }
   function act(kind){
     if(!G||!G.started||G.over) return;
