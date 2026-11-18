@@ -185,7 +185,7 @@ export async function scoreXp(
   if (styles.length) {
     for (const p of [dayPeriod(now), dayPeriod(now - 86_400_000)]) {
       const ok = evaluateStyles({ wallet: w, fills, claims: styles, asOf: now }, p);
-      for (let i = 0; i < ok.length; i++) await pay({ src: `style:${p.id}:${i}`, kind: "style", xp: styleXp(ok[i].combo), label: ok[i].combo > 1 ? `Style fill x${Math.min(STYLE.maxCombo, ok[i].combo)}` : "Style fill", ts: ok[i].at });
+      for (let i = 0; i < ok.length; i++) await pay({ src: `style:${p.id}:${i}`, kind: "style", xp: styleXp(ok[i].combo), label: ok[i].combo > 1 ? `Trick boost x${Math.min(STYLE.maxCombo, ok[i].combo)}` : "Trick boost", ts: ok[i].at });
     }
   }
   if (!o.dryRun) {

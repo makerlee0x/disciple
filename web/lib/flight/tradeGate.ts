@@ -92,3 +92,23 @@ export function activeWarning(side: TradeSide | null | undefined, buy: MoveWarn 
   if (side === "sell" && hasTokens && sell?.text) return { text: `DUMP: ${sell.text}`, over: sell.level === "over" };
   return { text: "", over: false };
 }
+
+/**
+ * Biggest BOOST ($) that stays under the router's live per-trade price cap, from the impact quotes we already have
+ * (maker 2026-11-18: a $5K BOOST on a $1.4K post-orbit pool failed with "Too big for this rocket"). Pool depth is backed
+ * out of each quote with the constant-product rule (price × (1 + a/y)²), then sized to 92% of the cap's amount so the
+ * real quote lands under it. null = no cap, or no quoted amount is over it (every amount fits).
+ */
+export function maxBuyUnderCap(usd: readonly number[], impactBps: readonly (number | null | undefined)[], maxBps: number | null | undefined): number | null {
+  if (!hasImpactCap(maxBps)) return null;
+  const c = maxBps / 10000, room = Math.sqrt(1 + c) - 1;
+  let best: number | null = null;
+  usd.forEach((a, i) => {
+    const b = impactBps[i];
+    if (!(a > 0) || typeof b !== "number" || !Number.isFinite(b) || Math.abs(b) <= maxBps) return;
+    const y = a / (Math.sqrt(1 + Math.abs(b) / 10000) - 1);   // the pool's quote-side depth this quote implies
+    const m = y * room * 0.92;
+    if (m > 0 && Number.isFinite(m) && (best == null || m < best)) best = m;
+  });
+  return best;
+}

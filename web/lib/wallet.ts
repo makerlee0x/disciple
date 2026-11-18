@@ -176,6 +176,14 @@ export async function execCalls(calls: Call[], o: SendOpts = {}): Promise<ExecRe
 }
 
 /* ---------------- gasless (Permit2 witness) seam — flow/gasless-permit2 ---------------- */
+/** Off-tap warm-up for a coin you hold: lets its first DUMP skip the Permit2 allowance reads (lib/trade/gaslessClient primePermit). */
+export async function warmGaslessSell(coin: Address): Promise<void> {
+  const owner = gaslessSigner();
+  if (!owner) return;
+  const [{ createPublicClient, http }, { primePermit }] = await Promise.all([import("viem"), import("./trade/gaslessClient")]);
+  await primePermit(createPublicClient({ chain: ACTIVE_CHAIN, transport: http() }) as never, owner.address, coin);
+}
+
 /**
  * One gasless trade from the owner EOA (gaslessSigner): sign the Permit2 witness (+ the one-time EIP-2612 approval of
  * PERMIT2) silently and POST /api/gasless. Errors are AAErrors so the trade path's existing rules apply unchanged:
