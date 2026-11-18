@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { deployment, isDeployed } from "@/lib/chains";
 import { TOTAL_SUPPLY_WEI as SUPPLY_WEI, launchBuyTokensOut, paramsFromQuotePrice } from "@/lib/curveMath";
 import {
-  FIRST_BOOST_COPY as COPY, FIRST_BOOST_TIP_STARTS_OPEN, bpsToPct, exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap, fmtAmount, fmtUsdWad, modeName, parseAmount, quoteRawToUsdWad, readFirstBoostLimits, readQuoteBalance, toInputString, usdToQuoteRaw,
+  FIRST_BOOST_COPY as COPY, FIRST_BOOST_TIP_STARTS_OPEN, bpsToPct, exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap, fmtAmount, fmtUsdWad, parseAmount, quoteRawToUsdWad, readFirstBoostLimits, readQuoteBalance, toInputString, usdToQuoteRaw,
   type FirstBoostLimits,
 } from "@/lib/firstBoost";
 import { DEFAULT_LAUNCH_MODE, LaunchMode, modesActive, readPveLoginVerified } from "@/lib/launchAbi";
