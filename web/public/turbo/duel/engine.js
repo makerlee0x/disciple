@@ -152,6 +152,7 @@ function mount(root,host){
     pl.tag=tagFx(l.tag); pl.trak=fx.skin&&fx.skin.trak!=null?fx.skin.trak:null; pl.fl=FLOURISH_ART[l.flourish]||(art&&okSrc(art.flourish)?art.flourish:null); }
   function newPlayer(name,me){return {name,me,fuel:FUEL0,pos:null,fees:0,trades:0,up:0,dn:0,green:0,best:0,y:0,vy:0,flame:0,flameC:"255,200,120",sq:0,lastTrade:-1e9,next:0,moments:[]};}
   function newGame(){
+    optim=0;
     FUEL0=curFuel(); LEV=CLR?CLR.gear:DUEL_LEV; FEE=CLR?CL.fee:DUEL_FEE; SIZES=PCTS; if(!SIZES.includes(stake)) stake=25; paintSizes(); resizeK();
     const startAt=M&&M.startAt||Date.now()+3500, h=host.history();
     G={t:now_()-startAt,startAt,solo:!!CLR,len:CLR?CLR.len:(M&&M.endAt?M.endAt-startAt:LEN),ot:false,over:false,price:h.length?h[h.length-1].p:0,ticks:[],marks:[],
@@ -243,8 +244,14 @@ function mount(root,host){
       if(kind==="x"&&!me.pos){toast("Nothing open.");return;}
       if(kind==="f") return;
       if((kind==="b"||kind==="d")&&me.pos&&me.pos.side!==(kind==="b"?1:-1)){ fuelOut(me.pos.side); return; }
-      const action=kind==="b"?"boost":kind==="d"?"dump":"close";
-      host.trade(action,stake===0?0:stakeUsd()).then(r=>{ if(r&&r.error) toast(r.error); });
+      const action=kind==="b"?"boost":kind==="d"?"dump":"close", amt=stake===0?0:stakeUsd();
+      // the press shows at once at the price you see (maker 2026-11-18: no waiting on the fill); the server's echo then
+      // sets the real book, and a refused press puts the book back
+      const snap=bookOf(me);
+      const ok=action==="close"?close(me)!==0||!me.pos:open(me,kind==="b"?1:-1,stake===0?me.fuel:amt);
+      if(!ok) return;
+      optim++; ui();
+      host.trade(action,amt,SIZES.indexOf(stake),me.fuel).then(r=>{ if(r&&r.error){ if(optim>0) optim--; setBook(me,snap); ui(); toast(r.error); } });
       return;
     }
     if(filling) return;   // one order in flight at a time
@@ -265,11 +272,14 @@ function mount(root,host){
 
   /* ---------- live duel: server events ---------- */
   function setBook(pl,b){ pl.fuel=b.fuel; pl.pos=b.pos?Object.assign({},b.pos):null; pl.fees=b.fees; pl.trades=b.trades; pl.green=b.green; pl.best=b.best; }
+  const bookOf=pl=>({fuel:pl.fuel,pos:pl.pos?Object.assign({},pl.pos):null,fees:pl.fees,trades:pl.trades,green:pl.green,best:pl.best});
+  let optim=0;   // presses already shown on screen, waiting for the server's echo
   function onEvent(ev){
     if(!G||!M||!M.net) return;
     const pl=ev.pid===M.me?G.me:G.bot;
     if(ev.type==="trade"||ev.type==="bomb"){
-      for(const st of ev.steps){ if(st.kind==="open") vOpen(pl,st.side,st.usd,st.price); else if(st.kind==="close") vClose(pl,st.side,st.net,st.price); else vBomb(pl,st.side,st.lost,st.price); }
+      const shown=pl.me&&ev.type==="trade"&&optim>0; if(shown) optim--;   // its burst already played at the press
+      for(const st of ev.steps){ if(st.kind==="open"){ if(!shown) vOpen(pl,st.side,st.usd,st.price); } else if(st.kind==="close"){ if(!shown) vClose(pl,st.side,st.net,st.price); } else vBomb(pl,st.side,st.lost,st.price); }
       setBook(pl,ev.book); pushPrice(ev.price,ev.ts); ui();
     } else if(ev.type==="chat"){ say(pl,ev.text); }
     else if(ev.type==="trick"){ if(!pl.me) trick(pl,ev.kind); }

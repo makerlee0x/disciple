@@ -40,7 +40,10 @@ export const lighterWarm = (f: Fetcher) => call(f, { op: "warm" });
  */
 export type TapKind = "long" | "short" | "close";
 type Signed = { txType: number; txInfo: string; cap: number; base: number };
-export type LighterTicket = { url: string; nonce: number; exp: number; market: number; lev: number; mid: number; long: Signed; short: Signed; close?: Signed & { side: "long" | "short" }; ms?: Record<string, number> };
+export type LighterTicket = { url: string; nonce: number; exp: number; market: number; lev: number; mid: number;
+  /** one long + short per requested size (null = under Lighter's minimum); long / short = opens[0] */
+  opens: ({ usd: number; long: Signed; short: Signed } | null)[]; long?: Signed; short?: Signed;
+  close?: Signed & { side: "long" | "short" }; ms?: Record<string, number> };
 export type TapResult = { hash: string; ms: number; via: "direct" | "relay" | "ws"; waited: boolean; nonce: number; cap: number; base: number; idle: number; raw?: string };
 export type TapVia = "http" | "ws";
 
@@ -129,7 +132,8 @@ export class LighterTaps {
   /** test page: open Lighter's WebSocket too, so a "ws" tap finds it already connected */
   wantSocket = false;
 
-  constructor(private f: Fetcher, public market: string, public usd: number) {}
+  sizes: number[];
+  constructor(private f: Fetcher, public market: string, sizes: number[] | number) { this.sizes = typeof sizes === "number" ? [sizes] : sizes; }
 
   onTicket(fn: (t: LighterTicket | null) => void) { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; }
   private emit() { this.listeners.forEach((fn) => fn(this.ticket)); }
@@ -159,12 +163,17 @@ export class LighterTaps {
     this.lastLighter = performance.now();
     void fetch(`${this.ticket.url}/api/v1/status`, { cache: "no-store" }).catch(() => {});
   }
-  set(market: string, usd: number) { if (market === this.market && usd === this.usd) return; this.market = market; this.usd = usd; this.ticket = null; this.loading = null; this.emit(); void this.refresh(); }
+  /** new market or trade sizes ($ of fuel per size button): the held set no longer fits, so sign a new one */
+  set(market: string, sizes: number[] | number) {
+    const z = typeof sizes === "number" ? [sizes] : sizes;
+    if (market === this.market && z.length === this.sizes.length && z.every((v, i) => v === this.sizes[i])) return;
+    this.market = market; this.sizes = z; this.ticket = null; this.loading = null; this.emit(); void this.refresh();
+  }
 
-  refresh(used?: { nonce: number; kind: TapKind }): Promise<LighterTicket | null> {
+  refresh(used?: { nonce: number; kind: TapKind; i?: number }): Promise<LighterTicket | null> {
     if (this.loading && !used) return this.loading;
     const g = ++this.gen; // only the newest answer counts; an older one may carry a spent nonce
-    const p = call<LighterTicket>(this.f, { op: "presign", market: this.market, usd: this.usd, used, floor: this.floor })
+    const p = call<LighterTicket>(this.f, { op: "presign", market: this.market, sizes: this.sizes, used, floor: this.floor })
       .then((t) => { if (g !== this.gen) return this.ticket; this.ticket = t; this.lastError = null; this.emit(); this.warm(); return t; })
       .catch((e: Error) => { if (g !== this.gen) return this.ticket; this.lastError = e.message; this.ticket = null; this.emit(); return null; })
       .finally(() => { if (this.loading === p) this.loading = null; });
@@ -172,8 +181,9 @@ export class LighterTaps {
     return p;
   }
 
-  /** Sends the tapped order. `ms` is tap → Lighter's answer, as the browser saw it. */
-  async tap(kind: TapKind, how: TapVia = "http"): Promise<TapResult> {
+  /** Sends the tapped order: `i` picks the size (opens[i]); `next` = the sizes for the set after this one (the fuel
+   *  left changes with each trade), so the follow-up set is signed once, already right. `ms` is tap → Lighter's answer. */
+  async tap(kind: TapKind, how: TapVia = "http", i = 0, next?: number[]): Promise<TapResult> {
     if (this.tapping) throw new Error("One at a time.");
     this.tapping = true;
     const t0 = performance.now();
@@ -181,8 +191,8 @@ export class LighterTaps {
       let t = this.ticket, waited = false;
       if (!t || t.exp - SAFETY_MS < Date.now()) { waited = true; t = await this.refresh(); }
       if (!t) throw new Error(this.lastError ?? "Lighter didn't answer.");
-      const o = t[kind];
-      if (!o) throw new Error("Nothing open.");
+      const o = kind === "close" ? t.close : t.opens[i]?.[kind];
+      if (!o) throw new Error(kind === "close" ? "Nothing open." : "That size is under Lighter's minimum.");
       this.ticket = null; this.emit(); // spent: every order in the set shares its nonce
       const idle = this.lastLighter ? Math.round(t0 - this.lastLighter) : -1;
       let hash: string, via: TapResult["via"] = how === "ws" ? "ws" : "direct", raw: string | undefined;
@@ -204,7 +214,8 @@ export class LighterTaps {
       const ms = Math.round(performance.now() - t0);
       this.lastLighter = performance.now();
       this.floor = t.nonce + 1;
-      void this.refresh({ nonce: t.nonce, kind });
+      if (next?.length) this.sizes = next;
+      void this.refresh({ nonce: t.nonce, kind, i });
       return { hash, ms, via, waited, nonce: t.nonce, cap: o.cap, base: o.base, idle, raw };
     } finally { this.tapping = false; }
   }

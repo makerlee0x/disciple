@@ -21,6 +21,8 @@ import { EARN, RARITY_COLOR, RARITY_NAME, TRAILS, crateArt, frozenOf, itemById, 
 import { COLLECTION_CHANGED_EVENT } from "@/lib/collectionClient";
 import { withBase } from "@/lib/base-path";
 import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "./engineLoader";
+import { LighterMatch, lighterFetcher, lighterWanted } from "@/lib/lighter/duel";
+import { FEE, LEV, PCTS, pctUsd, fuelOf } from "@/lib/duel/rules";
 
 const trailRgb = (id?: string) => TRAILS.find((t) => trailId(t.id) === id)?.rgb;
 import { useTurboMusic } from "@/lib/game/turboMusic";
@@ -102,13 +104,35 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
     };
     let rival: string | null = null;
     const lookOf = (pid: string | null, other: string | null) => (pid ? ships.get(pid) ?? (pid.startsWith("g_") ? guestLook(pid, other) : null) : null);
-    const unfollow = () => { if (rematchT) { clearTimeout(rematchT); rematchT = null; } fol?.stop(); fol = null; roomId = null; };
+    // Lighter (hidden, ?lighter=1): each press is also a real order on the pilot's own Lighter account (lib/lighter/duel)
+    const lighterOn = !guest && lighterWanted();
+    let lx: LighterMatch | null = null, lxFor: string | null = null, lxStatus: string | null = null;
+    // button i → $ of fuel, the way the engine sizes a press (ALL keeps the fee back, like rules openStep)
+    const sizesFor = (fuel: number) => PCTS.map((p) => (p === 0 ? fuel / (1 + LEV * FEE) : pctUsd(p, fuel)));
+    const lighterRoom = async (room: DuelRoom) => {
+      if (!lighterOn || !me) return;
+      const book = room.books[me];
+      if ((room.status === "lobby" || room.status === "live") && lxFor !== room.id) {
+        lx?.stop(); lx = null; lxFor = room.id;
+        const f = lighterFetcher(me);
+        if (!(await LighterMatch.ready(f))) { if (lxStatus !== "no") { lxStatus = "no"; api?.error("Lighter isn't set up for this wallet. Finish set-up on /lighter."); } return; }
+        if (lxFor !== room.id || dead) return;
+        lx = new LighterMatch(f, "BTC", sizesFor, book?.fuel ?? fuelOf(room)); lx.start(); lxStatus = "on";
+      }
+      if (lx && book) lx.fuel(book.fuel);
+      if (lx && (room.status === "done" || room.status === "cancelled")) { const x = lx; lx = null; lxFor = null; await x.closeAll(); x.stop(); }
+    };
+    const unfollow = () => {
+      if (rematchT) { clearTimeout(rematchT); rematchT = null; } fol?.stop(); fol = null; roomId = null;
+      if (lx) { const x = lx; lx = null; lxFor = null; void x.closeAll().finally(() => x.stop()); }
+    };
     const follow = (id: string) => {
       if (roomId === id) return; unfollow(); roomId = id;
       fol = followRoom(id, (e) => api?.event(e), (room, now) => {
         if (dead || !me) return;
         void loadShips(room.players.map((p) => p.pid));
         rival = room.players.find((p) => p.pid !== me)?.pid ?? null; api?.setClock(now); api?.room(room, me);
+        void lighterRoom(room);
         if (room.status === "done" && room.rematch?.roomId && room.rematch.roomId !== id) follow(room.rematch.roomId);
         if (room.status === "cancelled") unfollow();
       });
@@ -240,7 +264,13 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
         }, REMATCH_PUSH_MS);
       },
       toLobby: () => { unfollow(); void refreshMe(); },
-      trade: (action: TradeAction, usd: number) => op({ op: "trade", action, usd }),
+      // i = size button, fuelAfter = the fuel the screen shows after the press (both only used for the Lighter order)
+      trade: async (action: TradeAction, usd: number, i?: number, fuelAfter?: number) => {
+        const real = lx && typeof i === "number" && i >= 0 ? lx.press(action, i, fuelAfter ?? 0) : null;
+        const r = await op({ op: "trade", action, usd });
+        if (real) void real.then((x) => { if ("error" in x) api?.error(x.error); });
+        return r;
+      },
       chat: (text: string) => op({ op: "chat", text }),
       report: async () => { if (!roomId) return { error: "Not in a duel." }; const r = await duelApi.op(roomId, { op: "report" }); return r.ok ? {} : { error: r.reason }; },
       trick: (kind: "spin" | "flip") => { void op({ op: "trick", kind }); },
