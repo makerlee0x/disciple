@@ -189,7 +189,10 @@ function mount(root,host){
     feed(pl,net>=0?"g":"r",`${pl.me?"you":esc(pl.name)} banked <b>${usd(net,true)}</b>`);
     if(pl.me){ sfx(net>=0?"win":"lose"); buzz(net>=0?[12,30,12]:[30]); }
     pl.lastTrade=G.t;
+    // Climb: banking the goal is the finish line, the run ends there (maker 2026-11-18)
+    if(pl.me&&G.solo&&CLR&&CLR.goal!=null) setTimeout(()=>{ if(G&&G.solo&&!G.over&&!G.me.pos&&cHit(profitOf(G.me))) end(); },900);
   }
+  const cHit=v=>CLR&&CLR.goal!=null&&Math.round(v*100)>=Math.round(CLR.goal*100);
   function vBomb(pl,side,lost,price){
     G.marks.push({t:G.t,p:price,me:pl.me,k:"x"});
     moment(pl,`${pl.me?"you":esc(pl.name)} got NUKED on a ${side>0?"BOOST":"DUMP"}`,-lost);
@@ -1322,11 +1325,12 @@ function mount(root,host){
   function climbEnd(){ G.over=true; if(G.me.pos) close(G.me); if(CL.lighter) CL.lighter.end(); music(false); ui();
     const pnl=profitOf(G.me), run=CLR, before=CL.state().unlocked;
     const res=run.free?{unlocked:before}:CL.finish({level:run.level,pnl,test:run.test});
-    const up=res.unlocked>before, n=res.unlocked, nl=lvl(n);
-    setTimeout(()=>{ if(dead) return; show("cres"); climbChip(); sfx(up?"win":"lose");
+    const up=res.unlocked>before, n=res.unlocked, nl=lvl(n), clr=!run.free&&cHit(pnl);
+    setTimeout(()=>{ if(dead) return; show("cres"); climbChip(); sfx(up||clr?"win":"lose");
       let big;
       if(run.free) big=`<small>LANDED</small><b class="${pnl>=0?"up":"dn"}">${usd(pnl,true)}</b><strong>${m2(run.fuel)} · ${gx(run.gear)}</strong>`;
       else if(up) big=`<small>${n-run.level>1?"LEVEL JUMP":"LEVEL UP"}</small><b>${n>=FREE?"FREE MODE":"LEVEL "+n}</b><strong>${n>=FREE?"UNLOCKED":`${m2(nl.fuel)} · ${gx(nl.gear)} UNLOCKED`}</strong><em>${usd(pnl,true)}${nl?` · NEXT GOAL +${m2(nl.goal)}`:""}</em>`;
+      else if(clr) big=`<small>CLEARED</small><b class="up">${usd(pnl,true)}</b><em style="color:var(--muted)">GOAL +${m2(run.goal)}</em>`;
       else big=`<small>${G.nuked?"NUKED":"MISSED"}</small><b class="${pnl>=0?"up":"dn"}">${usd(pnl,true)}</b><em style="color:var(--muted)">GOAL +${m2(run.goal)}</em>`;
       const again=run.free?"FLY AGAIN":up?(n>=FREE?"FREE MODE":"PLAY LEVEL "+n):"AGAIN";
       const sub=run.free?`${m2(run.fuel)} · ${gx(run.gear)}`:up&&nl?`${m2(nl.fuel)} · ${gx(nl.gear)}`:up?`up to ${gx(MAXG)} · no clock`:`${m2(run.fuel)} · ${gx(run.gear)}`;
