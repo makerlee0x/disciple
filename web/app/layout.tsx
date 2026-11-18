@@ -29,6 +29,11 @@ const GAME_ROUTE_JS = `(function(){try{var b=${JSON.stringify(process.env.NEXT_P
  *  own home (components/app/AppSwitch) and tab bar (LobbyTopBar). */
 const APP_JS = `(function(){try{if(navigator.userAgent.indexOf("DiscipleApp/")>-1)document.documentElement.classList.add("app")}catch(e){}})()`;
 
+/** Top bar holds still on a refresh (maker 2026-11-18): a browser with a saved, unexpired session (lib/aa/sessionState
+ *  SESSION_LS) gets html[data-you] before the first paint, so the server-rendered bar is already the signed-in one.
+ *  LobbyTopBar keeps it in sync once Privy answers. */
+const YOU_JS = `(function(){try{var s=JSON.parse(localStorage.getItem("disciple.aa.session.v2")||"null");if(s&&s.owner&&(!s.expiresAt||s.expiresAt>Date.now()))document.documentElement.setAttribute("data-you","")}catch(e){}})()`;
+
 const SITE_TITLE = "DISCIPLE · Ride it to orbit";
 const SITE_LINE = "Every rocket is a live match. The crew boosts it up, and anyone can bomb it down.";
 /** Site card (step 7): drawn by /api/og/site (lib/server/og/card.ts). Rocket, pilot and invite pages carry their own. */
@@ -73,6 +78,7 @@ export default function RootLayout({
             load. Same test as Sidebar's isCollapsibleRoute, before the first paint; Sidebar keeps it in sync after that. */}
         <script dangerouslySetInnerHTML={{ __html: GAME_ROUTE_JS }} />
         <script dangerouslySetInnerHTML={{ __html: APP_JS }} />
+        <script dangerouslySetInnerHTML={{ __html: YOU_JS }} />
         {/* Privy's session check and wallet iframe live on auth.privy.io: open the connection while the page loads */}
         <link rel="preconnect" href="https://auth.privy.io" />
         <script id={SPONSORSHIP_CONFIG_ID} type="application/json" dangerouslySetInnerHTML={{ __html: JSON.stringify(sponsorshipConfig()) }} />

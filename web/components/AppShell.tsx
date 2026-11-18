@@ -15,10 +15,10 @@ import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 // The wallet pill (viem, @noble/curves, AA session; ~140 KB of JS) is position:fixed chrome, so it loads in its own chunk
 // after hydration instead of sitting in every page's first-load JS ahead of the LCP. Fixed positioning = no layout shift.
 // Until that chunk lands, a quiet placeholder holds the Sign in / pilot chip slot so the top bar never shows a gap
-// (phones: Sign in used to pop in a beat after Play now). It can't know yet whether you're signed in, so it's a blank pill.
+// (phones: Sign in used to pop in a beat after Play now). A returning player (html[data-you], root layout) gets the signed-in strip's slots instead.
 const WalletButton = dynamic(() => import("./WalletButton"), {
   ssr: false,
-  loading: () => <div aria-hidden className="wb-root wb-slot" data-compact="true"><div className="wb-row"><span className="wb-skel" /></div></div>,
+  loading: () => <div aria-hidden className="wb-root wb-slot" data-compact="true"><div className="wb-row"><span className="wb-skel wb-skel-out" /><span className="wb-skel wb-skel-help" /><span className="wb-skel wb-skel-cash" /><span className="wb-skel wb-skel-pilot" /></div></div>,
 });
 // Funnel counter beacon (lib/funnelClient): client-only, own chunk, fails silently.
 const FunnelBeacon = dynamic(() => import("./FunnelBeacon"), { ssr: false });

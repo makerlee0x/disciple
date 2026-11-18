@@ -102,11 +102,11 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
   // Sign-in speed (2026-11-18): Privy takes seconds to reconnect on a refresh (SDK chunk, session check, wallet iframe).
   // Until it answers, a browser with a saved session shows its last pill (address, @name, cash) at once: display only, no
   // menu and no trades (those wait for the real session). Privy saying signed out, or 20 s without a Privy sign-in, drops it.
-  const [guess, setGuess] = useState<LastPill | null>(null);
+  // read on the first render (this component is client-only, AppShell ssr:false): the pill is in its first paint, never
+  // a one-frame Sign in that would move the top bar
+  const out = () => privyLoaded() && !privyAuthenticated();
+  const [guess, setGuess] = useState<LastPill | null>(() => (typeof window !== "undefined" && hasSavedSession() && !out() ? lastPill() : null));
   useEffect(() => {
-    const out = () => privyLoaded() && !privyAuthenticated();
-    const p = hasSavedSession() && !out() ? lastPill() : null;
-    if (p) setGuess(p);
     const off = onPrivy(() => { if (out()) setGuess(null); });
     const t = setTimeout(() => { if (!privyAuthenticated()) setGuess(null); }, 20000);
     return () => { off(); clearTimeout(t); };
@@ -361,7 +361,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
                     <span>{copied ? "Copied" : chipLabel(uname, shown)}</span>
                     {pilot.hasPfp && <b className="wb-lv" aria-label={`Level ${pilot.info.level}`}>{pilot.info.level}</b>}
                     <PillProgress progress={pilot.info.progress} />
-                    {smart && <svg className="wb-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M6 9l6 6 6-6" /></svg>}
+                    {(smart || !addr) && <svg className="wb-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M6 9l6 6 6-6" /></svg>}
                   </button>
                 </>
               ) : (

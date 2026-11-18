@@ -157,8 +157,9 @@
   height: calc(var(--lb-bar-h) + var(--ap-safe-top, 0px)); padding: var(--ap-safe-top, 0px) 24px 0; box-sizing: border-box;
   display: flex; align-items: center; gap: 40px;
   /* the wallet strip (fixed, 16px from the right) sits over this space; --wb-w is its measured width (WalletButton), so Play now
-     keeps the same 12px gap to the "?" that the strip keeps between its own chips */
-  padding-right: calc(16px + var(--ap-safe-right, 0px) + var(--wb-w, 380px) + 12px);
+     keeps the same 12px gap to the "?" that the strip keeps between its own chips. Until it is measured, --wb-w-in is the
+     signed-in strip's fixed width (? + cash + pilot slots, refresh-r2.css), so a returning player's Play now never moves */
+  padding-right: calc(16px + var(--ap-safe-right, 0px) + var(--wb-w, var(--wb-w-in)) + 12px);
   background: linear-gradient(180deg, rgba(11,12,14,0.96), rgba(11,12,14,0.80));
   border-bottom: 1px solid rgba(232,234,238,0.10); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
 }
@@ -191,7 +192,7 @@
 .lb-tabs a:focus-visible, .lb-tab-btn:focus-visible { color: #FFFFFF; box-shadow: var(--dsc-glow-focus-ring); border-radius: 4px; }
 /* Launch reads like every other tab (maker 2026-11-14: "the launch tab coloring should be consistent"); phones keep its gold pill */
 /* signed out: the wallet pill is only Sign in, so less room is reserved; PLAY NOW sits just left of it */
-.lb-bar.lb-out { padding-right: calc(24px + 110px); }
+html:not([data-you]) .lb-bar { padding-right: calc(24px + 110px); }
 .lb-playnow {
   margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; min-height: 44px; padding: 0 20px; border-radius: 12px;
   background: linear-gradient(180deg, var(--dsc3-light-champagne), var(--dsc3-light-gold)); color: var(--dsc-sky-ink); text-decoration: none;
@@ -201,9 +202,9 @@
 .lb-playnow:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
 /* signed in, Play now sits just left of the cash + pilot chips; narrower desktops tighten the tabs so all five fit */
 @media (max-width: 1440px) { .lb-bar { gap: 28px; } .lb-bar .lb-tabs.lb-top { gap: 22px; } .lb-bar .lb-tabs.lb-top a, .lb-bar .lb-tabs.lb-top .lb-tab-btn { font-size: 18px; } }
-@media (max-width: 1280px) { .lb-playnow.lb-playnow-you { display: none; } }
+@media (max-width: 1280px) { html[data-you] .lb-playnow { display: none; } }
 @media (max-width: 900px) {
-  .lb-bar.lb-out { padding-right: 16px; }
+  html:not([data-you]) .lb-bar { padding-right: 16px; }
   .lb-playnow { position: absolute; top: calc(var(--ap-safe-top, 0px) + 12px); right: calc(16px + 88px); min-height: 40px; padding: 0 16px; font-size: 16px; }
 }
 @media (max-width: 900px) {
@@ -281,8 +282,16 @@
 
 /* WalletButton placeholder (components/AppShell): same slot as Sign in while the wallet chunk loads */
 .wb-slot { pointer-events: none; }
+.wb-slot .wb-row { display: flex; align-items: center; gap: 12px; }
 .wb-skel { display: block; width: 104px; height: 44px; border-radius: var(--dsc3-control-radius); background: rgba(255, 255, 255, 0.08); }
 @media (max-width: 760px) { .wb-skel { width: 80px; height: 40px; } }
+/* a returning player (html[data-you]): the placeholder is the signed-in strip's own slots, so nothing moves when it loads */
+.wb-skel-help, .wb-skel-cash, .wb-skel-pilot { display: none; }
+html[data-you] .wb-skel-out { display: none; }
+html[data-you] .wb-skel-help { display: block; width: 44px; border-radius: 999px; }
+html[data-you] .wb-skel-cash { display: block; width: var(--wb-cash-w); border-radius: 999px; }
+html[data-you] .wb-skel-pilot { display: block; width: var(--wb-pilot-w); height: 48px; border-radius: 999px; }
+@media (max-width: 760px) { html[data-you] .wb-skel-help { width: 36px; height: 36px; } html[data-you] .wb-skel-pilot { width: 48px; height: 44px; } }
 body.game .wb-slot { display: none; }
 
 /* ── iPhone app (html.app, set before paint by the root layout's APP_JS) ─────────────────────────────────────────────
