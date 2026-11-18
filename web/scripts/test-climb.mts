@@ -38,3 +38,8 @@ test("test out: a hit unlocks that level", () => {
   assert.equal(R.unlockAfterTest(1, 5, 130), 5);
   assert.equal(R.unlockAfterTest(1, 4, -5), 1);
 });
+
+test("goals are checked in cents, like the screen: +$0.1196 shows +$0.12 and clears level 1", () => {
+  assert.equal(R.unlockAfter(1, 1, 0.1196), 2);
+  assert.equal(R.unlockAfter(1, 1, 0.114), 1);
+});

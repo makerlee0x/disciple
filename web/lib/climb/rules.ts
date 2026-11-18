@@ -22,14 +22,18 @@ export const CLIMB_RUN_MS = 60_000;
 export const CLIMB_FEE = 0.000055;
 export const CLIMB_FEE_LABEL = "1.1 bp round trip";
 
+/** goals are checked in whole cents, the way the run screen shows PnL: +$0.12 on screen clears a $0.12 goal
+ *  (maker 2026-11-18 playtest: "i got .12 but it said i didnt unlock the next level") */
+export const hits = (pnl: number, goal: number): boolean => Math.round(pnl * 100) >= Math.round(goal * 100);
+
 /** the highest level a pilot has unlocked after a run: clearing `level` opens the next one, and a PnL past any
  *  level's goal opens that level. Never goes down. */
 export function unlockAfter(unlocked: number, level: number, pnl: number): number {
   let to = Math.max(1, Math.min(CLIMB_FREE, Math.floor(unlocked) || 1));
-  if (!(pnl > 0) || level < 1 || level >= CLIMB_FREE) return to;
+  if (!(pnl > 0.004) || level < 1 || level >= CLIMB_FREE) return to;
   const played = CLIMB_LEVELS.find((l) => l.n === level);
-  if (played && pnl + 1e-9 >= played.goal) to = Math.max(to, level + 1);
-  for (const l of CLIMB_LEVELS) if (pnl + 1e-9 >= l.goal) to = Math.max(to, l.n);
+  if (played && hits(pnl, played.goal)) to = Math.max(to, level + 1);
+  for (const l of CLIMB_LEVELS) if (hits(pnl, l.goal)) to = Math.max(to, l.n);
   return Math.min(CLIMB_FREE, to);
 }
 
@@ -37,8 +41,8 @@ export function unlockAfter(unlocked: number, level: number, pnl: number): numbe
 export function unlockAfterTest(unlocked: number, level: number, pnl: number): number {
   let to = Math.max(1, Math.min(CLIMB_FREE, Math.floor(unlocked) || 1));
   const l = CLIMB_LEVELS.find((x) => x.n === level);
-  if (!l || !(pnl > 0)) return to;
-  if (pnl + 1e-9 >= l.goal) to = Math.max(to, level);
-  for (const x of CLIMB_LEVELS) if (pnl + 1e-9 >= x.goal) to = Math.max(to, x.n);
+  if (!l || !(pnl > 0.004)) return to;
+  if (hits(pnl, l.goal)) to = Math.max(to, level);
+  for (const x of CLIMB_LEVELS) if (hits(pnl, x.goal)) to = Math.max(to, x.n);
   return Math.min(CLIMB_FREE, to);
 }

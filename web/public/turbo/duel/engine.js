@@ -522,7 +522,7 @@ function mount(root,host){
   function steerTo(pl,off){ const b=lane0(pl); pl.sxt=Math.max(34-b,Math.min(SW-34-b,off)); }
   const TRICKS={spin:{dur:.7,txt:"SPIN!",c:"#8FE3FF"},flip:{dur:.85,txt:"FLIP!",c:"#F2C14E"}};
   function trick(pl,kind){
-    if(!G||!G.started||G.over||!pl) return; if(pl.trick&&pl.trick.t<pl.trick.dur) return;
+    if(!G||!G.started||G.over||!pl||(G.solo&&!pl.me)) return; if(pl.trick&&pl.trick.t<pl.trick.dur) return;
     pl.trick={kind,t:0,dur:TRICKS[kind].dur};
     FX.pops.push({txt:TRICKS[kind].txt,c:TRICKS[kind].c,x:lane(pl),y:pl.y-RH()*.75,age:0,max:1.1,size:pl.me?28:22});
     FX.rings.push({x:lane(pl),y:pl.y,r:20,vr:420,life:.5,max:.5,w:5,col:kind==="spin"?"143,227,255":"242,193,78"});
@@ -579,6 +579,8 @@ function mount(root,host){
   const SPACE=new Set(["sky3","sky4"]);
   // where the journey is: f = position in the theme's layers (0 = ground), fin = 0..1 fade into the final sky
   function skyStage(pan){ const N=SKY_ORDER.length; if(!G||!G.started) return {f:0,fin:0};
+    if(G.solo&&CLR&&CLR.goal!=null){ const u=Math.min(1.4,soloProg()); G.sp=G.sp==null?u:G.sp+(u-G.sp)*.05;
+      return {f:Math.max(0,Math.min(N-1,Math.min(1,G.sp)*(N-1))),fin:Math.max(0,Math.min(1,(G.sp-1)/.3))}; }
     const run=Math.max(1,G.len-FINAL_MS), p=Math.max(0,Math.min(1,G.t/run));
     if(G.finalAt==null&&G.t>=run&&!G.over){ G.finalAt=G.t; toast("Final 12 seconds"); }   // latched: overtime stays on the moon
     const fin=G.finalAt!=null?Math.min(1,(G.t-G.finalAt)/1500):0;
@@ -694,7 +696,7 @@ function mount(root,host){
             if(r<.2){ const d=rnd(100,140), sd=mx-d<50?1:mx+d>SW-50?-1:(Math.random()<.5?-1:1); steerTo(pl,mx+sd*d-b0); }          // fly over next to you, on the side with room
             else if(r<.9) steerTo(pl,rnd(60,SW-60)-b0);                                // roam the sky
             else steerTo(pl,(pl.sxt||0)+rnd(-60,60));                                    // drift
-            if(Math.random()<.12&&G.started&&!G.over&&!(M&&M.net)) trick(pl,Math.random()<.5?"spin":"flip"); }
+            if(Math.random()<.12&&G.started&&!G.over&&!G.solo&&!(M&&M.net)) trick(pl,Math.random()<.5?"spin":"flip"); }
           const gap=lane(pl)-lane(G.me); if(Math.abs(gap)<90){ const roomR=SW-lane(G.me), roomL=lane(G.me); const dir=(gap>=0?(roomR>110?1:-1):(roomL>110?-1:1)); steerTo(pl,(pl.sxt||0)+dir*320*dt); }
         }
         pl.syo=(pl.syo||0)+((pl.syt||0)-(pl.syo||0))*Math.min(1,dt*8);
@@ -727,6 +729,7 @@ function mount(root,host){
       for(const [pl,y0] of [[G.me,yMe0],[G.bot,yRv0]]){ const [a,b]=lim(pl); pl.y=Math.max(a,Math.min(b,y0+(pl.syo||0))); }
       if(G.solo){ const [a,b]=lim(G.me); G.me.y=Math.max(a,Math.min(b,soloY())); }   // Climb: the sky zooms to the run (START, goal, NUKE)
       LAY.pan=0; LAY.dPan=0;
+      if(G.solo&&G.me.sVy) camDy+=G.me.sVy*2.2;
     }
     sx.save(); if(sh) sx.translate(rnd(-sh,sh)*.5,rnd(-sh,sh)*.5);
     const pan=LAY&&G?LAY.pan||0:0, dPan=LAY&&G?LAY.dPan||0:0; if(LAY) LAY.dPan=0;
@@ -1117,7 +1120,7 @@ function mount(root,host){
      Five levels you keep. Each is a fuel, a gear and a $ goal in 60 s. Hit the goal once and the next level unlocks; beat a
      higher level's $ goal and you jump to it. After level 5 is free mode: any fuel, up to 50x, no clock. Levels and
      the unlock rule live in lib/climb/rules.ts (host.climb); this block only draws and flies. */
-  const CLIMB_CSS=".duel-root.climb #slotR,.duel-root.climb #aVs,.duel-root.climb #aRadar,.duel-root.climb .steps,.duel-root.climb #chatB,.duel-root.climb #chat,.duel-root.climb #vMeR{display:none!important}"
+  const CLIMB_CSS=".duel-root.climb #slotR,.duel-root.climb #aVs,.duel-root.climb #aRadar,.duel-root.climb .steps,.duel-root.climb #chatB,.duel-root.climb #chat,.duel-root.climb #vMeR,.duel-root.climb .arena .tag.me{display:none!important}"
     +".duel-root .land{width:auto;padding:0 12px;font:800 16px/1 var(--f-game);letter-spacing:1px;color:var(--text)}"
     +".duel-root .choices.ladder{gap:6px}.duel-root .choices.ladder .choice{min-height:0;padding-top:8px;padding-bottom:8px}"
     +".duel-root .choice.lock .ci,.duel-root .choice.lock .ct{opacity:.5}.duel-root .choice.done .ci{color:var(--green)}"
@@ -1143,15 +1146,15 @@ function mount(root,host){
     rows.push(`<button class="choice${fr?" main":" lock"}" type="button" data-cl="free">${`<i class="ci">${fr?ICO.bolt:ICO.lock}</i>`}<span class="ct"><b>FREE MODE</b><small>any fuel · up to ${gx(MAXG)} · no clock</small></span>${fr?ICO.go:""}</button>`);
     for(const l of LVS.slice().reverse()){ const k=l.n>u?"lock":l.n===u?"cur":"done";
       rows.push(`<button class="choice${k==="cur"?" main":""} ${k}" type="button" data-cl="${l.n}"><i class="ci">${k==="lock"?ICO.lock:k==="done"?ICO.check:ICO.bolt}</i><span class="ct"><b>LEVEL ${l.n} · ${m2(l.fuel)}</b><small>${gx(l.gear)} · +${m2(l.goal)} (${pctOf(l)}) in 60s${k==="done"?" · cleared":""}</small></span>${k==="lock"?'<span class="tout">TEST OUT</span>':k==="cur"?ICO.go:""}</button>`); }
-    $("climb").innerHTML=`<div class="choices ladder">${rows.join("")}</div><p class="fine">${CL.real?"":"Play money · "}NUKE at 80% of fuel lost · fee ${CL.feeLabel}</p>`;
+    $("climb").innerHTML=`<div class="choices ladder">${rows.join("")}</div>`;
     $("climb").querySelectorAll("[data-cl]").forEach(b=>b.addEventListener("click",()=>{ ensureAudio(); const v=b.dataset.cl;
       if(v==="free"){ if(CL.state().unlocked>=FREE) climbFreeSetup(); else toast("Clear level "+LVS.length+" to unlock free mode."); return; }
       const n=+v; if(n<=CL.state().unlocked){ climbPlay(n); return; }
       climbTestOut(n); })); }
   function climbTestOut(n){ const l=lvl(n); show("cres");
     $("cres").innerHTML=`<div class="cbig"><small>TEST OUT</small><b>LEVEL ${n}</b><strong>${m2(l.fuel)} · ${gx(l.gear)}</strong><em>HIT +${m2(l.goal)} (${pctOf(l)}) IN 60s</em></div>`
-      +`<div class="choices"><button class="choice main" type="button" id="cTo"><i class="ci">${ICO.bolt}</i><span class="ct"><b>TEST OUT</b><small>${m2(l.fuel)} fuel · NUKE at −${Math.round(LIQ/l.gear*1000)/10}%</small></span>${ICO.go}</button></div>`
-      +`<button class="sec wide" type="button" id="cBack" style="margin-top:8px">LEVELS</button><p class="fine">Real money · one try a day</p>`;
+      +`<div class="choices"><button class="choice main" type="button" id="cTo"><i class="ci">${ICO.bolt}</i><span class="ct"><b>TEST OUT</b><small>${m2(l.fuel)} · real money · 1 try a day</small></span>${ICO.go}</button></div>`
+      +`<button class="sec wide" type="button" id="cBack" style="margin-top:8px">LEVELS</button>`;
     $("cBack").addEventListener("click",climbHome);
     $("cTo").addEventListener("click",()=>{ const r=CL.testOut?CL.testOut(n):{error:"Test out opens with real money."}; if(r&&r.error){ toast(r.error); return; } climbPlay(n,true); }); }
   function climbFreeSetup(){ show("cres");
@@ -1175,16 +1178,28 @@ function mount(root,host){
     const nx=lvl(CLR.level+1); $("botLab").innerHTML=(CLR.free?"FUEL":"NEXT")+'<span id="botN"></span>';
     $("botP").textContent=CLR.free?m2(CLR.fuel):nx?m2(nx.fuel):"FREE"; $("botP").style.color="var(--gold)";
     $("landB").hidden=!CLR.free; }
-  function soloUi(){ const p=profitOf(G.me), li=$("leadI");
+  function soloUi(){ const p=profitOf(G.me), li=$("leadI"), nx=lvl(CLR.level+1);
+    $("botP").textContent=CLR.free?m2(CLR.fuel):nx?m2(nx.fuel):"FREE"; $("botP").style.color="var(--gold)";
     if(CLR.free){ $("clock").textContent=mmss(Math.max(0,G.t)); li.style.width="0"; $("leadT").textContent=""; return; }
     const pr=Math.max(0,Math.min(1,p/CLR.goal)); li.style.left="0%"; li.style.width=Math.max(2,pr*100)+"%"; li.style.background="var(--green)";
     $("leadT").textContent="GOAL +"+m2(CLR.goal); $("leadT").style.color="var(--green)"; }
-  // the sky zooms to the run: START, the goal and (while a trade is open) the NUKE, so a cent of PnL moves the rocket
-  function soloRange(){ const p=profitOf(G.me);
-    if(CLR.goal!=null){ const g=CLR.goal; return [Math.max(g*1.35,p+g*.25),Math.min(-g*.9,p-g*.25)]; }
-    const r=Math.max(CLR.fuel*.01,Math.abs(p)*1.5,.5); G.sR=G.sR==null?r:G.sR+(r-G.sR)*.03; return [G.sR,-G.sR*.8]; }
-  function soloYOf(v){ const [t,b]=soloRange(), a=LAY.under+40, z=LAY.barTop-10; return a+(t-v)/(t-b)*(z-a); }
-  function soloY(){ const t=soloYOf(profitOf(G.me)); G.me.sY=G.me.sY==null?t:G.me.sY+(t-G.me.sY)*.12; return G.me.sY+(G.me.syo||0)*.2; }
+  // the sky for a level run (maker 2026-11-18: "make the target way visually higher so it feels like you're climbing"):
+  // START sits low, the GOAL gate near the top, and the first cents move the rocket the most (ease-out), so every tick
+  // up reads as climbing closer. Past the goal you keep rising toward the top edge; losses sink toward the NUKE.
+  const SOLO_START=.78, SOLO_GOAL=.14;
+  function soloFrac(v){ const me=G.me, pos=me.pos;
+    if(CLR.goal!=null){ const u=v/CLR.goal;
+      if(u>=1) return SOLO_GOAL-SOLO_GOAL*.85*Math.tanh((u-1)*1.5);
+      if(u>=0) return SOLO_START-(SOLO_START-SOLO_GOAL)*(1-Math.pow(1-u,1.7));
+      const lossTo=pos?LIQ*pos.coll:CLR.goal*3; return SOLO_START+(1-SOLO_START)*Math.min(1.05,Math.pow(-v/lossTo,.75)); }
+    const r=Math.max(CLR.fuel*.01,Math.abs(profitOf(me))*1.5,.5); G.sR=G.sR==null?r:G.sR+(r-G.sR)*.03;
+    return .5-.42*Math.max(-1.1,Math.min(1.1,v/G.sR)); }
+  function soloYOf(v){ const a=LAY.under+40, z=LAY.barTop-10; return a+soloFrac(v)*(z-a); }
+  function soloProg(){ return CLR.goal!=null?Math.max(0,profitOf(G.me)/CLR.goal):0; }
+  function soloY(){ const t=soloYOf(profitOf(G.me)), was=G.me.sY; G.me.sY=was==null?t:was+(t-was)*.12;
+    G.me.sVy=was==null?0:G.me.sY-was;   // px a frame, negative while climbing: drives the clouds, stars and flame
+    if(G.me.sVy<-.4) G.me.flame=Math.min(2.2,G.me.flame+Math.min(.12,-G.me.sVy*.02));
+    return G.me.sY+(G.me.syo||0)*.2; }
   function soloLines(){ const me=G.me, pos=me.pos, p=profitOf(me), top=LAY.under+6, bot=LAY.barTop+10, f=n=>Math.round(n).toLocaleString("en-US");
     const L=[{v:0,label:"START",plain:1,col:"242,243,247"}];
     const priceAt=v=>pos?pos.entry*(1+pos.side*(v-(p-pnlOf(pos,G.price)))/pos.size):null;   // the price at which your profit reads v
@@ -1198,8 +1213,11 @@ function mount(root,host){
         if(l.gate){ const g=sx.createLinearGradient(0,y-26,0,y+26); g.addColorStop(0,`rgba(${l.col},0)`); g.addColorStop(.5,`rgba(${l.col},.22)`); g.addColorStop(1,`rgba(${l.col},0)`); sx.fillStyle=g; sx.fillRect(0,y-26,SW,52); }
         sx.strokeStyle=`rgba(${l.col},.9)`; sx.lineWidth=l.w||2; sx.beginPath(); sx.moveTo(0,y); sx.lineTo(SW,y); sx.stroke(); }
       const txt=(pin<0?"▲ ":pin>0?"▼ ":"")+(pin&&l.pin?l.pin:l.label); sx.font="800 14px "+GF+",sans-serif"; const tw=sx.measureText(txt).width+16, hh=22, ly=pin<0?y:pin>0?y-hh:y-hh/2;
-      sx.fillStyle=`rgba(${l.col},.95)`; rr(12,ly,tw,hh,7); sx.fill(); sx.fillStyle=l.ink||"#121327"; sx.textAlign="left"; sx.textBaseline="middle"; sx.fillText(txt,20,ly+hh/2+1);
-      if(l.sub&&!pin){ sx.font="700 12px "+GF+",sans-serif"; const sw=sx.measureText(l.sub).width+12; sx.fillStyle="rgba(11,10,22,.86)"; rr(12+tw+4,ly+2,sw,hh-4,6); sx.fill(); sx.fillStyle=`rgba(${l.col},1)`; sx.fillText(l.sub,12+tw+10,ly+hh/2+1); } } }
+      // right-aligned: the trade feed lives top left
+      let sw=0; if(l.sub&&!pin){ sx.font="700 12px "+GF+",sans-serif"; sw=sx.measureText(l.sub).width+12; }
+      const x1=SW-12-tw; sx.font="800 14px "+GF+",sans-serif";
+      sx.fillStyle=`rgba(${l.col},.95)`; rr(x1,ly,tw,hh,7); sx.fill(); sx.fillStyle=l.ink||"#121327"; sx.textAlign="left"; sx.textBaseline="middle"; sx.fillText(txt,x1+8,ly+hh/2+1);
+      if(sw){ const x2=x1-4-sw; sx.font="700 12px "+GF+",sans-serif"; sx.fillStyle="rgba(11,10,22,.86)"; rr(x2,ly+2,sw,hh-4,6); sx.fill(); sx.fillStyle=`rgba(${l.col},1)`; sx.fillText(l.sub,x2+6,ly+hh/2+1); } } }
   function climbEnd(){ G.over=true; if(G.me.pos) close(G.me); music(false); ui();
     const pnl=profitOf(G.me), run=CLR, before=CL.state().unlocked;
     const res=run.free?{unlocked:before}:CL.finish({level:run.level,pnl,test:run.test});
@@ -1222,7 +1240,12 @@ function mount(root,host){
     $("chatB").insertAdjacentHTML("afterend",'<button class="mute chatb land" id="landB" type="button" hidden>LAND</button>');
     $("landB").addEventListener("click",()=>{ if(G&&G.solo&&G.started&&!G.over) end(); });
     root.classList.add("climb"); const t=root.querySelector(".pre-title"); if(t) t.textContent="CLIMB";
-    const bk=root.querySelector(".pre-back"); if(bk&&CL.back) bk.href=CL.back;
+    // BACK: from a test out, free mode setup or a result it goes to the levels; from the levels, to wherever you came from
+    const bk=root.querySelector(".pre-back"); if(bk){ if(CL.back) bk.href=CL.back;
+      const onBk=e=>{ if(!$("climb").hidden){ let same=false; try{ same=!!document.referrer&&new URL(document.referrer).origin===location.origin; }catch(_){}
+          if(same&&history.length>1){ e.preventDefault(); history.back(); } return; }
+        e.preventDefault(); if(M&&M.solo&&!$("launch").hidden&&G&&!G.started){ M=null; } climbHome(); };
+      bk.addEventListener("click",onBk); offs.push(()=>bk.removeEventListener("click",onBk)); }
     $("lCancel").addEventListener("click",()=>{ if(CLR) climbHome(); });
     climbHome();
   }
