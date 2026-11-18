@@ -16,8 +16,8 @@ export type WithdrawInfo = { usd: number; fee: number; min: number };
 export const lighterWithdrawInfo = (f: Fetcher) => post<WithdrawInfo>(f, { op: "withdraw-info" });
 
 /** Moves `usd` of Turbo cash to `to` (the player's cash address). Resolves once Lighter took the withdrawal. */
-export async function lighterWithdraw(f: Fetcher, usd: number, to: string, signMessage: (msg: string) => Promise<string>): Promise<{ usd: number }> {
-  const { message } = await post<{ message: string; usd: number; fee: number }>(f, { op: "withdraw-start", usd, to });
+export async function lighterWithdraw(f: Fetcher, usd: number, to: string, signMessage: (msg: string) => Promise<string>, raw = false): Promise<{ usd: number }> {
+  const { message } = await post<{ message: string; usd: number; fee: number }>(f, { op: "withdraw-start", usd, to, raw });
   const sig = await signMessage(message);
   return post<{ usd: number }>(f, { op: "withdraw-finish", sig });
 }

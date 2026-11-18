@@ -19,6 +19,56 @@ const BRIDGE = "https://bridge.lighter.xyz";
 export const DEPOSIT_MIN_NEW = 5, DEPOSIT_MIN = 3;
 /** Lighter on Robinhood Chain takes USDG straight in: 1 USDG minimum per deposit (docs, Robinhood Chain section). */
 export const depositMins = (cfg: LighterConfig) => (cfg.payoutIsCash ? { minNew: 1, min: 1 } : { minNew: DEPOSIT_MIN_NEW, min: DEPOSIT_MIN });
+
+/**
+ * Lighter main -> Cash (maker 2026-11-18 moved Turbo to Lighter main for its 0.5 bp Plus fee). Cash in needs nothing
+ * extra: the Fun.xyz bridge below takes USDG on Robinhood Chain, the same route Lighter's own app uses. Cash out: Lighter
+ * pays fast withdrawals in USDC; a Relay (relay.link) deposit address turns that into USDG in the player's wallet on
+ * Robinhood Chain (Lighter's own app ships Relay's client for its "receive USDG on Robinhood" withdrawals).
+ */
+const RELAY = "https://api.relay.link";
+export const ARBITRUM_ID = 42161;
+export const ARBITRUM_USDC = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
+export const RH_USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168";
+const RH_CHAIN = 4663;
+
+export type RelayDeposit = { address: string; outUsd: number; feeUsd: number | null };
+/** Relay's /quote answer (deposit-address mode) -> where to send and what arrives. Throws on a shape we don't know. Pure, tested. */
+export function parseRelayDeposit(j: unknown): RelayDeposit {
+  const o = (j ?? {}) as { steps?: { id?: string; depositAddress?: string }[]; details?: { currencyOut?: { amount?: string } }; fees?: { relayer?: { amountUsd?: string } }; message?: string };
+  const step = o.steps?.find((x) => x.id === "deposit" && typeof x.depositAddress === "string");
+  if (!step?.depositAddress || !/^0x[0-9a-fA-F]{40}$/.test(step.depositAddress)) throw new LighterError(502, o.message || "The swap service didn't answer.");
+  const out = Number(o.details?.currencyOut?.amount) / 1e6;
+  if (!(out > 0)) throw new LighterError(502, "The swap service didn't answer.");
+  const fee = Number(o.fees?.relayer?.amountUsd);
+  return { address: step.depositAddress, outUsd: out, feeUsd: Number.isFinite(fee) ? fee : null };
+}
+
+type RelayLeg = { from: number; fromToken: string; to: number; toToken: string };
+const TO_CASH: RelayLeg = { from: ARBITRUM_ID, fromToken: ARBITRUM_USDC, to: RH_CHAIN, toToken: RH_USDG };
+
+async function relayQuote(leg: RelayLeg, wallet: string, recipient: string, usd: number): Promise<RelayDeposit> {
+  const res = await fetch(`${RELAY}/quote`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      user: wallet, recipient, refundTo: wallet, useDepositAddress: true, tradeType: "EXACT_INPUT",
+      originChainId: leg.from, originCurrency: leg.fromToken, destinationChainId: leg.to, destinationCurrency: leg.toToken,
+      amount: String(Math.round(usd * 1e6)),
+    }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new LighterError(502, (j as { message?: string }).message || "The swap service didn't answer.");
+  return parseRelayDeposit(j);
+}
+
+/** Lighter main -> Cash: a Relay deposit address on Arbitrum that turns `usd` of USDC into USDG in the wallet on
+ *  Robinhood Chain. Lighter's fast withdrawal pays it. Only once LIGHTER_PAYOUT_CHAIN=42161 says that's where the fast
+ *  withdrawal pays (Lighter's docs don't name the chain; checked with a test withdrawal to the player's own wallet). */
+export async function relayCashAddress(wallet: string, usd: number): Promise<RelayDeposit> {
+  if (process.env.LIGHTER_PAYOUT_CHAIN !== String(ARBITRUM_ID)) throw new LighterError(409, "Moving Turbo cash back isn't open yet.");
+  return relayQuote(TO_CASH, wallet, wallet, usd);
+}
 export const TESTNET_FAUCET = "https://testnet.app.lighter.xyz";
 
 type Uda = { depositAddr: string; blocked?: boolean };
@@ -30,18 +80,19 @@ const intentKey = (cfg: LighterConfig, w: string) => `lighter:${cfg.network}:int
  * that wallet's Lighter account (the first deposit creates it). No bridge, no builder key:
  * POST {host}/api/v1/createIntentAddress  chain_id=<our chain>&from_addr=<wallet>&amount=0&is_external_deposit=true
  */
-async function intentAddress(cfg: LighterConfig, wallet: string): Promise<{ address: string }> {
-  const hit = await kv().get(intentKey(cfg, wallet)).catch(() => null);
+async function intentAddress(cfg: LighterConfig, wallet: string, chainId = cfg.depositChainId): Promise<{ address: string }> {
+  const k = chainId === cfg.depositChainId ? intentKey(cfg, wallet) : `${intentKey(cfg, wallet)}:${chainId}`;
+  const hit = await kv().get(k).catch(() => null);
   if (hit) return { address: hit };
   const res = await fetch(`${cfg.url}/api/v1/createIntentAddress`, {
     method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ chain_id: String(cfg.depositChainId), from_addr: wallet, amount: "0", is_external_deposit: "true" }),
+    body: new URLSearchParams({ chain_id: String(chainId), from_addr: wallet, amount: "0", is_external_deposit: "true" }),
     signal: AbortSignal.timeout(10_000),
   });
   const j = (await res.json().catch(() => ({}))) as { code?: number; message?: string; intent_address?: string };
   if (!res.ok || (j.code !== undefined && j.code !== 200) || !j.intent_address) throw new LighterError(res.status === 400 ? 400 : 502, j.message || "Lighter's deposit service didn't answer.");
   if (!/^0x[0-9a-fA-F]{40}$/.test(j.intent_address)) throw new LighterError(502, "Lighter sent a bad deposit address.");
-  await kv().set(intentKey(cfg, wallet), j.intent_address);
+  await kv().set(k, j.intent_address);
   return { address: j.intent_address };
 }
 

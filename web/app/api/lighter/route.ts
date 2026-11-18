@@ -10,11 +10,12 @@
  *   warm                                → loads key, signer, market and nonce into this instance before a duel
  *   presign { market, sizes: [usd…] (or usd), used?: { nonce, kind, i }, floor? } → ticket: the next long, short and close, signed at one
  *                                         nonce with a short expiry; the browser sends the one it taps straight to Lighter
- *   deposit-address                     → { address, minNew, min }  the player's Lighter deposit address (USDG on
- *                                         Robinhood Chain; mainnet only, needs LIGHTER_BRIDGE_KEY)
+ *   deposit-address                     → { address, minNew, min }  where to send USDG on Robinhood Chain: Lighter RH's
+ *                                         intent address, or Lighter main's Fun.xyz bridge address (LIGHTER_BRIDGE_KEY)
  *   deposit-status                      → { state: none|processing|completed|unknown }
  *   withdraw-info                       → { usd, fee, min }  Turbo cash that can go back to Cash now (lib/server/lighter/withdraw)
- *   withdraw-start { usd, to }          → { message, usd, fee }  the player's wallet signs it (Lighter needs the owner's L1 sig)
+ *   withdraw-start { usd, to, raw? }    → { message, usd, fee }  the player's wallet signs it (Lighter needs the owner's L1 sig).
+ *                                         Lighter main: through Relay back to Cash, or raw = USDC to the player's own wallet (test)
  *   withdraw-finish { sig }             → { usd, to }  fast withdrawal sent; Lighter pays `to` (USDG on Robinhood Chain)
  *   arm { kind: duel|climb|royale, id, markets?, ms? } → the buzzer closes this match's Lighter positions server-side
  *                                         (duel: when the room settles; climb / royale: a server timer of ms, at most 4.5 min)
@@ -79,7 +80,7 @@ export async function POST(req: Request) {
   const t0 = performance.now();
   try {
     const cfg = on();
-    const b = await body<{ op?: unknown; sig?: unknown; market?: unknown; side?: unknown; usd?: unknown; sizes?: unknown; used?: unknown; floor?: unknown; txType?: unknown; txInfo?: unknown; kind?: unknown; id?: unknown; markets?: unknown; ms?: unknown; to?: unknown }>(req);
+    const b = await body<{ op?: unknown; sig?: unknown; market?: unknown; side?: unknown; usd?: unknown; sizes?: unknown; used?: unknown; floor?: unknown; txType?: unknown; txInfo?: unknown; kind?: unknown; id?: unknown; markets?: unknown; ms?: unknown; to?: unknown; raw?: unknown }>(req);
     if (b.op === "arm") {
       const pid = await fastPilot(req);
       return out(200, { ok: true, ...(await armGuarded(pid, b)) });
@@ -112,7 +113,7 @@ export async function POST(req: Request) {
       case "withdraw-start": {
         const usd = Number(b.usd);
         if (!(usd > 0 && usd <= 100_000) || typeof b.to !== "string") throw new LighterError(400, "Bad amount.");
-        return out(200, { ok: true, ...(await startWithdraw(cfg, me.pid, usd, b.to)) });
+        return out(200, { ok: true, ...(await startWithdraw(cfg, me.pid, usd, b.to, b.raw === true)) });
       }
       case "withdraw-finish": {
         if (typeof b.sig !== "string" || !/^0x[0-9a-fA-F]+$/.test(b.sig)) throw new LighterError(400, "Bad signature.");

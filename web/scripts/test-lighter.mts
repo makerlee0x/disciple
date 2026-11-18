@@ -95,3 +95,15 @@ test("every position meets Lighter's minimum (rounded up)", () => {
   assert.equal(atLeastMin(baseAmountFor(500, 63_000, 5), m, true), 793); // a big bet is untouched
   assert.equal(atLeastMin(0, m, false), 0);                               // no bet stays no bet
 });
+
+test("Relay deposit quote: deposit address, what lands, its fee; bad answers throw", async () => {
+  const { parseRelayDeposit } = await import("../lib/server/lighter/bridge");
+  // trimmed from a live quote, 2026-11-18: $10 USDG on Robinhood Chain -> USDC on Arbitrum
+  const d = parseRelayDeposit({ steps: [{ id: "deposit", depositAddress: "0xf907095ab72a27899bb909f0f4e94bfe15ddb5ce" }], details: { currencyOut: { amount: "9961351" } }, fees: { relayer: { amountUsd: "0.037972" } } });
+  assert.equal(d.address, "0xf907095ab72a27899bb909f0f4e94bfe15ddb5ce");
+  assert.equal(d.outUsd, 9.961351);
+  assert.equal(d.feeUsd, 0.037972);
+  assert.throws(() => parseRelayDeposit({ steps: [{ id: "approve" }] }));
+  assert.throws(() => parseRelayDeposit({ steps: [{ id: "deposit", depositAddress: "0x12" }], details: { currencyOut: { amount: "1" } } }));
+  assert.throws(() => parseRelayDeposit({ steps: [{ id: "deposit", depositAddress: "0xf907095ab72a27899bb909f0f4e94bfe15ddb5ce" }] }));
+});
