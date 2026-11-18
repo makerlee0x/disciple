@@ -12,6 +12,7 @@ import { metaOf } from "./profileMeta";
 import { climbBoard, modeSp } from "./seasonModes";
 import { LEAGUES, leagueOf, seasonAt } from "@/lib/duel/season";
 import { kv } from "./kv";
+import { addLife, finishedLife, snapSeason } from "./lifetime";
 import { RANK_MODES, totalSp, type ModeSp } from "@/lib/season/points";
 import { guildTagsOf } from "./guilds";
 import { usernameOf } from "./usernames";
@@ -158,6 +159,7 @@ export async function getOverall(me: string | null): Promise<OverallResponse> {
     const final: Record<string, string> = {};
     for (const x of ranked) { const id = leagueOf(x.pts).id; tiers[id]++; if (id !== LEAGUES[0].id) final[x.wallet] = id; }
     void kv().set(FINAL(season.id), JSON.stringify(final)).catch(() => {});
+    void snapSeason(season.id, ranked).catch(() => {});
     c = { at: now, ranked, named, tiers, prev };
     go.__dscOverall = c;
   }
@@ -180,4 +182,39 @@ export async function getModeBoard(mode: "royale" | "climb"): Promise<ModeRespon
     : Object.entries(await modeSp("royale", BOARD_TOP).catch(() => ({} as Record<string, number>))).map(([wallet, pts]) => ({ wallet, pts }));
   const rows = (await name(raw)).map((r, i) => ({ ...r, rank: i + 1 }));
   return { sort: mode, season: { n: season.n, endsAt: season.endsAt }, rows };
+}
+
+/* ── Lifetime points (maker 2026-11-18): the airdrop ranking. Never resets; lib/server/lifetime ─────────────────────────── */
+
+/** league: the pilot's tier this season. season: SP this season (part of pts). */
+export type LifetimeRow = Face & { rank: number; pts: number; season: number; league: string };
+export type LifetimeResponse = { sort: "lifetime"; season: { n: number; endsAt: number }; rows: LifetimeRow[]; total: number; me: LifetimeRow | null };
+const gl = globalThis as unknown as { __dscLife?: { at: number; ranked: { wallet: string; pts: number; season: number }[]; named: LifetimeRow[] } };
+
+async function lifeCache() {
+  const now = Date.now();
+  let c = gl.__dscLife;
+  if (c && now - c.at <= CACHE_MS) return c;
+  await getOverall(null);
+  const season = seasonAt(now), cur = go.__dscOverall?.ranked ?? [];
+  const finished = await finishedLife(season.n).catch(() => ({}));
+  const ranked = addLife(finished, cur);
+  const named = (await name(ranked.slice(0, BOARD_TOP))).map((r, i) => ({ ...r, rank: i + 1, league: leagueOf(r.season).id }));
+  c = { at: now, ranked, named };
+  gl.__dscLife = c;
+  return c;
+}
+
+export async function getLifetime(me: string | null): Promise<LifetimeResponse> {
+  const season = seasonAt(Date.now()), c = await lifeCache();
+  return { sort: "lifetime", season: { n: season.n, endsAt: season.endsAt }, rows: c.named, total: c.ranked.length, me: me ? await lifetimeOf(me) : null };
+}
+
+/** One pilot's lifetime points, rank and tier (profile, points card). null = no points yet. */
+export async function lifetimeOf(wallet: string): Promise<LifetimeRow | null> {
+  const lc = wallet.toLowerCase(), c = await lifeCache();
+  const i = c.ranked.findIndex((r) => r.wallet === lc);
+  if (i < 0) return null;
+  if (i < BOARD_TOP) return c.named[i];
+  return { ...(await name([c.ranked[i]]))[0], rank: i + 1, league: leagueOf(c.ranked[i].season).id };
 }

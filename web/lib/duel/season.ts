@@ -36,6 +36,7 @@ export const LEAGUES = [
   { id: "champion", name: "Champion", min: 5400, color: "#FF9CC4" },
 ] as const;
 export type League = (typeof LEAGUES)[number];
+export const leagueBy = (id: string): League => LEAGUES.find((l) => l.id === id) ?? LEAGUES[0];
 
 export interface Season { id: string; n: number; startsAt: number; endsAt: number }
 

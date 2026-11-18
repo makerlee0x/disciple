@@ -1,10 +1,11 @@
 /**
- * GET /api/og/site | /api/og/rocket?coin=0x… | /api/og/pilot?u=name | /api/og/invite[?from=name]
+ * GET /api/og/points?u=name | /api/og/site | /api/og/rocket?coin=0x… | /api/og/pilot?u=name | /api/og/invite[?from=name]
  * The 1200×630 link preview cards (lib/server/og/card.ts) that X, Discord, iMessage and WhatsApp show. Live numbers are
  * read here, never taken from the query. A rocket or pilot we can't read falls back to the site card.
  */
 import { renderOgCard, type OgCard } from "@/lib/server/og/card";
-import { inviterName, pilotInfo, rocketIcon, rocketInfo } from "@/lib/server/og/data";
+import { inviterName, pilotInfo, pointsInfo, rocketIcon, rocketInfo } from "@/lib/server/og/data";
+import { leagueBy } from "@/lib/duel/season";
 import { kv } from "@/lib/server/kv";
 import { PUBLIC_GET_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
 
@@ -26,6 +27,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ kind: st
     } else if (kind === "pilot") {
       const p = await pilotInfo(q.get("u") || "");
       if (p) { card = { kind: "pilot", ...p }; maxAge = 600; }
+    } else if (kind === "points") {
+      const p = await pointsInfo(q.get("u") || "");
+      if (p) {
+        const l = leagueBy(p.league);
+        const date = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+        card = { kind: "points", handle: p.handle, pts: p.pts, rank: p.rank, tier: l.name, tierColor: l.color, date };
+        maxAge = 300;
+      }
     } else if (kind === "invite") {
       card = { kind: "invite", from: await inviterName(q.get("from")) };
       maxAge = 3_600;

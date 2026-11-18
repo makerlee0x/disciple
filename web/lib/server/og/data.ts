@@ -76,3 +76,17 @@ export async function inviterName(raw: string | null): Promise<string | null> {
   if (!USERNAME_STORED_RE.test(u)) return null;
   return (await walletOf(u).catch(() => null)) ? u : null;
 }
+
+export type PointsInfo = { handle: string; pts: number; rank: number; league: string };
+/** Lifetime points, rank and this season's tier for the points card. null = unknown pilot or no points yet. */
+export function pointsInfo(raw: string): Promise<PointsInfo | null> {
+  const u = raw.trim().toLowerCase().replace(/^@/, "");
+  if (!USERNAME_STORED_RE.test(u)) return Promise.resolve(null);
+  return cached(`pts:${u}`, async () => {
+    const w = await walletOf(u).catch(() => null);
+    if (!w) return null;
+    const { lifetimeOf } = await import("@/lib/server/leaderboard");
+    const r = await lifetimeOf(w).catch(() => null);
+    return r ? { handle: u, pts: r.pts, rank: r.rank, league: r.league } : null;
+  });
+}
