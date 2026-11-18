@@ -102,6 +102,7 @@ body:has(.profile-page.hg) { background: var(--dsc3-page-bg); }
   .profile-page.hg { padding: 16px 16px calc(64px + env(safe-area-inset-bottom)); gap: 16px; }
   .hg-record { grid-template-columns: 1fr 1fr; }
   .hg-record > div { padding: 14px 16px; }
+  .hg-record.three > div:first-child { grid-column: 1 / -1; box-shadow: 0 1px 0 var(--dsc3-panel-border); }
   .hg-record b { font-size: 28px; }
   .hg-fleet { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .hg-sec, .hg-cols { margin-top: 16px; }

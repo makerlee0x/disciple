@@ -19,6 +19,8 @@ interface Wasm {
   /** Disciple patch (tools/lighter/build-signer.sh): ExpiredAt (ms) for the next SignCreateOrder calls; 0 = 10 min default. */
   SetOrderTxExpiry(ms: number): object;
   SignUpdateLeverage(market: number, fraction: number, marginMode: number, skipNonce: number, nonce: number, apiKeyIndex: number, accountIndex: number): SignResult;
+  /** a transfer to another Lighter account (fast withdrawal = transfer to the pool); fee is charged on top. Needs the owner's L1 signature. */
+  SignTransfer(toAccountIndex: number, assetIndex: number, fromRouteType: number, toRouteType: number, amount: number, usdcFee: number, memo: string, skipNonce: number, nonce: number, apiKeyIndex: number, accountIndex: number): SignResult;
   SignApproveIntegrator(integrator: number, maxPerpsTaker: number, maxPerpsMaker: number, maxSpotTaker: number, maxSpotMaker: number, expiryMs: number, skipNonce: number, nonce: number, apiKeyIndex: number, accountIndex: number): SignResult;
 }
 

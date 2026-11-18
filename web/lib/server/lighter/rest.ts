@@ -122,3 +122,23 @@ export async function sendTx(cfg: LighterConfig, txType: number, txInfo: string)
 export async function changeTier(cfg: LighterConfig, accountIndex: number, tier: string, authToken: string) {
   return form<Resp>(cfg, "/api/v1/changeAccountTier", { account_index: accountIndex, new_tier: tier }, { authorization: authToken });
 }
+
+/** Lighter's assets (USDC on Lighter mainnet, USDG on Lighter on Robinhood Chain), for transfers and withdrawals. */
+export interface AssetDetail { asset_index: number; symbol: string; decimals?: number }
+export async function assetDetails(cfg: LighterConfig): Promise<AssetDetail[]> {
+  const r = await get<Resp & { asset_details?: AssetDetail[] }>(cfg, "/api/v1/assetDetails", {});
+  return r.asset_details ?? [];
+}
+/** The fast-withdraw pool's account and how much it pays out now. */
+export async function fastWithdrawInfo(cfg: LighterConfig, accountIndex: number, authToken: string) {
+  return call<Resp & { to_account_index: number; withdraw_limit?: string; max_withdrawal_amount?: string }>(cfg,
+    `/api/v1/fastwithdraw/info?account_index=${accountIndex}`, { headers: { authorization: authToken } });
+}
+/** Transfer fee in the collateral's smallest unit (charged on top of the amount). */
+export async function transferFee(cfg: LighterConfig, accountIndex: number, toAccountIndex: number, authToken: string): Promise<number> {
+  const r = await call<Resp & { transfer_fee_usdc: number }>(cfg, `/api/v1/transferFeeInfo?account_index=${accountIndex}&to_account_index=${toAccountIndex}`, { headers: { authorization: authToken } });
+  return Number(r.transfer_fee_usdc ?? 0);
+}
+export async function fastWithdraw(cfg: LighterConfig, txInfo: string, toAddress: string, authToken: string) {
+  return form<Resp>(cfg, "/api/v1/fastwithdraw", { tx_info: txInfo, to_address: toAddress }, { authorization: authToken });
+}
