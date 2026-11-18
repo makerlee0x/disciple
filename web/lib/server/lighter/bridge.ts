@@ -12,7 +12,6 @@ import "server-only";
  * Minimums: $5 for a new account, $3 after (EVM chains); bridge and swap costs come out of the amount.
  */
 import { kv } from "@/lib/server/kv";
-import { ACTIVE_CHAIN } from "@/lib/chains";
 import { lighterConfig, type LighterConfig } from "./config";
 import { LighterError } from "./rest";
 
@@ -36,7 +35,7 @@ async function intentAddress(cfg: LighterConfig, wallet: string): Promise<{ addr
   if (hit) return { address: hit };
   const res = await fetch(`${cfg.url}/api/v1/createIntentAddress`, {
     method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ chain_id: String(ACTIVE_CHAIN.id), from_addr: wallet, amount: "0", is_external_deposit: "true" }),
+    body: new URLSearchParams({ chain_id: String(cfg.depositChainId), from_addr: wallet, amount: "0", is_external_deposit: "true" }),
     signal: AbortSignal.timeout(10_000),
   });
   const j = (await res.json().catch(() => ({}))) as { code?: number; message?: string; intent_address?: string };

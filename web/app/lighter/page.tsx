@@ -28,16 +28,14 @@ export default function LighterTest() {
   const [market, setMarket] = useState<(typeof MARKETS)[number]>("BTC");
   const [usd, setUsd] = useState(5);
   const [cash, setCash] = useState(10);
-  const [back, setBack] = useState(2);
-  const [cashAddr, setCashAddr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [back, setBack] = useState(2);  const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const say = (s: string) => setLog((l) => [`${new Date().toLocaleTimeString()}  ${s}`, ...l].slice(0, 40));
 
   useEffect(() => {
     let w: string | null = null;
     const u = () => setWallet((aaSession()?.owner ?? w)?.toLowerCase() ?? null);
-    const offs = [onSessionChange(u), onPrivy(u), onWallet((a) => { w = a; setCashAddr(a); u(); })];
+    const offs = [onSessionChange(u), onPrivy(u), onWallet((a) => { w = a; u(); })];
     u();
     return () => offs.forEach((o) => o());
   }, []);
@@ -118,8 +116,9 @@ export default function LighterTest() {
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <input className="w-20 rounded-lg border border-white/25 bg-black px-2 py-2" type="number" min={1} value={back} onChange={(e) => setBack(Number(e.target.value))} />
+        <button className={btn} disabled={busy || !wallet} onClick={() => void run("deposit address", async () => { const r = await f("/api/lighter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op: "deposit-address" }) }); return r.json(); })}>Deposit address</button>
         <button className={btn} disabled={busy || step !== "ready"} onClick={() => void run("withdraw info", () => lighterWithdrawInfo(f))}>Can withdraw?</button>
-        <button className={btn} disabled={busy || step !== "ready" || !cashAddr} onClick={() => void run(`withdraw $${back} to cash`, () => lighterWithdraw(f, back, cashAddr!, sign))}>Withdraw to Cash</button>
+        <button className={btn} disabled={busy || step !== "ready" || !wallet} onClick={() => void run(`withdraw $${back} to ${wallet}`, () => lighterWithdraw(f, back, wallet!, sign))}>Withdraw to wallet</button>
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <select className="rounded-lg border border-white/25 bg-black px-2 py-2" value={market} onChange={(e) => setMarket(e.target.value as typeof market)}>

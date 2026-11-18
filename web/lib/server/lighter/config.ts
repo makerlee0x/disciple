@@ -16,10 +16,11 @@ import { bpToFeeUnits } from "@/lib/lighter/math";
 export type LighterNetwork = "testnet" | "mainnet" | "rh-mainnet" | "rh-testnet";
 /** payoutIsCash: a fast withdrawal pays USDG on Robinhood Chain, so Turbo cash can go straight back to Cash.
  *  Lighter on Robinhood Chain is a separate exchange (own accounts, keys, nonces); same API and tx format. */
-const NETS: Record<LighterNetwork, { url: string; chainId: number; collateral: string; payoutIsCash: boolean }> = {
+/** depositChainId: the Robinhood Chain id whose USDG this exchange takes (4663 mainnet, 46630 testnet). */
+const NETS: Record<LighterNetwork, { url: string; chainId: number; collateral: string; payoutIsCash: boolean; depositChainId?: number }> = {
   mainnet: { url: "https://mainnet.zklighter.elliot.ai", chainId: 304, collateral: "USDC", payoutIsCash: false },
-  "rh-mainnet": { url: "https://api.rh.lighter.xyz", chainId: 466324, collateral: "USDG", payoutIsCash: true },
-  "rh-testnet": { url: "https://api.rh-testnet.lighter.xyz", chainId: 300, collateral: "USDG", payoutIsCash: true },
+  "rh-mainnet": { url: "https://api.rh.lighter.xyz", chainId: 466324, collateral: "USDG", payoutIsCash: true, depositChainId: 4663 },
+  "rh-testnet": { url: "https://api.rh-testnet.lighter.xyz", chainId: 300, collateral: "USDG", payoutIsCash: true, depositChainId: 46630 },
   // the testnet app (testnet.app.lighter.xyz) talks to api.testnet.lighter.xyz; the docs' testnet.zklighter host doesn't know its accounts (2026-11-17)
   testnet: { url: "https://api.testnet.lighter.xyz", chainId: 300, collateral: "USDC", payoutIsCash: false },
 };
