@@ -2,17 +2,16 @@
  * Add cash into Lighter, browser side. Cash (USDG on Robinhood Chain) goes to the player's Lighter deposit address with
  * the usual gasless cash-out (no gas, no new signature prompt), Lighter's bridge credits it as USDC (the first deposit
  * creates the Lighter account), then the rest of Lighter set-up runs on its own (silent signatures).
- * Mainnet only (see lib/server/lighter/bridge.ts).
+ * Lighter on Robinhood Chain: an intent address on our own chain (1 USDG min). Lighter main: the Fun.xyz bridge, mainnet
+ * only. The server picks (lib/server/lighter/bridge.ts).
  */
 import { formatUnits, parseUnits, type Address } from "viem";
-import { ACTIVE_CHAIN } from "@/lib/chains";
 import { publicClient } from "@/lib/protocol-viem";
 import { gaslessSigner } from "@/lib/wallet";
 import { lighterSetUp, lighterStatus, type LighterStep } from "./client";
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 export type AddCashStep = "address" | "sending" | "arriving" | "setup" | "done";
-const ROBINHOOD_MAINNET = 4663;
 
 async function post<T>(f: Fetcher, op: string): Promise<T> {
   const r = await f("/api/lighter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op }) });
@@ -23,7 +22,6 @@ async function post<T>(f: Fetcher, op: string): Promise<T> {
 
 /** Moves `usd` of cash into Lighter and finishes set-up. `onStep` reports progress; resolves with the Lighter step. */
 export async function lighterAddCash(f: Fetcher, usd: number, signMessage: (msg: string) => Promise<string>, onStep: (s: AddCashStep) => void = () => {}): Promise<LighterStep> {
-  if (ACTIVE_CHAIN.id !== ROBINHOOD_MAINNET) throw new Error("Adding cash to Lighter works on mainnet only.");
   const owner = gaslessSigner();
   if (!owner) throw new Error("Sign in first.");
   onStep("address");

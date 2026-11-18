@@ -53,7 +53,7 @@ export default function HolderWallets({ wallet, status, onChange }: { wallet: st
             <div className="nft-hrow">
               <span className={`nft-chain ${c}`} aria-hidden>{c === "sol" ? "◎" : "Ξ"}</span>
               <span className="u">{linked ? short(linked) : LABEL[c]}</span>
-              {linked && n > 0 && <span className="nft-count">{n} {c === "sol" ? (n === 1 ? "Disciple" : "Disciples") : n === 1 ? "pass" : "passes"}</span>}
+              {linked && n > 0 && <span className="nft-count">{n} {c === "sol" ? (n === 1 ? "Disciple" : "Disciples") : n === 1 ? "Access Key" : "Access Keys"}</span>}
               {linked
                 ? <button type="button" className="p5-btn sm" disabled={busy} onClick={() => void remove(c)}>Remove</button>
                 : <button type="button" className="p5-btn sm" disabled={busy} aria-expanded={open === c} onClick={() => setOpen(open === c ? null : c)}>Link</button>}

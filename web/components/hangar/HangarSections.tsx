@@ -5,7 +5,7 @@
  * live: wallet reads, the lobby's rockets and /api/achievements. Nothing here is sample data.
  */
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { V1_RULES, achievementIconPath, rarityStyle } from "@/lib/achievements";
 import { rarityRank } from "@/lib/config";
 import { MILESTONE_COPY } from "@/lib/xp";
@@ -13,17 +13,22 @@ import type { HomeCoin } from "@/lib/home/trending";
 import LiveCard from "@/components/home/LiveCard";
 import type { LiveHolding, LivePortfolio } from "@/components/profile/LiveHoldings";
 import { signedUsd2, usd2 } from "@/components/profile/money";
-import { DEPOSIT_HREF, onDepositClick } from "@/lib/cashLink";
+import { DEPOSIT_HREF, onDepositClick, openCash } from "@/lib/cashLink";
 import Tooltip from "@/components/ui/Tooltip";
+import { onTurboCash } from "@/lib/turbo/turboCash";
 
-export function ServiceRecord({ pf, aboard, launched, isPrivate }: { pf: LivePortfolio | null; aboard: number | null; launched: HomeCoin[] | null; isPrivate: boolean }) {
+/** Service record strip (maker 2026-11-18): Hangar value, Cash, Turbo cash. Flights aboard / Rockets launched are gone
+ *  (Your fleet below already shows them). Turbo cash is the owner's own trading balance, so only the private Hangar has it. */
+export function ServiceRecord({ pf, isPrivate }: { pf: LivePortfolio | null; isPrivate: boolean }) {
+  const [turbo, setTurbo] = useState(0);
+  const [canAdd, setCanAdd] = useState(false);
+  useEffect(() => (isPrivate ? onTurboCash((t) => { setTurbo(t.usd); setCanAdd(t.canAdd); }) : undefined), [isPrivate]);
   const ok = pf && pf.ok;
   const rockets = ok ? pf.rows.reduce((s, r) => s + r.usd, 0) : null;
-  const total = ok ? pf.cashUsd + rockets! : null;
+  const total = ok ? pf.cashUsd + rockets! + (isPrivate ? turbo : 0) : null;
   const today = ok ? pf.rows.reduce((s, r) => s + r.tokens * (r.priceNow - r.price24h), 0) : null;
-  const best = launched?.length ? launched.reduce((a, b) => (b.mcapUsd > a.mcapUsd ? b : a)) : null;
   return (
-    <section className="hg-record" aria-label="Service record" data-testid="profile-portfolio">
+    <section className={`hg-record${isPrivate ? " three" : ""}`} aria-label="Service record" data-testid="profile-portfolio">
       <div>
         <span className="l">Hangar value</span>
         <b data-testid="portfolio-total">{total != null ? usd2(total) : "—"}</b>
@@ -34,16 +39,13 @@ export function ServiceRecord({ pf, aboard, launched, isPrivate }: { pf: LivePor
         <b data-testid="portfolio-cash">{ok ? usd2(pf.cashUsd) : "—"}</b>
         {isPrivate ? <Link href={DEPOSIT_HREF} onClick={onDepositClick} className="s">Add cash</Link> : <span className="s" />}
       </div>
-      <div>
-        <span className="l">Flights aboard</span>
-        <b data-testid="portfolio-rockets-count">{aboard ?? "—"}</b>
-        <span className="s" data-testid="portfolio-rockets">{rockets != null ? `${usd2(rockets)} in seats` : ""}</span>
-      </div>
-      <div>
-        <span className="l">Rockets launched</span>
-        <b>{launched ? launched.length : "—"}</b>
-        <span className="s">{best ? `Best: ${best.name}` : ""}</span>
-      </div>
+      {isPrivate && (
+        <div>
+          <span className="l">Turbo cash</span>
+          <b data-testid="portfolio-turbo">{usd2(turbo)}</b>
+          {canAdd ? <a href={DEPOSIT_HREF} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); openCash("turbo"); }} className="s">Add to Turbo</a> : <span className="s" />}
+        </div>
+      )}
     </section>
   );
 }

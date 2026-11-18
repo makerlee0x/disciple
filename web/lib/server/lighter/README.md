@@ -53,6 +53,9 @@ Preview environment too, for a PR preview. Disciple's testnet fee account is 577
 ## Still open
 - Lighter tier name for Plus: assumed `plus` (`LIGHTER_TIER` overrides). Confirm on testnet.
 - Privy wallet must be a plain EOA for Lighter's L1 signature; a smart-account address won't work.
-- Deposit route from Add cash into Lighter isn't built.
+- **Turbo cash → Cash** (`withdraw.ts`, `lib/lighter/withdraw.ts`, Cash popup → Turbo → To Cash): a fast withdrawal (transfer to
+  Lighter's pool, memo = destination, owner's L1 sig). Only on `LIGHTER_NETWORK=rh-mainnet|rh-testnet` (Lighter on Robinhood
+  Chain, which pays USDG on our chain); Lighter mainnet pays USDC elsewhere, so it refuses there. Add cash on the Robinhood
+  Chain exchange (its own deposit / intent address) isn't built yet.
 - A Turbo duel adapter that sends duel trades here instead of the duel-only book isn't built.
 - Not run against Lighter yet (the build sandbox can't reach Lighter's API). First live run is on testnet.

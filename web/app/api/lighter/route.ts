@@ -13,6 +13,9 @@
  *   deposit-address                     → { address, minNew, min }  the player's Lighter deposit address (USDG on
  *                                         Robinhood Chain; mainnet only, needs LIGHTER_BRIDGE_KEY)
  *   deposit-status                      → { state: none|processing|completed|unknown }
+ *   withdraw-info                       → { usd, fee, min }  Turbo cash that can go back to Cash now (lib/server/lighter/withdraw)
+ *   withdraw-start { usd, to }          → { message, usd, fee }  the player's wallet signs it (Lighter needs the owner's L1 sig)
+ *   withdraw-finish { sig }             → { usd, to }  fast withdrawal sent; Lighter pays `to` (USDG on Robinhood Chain)
  *   arm { kind: duel|climb|royale, id, markets?, ms? } → the buzzer closes this match's Lighter positions server-side
  *                                         (duel: when the room settles; climb / royale: a server timer of ms, at most 4.5 min)
  *   relay { txType, txInfo }            → { hash }   fallback when the browser can't reach Lighter: sends a pre-signed order
@@ -23,7 +26,8 @@ import { after } from "next/server";
 import { getRoom } from "@/lib/server/duel/store";
 import { OT_MS } from "@/lib/duel/rules";
 import { armMatch, buzzer, sleep } from "@/lib/server/lighter/match";
-import { DEPOSIT_MIN, DEPOSIT_MIN_NEW, depositAddress, depositStatus } from "@/lib/server/lighter/bridge";
+import { depositAddress, depositMins, depositStatus } from "@/lib/server/lighter/bridge";
+import { finishWithdraw, startWithdraw, withdrawable } from "@/lib/server/lighter/withdraw";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
 import { body, out, pilotOf, requirePass } from "@/lib/server/duel/http";
@@ -50,7 +54,7 @@ function on() {
 export async function GET(req: Request) {
   try {
     const cfg = on(); const me = await pilotOf(req, { guestOk: false });
-    return out(200, { ok: true, network: cfg.network, feeBp: cfg.partnerFee / 100, ...(await status(cfg, me.pid)) });
+    return out(200, { ok: true, network: cfg.network, feeBp: cfg.partnerFee / 100, withdraw: cfg.payoutIsCash, ...(await status(cfg, me.pid)) });
   } catch (e) { return lfail(e); }
 }
 
@@ -71,7 +75,7 @@ export async function POST(req: Request) {
   const t0 = performance.now();
   try {
     const cfg = on();
-    const b = await body<{ op?: unknown; sig?: unknown; market?: unknown; side?: unknown; usd?: unknown; sizes?: unknown; used?: unknown; floor?: unknown; txType?: unknown; txInfo?: unknown; kind?: unknown; id?: unknown; markets?: unknown; ms?: unknown }>(req);
+    const b = await body<{ op?: unknown; sig?: unknown; market?: unknown; side?: unknown; usd?: unknown; sizes?: unknown; used?: unknown; floor?: unknown; txType?: unknown; txInfo?: unknown; kind?: unknown; id?: unknown; markets?: unknown; ms?: unknown; to?: unknown }>(req);
     if (b.op === "arm") {
       const pid = await fastPilot(req);
       return out(200, { ok: true, ...(await armGuarded(pid, b)) });
@@ -97,8 +101,18 @@ export async function POST(req: Request) {
         return out(200, { ok: true, ...(await finishSigned(cfg, me.pid, b.op === "key-finish" ? "key" : "approve", b.sig)) });
       }
       case "tier": await setTier(cfg, me.pid); return out(200, { ok: true });
-      case "deposit-address": return out(200, { ok: true, ...(await depositAddress(me.pid)), minNew: DEPOSIT_MIN_NEW, min: DEPOSIT_MIN });
+      case "deposit-address": return out(200, { ok: true, ...(await depositAddress(me.pid)), ...depositMins(cfg) });
       case "deposit-status": return out(200, { ok: true, ...(await depositStatus(me.pid)) });
+      case "withdraw-info": return out(200, { ok: true, ...(await withdrawable(cfg, me.pid)) });
+      case "withdraw-start": {
+        const usd = Number(b.usd);
+        if (!(usd > 0 && usd <= 100_000) || typeof b.to !== "string") throw new LighterError(400, "Bad amount.");
+        return out(200, { ok: true, ...(await startWithdraw(cfg, me.pid, usd, b.to)) });
+      }
+      case "withdraw-finish": {
+        if (typeof b.sig !== "string" || !/^0x[0-9a-fA-F]+$/.test(b.sig)) throw new LighterError(400, "Bad signature.");
+        return out(200, { ok: true, ...(await finishWithdraw(cfg, me.pid, b.sig)) });
+      }
       default: throw new LighterError(400, "Unknown op.");
     }
   } catch (e) { return lfail(e); }

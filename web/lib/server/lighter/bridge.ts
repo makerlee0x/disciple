@@ -12,15 +12,38 @@ import "server-only";
  * Minimums: $5 for a new account, $3 after (EVM chains); bridge and swap costs come out of the amount.
  */
 import { kv } from "@/lib/server/kv";
-import { lighterConfig } from "./config";
+import { lighterConfig, type LighterConfig } from "./config";
 import { LighterError } from "./rest";
 
 const BRIDGE = "https://bridge.lighter.xyz";
 export const DEPOSIT_MIN_NEW = 5, DEPOSIT_MIN = 3;
+/** Lighter on Robinhood Chain takes USDG straight in: 1 USDG minimum per deposit (docs, Robinhood Chain section). */
+export const depositMins = (cfg: LighterConfig) => (cfg.payoutIsCash ? { minNew: 1, min: 1 } : { minNew: DEPOSIT_MIN_NEW, min: DEPOSIT_MIN });
 export const TESTNET_FAUCET = "https://testnet.app.lighter.xyz";
 
 type Uda = { depositAddr: string; blocked?: boolean };
 const key = (w: string) => `lighter:uda:${w.toLowerCase()}`;
+const intentKey = (cfg: LighterConfig, w: string) => `lighter:${cfg.network}:intent:${w.toLowerCase()}`;
+
+/**
+ * Lighter on Robinhood Chain: a persistent intent address tied to the player's wallet. USDG sent to it is credited to
+ * that wallet's Lighter account (the first deposit creates it). No bridge, no builder key:
+ * POST {host}/api/v1/createIntentAddress  chain_id=<our chain>&from_addr=<wallet>&amount=0&is_external_deposit=true
+ */
+async function intentAddress(cfg: LighterConfig, wallet: string): Promise<{ address: string }> {
+  const hit = await kv().get(intentKey(cfg, wallet)).catch(() => null);
+  if (hit) return { address: hit };
+  const res = await fetch(`${cfg.url}/api/v1/createIntentAddress`, {
+    method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ chain_id: String(cfg.depositChainId), from_addr: wallet, amount: "0", is_external_deposit: "true" }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const j = (await res.json().catch(() => ({}))) as { code?: number; message?: string; intent_address?: string };
+  if (!res.ok || (j.code !== undefined && j.code !== 200) || !j.intent_address) throw new LighterError(res.status === 400 ? 400 : 502, j.message || "Lighter's deposit service didn't answer.");
+  if (!/^0x[0-9a-fA-F]{40}$/.test(j.intent_address)) throw new LighterError(502, "Lighter sent a bad deposit address.");
+  await kv().set(intentKey(cfg, wallet), j.intent_address);
+  return { address: j.intent_address };
+}
 
 function bridgeKey() {
   const k = process.env.LIGHTER_BRIDGE_KEY;
@@ -31,6 +54,7 @@ function bridgeKey() {
 /** The player's Lighter deposit address (USDG on Robinhood Chain → USDC on Lighter perps). */
 export async function depositAddress(wallet: string): Promise<{ address: string }> {
   const cfg = lighterConfig();
+  if (cfg.payoutIsCash) return intentAddress(cfg, wallet);
   if (cfg.network !== "mainnet") throw new LighterError(409, "Lighter testnet takes test cash from its faucet, not Add cash.");
   const hit = await kv().get(key(wallet)).catch(() => null);
   if (hit) return { address: hit };

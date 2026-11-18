@@ -1005,3 +1005,55 @@ html:not([data-you]) .lb-tabs a.lb-you-only, html[data-you] .lb-tabs a.lb-out-on
   .tp-mine.has-share .tp-share { grid-column: 1 / -1; justify-self: start; }
   .pt-acts > * { flex: 1; justify-content: center; }
 }
+
+/* ── Cash + Turbo cash (maker 2026-11-18): two balances side by side; desktop fits a ~790px window with no scroll ── */
+.cx-bals { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cx-bals .cx-bal { padding: 12px 14px; display: flex; flex-direction: column; min-width: 0; }
+.cx-bals .cx-amt { margin-top: 6px; font-size: 34px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cx-bals .cx-amt small { font-size: 20px; }
+.cx-bal.cx-turbo { background: radial-gradient(260px 160px at 90% 0%, rgba(68,212,226,0.18), rgba(68,212,226,0) 70%), linear-gradient(160deg, #1F2433, #14161D); }
+.r2-lbl.cx-tlbl { color: #44D4E2; }
+.cx-tback { all: unset; cursor: pointer; align-self: flex-start; margin-top: 6px; font-size: 12px; font-weight: 700; color: #F3DFA8; }
+.cx-tback:hover { color: #FFFFFF; }
+.cx-tback:focus-visible { box-shadow: var(--dsc-glow-focus-ring); border-radius: 4px; }
+.cx-paygrid { display: grid; grid-template-columns: 1fr 1fr; }
+.cx-paygrid .r2-r { padding: 10px 14px; }
+.cx-paygrid .r2-r + .r2-r { border-top: 0; border-left: 1px solid rgba(232,234,238,0.08); }
+@media (min-width: 721px) {
+  .pf-sheet-backdrop:has(> .cx-sheet) { align-items: center; padding: 16px; }
+  .ds-modal.cx-sheet { max-height: calc(100dvh - 32px); }
+  .cx-sheet .r2-mh { padding: 16px 20px 0; }
+  .cx-sheet .r2-mh h2 { font-size: 28px; }
+  .cx-sheet .r2-body { padding: 14px 20px 18px; gap: 12px; }
+  .cx-sheet .r2-tabs button { padding: 9px 6px; font-size: 17px; }
+  .cx-sheet .cx-card { gap: 8px; }
+  .cx-sheet .cx-card > .cx-amt { margin-top: 0; font-size: 40px; }
+  .cx-sheet .cx-big { min-height: 60px; }
+  .cx-sheet .cx-dollar { font-size: 32px; }
+  .cx-sheet .cx-big input, .cx-sheet .cx-big input#cx-amt { font-size: 38px; }
+  .cx-sheet .r2-gold { min-height: 50px; }
+  .cx-sheet .cx-sendrow { min-height: 50px; padding: 8px 16px; }
+  .cx-sheet .r2-r { padding: 11px 16px; }
+}
+@media (max-width: 720px) {
+  .cx-bals .cx-amt { font-size: 30px; }
+  .cx-bals .cx-amt small { font-size: 18px; }
+}
+
+/* pilot pill split (maker 2026-11-18): the pill is a Hangar link, the arrow is its own menu button */
+.wb-pilot-split { cursor: pointer; }
+.wb-pilot-go { position: absolute; inset: 0; border-radius: 999px; z-index: 1; }
+.wb-pilot-go:focus-visible { box-shadow: var(--dsc-glow-focus-ring); outline: none; }
+.wb-chevbtn { all: unset; box-sizing: border-box; cursor: pointer; position: relative; z-index: 2; order: 1; display: grid; place-items: center;
+  width: 30px; height: 30px; margin: 0 -10px 0 -6px; border-radius: 50%; color: #9095A0; }
+.wb-chevbtn:hover { color: #FFFFFF; background: rgba(232,234,238,0.08); }
+.wb-chevbtn:focus-visible { box-shadow: var(--dsc-glow-focus-ring); }
+.wb-chevbtn .wb-chev { margin: 0; }
+.wb-chevbtn[aria-expanded="true"] .wb-chev { transform: rotate(180deg); }
+@media (max-width: 720px) {
+  .wb-pilot-go { display: none; }
+  .wb-chevbtn { position: absolute; inset: 0; width: auto; height: auto; margin: 0; border-radius: 999px; }
+  .wb-chevbtn:hover { background: none; }
+}
+.r2-chips.cx-dir { margin-top: 0; }
+.r2-chips.cx-dir button { min-height: 36px; line-height: 36px; font-size: 15px; }

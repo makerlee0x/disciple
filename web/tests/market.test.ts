@@ -50,6 +50,31 @@ describe("market server (local KV)", () => {
     relay,
   });
 
+  it("admin test grant makes listable copies and skips prestige items", async () => {
+    const T = "0x" + "9a".repeat(20);
+    const items = (await import("@/lib/collection")).ITEMS;
+    const skin = items.find((i) => i.kind === "skin")!, trail = items.find((i) => i.kind === "trail" && !i.prestige)!, tag = items.find((i) => i.kind === "tag" && !i.prestige)!;
+    const r = await col.grantTestCopies(T, [skin.id, trail.id, tag.id, "tag-prestige-1", "nope"]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.copies.map((c) => c.item)).toEqual([skin.id, trail.id, tag.id]);
+    expect(r.skipped).toEqual(["tag-prestige-1", "nope"]);
+    for (const c of r.copies) expect((await mkt.listCopy(T, c.uid, 500)).ok).toBe(true);
+  });
+
+  it("tradable supply stops at the cap: a sold-out item can't be granted again", async () => {
+    const { ITEMS, supplyCap } = await import("@/lib/collection");
+    const myth = ITEMS.find((i) => i.rar === "mythic" && !i.prestige && i.kind === "skin")!;
+    expect(supplyCap(myth)).toBe(12);
+    const U = "0x" + "8b".repeat(20);
+    const r = await col.grantTestCopies(U, Array(14).fill(myth.id));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.copies).toHaveLength(12);
+    expect(r.skipped).toHaveLength(2);
+    expect((await col.soldOut()).has(myth.id)).toBe(true);
+  });
+
   it("the same two pilots only pay a crate once a day", async () => {
     const P = "0x" + "e5".repeat(20), Q = "0x" + "f6".repeat(20);
     // duel crates only (the first win also pays the welcome crate, once)

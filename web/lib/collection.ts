@@ -287,6 +287,16 @@ export function rollsFromDigest(hex: string): { r1: number; r2: number; burn: nu
 /** Trade-ups: 10 copies of one rarity from one series become 1 copy of the next rarity from that series. Never into Mythic. */
 export const TRADE_UP_N = 10;
 export function tradeUpTarget(rar: Rarity): Rarity | null { const k = rank(rar); return k + 1 < rank("mythic") ? RARITIES[k + 1] : null; }
+/* ---------------------------------------------------------------- supply ---------------------------------------------------------------- */
+
+/** Max tradable copies of one item, by rarity (maker 2026-11-18: "should be 12 for Mythic for this first season"; may be
+ *  adjusted as we grow). Counts unbound copies only (crate drops, trade-ups); bound copies (welcome, level rewards,
+ *  starters) never trade, so they don't use up supply. A sold-out item stops dropping: crates roll another item of the
+ *  same rarity, then a rarity lower. Per-series overrides go in SUPPLY_CAP_BY_SERIES. */
+export const SUPPLY_CAP: Record<Rarity, number> = { common: 5000, uncommon: 2500, rare: 1000, epic: 400, legendary: 100, mythic: 12 };
+export const SUPPLY_CAP_BY_SERIES: Record<number, Partial<Record<Rarity, number>>> = {};
+export const supplyCap = (i: Item): number => (i.prestige ? Infinity : SUPPLY_CAP_BY_SERIES[i.series]?.[i.rar] ?? SUPPLY_CAP[i.rar]);
+
 export function tradeUpPool(series: number, rar: Rarity, now = Date.now()): Item[] {
   const to = tradeUpTarget(rar);
   return to ? ITEMS.filter((i) => i.series === series && i.rar === to && !i.prestige && itemOut(i, now)) : [];

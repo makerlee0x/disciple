@@ -6,7 +6,7 @@
 export const DEPOSIT_HREF = "/wallet";
 /** CustomEvent<{ tab?: CashTab } | null>: open the Cash popup (or switch tab in place on /wallet). */
 export const OPEN_CASH_EVENT = "disciple:opencash";
-export type CashTab = "add" | "out";
+export type CashTab = "add" | "turbo" | "out";
 /** Hash that opens Settings on the private profile. */
 export const SETTINGS_HASHES = ["#settings"] as const;
 /** Legacy hash (old Deposit links): /profile#cash forwards to DEPOSIT_HREF. */

@@ -51,6 +51,20 @@ test("WASM signer: market order with Disciple's partner fee, key registration an
   assert.match(ck.messageToSign, /Register Lighter Account/);
   const ap = g.SignApproveIntegrator(999, 5, 0, 0, 0, Date.now() + 86_400_000, 0, 4, 7, 1234);
   assert.match(ap.messageToSign, /Approve Integrator/);
+  // Turbo cash → Cash: a transfer to the fast-withdraw pool, memo = destination + 12 zero bytes, needs the owner's L1 sig
+  const memo = "0x" + "ab".repeat(20) + "00".repeat(12);
+  const tr = g.SignTransfer(88, 3, 0, 0, 5_000_000, 20_000, memo, 0, 5, 7, 1234);
+  assert.equal(tr.error, undefined);
+  const ti = JSON.parse(tr.txInfo);
+  assert.equal(ti.ToAccountIndex, 88); assert.equal(ti.Amount, 5_000_000); assert.equal(ti.USDCFee, 20_000);
+  assert.ok(tr.messageToSign, "transfer has a message for the owner's wallet");
+});
+test("withdraw memo: destination address then 12 zero bytes", async () => {
+  const { withdrawMemo } = await import("../lib/server/lighter/withdraw");
+  const m = withdrawMemo("0xAbCdEf0123456789abcdef0123456789ABCDEF01");
+  assert.equal(m, "0xabcdef0123456789abcdef0123456789abcdef01" + "00".repeat(12));
+  assert.equal(m.length, 2 + 64);
+  assert.throws(() => withdrawMemo("0x123"));
 });
 
 test("Royale reads Lighter market_stats: one market, the /all map, by symbol or by id", async () => {

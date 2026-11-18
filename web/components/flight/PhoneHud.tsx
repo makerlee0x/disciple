@@ -78,7 +78,7 @@ export default function PhoneHud() {
   const [grad, setGrad] = useState(false);
   const [pnl, setPnl] = useState<PnlView>(null);
   const [stats, setStats] = useState<{ cash: number | null; room: number | null }>({ cash: null, room: null });
-  const [simClock, setSimClock] = useState<{ mode: string; left: string; dots: boolean[] } | null>(null);
+  const [simClock, setSimClock] = useState<{ mode: string; left: string; rank?: number | null; dots: boolean[] } | null>(null);
   const [holders, setHolders] = useState<Holders>(null);
   const [cta, setCta] = useState<string | null>(null);
   const [me, setMe] = useState<WalletId | null>(null);
@@ -150,7 +150,7 @@ export default function PhoneHud() {
       ["disciple:pnlview", (d) => setPnl((d as PnlView) ?? null)],
       ["disciple:phonestats", (d) => { if (d) setStats(d as { cash: number | null; room: number | null }); }],
       ["disciple:holders", (d) => setHolders((d as Holders) ?? null)],
-      ["disciple:simclock", (d) => setSimClock((d as { mode: string; left: string; dots: boolean[] } | null) ?? null)],
+      ["disciple:simclock", (d) => setSimClock((d as { mode: string; left: string; rank?: number | null; dots: boolean[] } | null) ?? null)],
       [WALLET_CTA_EVENT, (d) => setCta((d as { label: string | null } | null)?.label ?? null)],
       [WALLET_ID_EVENT, (d) => setMe((d as WalletId | null) ?? null)],
     ];
@@ -248,7 +248,7 @@ export default function PhoneHud() {
               {simClock && <button type="button" data-testid="phone-simclock" aria-label={`${simClock.mode}, ${simClock.left} left, ${simClock.dots.filter(Boolean).length} of ${simClock.dots.length} goals. Show goals`}
                 onClick={() => dispatchEvent(new CustomEvent("disciple:simgoals"))}
                 style={{ all: "unset", pointerEvents: "auto", cursor: "pointer", display: "flex", alignItems: "center", gap: 5, padding: "8px 2px", margin: "-8px -2px", font: `800 15px/1 ${G}`, color: "#F2F3F7", textShadow: "0 1px 2px rgba(0,0,0,.9)", fontVariantNumeric: "tabular-nums" }}>
-                {simClock.left}<span aria-hidden style={{ display: "flex", gap: 3 }}>{simClock.dots.map((on, i) => <i key={i} style={{ width: 7, height: 7, borderRadius: "50%", border: "1.5px solid #F2C14E", boxSizing: "border-box", background: on ? "#F2C14E" : "transparent" }} />)}</span></button>}
+                {simClock.rank ? <b style={{ color: "#F2C14E", fontWeight: 800 }}>#{simClock.rank}</b> : null}{simClock.left}<span aria-hidden style={{ display: "flex", gap: 3 }}>{simClock.dots.map((on, i) => <i key={i} style={{ width: 7, height: 7, borderRadius: "50%", border: "1.5px solid #F2C14E", boxSizing: "border-box", background: on ? "#F2C14E" : "transparent" }} />)}</span></button>}
             </span>
             <span data-testid="phone-next" style={{ font: `700 12px/1 ${G}`, letterSpacing: ".5px", color: "#F3DFA8", textShadow: "0 1px 2px rgba(0,0,0,.9)", whiteSpace: "nowrap", textTransform: "uppercase" }}>
               {zl.next || <span data-testid="phone-zone">{zl.zone}</span>}</span>

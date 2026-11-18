@@ -141,6 +141,9 @@ export function humanFlags(r: SimRun, inputs: PlayerInput[]): string[] {
 
 /** a cash-out multiple as the game shows it: 2.6×, 14× */
 export const fmtMultiple = (m: number) => `${m >= 10 ? m.toFixed(0) : m.toFixed(1)}×`;
+/** a daily board $ PnL (maker 2026-11-18: the board ranks by PnL, not a multiple): +$311, −$42, +$1.2K */
+export const fmtDailyPnl = (v: number) => { const a = Math.abs(v), s = v < 0 && a >= 0.5 ? "−" : "+";
+  return s + "$" + (a >= 1e6 ? (a / 1e6).toFixed(1) + "M" : a >= 1e4 ? (a / 1e3).toFixed(0) + "K" : a >= 1e3 ? (a / 1e3).toFixed(1) + "K" : a.toFixed(0)); };
 
 export interface DailyRecap {
   score: DailyScore;
@@ -148,6 +151,8 @@ export interface DailyRecap {
   path: number[];
   /** the callsign whose dump came first after the peak (and after your best exit), for the line under the chart */
   dumper: string | null; dumpAtS: number | null;
+  /** every pilot who traded on this flight (the sim's bots, and you as "you"), best $ PnL first: the result screen's pilot table */
+  pilots: { name: string; you: boolean; pnl: number; trades: number }[];
 }
 /** re-fly a daily run and keep what the result screen draws: the score, a 1 s mcap path and who dumped after you left */
 export function dailyRecap(seed: number, inputs: PlayerInput[]): DailyRecap {
@@ -160,5 +165,8 @@ export function dailyRecap(seed: number, inputs: PlayerInput[]): DailyRecap {
   }
   const score = scoreRun(r), after = Math.max(score.outAtS ?? 0, score.peakAtS);   // the dump that ended the climb, after the peak and your exit
   const dump = r.events.find((e) => (e.kind === "dump" || e.kind === "rug") && e.t >= after && e.who);
-  return { score, path, dumper: dump?.who ?? null, dumpAtS: dump ? +dump.t.toFixed(1) : null };
+  const myTrades = inputs.filter((x) => x.op === "trade").length;
+  const pilots = r.leaderboard().map((row) => { const b = r.bots.find((x) => x.wallet === row.wallet);
+    return { name: row.arch === "you" ? "You" : row.name, you: row.arch === "you", pnl: Math.round(row.total * 100) / 100, trades: b ? b.buys + b.sells : myTrades }; });
+  return { score, path, dumper: dump?.who ?? null, dumpAtS: dump ? +dump.t.toFixed(1) : null, pilots };
 }

@@ -24,12 +24,13 @@ const fmt = (n: number) => n.toLocaleString("en-US");
 /** "Level 10 reward" / "Final Push trophy reward" for items you earn by playing, else null */
 const earnHow = (id: string) => { const r = rewardFor(id); return r ? rewardLabel(r.rule, r.rule.kind === "trophy" ? MILESTONE_COPY[r.rule.trophy]?.name : undefined) : null; };
 // eslint-disable-next-line @next/next/no-img-element
-const Img = ({ src, h, dim }: { src: string; h: number; dim?: boolean }) => <img src={withBase(src)} alt="" loading="lazy" style={{ height: h, width: "auto", maxWidth: "100%", objectFit: "contain", filter: dim ? "brightness(0) opacity(.55)" : undefined }} />;
+const Img = ({ src, h, dim }: { src: string; h: number; dim?: boolean }) => <img src={withBase(src)} alt="" loading="lazy" style={{ height: h, width: "auto", maxWidth: "100%", objectFit: "contain", filter: dim ? DIM : undefined }} />;
 
 /** A trail's plume sheet, flickering (6 frames, black drops out with screen blending). */
-function Plume({ id, h }: { id: string; h: number }) {
+const DIM = "brightness(0) opacity(.55)";   // not owned yet: the same silhouette for skins, trails and name tags
+function Plume({ id, h, dim }: { id: string; h: number; dim?: boolean }) {
   const t = id.replace(/^trail-/, "");
-  return <span className="hgu-plume" aria-hidden style={{ height: h, width: h / 3, backgroundImage: `url(${withBase(trailArt(t))})` }} />;
+  return <span className="hgu-plume" aria-hidden style={{ height: h, width: h / 3, backgroundImage: `url(${withBase(trailArt(t))})`, filter: dim ? DIM : undefined }} />;
 }
 /** Marble & Gold Leaf skins get the gold glint sweeping up them (4 frames, then a pause). */
 const GLINT_W: Record<string, number> = { bullet: 145, needle: 128, pulp: 179, wedge: 234, "ring-tail": 139, hauler: 139, shuttle: 184, "twin-booster": 139 };
@@ -48,8 +49,8 @@ function SkinArt({ i, h, dim, copy }: { i: Item; h: number; dim?: boolean; copy?
   );
 }
 /** A name-tag plate with the name in its empty middle (prestige plates carry an emblem on the left). */
-function Tag({ id, name, w }: { id: string; name: string; w: number }) {
-  return <span className={`hgu-plate${id.includes("prestige") ? " pr" : ""}`} style={{ width: w, height: (w * 140) / 600, backgroundImage: `url(${withBase(tagArt(id))})`, fontSize: Math.max(11, w / 13) }}><b>{name}</b></span>;
+function Tag({ id, name, w, dim }: { id: string; name: string; w: number; dim?: boolean }) {
+  return <span className={`hgu-plate${id.includes("prestige") ? " pr" : ""}`} style={{ width: w, height: (w * 140) / 600, backgroundImage: `url(${withBase(tagArt(id))})`, fontSize: Math.max(11, w / 13), filter: dim ? DIM : undefined }}><b>{dim ? "" : name}</b></span>;
 }
 export const itemArt = (i: Item, h: number, dim?: boolean, handle = "YOU", copy?: Copy) => (i.kind === "skin" ? <SkinArt i={i} h={h} dim={dim} copy={copy} /> : i.kind === "trail" ? <Plume id={i.id} h={h} />
   : i.kind === "flourish" ? <Burst src={FLOURISHES.find((f) => f.id === i.id)?.art ?? ""} /> : <Tag id={i.id} name={handle} w={Math.min(230, h * 2.2)} />);
@@ -165,12 +166,12 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
   };
   const scrap = (uid: string) => { const c = copyById(uid), it = c && itemById(c.item); void act({ op: "scrap", copy: uid }, it ? `Scrapped for ${DUPE_XP[it.rar]} XP.` : ""); };
   const inspect = (id: string) => setInsp((v) => (v === id ? null : id));
-  const sub = (i: Item, on: boolean) => { const n = copiesOf(col, i.id).length; return on ? `Flying${n > 1 ? ` · ×${n}` : ""}` : n > 1 ? `×${n} copies` : "Tap to see it"; };
+  const sub = (i: Item, on: boolean) => { const n = copiesOf(col, i.id).length; return on ? `Flying${n > 1 ? ` · ×${n}` : ""}` : n > 1 ? `×${n} copies` : ""; };
   const panel = (list: Item[]) => { const it = list.find((i) => i.id === insp); return it ? <CopyList col={col} item={it} busy={busy} sell={sell} onEquip={(v) => wear(it.kind as Slot, v)} onScrap={scrap} /> : null; };
   // trails from the series that are out (later ones stay a surprise), the prestige trail; tags: the 6 plates, the prestige plates you have and the next one
-  const trails = ITEMS.filter((i) => i.kind === "trail" && (!!i.prestige || itemOut(i, now)));
-  const tags = ITEMS.filter((i) => i.kind === "tag" && (!i.prestige || i.prestige <= prestige + 1));
-  const flourishes = ITEMS.filter((i) => i.kind === "flourish" && itemOut(i, now));
+  // only what's out: later series stay hidden, prestige items show once you reach that prestige (maker 2026-11-18)
+  const trails = ITEMS.filter((i) => i.kind === "trail" && (i.prestige ? i.prestige <= prestige : itemOut(i, now)));
+  const tags = ITEMS.filter((i) => i.kind === "tag" && (!i.prestige || i.prestige <= prestige));
   const count = (h: string) => { const all = ITEMS.filter((i) => i.kind === "skin" && i.hull === h && itemOut(i, now)); return `${all.filter((i) => owned.has(i.id)).length}/${all.length}`; };
   const best = (i: Item) => (i.id === eq.skin || i.id === eq.trail ? copyById(i.kind === "skin" ? eqc.skin : eqc.trail) : undefined) ?? copiesOf(col, i.id)[0];
 
@@ -200,26 +201,25 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
           <span className="hg-look-r" style={{ color: SW[eqItem.rar] }}>{RL[eqItem.rar]}{eqItem.series ? ` · Series ${eqItem.series}` : " · Prestige"}</span>
           <b>{title(eqItem)}</b>
           {(() => { const c = copyById(eqc.skin); return c ? <span>{c.serial ? `#${fmt(c.serial)}` : "Starter"} · {burnGrade(c.burn).name}{c.trak != null ? ` · FlightTrak ${c.trak}` : ""}{c.fe ? " · First edition" : ""}</span> : null; })()}
-          <span>{itemById(eq.trail)?.name ?? "Gold"} trail{eq.flourish ? ` · ${itemById(eq.flourish)?.name} flourish` : ""} · flies in Trading Duels</span>
+          <span>{itemById(eq.trail)?.name ?? "Gold"} trail</span>
           <Tag id={eq.tag} name={handle} w={220} />
         </div>
       </div>
       <div className="hgu-series">
         <div><span className="hg-look-r" style={{ color: "var(--dsc3-light-champagne)" }}>Series {live.n} · {live.name}</span><b>{found} of {liveSkins.length} found</b></div>
         <span className="hgu-meter"><i style={{ width: `${Math.round((found / Math.max(1, liveSkins.length)) * 100)}%` }} /></span>
-        <span className="hgu-leaves">{next && next.series === live.n ? `${next.name} drops in ${untilDays(next.start - now)}, with new paints and trails` : daysLeft != null ? `Series ${live.n} crates stop dropping in ${daysLeft} days` : `Series ${live.n} is dropping now`}</span>
+        {next && next.series === live.n ? <span className="hgu-leaves">{next.name} in {untilDays(next.start - now)}</span> : daysLeft != null ? <span className="hgu-leaves">Ends in {daysLeft}d</span> : null}
       </div>
       <div className="hg-ranges hgu-hulls" role="tablist" aria-label="Hulls">
         {hullTabs.map((h) => <button key={h} type="button" role="tab" aria-selected={hull === h} className={hull === h ? "on" : ""} onClick={() => setHull(h)}>{HULL_NAMES[h]} · {count(h)}</button>)}
-        {SERIES.filter((s) => s.start == null).slice(0, 1).flatMap((s) => s.hulls).map((h) => <button key={h} type="button" disabled>{HULL_NAMES[h]} · Series {SERIES.find((s) => s.hulls.includes(h))!.n}</button>)}
-        <button type="button" role="tab" aria-selected={hull === PRESTIGE_HULL} className={hull === PRESTIGE_HULL ? "on" : ""} disabled={prestige < 1} onClick={() => setHull(PRESTIGE_HULL)}>Ring-tail · Prestige</button>
+        {prestige >= 1 && <button type="button" role="tab" aria-selected={hull === PRESTIGE_HULL} className={hull === PRESTIGE_HULL ? "on" : ""} onClick={() => setHull(PRESTIGE_HULL)}>{HULL_NAMES[PRESTIGE_HULL]}</button>}
       </div>
       {note && <p className="hg-sub" role="status">{note}</p>}
       <ul className="hg-looks">
         {skins.map((s) => {
           const own = has(s), on = s.id === eq.skin;
           return <Card key={s.id} rar={s.rar} on={on || insp === s.id} locked={!own} name={own ? s.name : "???"} label={RL[s.rar]} testid={`skin-${s.id}`}
-            sub={own ? sub(s, on) : hull === PRESTIGE_HULL ? (prestige < 1 ? "Prestige 1" : "Find this paint first") : earnHow(s.id) ?? "Not found yet"}
+            sub={own ? sub(s, on) : earnHow(s.id) ?? ""}
             a={<SkinArt i={s} h={98} dim={!own} copy={own ? best(s) : undefined} />} onClick={own ? () => inspect(s.id) : undefined} />;
         })}
       </ul>
@@ -229,8 +229,8 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
         <ul className="hg-looks">
           {trails.map((t) => {
             const own = owned.has(t.id), on = t.id === eq.trail;
-            return <Card key={t.id} rar={t.rar} on={on || insp === t.id} locked={!own} name={t.name} label={t.prestige ? `Prestige ${t.prestige}` : RL[t.rar]} a={<Plume id={t.id} h={98} />} testid={t.id}
-              sub={own ? sub(t, on) : t.prestige ? `Reach Prestige ${t.prestige}` : earnHow(t.id) ?? `Series ${t.series} crates`} onClick={own ? () => inspect(t.id) : undefined} />;
+            return <Card key={t.id} rar={t.rar} on={on || insp === t.id} locked={!own} name={own ? t.name : "???"} label={t.prestige ? `Prestige ${t.prestige}` : RL[t.rar]} a={<Plume id={t.id} h={98} dim={!own} />} testid={t.id}
+              sub={own ? sub(t, on) : earnHow(t.id) ?? ""} onClick={own ? () => inspect(t.id) : undefined} />;
           })}
         </ul>
         {panel(trails)}
@@ -240,23 +240,11 @@ export function YourRocket({ col, wallet, handle, sell }: { col: Col | null; wal
         <ul className="hg-looks">
           {tags.map((t) => {
             const own = owned.has(t.id), on = t.id === eq.tag;
-            return <Card key={t.id} wide rar={t.rar} on={on || insp === t.id} locked={!own} name={t.name} label={t.prestige ? `Prestige ${t.prestige}` : RL[t.rar]} a={<Tag id={t.id} name={own ? handle : "???"} w={150} />} testid={t.id}
-              sub={own ? sub(t, on) : t.prestige ? `Reach Prestige ${t.prestige}` : `${RL[t.rar]} crates and up`} onClick={own ? () => inspect(t.id) : undefined} />;
+            return <Card key={t.id} wide rar={t.rar} on={on || insp === t.id} locked={!own} name={own ? t.name : "???"} label={t.prestige ? `Prestige ${t.prestige}` : RL[t.rar]} a={<Tag id={t.id} name={handle} w={150} dim={!own} />} testid={t.id}
+              sub={own ? sub(t, on) : ""} onClick={own ? () => inspect(t.id) : undefined} />;
           })}
         </ul>
         {panel(tags)}
-      </div>
-      <div className="hg-looks-row">
-        <div className="hg-looks-h"><h3>Win flourish</h3></div>
-        <ul className="hg-looks">
-          {flourishes.map((f) => {
-            const own = owned.has(f.id), on = f.id === eq.flourish;
-            return <Card key={f.id} rar={f.rar} on={on || insp === f.id} locked={!own} name={own ? f.name : "???"} label={RL[f.rar]} a={<Burst src={FLOURISHES.find((x) => x.id === f.id)!.art} />} testid={f.id}
-              sub={own ? sub(f, on) : `Series ${f.series} crates`} onClick={own ? () => inspect(f.id) : undefined} />;
-          })}
-          {!!eq.flourish && <Card rar="common" name="None" label="Flourish" a={<span className="hgu-none" />} sub="Tap to take it off" onClick={() => wear("flourish", "none")} />}
-        </ul>
-        {panel(flourishes)}
       </div>
       {burn > 0 && (
         <div className="hgu-cine" role="presentation" onClick={() => setBurn(0)} data-testid="tradeup-burn">

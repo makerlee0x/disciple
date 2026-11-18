@@ -47,11 +47,6 @@ export default function RocketPage() {
         </div>
       ) : (
         <>
-          <nav className="hgr-tabs" aria-label="Your rocket">
-            <a href="#hg-looks" onClick={(e) => { e.preventDefault(); document.getElementById("hg-looks")?.closest("section")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>Collection</a>
-            <a href="#hg-trades" onClick={(e) => { e.preventDefault(); document.getElementById("hg-trades")?.closest("section")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>Trades</a>
-            <Link href="/market#crates">Crates{col?.crates?.length ? <i>{col.crates.length}</i> : null}</Link>
-          </nav>
           <YourRocket col={col} wallet={wallet || null} handle={handle} sell={sell} />
           <HangarTrades col={col} wallet={wallet || null} mine={mine} />
         </>

@@ -286,7 +286,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         </nav>
       )}
 
-      <ServiceRecord pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} aboard={holdings ? holdings.length : null} launched={launched} isPrivate={isPrivate} />
+      <ServiceRecord pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} isPrivate={isPrivate} />
 
       {/* maker 2026-11-17: Altitude top left beside a half-width Your rocket card; Trophy case and Your fleet side by side under
           them. Skins, trails, trade up and crates live on /rocket. */}
