@@ -20,22 +20,21 @@ import { CLIMB_HREF, DUEL_HREF, FLIGHTS_HREF, MARKET_ENABLED, ROYALE_ENABLED } f
 import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
 import { isTurboEnabled, turboEnvOn } from "@/lib/turbo/flag";
 
-// Nav rework (maker 2026-11-16): the DISCIPLE mark is the way to the lobby, so there is no Lobby tab. Desktop doors:
-// Live flights (every rocket, /live), Turbo (a small menu: Trading duel, Turbo royale), Launch, Market (once /market is
-// live, MARKET_ENABLED) and Top pilots, with PLAY NOW (straight into the hottest flight) on the right, signed in or out.
-// Hangar and Missions + trophies stay in the pilot menu (AccountMenu); How to play is the "?" (HelpButton).
-// Phones get five bottom tabs: Flights, Turbo, Launch, Market and Hangar (signed out: How to play). Top pilots moves to the
-// pilot menu there. Turbo shows for everyone now (lib/turbo/flag.ts, on since 2026-11-16).
+// Nav rework (maker 2026-11-16, order 2026-11-18): the DISCIPLE mark is the way to the lobby, so there is no Lobby tab.
+// Tabs, same order on desktop and phones: Launch, Turbo (a small menu: Duel, Climb), Market (MARKET_ENABLED), Top pilots,
+// Hangar (phones: signed in only, signed-out phones get How to play there). Live flights is out of the bar (maker 2026-11-18); /live
+// still works. PLAY NOW sits on the right on desktop. How to play is also the "?" (HelpButton).
+// Turbo shows for everyone now (lib/turbo/flag.ts, on since 2026-11-16).
 // icons show only in the phone bottom tab bar (≤760px); desktop keeps the text tabs.
 // phone: phone bottom bar only. desk: desktop top bar only. you: signed-in only. out: signed-out only.
 type Tab = { href: string; key: string; label: string; short?: string; icon: IconName; phone?: boolean; desk?: boolean; you?: boolean; out?: boolean; menu?: boolean };
 
 const TABS: readonly Tab[] = [
-  { href: FLIGHTS_HREF, key: "flights", label: "Live flights", short: "Flights", icon: "altitude" },
-  { href: "/turbo", key: "turbo", label: "Turbo", icon: "bolt", menu: true },
   { href: "/create", key: "launch", label: "Launch", icon: "rocket" },
+  { href: "/turbo", key: "turbo", label: "Turbo", icon: "bolt", menu: true },
   ...(MARKET_ENABLED ? [{ href: "/market", key: "market", label: "Market", icon: "grid" } as Tab] : []),
-  { href: "/leaderboard", key: "leader", label: "Top pilots", icon: "leaderboard", desk: true },
+  { href: "/leaderboard", key: "leader", label: "Top pilots", short: "Pilots", icon: "leaderboard" },
+  { href: "/profile", key: "hangar", label: "Hangar", icon: "pilot", desk: true },
   { href: "/profile", key: "hangar", label: "Hangar", icon: "pilot", phone: true, you: true },
   { href: "/how-it-works", key: "hiw", label: "How to play", icon: "info", phone: true, out: true },
 ];
