@@ -2,8 +2,9 @@
  * Add cash into Lighter, browser side. Cash (USDG on Robinhood Chain) goes to the player's Lighter deposit address with
  * the usual gasless cash-out (no gas, no new signature prompt), Lighter's bridge credits it as USDC (the first deposit
  * creates the Lighter account), then the rest of Lighter set-up runs on its own (silent signatures).
- * Lighter on Robinhood Chain: an intent address on our own chain (1 USDG min). Lighter main: the Fun.xyz bridge, mainnet
- * only. The server picks (lib/server/lighter/bridge.ts).
+ * Lighter on Robinhood Chain: an intent address on our own chain (1 USDG min). Lighter main: a Relay deposit address
+ * that swaps it to USDC on Arbitrum and delivers it to the wallet's Lighter intent address ($5.10 min). The server picks
+ * (lib/server/lighter/bridge.ts).
  */
 import { formatUnits, parseUnits, type Address } from "viem";
 import { publicClient } from "@/lib/protocol-viem";
@@ -13,8 +14,8 @@ import { lighterSetUp, lighterStatus, type LighterStep } from "./client";
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 export type AddCashStep = "address" | "sending" | "arriving" | "setup" | "done";
 
-async function post<T>(f: Fetcher, op: string): Promise<T> {
-  const r = await f("/api/lighter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op }) });
+async function post<T>(f: Fetcher, op: string, extra: Record<string, unknown> = {}): Promise<T> {
+  const r = await f("/api/lighter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op, ...extra }) });
   const j = (await r.json().catch(() => ({}))) as { ok?: boolean; reason?: string } & T;
   if (!r.ok || !j.ok) throw new Error(j.reason || "Lighter didn't answer.");
   return j;
@@ -26,7 +27,7 @@ export async function lighterAddCash(f: Fetcher, usd: number, signMessage: (msg:
   if (!owner) throw new Error("Sign in first.");
   onStep("address");
   const [{ address, minNew, min }, before] = await Promise.all([
-    post<{ address: Address; minNew: number; min: number }>(f, "deposit-address"),
+    post<{ address: Address; minNew: number; min: number }>(f, "deposit-address", { usd }),
     lighterStatus(f) as Promise<{ step: LighterStep; collateral?: string }>,
   ]);
   const floor = before.step === "deposit" ? minNew : min;

@@ -10,8 +10,9 @@
  *   warm                                → loads key, signer, market and nonce into this instance before a duel
  *   presign { market, sizes: [usd…] (or usd), used?: { nonce, kind, i }, floor? } → ticket: the next long, short and close, signed at one
  *                                         nonce with a short expiry; the browser sends the one it taps straight to Lighter
- *   deposit-address                     → { address, minNew, min }  the player's Lighter deposit address (USDG on
- *                                         Robinhood Chain; mainnet only, needs LIGHTER_BRIDGE_KEY)
+ *   deposit-address { usd? }            → { address, minNew, min, outUsd?, feeUsd? }  where to send USDG on Robinhood
+ *                                         Chain: Lighter RH's intent address, or on Lighter main a Relay deposit address
+ *                                         for exactly `usd` (USDC lands on the wallet's Arbitrum intent address)
  *   deposit-status                      → { state: none|processing|completed|unknown }
  *   withdraw-info                       → { usd, fee, min }  Turbo cash that can go back to Cash now (lib/server/lighter/withdraw)
  *   withdraw-start { usd, to }          → { message, usd, fee }  the player's wallet signs it (Lighter needs the owner's L1 sig)
@@ -105,7 +106,7 @@ export async function POST(req: Request) {
         return out(200, { ok: true, ...(await finishSigned(cfg, me.pid, b.op === "key-finish" ? "key" : "approve", b.sig)) });
       }
       case "tier": await setTier(cfg, me.pid); return out(200, { ok: true });
-      case "deposit-address": return out(200, { ok: true, ...(await depositAddress(me.pid)), ...depositMins(cfg) });
+      case "deposit-address": return out(200, { ok: true, ...(await depositAddress(me.pid, Number(b.usd) || undefined)), ...depositMins(cfg) });
       case "deposit-status": return out(200, { ok: true, ...(await depositStatus(me.pid)) });
       case "tier-info": return out(200, { ok: true, ...(await tierInfo(cfg, me.pid)) });
       case "withdraw-info": return out(200, { ok: true, ...(await withdrawable(cfg, me.pid)) });
