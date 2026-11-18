@@ -8,6 +8,7 @@ import { linkHolder, short, unlinkHolder } from "@/lib/nft/client";
 import type { HolderChain, HolderStatus } from "@/lib/nft/config";
 import { evmConnect, evmSignMessage, solConnect, solSignMessage, type EvmWallet, type SolWallet } from "@/lib/nft/wallets";
 import WalletChooser from "./WalletChooser";
+import ChainLogo from "./ChainLogo";
 
 /** Connect + link one holder wallet. Shared by Holder wallets and Connect NFT. */
 export async function connectAndLink(profile: string, chain: HolderChain, w: SolWallet | EvmWallet) {
@@ -58,7 +59,7 @@ export default function HolderWallets({ wallet, status, onChange, tiles = false 
       {(["sol", "eth"] as const).map((c) => (
         <div key={c} className={`p5-link${open === c ? " on" : ""}`} data-testid={`holder-${c}`}>
           <div className="p5-link-top">
-            <span className={`nft-chain ${c}`} aria-hidden>{c === "sol" ? "◎" : "Ξ"}</span>
+            <ChainLogo chain={c} />
             <span className="u mono">{status[c] ? short(status[c]!) : LABEL[c]}</span>
           </div>
           {count(c)}
@@ -76,7 +77,7 @@ export default function HolderWallets({ wallet, status, onChange, tiles = false 
       {(["sol", "eth"] as const).map((c) => (
         <div key={c}>
           <div className="nft-hrow">
-            <span className={`nft-chain ${c}`} aria-hidden>{c === "sol" ? "◎" : "Ξ"}</span>
+            <ChainLogo chain={c} />
             <span className="u">{status[c] ? short(status[c]!) : LABEL[c]}</span>
             {count(c)}
             {btn(c)}
