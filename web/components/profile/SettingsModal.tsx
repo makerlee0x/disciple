@@ -88,10 +88,11 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   const [secBusy, setSecBusy] = useState("");
   const [secErr, setSecErr] = useState("");
   const [fx, setFx] = useState({ bombs: true });
+  const [maxInfo, setMaxInfo] = useState(false);
   useEffect(() => { if (open) setFx({ bombs: readFx(SETTINGS_KEYS.bombs) }); }, [open]);
   useEffect(() => onWallet(setAddr), []);
   useEffect(() => { const read = () => { setAcct(privyAccount()); setSec(privySecurity()); }; read(); return onPrivy(read); }, []);
-  useEffect(() => { if (!open) { setView("main"); setSecErr(""); setDelText(""); } }, [open]);
+  useEffect(() => { if (!open) { setView("main"); setSecErr(""); setDelText(""); setMaxInfo(false); } }, [open]);
   const [leavePref, setLeavePref] = useState<LeavePref>("ask");
   useEffect(() => { setLeavePref(loadLeavePref()); return onLeavePref(setLeavePref); }, []);
   useEffect(() => { setBps(oneTapSlippageBps()); return onSessionChange(() => setBps(oneTapSlippageBps())); }, []);
@@ -139,7 +140,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
 
   return (
     <div className="ds-modal-backdrop p5-settings-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="p5-modal p5-settings" role="dialog" aria-modal="true" aria-label={SETTINGS_COPY.title} data-testid="settings-modal">
+      <div className="p5-modal p5-settings p5-sfit" role="dialog" aria-modal="true" aria-label={SETTINGS_COPY.title} data-testid="settings-modal">
         {view === "delete" ? <>
           <header className="p5-mhead p5-subhead">
             <button type="button" className="p5-icon" aria-label="Back" onClick={() => { setView("main"); setSecErr(""); setDelText(""); }} data-testid="delete-back"><Icon name="chevron-left" size={20} /></button>
@@ -202,75 +203,33 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                   </div>
                 </div>
               </section>
-              <PushSettings wallet={addr ? addr.toLowerCase() : null} />
-            </div>
-            <div className="p5-s2col">
-              <section className="p5-sgrp" aria-label={SETTINGS_COPY.trading} data-testid="settings-trading">
-                <span className="gh">{SETTINGS_COPY.trading}</span>
-                <div className="p5-sbox">
-                  <div className="p5-srow">
-                    <span className="p5-sic"><Icon name="bolt" size={18} /></span>
-                    <div className="tx"><b>{SETTINGS_COPY.oneTap}</b></div>
-                    <span className="p5-on">{SETTINGS_COPY.on}</span>
-                  </div>
-                  <div className="p5-srow wrap">
-                    <span className="p5-sic"><Icon name="chart" size={18} /></span>
-                    <div className="tx"><b>{SETTINGS_COPY.maxMove}</b><span>{SETTINGS_COPY.maxMoveHelp}</span></div>
-                    <div className="p5-seg" role="radiogroup" aria-label={SETTINGS_COPY.maxMove} data-testid="onetap-slippage">
-                      {ONE_TAP_SLIPPAGE_CHOICES_BPS.map((b) => (
-                        <button key={b} type="button" role="radio" aria-checked={bps === b} className={bps === b ? "on" : ""} disabled={busy} onClick={() => void pick(b)} data-testid={`onetap-slip-${b}`}>
-                          {SETTINGS_COPY.choice(b)}
-                        </button>
-                      ))}
-                    </div>
-                    {err && <span className="p5-err" role="alert">{err}</span>}
-                  </div>
-                  {([["bombs", SETTINGS_COPY.bombs, "setBombs"]] as const).map(([k, label, fn]) => (
-                    <div className="p5-srow" key={k}>
-                      <span className="p5-sic"><Icon name="bomb" size={18} /></span>
-                      <div className="tx"><b>{label}</b></div>
-                      <button type="button" role="switch" aria-checked={fx[k]} aria-label={label} className={`p5-switch${fx[k] ? " on" : ""}`} data-testid={`settings-${k}`}
-                        onClick={() => setFx((v) => { const next = !v[k]; writeFx(SETTINGS_KEYS[k], next); (window as unknown as { __flight?: Record<string, (v: boolean) => void> }).__flight?.[fn]?.(next); return { ...v, [k]: next }; })}><span /></button>
-                    </div>
-                  ))}
-                  <div className="p5-srow" data-testid="settings-game">
-                    <span className="p5-sic"><Icon name="bell" size={18} /></span>
-                    <div className="tx"><b>{SETTINGS_COPY.haptics}</b></div>
-                    <button type="button" role="switch" aria-checked={gs.haptics} aria-label={SETTINGS_COPY.haptics} className={`p5-switch${gs.haptics ? " on" : ""}`} data-testid="settings-haptics"
-                      onClick={() => { const v = !gs.haptics; setGameSettings((g) => ({ ...g, haptics: v })); if (v) dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "boost" } })); }}><span /></button>
-                  </div>
-                  <div className="p5-srow wrap" data-testid="settings-turbo-leave">
-                    <span className="p5-sic"><Icon name="bolt" size={18} /></span>
-                    <div className="tx"><b>{LEAVE_COPY.setting}</b></div>
-                    <div className="p5-seg" role="radiogroup" aria-label={LEAVE_COPY.setting}>
-                      {LEAVE_PREFS.map((p) => (
-                        <button key={p} type="button" role="radio" aria-checked={leavePref === p} className={leavePref === p ? "on" : ""} onClick={() => saveLeavePref(p)} data-testid={`turbo-leave-${p}`}>
-                          {LEAVE_COPY.choice[p]}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </section>
               <section className="p5-sgrp" aria-label={SETTINGS_COPY.sound} data-testid="settings-sound">
                 <span className="gh">{SETTINGS_COPY.sound}</span>
                 <div className="p5-sbox">
-                  {([["music", "play", SETTINGS_COPY.music], ["sfx", "boost", SETTINGS_COPY.sfx]] as const).map(([ch, ic, label]) => {
-                    const c: AudioChannel = gs[ch];
-                    const set = (n: Partial<AudioChannel>) => setGameSettings((g) => ({ ...g, [ch]: { ...g[ch], ...n } }));
-                    return (
-                      <div className="p5-srow wrap snd" key={ch}>
-                        <span className="p5-sic"><Icon name={ic} size={18} /></span>
-                        <div className="tx"><b>{label}</b></div>
-                        <button type="button" role="switch" aria-checked={c.on} aria-label={label} className={`p5-switch${c.on ? " on" : ""}`} data-testid={`settings-${ch}`}
-                          onClick={() => set({ on: !c.on })}><span /></button>
-                        <input type="range" className="p5-vol" min={0} max={100} step={5} value={Math.round(c.vol * 100)} disabled={!c.on}
-                          aria-label={`${label} volume`} data-testid={`settings-${ch}-vol`}
-                          onChange={(e) => set({ vol: Number(e.target.value) / 100 })}
-                          onPointerUp={() => { if (ch === "sfx") previewBlip(c.vol); }} />
-                      </div>
-                    );
-                  })}
+                  <div className="p5-srow p5-split">
+                    {([["music", SETTINGS_COPY.music], ["sfx", SETTINGS_COPY.sfx]] as const).map(([ch, label]) => {
+                      const c: AudioChannel = gs[ch];
+                      const set = (n: Partial<AudioChannel>) => setGameSettings((g) => ({ ...g, [ch]: { ...g[ch], ...n } }));
+                      return (
+                        <div className="p5-cell snd" key={ch}>
+                          <div className="hd">
+                            <b>{label}</b>
+                            {/* the speaker is the on/off switch (same music.on / sfx.on the flight radio pill's mute flips) */}
+                            <button type="button" role="switch" aria-checked={c.on} aria-label={label} className={`p5-mute${c.on ? " on" : ""}`} data-testid={`settings-${ch}`}
+                              onClick={() => set({ on: !c.on })}>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                <path d="M11 5L6 9H2v6h4l5 4V5z" fill={c.on ? "currentColor" : "none"} />{c.on ? <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" /> : <path d="M23 9l-6 6M17 9l6 6" />}
+                              </svg>
+                            </button>
+                          </div>
+                          <input type="range" className="p5-vol" min={0} max={100} step={5} value={Math.round(c.vol * 100)} disabled={!c.on}
+                            aria-label={`${label} volume`} data-testid={`settings-${ch}-vol`}
+                            onChange={(e) => set({ vol: Number(e.target.value) / 100 })}
+                            onPointerUp={() => { if (ch === "sfx") previewBlip(c.vol); }} />
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </section>
               <section className="p5-sgrp" aria-label={SETTINGS_COPY.security} data-testid="settings-security">
@@ -296,6 +255,61 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                 </div>
                 {secErr && <span className="p5-err" role="alert">{secErr}</span>}
               </section>
+            </div>
+            <div className="p5-s2col">
+              <section className="p5-sgrp" aria-label={SETTINGS_COPY.trading} data-testid="settings-trading">
+                <span className="gh">{SETTINGS_COPY.trading}</span>
+                <div className="p5-sbox">
+                  <div className="p5-srow">
+                    <span className="p5-sic"><Icon name="bolt" size={18} /></span>
+                    <div className="tx"><b>{SETTINGS_COPY.oneTap}</b></div>
+                    <span className="p5-on">{SETTINGS_COPY.on}</span>
+                  </div>
+                  <div className="p5-srow wrap">
+                    <span className="p5-sic"><Icon name="chart" size={18} /></span>
+                    <div className="tx">
+                      <b>{SETTINGS_COPY.maxMove}
+                        <button type="button" className="p5-ibtn" aria-label={SETTINGS_COPY.maxMoveHelp} aria-expanded={maxInfo} onClick={() => setMaxInfo((v) => !v)} data-testid="onetap-slip-info"><Icon name="info" size={16} /></button>
+                      </b>
+                      {maxInfo && <span>{SETTINGS_COPY.maxMoveHelp}</span>}
+                    </div>
+                    <div className="p5-seg" role="radiogroup" aria-label={SETTINGS_COPY.maxMove} data-testid="onetap-slippage">
+                      {ONE_TAP_SLIPPAGE_CHOICES_BPS.map((b) => (
+                        <button key={b} type="button" role="radio" aria-checked={bps === b} className={bps === b ? "on" : ""} disabled={busy} onClick={() => void pick(b)} data-testid={`onetap-slip-${b}`}>
+                          {SETTINGS_COPY.choice(b)}
+                        </button>
+                      ))}
+                    </div>
+                    {err && <span className="p5-err" role="alert">{err}</span>}
+                  </div>
+                  <div className="p5-srow p5-split" data-testid="settings-game">
+                    {([["bombs", SETTINGS_COPY.bombs, "setBombs"]] as const).map(([k, label, fn]) => (
+                      <div className="p5-cell" key={k}>
+                        <b>{label}</b>
+                        <button type="button" role="switch" aria-checked={fx[k]} aria-label={label} className={`p5-switch sm${fx[k] ? " on" : ""}`} data-testid={`settings-${k}`}
+                          onClick={() => setFx((v) => { const next = !v[k]; writeFx(SETTINGS_KEYS[k], next); (window as unknown as { __flight?: Record<string, (v: boolean) => void> }).__flight?.[fn]?.(next); return { ...v, [k]: next }; })}><span /></button>
+                      </div>
+                    ))}
+                    <div className="p5-cell">
+                      <b>{SETTINGS_COPY.haptics}</b>
+                      <button type="button" role="switch" aria-checked={gs.haptics} aria-label={SETTINGS_COPY.haptics} className={`p5-switch sm${gs.haptics ? " on" : ""}`} data-testid="settings-haptics"
+                        onClick={() => { const v = !gs.haptics; setGameSettings((g) => ({ ...g, haptics: v })); if (v) dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "boost" } })); }}><span /></button>
+                    </div>
+                  </div>
+                  <div className="p5-srow wrap" data-testid="settings-turbo-leave">
+                    <span className="p5-sic"><Icon name="bolt" size={18} /></span>
+                    <div className="tx"><b>{LEAVE_COPY.setting}</b></div>
+                    <div className="p5-seg" role="radiogroup" aria-label={LEAVE_COPY.setting}>
+                      {LEAVE_PREFS.map((p) => (
+                        <button key={p} type="button" role="radio" aria-checked={leavePref === p} className={leavePref === p ? "on" : ""} onClick={() => saveLeavePref(p)} data-testid={`turbo-leave-${p}`}>
+                          {LEAVE_COPY.choice[p]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <PushSettings wallet={addr ? addr.toLowerCase() : null} />
             </div>
           </div>
           <footer className="p5-sfoot">

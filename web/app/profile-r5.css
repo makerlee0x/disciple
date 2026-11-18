@@ -333,7 +333,24 @@
 .p5-trade-cell input:focus { border-color: #F2C14E; box-shadow: 0 0 0 3px rgba(242,193,78,.18); }
 .p5-trade-cell.dump output { color: #FFB0C8; border-color: rgba(240,48,127,.28); background: rgba(240,48,127,.06); }
 .p5-trade .p5-srow.col .p5-fine, .p5-trade .p5-srow.col .p5-err { font-size: 12px; line-height: 17px; }
-/* Settings › Sound: switch on the title line, volume slider under it */
-.p5-settings .p5-srow.snd .tx { flex: 1 1 calc(100% - 124px); }
-.p5-settings .p5-vol { flex: 1 1 100%; margin: 0 0 0 48px; max-width: calc(100% - 48px); accent-color: var(--dsc3-signal-up, #5FF0A0); height: 28px; cursor: pointer; }
+/* Settings fit (maker 2026-11-18: no scroll, narrower): split rows hold two settings side by side.
+   Sound = Music | Sound effects, each a speaker on/off button (same music.on / sfx.on as the flight radio mute) over its slider. */
+.p5-settings.p5-sfit.p5-modal { width: min(740px, 100%); }
+.p5-settings .p5-srow.p5-split { display: grid; grid-template-columns: 1fr 1fr; gap: 0; padding: 0; }
+.p5-split > .p5-cell { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 12px 14px; }
+.p5-split > .p5-cell + .p5-cell { border-left: 1px solid rgba(232,234,238,.07); }
+.p5-split > .p5-cell > b { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; color: #F2F3F7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p5-split > .p5-cell.snd { flex-direction: column; align-items: stretch; gap: 6px; padding: 10px 14px 8px; }
+.p5-cell.snd .hd { display: flex; align-items: center; gap: 8px; }
+.p5-cell.snd .hd b { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; color: #F2F3F7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p5-mute { all: unset; cursor: pointer; flex: none; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; color: #9095A0; background: rgba(201,206,214,.08); }
+.p5-mute.on { color: var(--dsc3-signal-up, #5FF0A0); background: rgba(95,240,160,.12); }
+.p5-mute:focus-visible { outline: 2px solid rgba(201,206,214,.55); outline-offset: 2px; }
+.p5-settings .p5-vol { width: 100%; margin: 0; accent-color: var(--dsc3-signal-up, #5FF0A0); height: 24px; cursor: pointer; }
 .p5-settings .p5-vol:disabled { opacity: .35; cursor: default; }
+.p5-switch.sm { width: 40px; height: 24px; }
+.p5-switch.sm span { width: 18px; height: 18px; }
+.p5-switch.sm.on span { transform: translateX(16px); }
+.p5-ibtn { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; color: #9095A0; }
+.p5-ibtn:hover, .p5-ibtn[aria-expanded="true"] { color: #F2F3F7; }
+.p5-ibtn:focus-visible { outline: 2px solid rgba(201,206,214,.55); outline-offset: 1px; }
