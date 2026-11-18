@@ -932,11 +932,13 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
     <button type="button" data-testid="sell-unit" {...hoverSide("sell")} aria-label={`custom sell unit: ${sellUnit}`} title="toggle: % of holdings ↔ $ value" onClick={() => pickUnit(sellUnit === "%" ? "$" : "%")}
       style={{ all: "unset", cursor: "pointer", minHeight: 32, padding: "0 8px", borderRadius: 10, display: "inline-flex", alignItems: "center", font: `700 14px ${HUD.game}`, background: "rgba(240,48,127,.14)", color: HUD.downSoft }}>{sellUnit}</button>
   </span>;
+  // the always-on "price move: buy … · sell …" line is gone (maker 2026-11-18: subtitle clutter); a money fact stays
+  const snipeNote = preview.includes("anti-snipe") ? "Anti-snipe fee on this coin" : "";
   const statusLine = (hint || shortLine) ? <div data-testid="trade-hint" style={{ fontSize: 12, color: "#FFC2DA" }}>{hint || shortLine}</div>
     : warnText ? <div data-testid="trade-warn" style={{ fontSize: 12, color: warnOver ? "#FFC2DA" : HUD.champagne }}>{warnText}</div>
     : rows.length > 1 ? <div data-testid="press-rows" style={{ fontSize: 12, opacity: 0.9, color: HUD.champagne, display: "flex", flexDirection: "column", gap: 1 }}>
         {rows.map((r) => <div key={r.id} data-press={r.id} data-done={r.done ? "1" : "0"} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", opacity: r.done ? 0.75 : 1 }}>{r.txt}</div>)}</div>
-    : (last || preview) ? <div style={{ fontSize: 12, opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? HUD.champagne : HUD.dim }}>{last || preview}</div> : null;
+    : (last || snipeNote) ? <div style={{ fontSize: 12, opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? HUD.champagne : HUD.dim }}>{last || snipeNote}</div> : null;
   const modeTag = live ? null : <span title={valid ? "paper trades: connect a wallet to trade" : "practice market"} style={{ padding: "1px 6px", borderRadius: 5, font: `700 12px ${HUD.game}`, letterSpacing: ".06em", background: "rgba(243,223,168,.14)", color: HUD.champagne }}>{token === "SIMULATOR" ? "FREE PLAY" : "PAPER"}</span>;
   return (
     <>
@@ -984,7 +986,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
                   font: `800 24px/1 ${HUD.game}`, opacity: has && !full ? 1 : 0.45, cursor: has && !full ? "pointer" : "not-allowed" }}>CASH OUT{cap("ENTER", true)}</button>
             </div>
           </> : <>
-          {!pro && <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}><span style={hudLabel}>Dump amount</span><span style={{ fontSize: 12, color: HUD.dim }}>{has ? "of your bag" : "no bag yet"}</span></div>}
+          {!pro && <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}><span style={hudLabel}>Dump amount</span></div>}
           {!pro && <div role="radiogroup" aria-label="dump amount" style={{ display: "flex", gap: 5 }}>{dumpChips}</div>}
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} {...hoverSide("sell")} title={dumpTitle} aria-disabled={!has || full} disabled={!has} data-inflight={full ? "1" : "0"} onClick={() => dumpRef.current?.()}
