@@ -138,6 +138,7 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .mkb em{color:var(--gold)!important;font-size:18px!important}
 .duel-root .pill em.liq{background:var(--pink)!important;color:#fff!important;animation:lq .5s ease-in-out infinite alternate}
 @keyframes lq{to{transform:scale(1.08)}}
+.duel-root .count .pulse{animation:lq .6s ease-in-out infinite alternate}
 @media (prefers-reduced-motion:reduce){.duel-root .pill em.liq{animation:none}}
 .duel-root .toast{top:auto!important;bottom:calc(176px + env(safe-area-inset-bottom,0px))}
 /* end-of-match podium (maker 2026-11-16): the top 3 side by side, each with their loadout and stats. Breaks out of the
@@ -540,6 +541,9 @@ const WPN={
    {type:"disciple:px", px:{HYPE,SOL,ETH,BTC}}. A coin with a fresh price follows it; with none (offline, the standalone
    prototype) it falls back to the old simulated walk. */
 const LIVE={}, LIVE_FRESH=5000;
+/* in the app (an iframe) the charts are real only (maker 2026-11-18: "the fake chart should never happen"): the drop
+   waits for all four prices and a quiet feed holds the last one. The made-up walk is only for the standalone prototype. */
+const HOSTED=parent!==window;
 const liveOf=k=>{ const l=LIVE[k]; return l&&Date.now()-l.at<LIVE_FRESH?l:null; };
 addEventListener("message",e=>{ if(e.origin!==location.origin||!e.data) return; const d=e.data;
   if(d.type==="disciple:px"&&d.px){ const now=Date.now(); for(const k of Object.keys(d.px)){ const p=+d.px[k]; if(!(p>0)) continue;
@@ -607,14 +611,15 @@ function laneFor(pl){ const used=G.pilots.filter(p=>p!==pl&&!p.me&&p.alive&&p.mk
   const slots=[.14,.86,.3,.7,.22,.78].sort(()=>Math.random()-.5); return slots.find(s=>used.every(u=>Math.abs(u-s)>.07))||rnd(.12,.88); }
 function stepFeed(m,t){
   const l=liveOf(m.k);
-  if(l) m.p+=(l.p-m.p)*.6;   // eased a little so a block's jump draws as a move, not a step
+  if(l){ m.p+=(l.p-m.p)*.6; m.live=1; }   // eased a little so a block's jump draws as a move, not a step
+  else if(m.live||HOSTED){}   // the feed went quiet mid-match: hold the last real price, never switch to the made-up walk
   else { if(t>=m.nextReg){ m.drift=gauss()*m.vol*m.dr; m.nextReg=t+rnd(3,9); } m.p*=1+m.drift+gauss()*m.vol; }
   m.ticks.push({t,p:m.p}); if(m.ticks.length>420) m.ticks.splice(0,60);
 }
 // 60 s of real history from the mids that came in while you were in the lobby (padded with the oldest one)
 function seedLive(m){ const l=liveOf(m.k); if(!l||!l.hist.length) return false; const now=Date.now(), h=l.hist; let j=0;
   for(let i=-300;i<=0;i++){ const ts=now+i*TICK*1000; while(j+1<h.length&&h[j+1].ts<=ts) j++; m.p=h[j].p; m.ticks.push({t:i*TICK,p:m.p}); }
-  m.p=l.p; return true; }
+  m.p=l.p; m.live=1; return true; }
 const price=pl=>G.M[pl.mk].p;
 const pnlOf=(pos,p)=>pos?pos.size*(p-pos.entry)/pos.entry*pos.side:0;
 const valueOf=pl=>pl.pos?Math.max(0,pl.pos.coll+pnlOf(pl.pos,price(pl))):0;
@@ -939,6 +944,8 @@ function showDrop(){ $("smap").hidden=true; $("fChat").hidden=true; toParent({ty
     if(dropT<=0){ clearInterval(dropIv); go(); } },250); }
 $("dGo").addEventListener("click",()=>{ ensureAudio(); clearInterval(dropIv); go(); });
 function go(){
+  // real prices or nothing: hold the drop (a pulsing count) until all four coins have one
+  if(HOSTED&&ORDER.some(k=>!liveOf(k))){ const c=$("count"); $("drop").hidden=true; c.hidden=false; c.innerHTML='<div class="pulse">…</div>'; setTimeout(go,300); return; }
   rollSky(); const mapLine=`SKY · ${MAP.n} · FINAL CIRCLE ON ${finalMk()}`;
   $("drop").hidden=true; newGame(); G.me.y=null; FX.parts.length=FX.pops.length=FX.rings.length=0;
   $("feed").innerHTML=""; buildJump(); const c=$("count"); c.hidden=false; let n=3;

@@ -45,7 +45,7 @@ export default function RoyalePage() {
     <iframe
       ref={frame}
       title="Turbo Royale"
-      src={withBase("/turbo/royale/play.html?v=15")}
+      src={withBase("/turbo/royale/play.html?v=17")}
       style={{ position: "fixed", inset: 0, width: "100%", height: "100%", border: 0, zIndex: 60, background: "#07080c" }}
       allow="autoplay; web-share; clipboard-write"
     />
