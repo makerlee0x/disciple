@@ -21,7 +21,8 @@ export async function connectAndLink(profile: string, chain: HolderChain, w: Sol
 
 const LABEL: Record<HolderChain, string> = { sol: "Solana", eth: "Ethereum" };
 
-export default function HolderWallets({ wallet, status, onChange }: { wallet: string | null; status: HolderStatus; onChange: (s: HolderStatus) => void }) {
+/** tiles: render as compact grid tiles inside Edit profile's Linked accounts row (.p5-links), next to the X tile. */
+export default function HolderWallets({ wallet, status, onChange, tiles = false }: { wallet: string | null; status: HolderStatus; onChange: (s: HolderStatus) => void; tiles?: boolean }) {
   const [open, setOpen] = useState<HolderChain | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -42,26 +43,47 @@ export default function HolderWallets({ wallet, status, onChange }: { wallet: st
     setBusy(false);
   }
 
+  const btn = (c: HolderChain) => status[c]
+    ? <button type="button" className="p5-btn sm" disabled={busy} onClick={() => void remove(c)}>Remove</button>
+    : <button type="button" className="p5-btn sm" disabled={busy} aria-expanded={open === c} onClick={() => setOpen(open === c ? null : c)}>Link</button>;
+  const count = (c: HolderChain) => {
+    const n = c === "sol" ? status.disciples : status.founders;
+    if (!status[c] || n <= 0) return null;
+    return <span className="nft-count">{n} {c === "sol" ? (n === 1 ? "Disciple" : "Disciples") : n === 1 ? "Access Key" : "Access Keys"}</span>;
+  };
+  const chooser = open && !status[open] ? <WalletChooser chain={open} busy={busy} onPick={(w) => void pick(open, w)} /> : null;
+
+  if (tiles) return (
+    <>
+      {(["sol", "eth"] as const).map((c) => (
+        <div key={c} className={`p5-link${open === c ? " on" : ""}`} data-testid={`holder-${c}`}>
+          <div className="p5-link-top">
+            <span className={`nft-chain ${c}`} aria-hidden>{c === "sol" ? "◎" : "Ξ"}</span>
+            <span className="u mono">{status[c] ? short(status[c]!) : LABEL[c]}</span>
+          </div>
+          {count(c)}
+          {btn(c)}
+        </div>
+      ))}
+      {chooser && <div className="p5-link-wide">{chooser}</div>}
+      {err && <span className="p5-err p5-link-wide" role="alert">{err}</span>}
+    </>
+  );
+
   return (
     <div className="p5-fld" role="group" aria-label="Holder wallets" data-testid="holder-wallets">
       <span className="lab">Holder wallets</span>
-      {(["sol", "eth"] as const).map((c) => {
-        const linked = status[c];
-        const n = c === "sol" ? status.disciples : status.founders;
-        return (
-          <div key={c}>
-            <div className="nft-hrow">
-              <span className={`nft-chain ${c}`} aria-hidden>{c === "sol" ? "◎" : "Ξ"}</span>
-              <span className="u">{linked ? short(linked) : LABEL[c]}</span>
-              {linked && n > 0 && <span className="nft-count">{n} {c === "sol" ? (n === 1 ? "Disciple" : "Disciples") : n === 1 ? "Access Key" : "Access Keys"}</span>}
-              {linked
-                ? <button type="button" className="p5-btn sm" disabled={busy} onClick={() => void remove(c)}>Remove</button>
-                : <button type="button" className="p5-btn sm" disabled={busy} aria-expanded={open === c} onClick={() => setOpen(open === c ? null : c)}>Link</button>}
-            </div>
-            {open === c && !linked && <WalletChooser chain={c} busy={busy} onPick={(w) => void pick(c, w)} />}
+      {(["sol", "eth"] as const).map((c) => (
+        <div key={c}>
+          <div className="nft-hrow">
+            <span className={`nft-chain ${c}`} aria-hidden>{c === "sol" ? "◎" : "Ξ"}</span>
+            <span className="u">{status[c] ? short(status[c]!) : LABEL[c]}</span>
+            {count(c)}
+            {btn(c)}
           </div>
-        );
-      })}
+          {open === c && chooser}
+        </div>
+      ))}
       {err && <span className="p5-err" role="alert">{err}</span>}
     </div>
   );

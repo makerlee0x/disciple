@@ -20,12 +20,13 @@ test.describe("first visit", () => {
     await expect(out(page).getByTestId("mode-daily")).toContainText("Solo");
   });
 
-  test("the top bar has Live flights, Launch, Top pilots and Play now (the mark is the lobby)", async ({ page }) => {
+  test("the top bar has Launch, Market, Top pilots and Play now, no Live flights (the mark is the lobby)", async ({ page }) => {
     await page.goto("/");
     const bar = page.getByTestId("lobby-topbar");
     await expect(bar).toBeVisible();
     if (isPhone(page)) return; // phones use the bottom tab bar (see below)
-    for (const name of [/live flights/i, /launch/i, /top pilots/i, /play now/i]) await expect(bar.getByRole("link", { name }).first()).toBeVisible();
+    for (const name of [/launch/i, /top pilots/i, /play now/i]) await expect(bar.getByRole("link", { name }).first()).toBeVisible();
+    await expect(bar.locator(".lb-top").getByRole("link", { name: /live flights/i })).toHaveCount(0);
     await expect(bar.getByRole("link", { name: /^lobby$/i })).toHaveCount(0);
     // Turbo is on for everyone
     await expect(bar.getByTestId("nav-turbo").first()).toBeVisible();
