@@ -2,16 +2,19 @@
  * Trading Duel rules (shared by the server, the live match screen and the practice bot). Pure, no I/O.
  *
  * A duel: two pilots, same tier fuel, same live BTC price, 1 minute. Each pilot BOOSTs (long) or DUMPs (short)
- * at 500×, as often as they like, and can add to an open position (the entry averages). No flips (maker 2026-11-17, Nova
+ * at 50× (Lighter's BTC max), as often as they like, and can add to an open position (the entry averages). No flips (maker 2026-11-17, Nova
  * fills are slow): to go the other way, cash out first. Most profit at the buzzer wins.
  * If it's within OT_GAP of a tie at the buzzer, the duel gets one 30 s overtime.
  *
- * Amounts are dollars, prices $ per coin, times ms. FEE is a placeholder until Nova confirms duel fees.
+ * Amounts are dollars, prices $ per coin, times ms. FEE and FILL_MS mimic Lighter Plus for a feel test; Nova numbers replace them later.
  */
 
-export const LEV = 500;
-/** 0.5 bp a side on notional. Placeholder until Nova confirms what a duel trade costs (a 1 bp trial felt too harsh). */
-export const FEE = 0.00005;
+/** Lighter's BTC max (50×) for the Lighter Plus feel test; was 500× for Nova. */
+export const LEV = 50;
+/** 0.55 bp a side on notional = 1.1 bp round trip: Lighter Plus (1 bp) + 0.1 bp Disciple partner fee. Locked by maker 2026-11-17 (1.2 "felt too heavy"). */
+export const FEE = 0.000055;
+/** Every duel fill waits this long after the tap, like a Lighter Standard/Plus taker order (300 ms speed bump). */
+export const FILL_MS = 300;
 /** NUKE when the open position has lost 80% of the fuel in it. */
 export const LIQ = 0.8;
 export const OT_MS = 30_000;
