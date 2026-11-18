@@ -1383,8 +1383,14 @@ function mount(root,host){
       const x1=soloRight(ly,hh)-tw; sx.font="800 14px "+GF+",sans-serif";
       sx.fillStyle=`rgba(${l.col},.95)`; rr(x1,ly,tw,hh,7); sx.fill(); sx.fillStyle=l.ink||"#121327"; sx.textAlign="left"; sx.textBaseline="middle"; sx.fillText(txt,x1+8,ly+hh/2+1);
       if(sw){ const x2=x1-4-sw; sx.font="700 12px "+GF+",sans-serif"; sx.fillStyle="rgba(11,10,22,.86)"; rr(x2,ly+2,sw,hh-4,6); sx.fill(); sx.fillStyle=`rgba(${l.col},1)`; sx.fillText(l.sub,x2+6,ly+hh/2+1); } } }
-  function climbEnd(){ G.over=true; if(G.me.pos) close(G.me); if(CL.lighter) CL.lighter.end(); music(false); ui();
-    const pnl=profitOf(G.me), run=CLR, before=CL.state().unlocked;
+  // On Lighter (host.climb.lighter.result) the run's result is the real money: the account's cash after the close
+  // minus before the run, read back from Lighter (at most ~6 s); the game's own number only if Lighter can't say
+  function climbEnd(){ G.over=true; if(G.me.pos) close(G.me); const lx=CL.lighter; const done=lx?lx.end():null; music(false); ui();
+    const game=profitOf(G.me);
+    if(lx&&lx.result){ const g=G; Promise.race([Promise.resolve(done).then(()=>lx.result()),new Promise(r=>setTimeout(()=>r(null),6000))])
+      .catch(()=>null).then(v=>{ if(dead||G!==g) return; climbResult(typeof v==="number"&&isFinite(v)?v:game); }); return; }
+    climbResult(game); }
+  function climbResult(pnl){ if(!CLR) return; const run=CLR, before=CL.state().unlocked;
     const res=run.free?{unlocked:before}:CL.finish({level:run.level,pnl,test:run.test});
     const up=res.unlocked>before, n=res.unlocked, nl=lvl(n), clr=!run.free&&cHit(pnl);
     setTimeout(()=>{ if(dead) return; show("cres"); climbChip(); sfx(up||clr?"win":"lose");
@@ -1436,6 +1442,8 @@ function mount(root,host){
     error:(t)=>{ if(!$("intro").hidden) lerr(t); else toast(t); if(!$("search").hidden||!$("invite").hidden){ show("intro"); lerr(t); } if(!$("result").hidden){ $("rAgain").disabled=false; $("rAgain").textContent="REMATCH"; } },
     toLobby:()=>{ M=null; show("intro"); },
     firstCrate:(d)=>firstCrate(d),
+    // Climb on Lighter: the real average entry Lighter filled at replaces the game's entry (same side and size)
+    climbFill:(entry)=>{ if(!CLR||!G||G.over||!G.me.pos||!(entry>0)) return; G.me.pos.entry=entry; ui(); },
     climbRefresh:()=>{ if(!CL) return; if(!cFreeSet&&LVS.length) cFree.fuel=LVS[LVS.length-1].fuel; if(!$("climb").hidden) climbHome(); },
     _state:()=>G,
     destroy:()=>{ dead=true; if(CL&&CL.lighter) CL.lighter.end(); offs.forEach(f=>f()); removeEventListener("storage",onStore); removeEventListener("disciple:audio",onLvl); try{ if(ac) ac.close(); }catch(e){} root.innerHTML=""; root.classList.remove("duel-root"); },

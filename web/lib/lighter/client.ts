@@ -12,7 +12,8 @@ async function call<T>(f: Fetcher, init?: { op: string } & Record<string, unknow
   return j;
 }
 
-export const lighterStatus = (f: Fetcher) => call<{ step: LighterStep; network: string; account: number | null; feeBp: number }>(f);
+export const lighterStatus = (f: Fetcher) => call<{ step: LighterStep; network: string; url?: string; account: number | null; feeBp: number; collateral?: string;
+  positions?: { symbol?: string; position?: string; sign?: number; avg_entry_price?: string }[] }>(f);
 
 /** Runs every set-up step that's left. Stops at "deposit" (the player has to add cash to Lighter first). */
 export async function lighterSetUp(f: Fetcher, signMessage: (msg: string) => Promise<string>): Promise<LighterStep> {

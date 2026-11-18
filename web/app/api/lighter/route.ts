@@ -34,7 +34,7 @@ import { body, out, pilotOf, requirePass } from "@/lib/server/duel/http";
 import { DuelError } from "@/lib/server/duel/store";
 import { lighterConfig, isLighterMarket } from "@/lib/server/lighter/config";
 import { LighterError } from "@/lib/server/lighter/rest";
-import { closeMarket, finishSigned, openMarket, MAX_SIZES, presign, relay, setTier, startApprove, startKey, status, warm, type Used } from "@/lib/server/lighter/player";
+import { closeMarket, finishSigned, tierInfo, openMarket, MAX_SIZES, presign, relay, setTier, startApprove, startKey, status, warm, type Used } from "@/lib/server/lighter/player";
 export const runtime = "nodejs";
 /** Lighter refuses signed txs from US IPs, and our other functions run in iad1 (Washington) */
 export const preferredRegion = "fra1";
@@ -58,7 +58,7 @@ function on() {
 export async function GET(req: Request) {
   try {
     const cfg = on(); const me = await pilotOf(req, { guestOk: false });
-    return out(200, { ok: true, network: cfg.network, feeBp: cfg.partnerFee / 100, withdraw: cfg.payoutIsCash, ...(await status(cfg, me.pid)) });
+    return out(200, { ok: true, network: cfg.network, url: cfg.url, feeBp: cfg.partnerFee / 100, withdraw: cfg.payoutIsCash, ...(await status(cfg, me.pid)) });
   } catch (e) { return lfail(e); }
 }
 
@@ -107,6 +107,7 @@ export async function POST(req: Request) {
       case "tier": await setTier(cfg, me.pid); return out(200, { ok: true });
       case "deposit-address": return out(200, { ok: true, ...(await depositAddress(me.pid)), ...depositMins(cfg) });
       case "deposit-status": return out(200, { ok: true, ...(await depositStatus(me.pid)) });
+      case "tier-info": return out(200, { ok: true, ...(await tierInfo(cfg, me.pid)) });
       case "withdraw-info": return out(200, { ok: true, ...(await withdrawable(cfg, me.pid)) });
       case "withdraw-start": {
         const usd = Number(b.usd);

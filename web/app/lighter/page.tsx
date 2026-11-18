@@ -118,6 +118,7 @@ export default function LighterTest() {
         <input className="w-20 rounded-lg border border-white/25 bg-black px-2 py-2" type="number" min={1} value={back} onChange={(e) => setBack(Number(e.target.value))} />
         <button className={btn} disabled={busy || !wallet} onClick={() => void run("deposit address", async () => { const r = await f("/api/lighter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op: "deposit-address" }) }); return r.json(); })}>Deposit address</button>
         <button className={btn} disabled={busy || step !== "ready"} onClick={() => void run("withdraw info", () => lighterWithdrawInfo(f))}>Can withdraw?</button>
+        <button className={btn} disabled={busy || !st?.account} onClick={() => void run("tier", async () => { const r = await f("/api/lighter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op: "tier-info" }) }); return r.json(); })}>Tier?</button>
         <button className={btn} disabled={busy || step !== "ready" || !wallet} onClick={() => void run(`withdraw $${back} to ${wallet}`, () => lighterWithdraw(f, back, wallet!, sign))}>Withdraw to wallet</button>
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-2">

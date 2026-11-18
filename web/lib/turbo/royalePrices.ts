@@ -101,10 +101,10 @@ export function parseLighterStats(json: unknown, ids: Map<number, RoyaleCoin>): 
 }
 
 /** Lighter's market ids for the four coins (public order book list) */
-async function lighterIds(): Promise<Map<number, RoyaleCoin>> {
+async function lighterIds(host: string): Promise<Map<number, RoyaleCoin>> {
   const ids = new Map<number, RoyaleCoin>();
   try {
-    const r = await fetch(`https://${LIGHTER_PRICE_HOST}/api/v1/orderBookDetails?filter=perp`);
+    const r = await fetch(`https://${host}/api/v1/orderBookDetails?filter=perp`);
     const j = (await r.json()) as { order_book_details?: { symbol?: string; market_id?: number }[] };
     for (const d of j.order_book_details ?? []) {
       const sym = String(d.symbol ?? "").toUpperCase();
@@ -114,15 +114,16 @@ async function lighterIds(): Promise<Map<number, RoyaleCoin>> {
   return ids;
 }
 
-/** Lighter mark prices for the four coins; returns stop */
-export function streamLighterMids(cb: (m: RoyaleMids) => void): () => void {
+/** Lighter mark prices for the four coins; returns stop. `host`: the exchange whose prices (Climb on Lighter passes the
+ *  one its orders go to, e.g. api.rh.lighter.xyz) */
+export function streamLighterMids(cb: (m: RoyaleMids) => void, host: string = LIGHTER_PRICE_HOST): () => void {
   let ws: WebSocket | null = null, stopped = false, backoff = 500;
   let retry: ReturnType<typeof setTimeout> | null = null, ping: ReturnType<typeof setInterval> | null = null;
   let ids = new Map<number, RoyaleCoin>();
   const connect = () => {
     if (stopped) return;
     let sock: WebSocket;
-    try { sock = new WebSocket(`wss://${LIGHTER_PRICE_HOST}/stream`); } catch { reconnect(); return; }
+    try { sock = new WebSocket(`wss://${host}/stream`); } catch { reconnect(); return; }
     ws = sock;
     sock.onopen = () => {
       backoff = 500;
@@ -144,7 +145,7 @@ export function streamLighterMids(cb: (m: RoyaleMids) => void): () => void {
     retry = setTimeout(() => { retry = null; connect(); }, backoff);
     backoff = Math.min(backoff * 2, 15_000);
   };
-  void lighterIds().then((m) => { ids = m; connect(); });
+  void lighterIds(host).then((m) => { ids = m; connect(); });
   return () => {
     stopped = true;
     if (retry) clearTimeout(retry); if (ping) clearInterval(ping);

@@ -15,7 +15,7 @@ import { recoverMessageAddress, type Hex } from "viem";
 import { clientOrderIndex, baseAmountFor, levFraction, worstPrice } from "@/lib/lighter/math";
 import { LIGHTER_MARKETS, type LighterConfig, type LighterMarket } from "./config";
 import { getPlayer, putPlayer, seal, open, type LighterPlayer } from "./keys";
-import { account, accountIndexOf, book, fillFrom, midOf, type Book, changeTier, marketBySymbol, nextNonce, sendTx, LighterError, type LighterPosition } from "./rest";
+import { account, accountIndexOf, book, fillFrom, midOf, type Book, changeTier, accountLimits, marketBySymbol, nextNonce, sendTx, LighterError, type LighterPosition } from "./rest";
 import { checked, signer, signerFor } from "./signer";
 
 export type Step = "deposit" | "key" | "tier" | "approve" | "ready";
@@ -83,6 +83,16 @@ export async function setTier(cfg: LighterConfig, pid: string) {
   await changeTier(cfg, p.account, cfg.tier, tok.authToken);
   await putPlayer(cfg, pid, { ...p, tier: cfg.tier });
   forget(cfg, pid);
+}
+
+/** What Lighter says about the player's account tier (the /lighter page's "Tier?" check). */
+export async function tierInfo(cfg: LighterConfig, pid: string) {
+  const { p, w } = await keyed(cfg, pid);
+  const tok = w.CreateAuthToken(Math.floor(Date.now() / 1000) + 600, p.keyIndex, p.account);
+  if (!tok.authToken) throw new Error(`lighter auth: ${tok.error}`);
+  const lighter: Record<string, unknown> = { ...(await accountLimits(cfg, p.account, tok.authToken)) };
+  delete lighter.code; delete lighter.message;
+  return { want: cfg.tier, lighter };
 }
 
 /** Step 4a: Disciple's partner fee approval; the player's wallet must sign it (Lighter requires an L1 signature). */
