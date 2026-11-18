@@ -7,8 +7,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { withBase } from "@/lib/base-path";
 import { aaSession, onPrivy, onSessionChange, privyAccessToken, privyLogin } from "@/lib/aa/sessionState";
 import { onWallet } from "@/lib/walletState";
+import { lighterAddCash } from "@/lib/lighter/deposit";
 import { aaSignMessage } from "@/lib/aa/session";
-import { LighterTaps, lighterClose, lighterOpen, lighterSetUp, lighterStatus, type LighterStep, type LighterTicket, type TapKind } from "@/lib/lighter/client";
+import { LighterTaps, lighterClose, lighterOpen, lighterSetUp, lighterStatus, type LighterStep, type LighterTicket, type TapKind, type TapVia } from "@/lib/lighter/client";
 
 type Status = Awaited<ReturnType<typeof lighterStatus>> & { collateral?: string; positions?: { symbol?: string; position?: string; sign?: number }[]; lookup?: string[] };
 const MARKETS = ["BTC", "ETH", "SOL", "HYPE"] as const;
@@ -25,6 +26,7 @@ export default function LighterTest() {
   const [st, setSt] = useState<Status | null>(null);
   const [market, setMarket] = useState<(typeof MARKETS)[number]>("BTC");
   const [usd, setUsd] = useState(5);
+  const [cash, setCash] = useState(10);
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const say = (s: string) => setLog((l) => [`${new Date().toLocaleTimeString()}  ${s}`, ...l].slice(0, 40));
@@ -51,9 +53,11 @@ export default function LighterTest() {
   const taps = useRef<LighterTaps | null>(null);
   const [ticket, setTicket] = useState<LighterTicket | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const logged = useRef(false);
   useEffect(() => {
     if (st?.step !== "ready") return;
     const t = new LighterTaps(f, market, usd);
+    t.wantSocket = true;
     taps.current = t;
     const off = t.onTicket(setTicket);
     t.start();
@@ -63,12 +67,13 @@ export default function LighterTest() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [st?.step, f]);
   useEffect(() => { taps.current?.set(market, usd); }, [market, usd]);
-  const tap = async (kind: TapKind) => {
+  const tap = async (kind: TapKind, how: TapVia = "http") => {
     const t = taps.current; if (!t) return;
     try {
-      const r = await t.tap(kind);
+      const r = await t.tap(kind, how);
       say(`${kind} ${market} ✓ tap→Lighter ${r.ms} ms via ${r.via}${r.waited ? " (waited for a fresh set)" : ""}  idle ${r.idle} ms  nonce ${r.nonce}  size ${r.base}  cap ${r.cap}  ${r.hash.slice(0, 10)}…`);
-    } catch (e) { say(`${kind} ${market} ✗ ${(e as Error).message}`); }
+      if (r.raw && !logged.current) { logged.current = true; say(`ws answer looks like: ${r.raw}`); }
+    } catch (e) { say(`${kind} ${market}${how === "ws" ? " (ws)" : ""} ✗ ${(e as Error).message}`); }
     setTimeout(() => void refresh(), 1500);
   };
 
@@ -105,19 +110,29 @@ export default function LighterTest() {
         <button className={btn} disabled={busy || !step || step === "deposit" || step === "ready"} onClick={() => void run("set-up", async () => ({ step: await lighterSetUp(f, sign) }))}>Set up</button>
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
+        <input className="w-20 rounded-lg border border-white/25 bg-black px-2 py-2" type="number" min={3} value={cash} onChange={(e) => setCash(Number(e.target.value))} />
+        <button className={btn} disabled={busy || !wallet} onClick={() => void run(`add $${cash} cash`, async () => ({ step: await lighterAddCash(f, cash, sign, (x) => say(`add cash: ${x}`)) }))}>Add cash to Lighter</button>
+      </div>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <select className="rounded-lg border border-white/25 bg-black px-2 py-2" value={market} onChange={(e) => setMarket(e.target.value as typeof market)}>
           {MARKETS.map((m) => <option key={m}>{m}</option>)}
         </select>
         <input className="w-20 rounded-lg border border-white/25 bg-black px-2 py-2" type="number" min={1} value={usd} onChange={(e) => setUsd(Number(e.target.value))} />
-        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("long")}>Long</button>
-        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("short")}>Short</button>
-        <button className={btn} disabled={step !== "ready" || !ticket?.close} onClick={() => void tap("close")}>Close</button>
+        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("long", "ws")}>Long</button>
+        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("short", "ws")}>Short</button>
+        <button className={btn} disabled={step !== "ready" || !ticket?.close} onClick={() => void tap("close", "ws")}>Close</button>
       </div>
       {step === "ready" && (
         <div className="mb-4 text-xs opacity-70">
           {ticket ? `signed set: nonce ${ticket.nonce} · ${Math.max(0, Math.round((ticket.exp - now) / 1000))} s left · ${ticket.close ? `close ${ticket.close.side}` : "nothing to close"} · signed in ${ticket.ms?.server ?? "?"} ms` : taps.current?.lastError ?? "signing…"}
         </div>
       )}
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+        <span className="opacity-60">direct http:</span>
+        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("long")}>Long</button>
+        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("short")}>Short</button>
+        <button className={btn} disabled={step !== "ready" || !ticket?.close} onClick={() => void tap("close")}>Close</button>
+      </div>
       <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
         <span className="opacity-60">via server:</span>
         <button className={btn} disabled={busy || step !== "ready"} onClick={() => void run(`long ${market} $${usd}`, () => lighterOpen(f, market, "long", usd))}>Long</button>

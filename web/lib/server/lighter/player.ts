@@ -246,15 +246,19 @@ export async function closeMarket(cfg: LighterConfig, pid: string, m: LighterMar
  */
 export const TICKET_TTL_MS = 15_000;
 type Signed = { txType: number; txInfo: string; cap: number; base: number };
+/** `opens[i]` is the long and short for `sizes[i]` dollars of fuel (null when that size is under Lighter's minimum);
+ *  `long` / `short` are opens[0], for callers with one size. */
 export type Ticket = {
   url: string; nonce: number; exp: number; market: number; lev: number; mid: number;
-  long: Signed; short: Signed; close?: Signed & { side: "long" | "short" };
+  opens: ({ usd: number; long: Signed; short: Signed } | null)[];
+  long?: Signed; short?: Signed; close?: Signed & { side: "long" | "short" };
 };
-type Issued = { nonce: number; market: number; long: number; short: number; close?: { sign: number; base: number } };
+type Issued = { nonce: number; market: number; bases: number[]; close?: { sign: number; base: number } };
 const issued = new Map<string, Issued[]>(); // per player, the last few sets, to apply what the browser says it used
 
-export type Used = { nonce: number; kind: "long" | "short" | "close" };
-export async function presign(cfg: LighterConfig, pid: string, m: LighterMarket, fuelUsd: number, used?: Used, floor = 0): Promise<Ticket & { ms: Timings }> {
+export type Used = { nonce: number; kind: "long" | "short" | "close"; i?: number };
+export const MAX_SIZES = 6;
+export async function presign(cfg: LighterConfig, pid: string, m: LighterMarket, sizes: number[], used?: Used, floor = 0): Promise<Ticket & { ms: Timings }> {
   const t: Timings = {}; const t0 = performance.now();
   const { symbol, lev } = LIGHTER_MARKETS[m];
   const [h, mk] = await Promise.all([hotPlayer(cfg, pid), marketBySymbol(cfg, symbol)]);
@@ -265,7 +269,8 @@ export async function presign(cfg: LighterConfig, pid: string, m: LighterMarket,
   if (used && prev) {
     const pos = h.pos?.[mk.market_id];
     const cur = pos ? pos.sign * pos.base : 0;
-    const next = used.kind === "close" ? 0 : cur + (used.kind === "long" ? prev.long : -prev.short);
+    const b = prev.bases[used.i ?? 0] ?? 0;
+    const next = used.kind === "close" ? 0 : cur + (used.kind === "long" ? b : -b);
     h.pos = { ...(h.pos ?? {}), [mk.market_id]: { sign: Math.sign(next) || 1, base: Math.abs(next), at: Date.now() } };
   }
   const known = h.pos?.[mk.market_id];
@@ -292,8 +297,9 @@ export async function presign(cfg: LighterConfig, pid: string, m: LighterMarket,
   }
   const mid = midOf(b);
   if (!mid) throw new LighterError(409, "Lighter's book is empty right now.");
-  const base = baseAmountFor(fuelUsd * lev, mid, mk.size_decimals);
-  if (base < Math.round(Number(mk.min_base_amount) * 10 ** mk.size_decimals)) throw new LighterError(400, "That trade is under Lighter's minimum size.");
+  const minBase = Math.round(Number(mk.min_base_amount) * 10 ** mk.size_decimals);
+  const bases = sizes.map((usd) => { const b0 = baseAmountFor(usd * lev, mid, mk.size_decimals); return b0 > 0 && b0 >= minBase ? b0 : 0; });
+  if (!bases.some((x) => x > 0)) throw new LighterError(400, "That trade is under Lighter's minimum size.");
   const fee = p.approvedFee && cfg.partnerFee ? cfg.partnerFee : 0;
   const exp = Date.now() + TICKET_TTL_MS;
   const order = (isAsk: boolean, size: number, reduce: boolean): Signed => {
@@ -305,11 +311,12 @@ export async function presign(cfg: LighterConfig, pid: string, m: LighterMarket,
   w.SetOrderTxExpiry(exp);
   let tk: Ticket;
   try {
-    tk = { url: cfg.url, nonce: n, exp, market: mk.market_id, lev, mid, long: order(false, base, false), short: order(true, base, false) };
+    const opens = bases.map((b0, i) => (b0 ? { usd: sizes[i], long: order(false, b0, false), short: order(true, b0, false) } : null));
+    tk = { url: cfg.url, nonce: n, exp, market: mk.market_id, lev, mid, opens, long: opens[0]?.long, short: opens[0]?.short };
     // closing a long sells; reduce-only so a stale size can never flip the player
     if (pos.base > 0) tk.close = { ...order(pos.sign > 0, pos.base, true), side: pos.sign > 0 ? "long" : "short" };
   } finally { w.SetOrderTxExpiry(0); }
-  const list = [{ nonce: n, market: mk.market_id, long: base, short: base, close: pos.base > 0 ? { sign: pos.sign, base: pos.base } : undefined },
+  const list = [{ nonce: n, market: mk.market_id, bases, close: pos.base > 0 ? { sign: pos.sign, base: pos.base } : undefined },
     ...(issued.get(key) ?? []).filter((x) => x.nonce !== n || x.market !== mk.market_id)].slice(0, 6);
   issued.set(key, list);
   if (issued.size > 2000) issued.delete(issued.keys().next().value as string);

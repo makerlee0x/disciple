@@ -29,6 +29,7 @@ maker. Duel leverage is Lighter's max: 50x BTC/ETH, 25x SOL, 20x HYPE. Market or
 | `LIGHTER_KEY_SECRET` | a long random string |
 | `LIGHTER_INTEGRATOR_INDEX` | Disciple's own Lighter account index (fees land here) |
 | `LIGHTER_PARTNER_FEE_BP` | `0.05` (default) |
+| `LIGHTER_BRIDGE_KEY` | Lighter's builder API key for deposits (bridge.lighter.xyz). Mainnet Add cash only |
 
 ## Taps (pre-signed)
 A tap doesn't go through Disciple's server. `presign` (player.ts) signs the player's next long, short and close at one
@@ -37,6 +38,13 @@ an unused set dies quickly. `LighterTaps` (lib/lighter/client.ts) holds the newe
 after each tap, and posts the tapped order straight to Lighter's `sendTx`. If the browser can't reach Lighter, the same
 signed order goes through `relay`. The trading key stays on the server. The short expiry needs our signer patch
 (`SetOrderTxExpiry`, applied by tools/lighter/build-signer.sh).
+
+## Add cash and the buzzer
+- **Add cash** (`bridge.ts`, `lib/lighter/deposit.ts`): the player's Lighter deposit address (Lighter's Universal Deposit
+  Address) takes USDG on Robinhood Chain and credits USDC on Lighter; the first deposit creates the account. Cash goes
+  there with the normal gasless cash-out, then set-up finishes on its own. Mainnet only; minimum $5 new, $3 after.
+- **Buzzer** (`match.ts`): a match arms itself (`op: arm`); when it ends the server closes that pilot's positions on its
+  markets. Duel: the duel store calls it when the room settles. Climb / Royale: a server timer for the match length.
 
 ## Testing
 Hidden page `/lighter` (not linked): sign in, then Set up, Long / Short / Close with timings. The env vars must be on the

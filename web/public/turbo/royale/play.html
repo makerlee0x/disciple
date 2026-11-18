@@ -8,6 +8,10 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Geist:wght@400;500;600;700&display=swap">
 <style>
 html,body{margin:0;height:100%;background:#07080c}
+.duel-root .arena .avid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;opacity:0;transition:opacity .5s ease;pointer-events:none}.duel-root .arena.vid .avid{opacity:1}.duel-root .arena.vid .art{visibility:hidden}.duel-root .rvid{position:fixed;inset:0;z-index:58;width:100%;height:100%;object-fit:cover;pointer-events:none;background:#07080c}.duel-root .rvid.dim{filter:brightness(.45) blur(2px);transition:filter .6s ease}.duel-root #result{z-index:59}.duel-root .nvid{position:absolute;z-index:6;width:min(80vmin,620px);height:min(80vmin,620px);transform:translate(-50%,-50%);mix-blend-mode:screen;pointer-events:none}
+.duel-root .app.embed,.duel-root .app.embed.big{--ch:64px}.duel-root .app.embed .feed,.duel-root .app.embed .size,.duel-root .app.embed .chatb{display:none!important}.duel-root .app.embed .boost,.duel-root .app.embed .dump{height:58px}
+.duel-root .sline{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px;padding:10px 14px;border-radius:14px;background:rgba(242,193,78,.08);border:1px solid rgba(242,193,78,.35);font:700 15px/1.2 var(--f-game);letter-spacing:.4px;text-transform:uppercase}.duel-root .sline i{font-style:normal;color:var(--muted)}.duel-root .sline .up{color:var(--green)}.duel-root .sline .dn{color:var(--pinkl)}.duel-root .sline .fire{color:#FFB48F}
+.duel-root .xlink{display:flex;align-items:center;gap:10px;margin-top:10px;padding:12px 14px;border-radius:14px;border:1px solid rgba(95,240,160,.45);background:rgba(95,240,160,.08);color:var(--text);text-decoration:none;font:600 15px/1.25 var(--f-ui,system-ui,sans-serif)}.duel-root .xlink span{flex:1;min-width:0;font-size:14px}.duel-root .xlink b{white-space:nowrap;color:var(--green);font-family:var(--f-game);font-size:18px;letter-spacing:.3px}.duel-root .xlink em{margin-left:auto;font-style:normal;color:var(--gold);font-family:var(--f-game);font-size:17px;white-space:nowrap}
 .duel-root{
   --night:#0B0C0E; --ink:#121327; --glass:rgba(18,19,39,.82); --line:rgba(255,255,255,.22);
   --text:#F2F3F7; --muted:rgba(215,217,228,.85); --gold:#F2C14E; --champ:#F3DFA8; --green:#5FF0A0; --pink:#F0307F; --pinkl:#FF8FBD;
@@ -17,7 +21,7 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root *{box-sizing:border-box}
 .duel-root,.duel-root{height:100%;margin:0;background:#07080c}
 .duel-root{color:var(--text);font-family:var(--f-ui);overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
-.duel-root [hidden]{display:none!important}
+.duel-root [hidden]{display:none!important}.duel-root .ctl>button.coached{position:relative;overflow:visible;z-index:3;box-shadow:0 0 0 3px rgba(243,223,168,.9),0 0 26px rgba(243,223,168,.45)}.duel-root .coachf{position:absolute;left:50%;top:58%;width:40px;height:48px;margin-left:-12px;pointer-events:none;animation:cfTap 1.1s ease-in-out infinite;filter:drop-shadow(0 4px 10px rgba(0,0,0,.6))}.duel-root .coachb{position:absolute;left:50%;bottom:calc(100% + 66px);transform:translateX(-50%);white-space:nowrap;pointer-events:none;padding:8px 12px;border-radius:12px;background:rgba(18,19,39,.94);border:1px solid rgba(243,223,168,.6);box-shadow:0 8px 24px rgba(0,0,0,.5);display:flex;flex-direction:column;align-items:center;gap:3px}.duel-root .coachb b{font:800 18px/1 var(--f-game);color:var(--champ);letter-spacing:.3px}.duel-root .coachb small{font:500 12px/1 var(--f-ui);color:var(--muted)}.duel-root #bBoost .coachb{left:0;transform:none}.duel-root #bDump .coachb{left:auto;right:0;transform:none}@keyframes cfTap{0%,100%{transform:translate(6px,10px) scale(1)}45%{transform:translate(0,0) scale(.9)}55%{transform:translate(0,0) scale(.86)}}@media (prefers-reduced-motion:reduce){.duel-root .coachf{animation:none}}.duel-root .fcrate{display:flex;align-items:center;gap:14px;margin:12px 0 4px;padding:10px 14px;border-radius:16px;background:rgba(255,255,255,.05);border:1px solid var(--line);text-align:left}.duel-root .fc-box{position:relative;width:84px;height:84px;flex:none}.duel-root .fc-box img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}.duel-root .fcrate.drop #rCrateImg{animation:fcDrop .7s cubic-bezier(.3,1.5,.5,1) both}.duel-root .fcrate.open #rCrateImg{animation:fcOut .35s ease-in both}.duel-root .fcrate.open #rCrateItem{animation:fcPop .5s cubic-bezier(.3,1.6,.5,1) both;filter:drop-shadow(0 0 14px var(--fc))}.duel-root .fc-t{display:flex;flex-direction:column;gap:2px;min-width:0}.duel-root .fc-t small{font:800 12px/1 var(--f-game);letter-spacing:.8px;color:var(--champ)}.duel-root .fc-t b{font:italic 800 24px/1 var(--f-game);text-transform:uppercase;color:var(--fc,var(--text))}.duel-root .fc-t span{font-size:13px;color:var(--muted)}@keyframes fcDrop{0%{transform:translateY(-160px) rotate(-8deg);opacity:0}60%{opacity:1}100%{transform:none;opacity:1}}@keyframes fcOut{to{transform:scale(1.25);opacity:0}}@keyframes fcPop{0%{transform:scale(.2);opacity:0}100%{transform:none;opacity:1}}@media (prefers-reduced-motion:reduce){.duel-root .fcrate *{animation:none!important}}
 .duel-root button{font:inherit;color:inherit;cursor:pointer}
 .duel-root .stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
 .duel-root .app{position:relative;width:100%;height:100%;overflow:hidden;background:var(--ink);--ch:176px}
@@ -95,6 +99,11 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .size button{height:34px;min-width:46px;padding:0 8px;border-radius:10px;border:0;background:transparent;font:800 18px/1 var(--f-game);color:var(--text)}
 .duel-root .size button.on{background:var(--champ);color:#121327}
 .duel-root .size button .k{font:500 10px/1 var(--f-ui);opacity:.5;margin-left:3px}
+.duel-root .size.pct button{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;height:40px}
+.duel-root .size.pct button .u{margin:0;letter-spacing:0;color:inherit;white-space:nowrap;font:600 11px/1 var(--f-ui);opacity:.65}
+.duel-root .size.pct button.lo{opacity:.35}
+.duel-root .side.off{opacity:.4;filter:saturate(.4)}
+.duel-root .size.pct button.on .u{opacity:.8;color:#121327}
 .duel-root .side{width:98px;flex:none;border-radius:20px;border:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;line-height:1;transition:transform .08s}
 .duel-root .side:active{transform:scale(.95)}
 .duel-root .side b{font:800 30px/1 var(--f-game)}
@@ -743,7 +752,7 @@ html,body{margin:0;height:100%;background:#07080c}
 <div class="redv" id="redv" aria-hidden="true"></div>
 <div class="toast" id="toast" role="status"></div>
 <div class="swapc" id="swapC" hidden><div class="sw-card" role="dialog" aria-label="Swap weapon">
-  <small class="sw-k" id="swK">LOOT</small><b id="swN">MINIGUN</b><span id="swL">$1 × 100×</span>
+  <small class="sw-k" id="swK">LOOT</small><b id="swN">MINIGUN</b><span id="swL">$1 × 20×</span>
   <small class="sw-q">SWAP IT FOR</small><div class="sw-row" id="swR"></div>
   <button type="button" class="sw-x" id="swX">LEAVE IT</button><i class="sw-t"><i id="swT"></i></i>
 </div></div>
@@ -869,17 +878,37 @@ const MKD={
   SOL:{p:182.40,vol:.00046,dr:.32,dec:2,loot:[3,4,2,.6],drop:.8,best:"EPIC",tag:"FAST",pro:"Busiest map · most dogfights",con:"Closes second",sky:A.skySol?"skySol":"sky2"},
   ETH:{p:3412.5,vol:.0003,dr:.48,dec:1,loot:[4,3,1.2,.2],drop:1,best:"RARE",tag:"STEADY",pro:"Trends hold longer",con:"Mostly common loot",sky:"skyEth"},
   BTC:{p:97214,vol:.0002,dr:.36,dec:0,loot:[6,2,.4,0],drop:1.4,best:"UNCOMMON",tag:"DEFENSIVE",pro:"Calm chart",con:"Weak loot · cuts take the lowest PnL",sky:"skyBtc"}};
-/* weapons = trade size × leverage. You start with the spot pistol; everything else is loot. */
+/* weapons = trade size × leverage. You start with the spot pistol; everything else is loot.
+   Leverage is a share of the map coin's max on Lighter (maker 2026-11-18), so every gun is an upgrade on every map:
+   BTC / ETH 50x → 10/20/30/40/50x, SOL 25x → 5/10/15/20/25x, HYPE 20x → 4/8/12/16/20x. */
+const MAXLEV={BTC:50,ETH:50,SOL:25,HYPE:20};
 const WPN={
-  "PISTOL":{usd:10,lev:1,ammo:Infinity,r:0},
-  "SHOTGUN":{usd:10,lev:10,ammo:8,r:1},
-  "MACHINE GUN":{usd:3,lev:33,ammo:15,r:2},
-  "MINIGUN":{usd:1,lev:100,ammo:30,r:2},
-  "SNIPER":{usd:5,lev:50,ammo:5,r:3},
-  "ROCKET LAUNCHER":{usd:10,lev:50,ammo:3,r:3},
-  "RAILGUN":{usd:20,lev:100,ammo:2,r:4}};
+  "PISTOL":{usd:10,share:0,ammo:Infinity,r:0},
+  "SHOTGUN":{usd:10,share:.2,ammo:8,r:1},
+  "MACHINE GUN":{usd:3,share:.4,ammo:15,r:2},
+  "MINIGUN":{usd:1,share:1,ammo:30,r:2},
+  "SNIPER":{usd:5,share:.6,ammo:5,r:3},
+  "ROCKET LAUNCHER":{usd:10,share:.8,ammo:3,r:3},
+  "RAILGUN":{usd:20,share:1,ammo:2,r:4}};
+/* live prices (maker 2026-11-18: "live charts, then real orders"): the page hosting this posts Hyperliquid mids as
+   {type:"disciple:px", px:{HYPE,SOL,ETH,BTC}}. A coin with a fresh price follows it; with none (offline, the standalone
+   prototype) it falls back to the old simulated walk. */
+const LIVE={}, LIVE_FRESH=5000;
+const liveOf=k=>{ const l=LIVE[k]; return l&&Date.now()-l.at<LIVE_FRESH?l:null; };
+addEventListener("message",e=>{ if(e.origin!==location.origin||!e.data) return; const d=e.data;
+  if(d.type==="disciple:px"&&d.px){ const now=Date.now(); for(const k of Object.keys(d.px)){ const p=+d.px[k]; if(!(p>0)) continue;
+      const l=LIVE[k]||(LIVE[k]={p,at:now,hist:[]}); l.p=p; l.at=now; l.hist.push({ts:now,p}); while(l.hist.length&&l.hist[0].ts<now-70000) l.hist.shift(); } }
+  if(d.type==="disciple:toast"&&typeof d.t==="string") toast(d.t); });
+/* real orders (hidden ?lighter=1 on the hosting page): your presses go up as {type:"disciple:royale", op, ...}; the page
+   turns them into Lighter orders. A gun's Lighter margin is its $ × its share of the coin's max (Lighter runs each coin
+   at its max), so the size of the bet matches the game. */
+function lx(d){ toParent(Object.assign({type:"disciple:royale"},d)); }
+function lxGuns(){ if(!G||!G.me||!G.me.alive) return; const me=G.me;
+  lx({op:"guns",mk:me.mk,sel:me.sel,sizes:me.inv.map(w=>{ const ww=W(w,me.mk); return Math.min(ww.usd,Math.floor(me.fuel*100)/100)*ww.lev/(MAXLEV[me.mk]||50); })}); }
+const levOf=(k,mk)=>{ const sh=WPN[k].share; return sh?Math.max(1,Math.round(sh*(MAXLEV[mk]||50))):1; };
 const RAR=[{n:"COMMON",c:"#A7AFBE",rgb:"167,175,190"},{n:"UNCOMMON",c:"#5FF0A0",rgb:"95,240,160"},{n:"RARE",c:"#4F8BFF",rgb:"79,139,255"},{n:"EPIC",c:"#A066FF",rgb:"160,102,255"},{n:"LEGENDARY",c:"#FF9A3C",rgb:"255,154,60"}];
-const wOf=pl=>pl.inv[pl.sel]||pl.inv[0], W=w=>WPN[w.k], rarOf=w=>RAR[W(w).r];
+/* W(w, mk): the gun's numbers on map mk (default: the map you're on) */
+const wOf=pl=>pl.inv[pl.sel]||pl.inv[0], W=(w,mk)=>({...WPN[w.k],lev:levOf(w.k,mk||(G&&G.me?G.me.mk:dropMk))}), rarOf=w=>RAR[W(w).r];
 const wLine=w=>`$${W(w).usd} × ${W(w).lev}×`;
 function rollLoot(k){ const wt=MKD[k].loot, tot=wt.reduce((a,b)=>a+b,0); let x=Math.random()*tot, r=1; for(let i=0;i<wt.length;i++){ x-=wt[i]; if(x<=0){ r=i+1; break; } }
   const opts=Object.keys(WPN).filter(n=>WPN[n].r===r); const n=pick(opts); return {k:n,ammo:WPN[n].ammo}; }
@@ -919,7 +948,7 @@ function newGame(){
   const P=plan(), M={};
   for(const k of ORDER){ M[k]={k,p:MKD[k].p,vol:MKD[k].vol,dr:MKD[k].dr,drift:0,nextReg:0,ticks:[],closed:false,closeAt:P.close[k]==null?null:P.close[k]}; }
   // 60 s of history so the chart is full at GO
-  for(const k of ORDER){ const m=M[k]; for(let i=-300;i<=0;i++){ stepFeed(m,i*TICK); } }
+  for(const k of ORDER){ const m=M[k]; if(seedLive(m)) continue; for(let i=-300;i<=0;i++){ stepFeed(m,i*TICK); } }
   const pilots=[], names=roster().slice().sort(()=>Math.random()-.5); let n=0;
   const used=new Set(); for(const k of ORDER) for(let i=0;i<START[k];i++){ const lz=LZ&&LZ.bots.filter(b=>b.mk===k)[i]; pilots.push(newPilot(lz?lz.name:names[n++],false,k,used)); }
   const me=newPilot("you",true,dropMk); me.lane=.5; pilots.push(me);
@@ -931,9 +960,15 @@ function newGame(){
 function laneFor(pl){ const used=G.pilots.filter(p=>p!==pl&&!p.me&&p.alive&&p.mk===pl.mk).map(p=>p.lane);
   const slots=[.14,.86,.3,.7,.22,.78].sort(()=>Math.random()-.5); return slots.find(s=>used.every(u=>Math.abs(u-s)>.07))||rnd(.12,.88); }
 function stepFeed(m,t){
-  if(t>=m.nextReg){ m.drift=gauss()*m.vol*m.dr; m.nextReg=t+rnd(3,9); }
-  m.p*=1+m.drift+gauss()*m.vol; m.ticks.push({t,p:m.p}); if(m.ticks.length>420) m.ticks.splice(0,60);
+  const l=liveOf(m.k);
+  if(l) m.p+=(l.p-m.p)*.6;   // eased a little so a block's jump draws as a move, not a step
+  else { if(t>=m.nextReg){ m.drift=gauss()*m.vol*m.dr; m.nextReg=t+rnd(3,9); } m.p*=1+m.drift+gauss()*m.vol; }
+  m.ticks.push({t,p:m.p}); if(m.ticks.length>420) m.ticks.splice(0,60);
 }
+// 60 s of real history from the mids that came in while you were in the lobby (padded with the oldest one)
+function seedLive(m){ const l=liveOf(m.k); if(!l||!l.hist.length) return false; const now=Date.now(), h=l.hist; let j=0;
+  for(let i=-300;i<=0;i++){ const ts=now+i*TICK*1000; while(j+1<h.length&&h[j+1].ts<=ts) j++; m.p=h[j].p; m.ticks.push({t:i*TICK,p:m.p}); }
+  m.p=l.p; return true; }
 const price=pl=>G.M[pl.mk].p;
 const pnlOf=(pos,p)=>pos?pos.size*(p-pos.entry)/pos.entry*pos.side:0;
 const valueOf=pl=>pl.pos?Math.max(0,pl.pos.coll+pnlOf(pl.pos,price(pl))):0;
@@ -946,7 +981,7 @@ const openMks=()=>ORDER.filter(k=>!G.M[k].closed);
 /* ---------- trading ---------- */
 function open(pl,side){
   if(!pl.alive) return;
-  const w=wOf(pl), ww=W(w);
+  const w=wOf(pl), ww=W(w,pl.mk), gi=pl.inv[pl.sel]?pl.sel:0;   // gi: the Lighter size slot this shot uses
   if(pl.pos&&pl.pos.side!==side) close(pl,"flip");
   let st=Math.min(ww.usd,Math.floor(pl.fuel*100)/100); if(st<.5){ if(pl.me) toast("Out of fuel. Cash out first."); return; }
   const p=price(pl), size=st*ww.lev, fee=size*FEE; pl.fuel-=st+fee; w.ammo--; pl.trades=(pl.trades||0)+1;
@@ -956,19 +991,19 @@ function open(pl,side){
   else pl.pos={side,coll:st,size,entry:p,t:G.t,w};
   if(pl.pos) pl.pos.w=w;
   pl.flame=Math.min(2.2,pl.flame+.9); pl.kick-=260; pl.sq=-.2;
-  if(pl.me){ G.marks.push({t:G.t,p,k:side>0?"b":"d",mk:pl.mk}); fxTrade(pl,side,st); }
+  if(pl.me){ G.marks.push({t:G.t,p,k:side>0?"b":"d",mk:pl.mk}); fxTrade(pl,side,st); lx({op:side>0?"boost":"dump",mk:pl.mk,i:gi,usd:st*ww.lev/(MAXLEV[pl.mk]||50)}); lxGuns(); }
   else if(visible(pl)) fxTrade(pl,side,st);
 }
 function close(pl,why){
   if(!pl.pos) return 0; const p=price(pl), pos=pl.pos, fee=pos.size*FEE, net=Math.max(0,pos.coll+pnlOf(pos,p))-fee;
   pl.fuel+=net; pl.pos=null; const res=net-pos.coll; if(res>pl.best) pl.best=res;
-  if(pl.me){ G.marks.push({t:G.t,p,k:"x",mk:pl.mk}); if(why!=="flip"&&why!=="jump"&&why!=="storm"&&why!=="duel"){ popAt(pl,usd(res,true),res>=0?"#5FF0A0":"#FF8FBD"); if(res>0.05) sheet("cashout",xOf(pl),pl.y-LAY.rh*.3,LAY.rh*1.6,.7); sfx(res>=0?"cash":"lose"); }
+  if(pl.me){ lx({op:"close",mk:pl.mk}); lxGuns(); G.marks.push({t:G.t,p,k:"x",mk:pl.mk}); if(why!=="flip"&&why!=="jump"&&why!=="storm"&&why!=="duel"){ popAt(pl,usd(res,true),res>=0?"#5FF0A0":"#FF8FBD"); if(res>0.05) sheet("cashout",xOf(pl),pl.y-LAY.rh*.3,LAY.rh*1.6,.7); sfx(res>=0?"cash":"lose"); }
     if(Math.abs(res)>=1.5) G.moments.push({t:G.t,txt:(res>=0?"Cashed out ":"Took a loss ")+"in "+pl.mk,v:res}); }
   return res;
 }
 function liqCheck(pl){
   if(!pl.pos) return; const loss=-pnlOf(pl.pos,price(pl)); if(loss<LIQ*pl.pos.coll) return;
-  const lost=pl.pos.coll; pl._lastW=pl.pos.w; pl.pos=null; pl.nukes=(pl.nukes||0)+1; if(pl.me){ G.marks.push({t:G.t,p:price(pl),k:"x",mk:pl.mk}); G.moments.push({t:G.t,txt:"NUKE in "+pl.mk,v:-lost}); }
+  const lost=pl.pos.coll; pl._lastW=pl.pos.w; pl.pos=null; pl.nukes=(pl.nukes||0)+1; if(pl.me){ lx({op:"close",mk:pl.mk}); lxGuns(); G.marks.push({t:G.t,p:price(pl),k:"x",mk:pl.mk}); G.moments.push({t:G.t,txt:"NUKE in "+pl.mk,v:-lost}); }
   if(pl.me||visible(pl)) fxBomb(pl);
   // a NUKE costs the stake and blows up the weapon that fired it; you fly on with what's left
   const gun=pl.pos===null&&arguments.length?null:null; const w=pl._lastW;
@@ -1002,7 +1037,7 @@ tap($("bBoost"),()=>act("b")); tap($("bDump"),()=>act("d")); tap($("bOut"),()=>a
 document.querySelectorAll(".size button").forEach(b=>tap(b,()=>selSlot(+b.dataset.i)));
 function selSlot(i){ if(!G||!G.me.inv[i]) return; if(G.offer){ takeOffer(i); return; } G.me.sel=i; paintHot(); }
 const paintSizes=()=>paintHot();
-function paintHot(){ const inv=G?G.me.inv:[{k:"PISTOL",ammo:Infinity}], sel=G?G.me.sel:0; paintGun(inv[sel]||inv[0]);
+function paintHot(){ const inv=G?G.me.inv:[{k:"PISTOL",ammo:Infinity}], sel=G?G.me.sel:0; paintGun(inv[sel]||inv[0]); lxGuns();
   document.querySelectorAll(".size button").forEach(b=>{ const i=+b.dataset.i, w=inv[i];
     if(!w){ b.className="empty"; b.innerHTML="<b>EMPTY</b><small>fly into loot</small>"; return; }
     b.style.setProperty("--rc",rarOf(w).c);
@@ -1071,7 +1106,7 @@ function jump(pl,k){
   if(pl.pos) close(pl,"jump");
   const from=pl.mk; pl.mk=k; pl.jumpAt=null; pl.y=null; pl.x=null; pl.arrive=Math.min(pl.arrive,G.t); pl.lane=laneFor(pl);
   if(pl.df) endDf(pl.df,true);
-  if(pl.me){ G.me.lane=.5; G.me.xo=G.me.xt=0; G.me.yo=G.me.yt=0; G.jumpCool=G.t+G.P.jumpCool; G.mapOpen=false; feed("g","↑",`Jumped to <b>${k}</b> · ${MKD[k].best.toLowerCase()} loot · your PnL came with you`); sfx("jump"); G.crate=null; buildJump(); paintSizes(); }
+  if(pl.me){ lxGuns(); G.me.lane=.5; G.me.xo=G.me.xt=0; G.me.yo=G.me.yt=0; G.jumpCool=G.t+G.P.jumpCool; G.mapOpen=false; feed("g","↑",`Jumped to <b>${k}</b> · ${MKD[k].best.toLowerCase()} loot · your PnL came with you`); sfx("jump"); G.crate=null; buildJump(); paintSizes(); }
   else if(from===G.me.mk||k===G.me.mk) feed("m","→",`<b>${pl.name}</b> jumped ${from} → ${k}`);
 }
 function bestJump(exclude){ const o=openMks().filter(k=>k!==exclude); if(!o.length) return null;
@@ -1261,6 +1296,7 @@ function go(){
   rollSky(); const mapLine=`SKY · ${MAP.n} · FINAL CIRCLE ON ${finalMk()}`;
   $("drop").hidden=true; newGame(); G.me.y=null; FX.parts.length=FX.pops.length=FX.rings.length=0;
   $("feed").innerHTML=""; buildJump(); const c=$("count"); c.hidden=false; let n=3;
+  lx({op:"start",id:"royale-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,8),ms:240000,markets:ORDER.slice()}); lxGuns();
   const show=()=>{ c.innerHTML=`<div><small>DROPPING INTO ${G.me.mk}</small><small class="cmap">${mapLine}</small>${n}</div>`; };
   show(); dropClip("play"); sfx("count"); bed("amb_wind_high"); oneShotAmb("amb_mothership_pass",.7);
   const iv=setInterval(()=>{ n--; if(n>0){ show(); sfx("count"); return; } clearInterval(iv); c.innerHTML="<div>GO</div>"; sfx("go"); sfx("drop",.8); buzz(30); G.started=true; toParent({type:"disciple:music",on:true}); setTimeout(()=>{ c.hidden=true; dropClip("off"); },450);
@@ -1268,7 +1304,7 @@ function go(){
     feed("m","☁",`Sky: <b>${MAP.n}</b> · the storm ends on <b>${finalMk()}</b>`); },800);
 }
 function endMe(){
-  if(G.resShown) return; G.resShown=true;
+  if(G.resShown) return; G.resShown=true; lx({op:"end"});
   const me=G.me, place=me.place||1, win=place===1;
   if(win&&!me.place) me.place=1;
   setTimeout(()=>{
@@ -1673,7 +1709,7 @@ function drawRocket(pl,now){
   (G._tagQ=G._tagQ||[]).push(()=>{
   const nb=(G._shown||[]).filter(o=>o!==pl&&o.y!=null).sort((u,v)=>Math.hypot(xOf(u)-x,u.y-y)-Math.hypot(xOf(v)-x,v.y-y))[0];
   const pr=alt(pl), side=nb?(xOf(nb)>x?-1:1):(x<SW/2?-1:1);
-  const txt=(pl.me?"YOU ":pl.name+" ")+usd(pr,true), t2=wOf(pl).k, t2c=rarOf(wOf(pl)).c, lq=liqPct(pl), t3=pl.pos?(lq>=.7?`NUKE ${Math.min(99,Math.floor(lq*100))}%`:`${pl.pos.side>0?"BOOST ▲":"DUMP ▼"} ${pl.pos.w?W(pl.pos.w).lev:1}×`):"";
+  const txt=(pl.me?"YOU ":pl.name+" ")+usd(pr,true), t2=wOf(pl).k, t2c=rarOf(wOf(pl)).c, lq=liqPct(pl), t3=pl.pos?(lq>=.7?`NUKE ${Math.min(99,Math.floor(lq*100))}%`:`${pl.pos.side>0?"BOOST ▲":"DUMP ▼"} ${pl.pos.w?W(pl.pos.w,pl.mk).lev:1}×`):"";
   sx.font=`800 ${pl.me?15:13}px ${GF},sans-serif`; const tw=sx.measureText(txt).width+14;
   const bw=Math.max(tw,90), lock=fight&&!pl.me;
   let full=true, blockH=(lock?20:0)+22+20+(t3?20:0);

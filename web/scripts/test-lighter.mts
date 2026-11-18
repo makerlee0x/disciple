@@ -52,3 +52,12 @@ test("WASM signer: market order with Disciple's partner fee, key registration an
   const ap = g.SignApproveIntegrator(999, 5, 0, 0, 0, Date.now() + 86_400_000, 0, 4, 7, 1234);
   assert.match(ap.messageToSign, /Approve Integrator/);
 });
+
+test("Royale reads Lighter market_stats: one market, the /all map, by symbol or by id", async () => {
+  const { parseLighterStats } = await import("../lib/turbo/royalePrices");
+  const ids = new Map([[1, "BTC" as const], [24, "HYPE" as const]]);
+  assert.deepEqual(parseLighterStats({ market_stats: { market_id: 1, mark_price: "104000.5" } }, ids), { BTC: 104000.5 });
+  assert.deepEqual(parseLighterStats({ market_stats: { "1": { market_id: 1, mark_price: "104000" }, "24": { market_id: 24, mark_price: "44.1" }, "9": { market_id: 9, mark_price: "3" } } }, ids), { BTC: 104000, HYPE: 44.1 });
+  assert.deepEqual(parseLighterStats({ market_stats: { market_id: 77, symbol: "sol", last_trade_price: "201" } }, ids), { SOL: 201 });
+  assert.deepEqual(parseLighterStats({ type: "pong" }, ids), {});
+});
