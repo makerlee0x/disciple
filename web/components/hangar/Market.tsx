@@ -159,7 +159,7 @@ function OfferRow({ o, me, onAnswer, busy }: { o: Offer; me: string; onAnswer: (
   );
 }
 
-/** The Hangar's Trades section: your listings (website), trade offers, a new offer. */
+/** Trades panel beside the rocket card on /rocket: your listings (website), trade offers, a new offer. */
 export function HangarTrades({ col, wallet, mine }: { col: Col | null; wallet: string | null; mine: ReturnType<typeof useMine>["mine"] }) {
   const web = useWeb();
   const [busy, setBusy] = useState(false);
@@ -177,19 +177,22 @@ export function HangarTrades({ col, wallet, mine }: { col: Col | null; wallet: s
     setNote(r.ok ? (op === "accept" ? "Traded. The copies are in your Hangar." : op === "decline" ? "Declined." : "Cancelled.") : r.reason ?? "Couldn't do that.");
   };
   return (
-    <section className="hg-sec hgu-sec" aria-labelledby="hg-trades" data-testid="hangar-trades">
-      <header className="hg-sech">
-        <div><h2 id="hg-trades" className="dsc3-h2">Trades</h2><span>Copies from ranked duel crates and weekly orders trade. Each keeps its serial, burn, pattern and history when it moves.</span></div>
-        {web && <Link href="/market" className="hg-ghost" data-testid="open-market">Open the market</Link>}
-      </header>
+    <section className="dsc3-panel hg-panel hgu-trades" aria-labelledby="hg-trades" data-testid="hangar-trades">
+      <header className="hg-panelh"><h2 id="hg-trades">Trades</h2>{web && <Link href="/market" data-testid="open-market">Market</Link>}</header>
+      <ul className="hgu-trade-stats" data-testid="trade-stats">
+        {web && <li><b>{listings.length}</b><span>Listed</span></li>}
+        <li><b>{open.length}</b><span>Offers</span></li>
+        {web && <li><b>{(mine?.listings ?? []).filter((l) => l.state === "sold").length}</b><span>Sold</span></li>}
+        <li><b>{offers.filter((o) => o.state === "accepted").length}</b><span>Traded</span></li>
+      </ul>
       {note && <p className="hg-sub" role="status">{note}</p>}
       {web && (listings.length > 0 || sold.length > 0) && (
-        <div className="dsc3-panel hg-panel">
-          <header className="hg-panelh"><div><h2>Your listings</h2><span>Buyers pay in Cash. You get the price minus the {FEE} fee, straight to your wallet.</span></div></header>
+        <div className="hgu-trades-list">
+          <h3>Your listings <span className="hgu-chip">{FEE} fee</span></h3>
           <ul className="hgu-copy-rows">
             {[...listings, ...sold].map((l) => { const it = itemById(l.item); if (!it) return null; return (
               <li key={l.id} style={{ ["--sw" as string]: SW[it.rar] }}>
-                <span className="hgu-copy-art">{itemArt(it, 56, false, "YOU", l.copy)}</span>
+                <span className="hgu-copy-art">{itemArt(it, 48, false, "YOU", l.copy)}</span>
                 <span className="hgu-copy-tx"><b>{title(it)}</b><span>{copyLine(l.copy)}</span></span>
                 <span className="hgu-copy-act"><span className="hgu-owned">{l.state === "sold" ? `Sold ${usd(l.price)}` : l.state === "pending" ? "Selling…" : usd(l.price)}</span>
                   {l.state === "open" && <button type="button" className="dsc3-btn hgu-scrap" disabled={busy} onClick={async () => { setBusy(true); const r = await marketAction(wallet, { op: "unlist", listing: l.id }); setBusy(false); if (!r.ok) setNote(r.reason ?? ""); }}>Take down</button>}</span>
@@ -201,7 +204,7 @@ export function HangarTrades({ col, wallet, mine }: { col: Col | null; wallet: s
       {open.length > 0 && <ul className="mkt-offers">{open.map((o) => <OfferRow key={o.id} o={o} me={wallet} busy={busy} onAnswer={(op) => answer(o, op)} />)}</ul>}
       {composing ? <NewOffer wallet={wallet} col={col} onDone={(m) => { setComposing(false); setNote(m); }} />
         : <div className="mkt-row"><button type="button" className="dsc3-btn dsc3-btn-primary hgu-buy" onClick={() => setComposing(true)} data-testid="compose-offer">New trade offer</button>
-          {!open.length && <span className="hg-sub">No open offers.{web ? " Or sell a copy: open it in Your rocket and tap Sell." : ""}</span>}</div>}
+</div>}
       {done.length > 0 && (
         <details className="mkt-past"><summary>Past offers · {done.length}</summary>
           <ul className="mkt-offers">{done.map((o) => <OfferRow key={o.id} o={o} me={wallet} busy={busy} onAnswer={() => {}} />)}</ul>

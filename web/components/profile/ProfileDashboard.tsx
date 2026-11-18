@@ -336,7 +336,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         <Fleet rows={holdings} home={home} launched={launched} isPrivate={isPrivate} owner={ownerName} />
       </div>
       <section className="dsc3-panel hg-panel" aria-labelledby="hg-log">
-        <header className="hg-panelh"><h2 id="hg-log">Flight log</h2><span>{isPrivate ? "Your boosts and dumps" : "Boosts and dumps"}</span></header>
+        <header className="hg-panelh"><h2 id="hg-log">Flight log</h2></header>
         <Activity rows={noWallet ? [] : activity} cash={noWallet ? [] : cash} isPrivate={isPrivate} owner={ownerName} />
       </section>
       {isPrivate && <InvitesCard />}
