@@ -1,18 +1,18 @@
 "use client";
 /**
  * The top bar's "?" (board "Top bar: fewer tabs", option A, maker 2026-11-14): How to play left the tabs, so this opens a
- * small help card with one line on the game, then How to play and Docs. Signed in it sits first in the wallet strip (left
+ * small help card: How to play and Docs (no explainer line, maker 2026-11-18). Signed in it sits first in the wallet strip (left
  * of the cash chip); signed out it sits left of Play now on desktop (phones have How to play as a tab). Esc, a click
  * outside or picking a link closes it.
  */
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { TOPBAR_POPOVER_EVENT } from "@/components/account/WelcomeToast";
+import Icon from "@/components/icons/Icon";
 
 export const HELP_COPY = {
   label: "Help",
   title: "New here?",
-  line: "Boost lifts the whole crew. Dump drops a bomb. Cash out before it falls.",
   howToPlay: "How to play",
   docs: "Docs",
 } as const;
@@ -38,9 +38,8 @@ export default function HelpButton({ className }: { className?: string }) {
       {open && (
         <span className="lb-help-pop" role="dialog" aria-label={C.title} data-testid="help-card">
           <b>{C.title}</b>
-          <span>{C.line}</span>
-          <Link href="/how-it-works" className="lb-help-l" onClick={() => setOpen(false)}>{C.howToPlay}</Link>
-          <Link href="/docs" className="lb-help-l" onClick={() => setOpen(false)}>{C.docs}</Link>
+          <Link href="/how-it-works" className="lb-help-l" onClick={() => setOpen(false)}><Icon name="play" size={18} />{C.howToPlay}<Icon name="chevron-right" size={16} className="lb-help-go" /></Link>
+          <Link href="/docs" className="lb-help-l" onClick={() => setOpen(false)}><Icon name="grid" size={18} />{C.docs}<Icon name="chevron-right" size={16} className="lb-help-go" /></Link>
         </span>
       )}
     </span>

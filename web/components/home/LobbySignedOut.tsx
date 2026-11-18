@@ -193,7 +193,6 @@ function HowItPlays() {
       </div>
       <div className={s.howCopy}>
         <h2 id="so-how-title" className={s.howTitle}>Boost it up.<br />Cash out higher.</h2>
-        <p className={s.step}><span className={s.coin} aria-hidden>$</span><span>Seats cost real cash.</span></p>
         <Link href="/how-it-works" className={s.link}>Full tutorial in How to play</Link>
       </div>
     </section>

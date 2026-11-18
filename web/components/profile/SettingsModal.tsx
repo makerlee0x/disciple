@@ -9,7 +9,6 @@ import { ONE_TAP_SLIPPAGE_CHOICES_BPS, onPrivy, onSessionChange, oneTapSlippageB
 import { playerError } from "@/lib/playerError";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import Icon from "@/components/icons/Icon";
-import { SETTINGS_KEYS } from "@/lib/config";
 import { setGameSettings, useGameSettings } from "@/lib/game/settings";
 import SoundRow from "./SoundRow";
 
@@ -21,18 +20,16 @@ export const SETTINGS_COPY = {
   signedIn: (m: string) => `Signed in with ${m}`,
   wallet: "Wallet",
   oneTap: "One-tap boosts",
-  bombs: "Dump bombs",
   haptics: "Vibration",
   sound: "Sound",
   music: "Music",
   sfx: "Sound effects",
   on: "ON",
   maxMove: "Price protection",
-  maxMoveHelp: "Max price move per trade. Bigger moves cancel it",
+  maxMoveHelp: "Cancels a trade if the price moves more than this.",
   choice: (bps: number) => `${bps / 100}%`,
   security: "Security",
   exportKey: "Export key",
-  exportKeyHelp: "Whoever has it controls your money",
   exportBtn: "Export",
   twoFa: "Two-factor",
   twoFaHow: "Authenticator or passkey",
@@ -52,9 +49,6 @@ export const SETTINGS_COPY = {
   signedOut: "Sign in to see your account settings.",
 } as const;
 
-/** Flight effect switches (lib/config SETTINGS_KEYS, read by the flight screen; "off" = hidden). */
-function readFx(key: string) { try { return localStorage.getItem(key) !== "off"; } catch { return true; } }
-function writeFx(key: string, on: boolean) { try { localStorage.setItem(key, on ? "on" : "off"); } catch { /* ignore */ } }
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 /** a••••@gmail.com style: first 3 characters of the name, the domain kept. */
@@ -87,9 +81,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   const [delBusy, setDelBusy] = useState(false);
   const [secBusy, setSecBusy] = useState("");
   const [secErr, setSecErr] = useState("");
-  const [fx, setFx] = useState({ bombs: true });
   const [maxInfo, setMaxInfo] = useState(false);
-  useEffect(() => { if (open) setFx({ bombs: readFx(SETTINGS_KEYS.bombs) }); }, [open]);
   useEffect(() => onWallet(setAddr), []);
   useEffect(() => { const read = () => { setAcct(privyAccount()); setSec(privySecurity()); }; read(); return onPrivy(read); }, []);
   useEffect(() => { if (!open) { setView("main"); setSecErr(""); setDelText(""); setMaxInfo(false); } }, [open]);
@@ -214,7 +206,7 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                 <div className="p5-sbox">
                   <div className="p5-srow" data-testid="settings-export">
                     <span className="p5-sic"><Icon name="key" size={18} /></span>
-                    <div className="tx"><b>{SETTINGS_COPY.exportKey}</b><span>{sec ? SETTINGS_COPY.exportKeyHelp : SETTINGS_COPY.privyOnly}</span></div>
+                    <div className="tx"><b>{SETTINGS_COPY.exportKey}</b>{!sec && <span>{SETTINGS_COPY.privyOnly}</span>}</div>
                     <button type="button" className="p5-btn sm" disabled={!sec?.exportWallet || !!secBusy} onClick={() => void exportKey()} data-testid="export-key">
                       {SETTINGS_COPY.exportBtn}
                     </button>
@@ -259,19 +251,11 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                     </div>
                     {err && <span className="p5-err" role="alert">{err}</span>}
                   </div>
-                  <div className="p5-srow p5-split" data-testid="settings-game">
-                    {([["bombs", SETTINGS_COPY.bombs, "setBombs"]] as const).map(([k, label, fn]) => (
-                      <div className="p5-cell" key={k}>
-                        <b>{label}</b>
-                        <button type="button" role="switch" aria-checked={fx[k]} aria-label={label} className={`p5-switch sm${fx[k] ? " on" : ""}`} data-testid={`settings-${k}`}
-                          onClick={() => setFx((v) => { const next = !v[k]; writeFx(SETTINGS_KEYS[k], next); (window as unknown as { __flight?: Record<string, (v: boolean) => void> }).__flight?.[fn]?.(next); return { ...v, [k]: next }; })}><span /></button>
-                      </div>
-                    ))}
-                    <div className="p5-cell">
-                      <b>{SETTINGS_COPY.haptics}</b>
+                  <div className="p5-srow" data-testid="settings-game">
+                    <span className="p5-sic"><Icon name="bell" size={18} /></span>
+                    <div className="tx"><b>{SETTINGS_COPY.haptics}</b></div>
                       <button type="button" role="switch" aria-checked={gs.haptics} aria-label={SETTINGS_COPY.haptics} className={`p5-switch sm${gs.haptics ? " on" : ""}`} data-testid="settings-haptics"
                         onClick={() => { const v = !gs.haptics; setGameSettings((g) => ({ ...g, haptics: v })); if (v) dispatchEvent(new CustomEvent("disciple:haptic", { detail: { k: "boost" } })); }}><span /></button>
-                    </div>
                   </div>
                   <div className="p5-srow wrap" data-testid="settings-turbo-leave">
                     <span className="p5-sic"><Icon name="bolt" size={18} /></span>

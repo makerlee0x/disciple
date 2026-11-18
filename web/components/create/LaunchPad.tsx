@@ -36,9 +36,9 @@ export default function LaunchPad({ name, ticker, icon, mode, modeColor, seat, l
       <div className={s.plate}>
         <div className={s.plateName}>
           <b data-testid="pad-name">{name.trim() || "Your rocket"}</b>
-          <span>{ticker ? `$${ticker}` : "$TICKER"} · On the pad</span>
+          <span>{ticker ? `$${ticker}` : "$TICKER"}</span>
         </div>
-        <div className={s.seatCard}><span>Your seat</span><b data-testid="pad-seat">{seat}</b></div>
+        <div className={s.seatCard}><span>Ticket</span><b data-testid="pad-seat">{seat}</b></div>
       </div>
       {tray}
     </section>

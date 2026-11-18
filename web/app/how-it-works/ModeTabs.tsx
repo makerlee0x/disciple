@@ -1,61 +1,51 @@
 "use client";
-/** The Pilot / Pro switch on How to play. Both panels are server-rendered; this only picks which one shows. #pro opens Pro. */
+/**
+ * The game-mode tabs on How to play (Launch · Duel · Climb, maker 2026-11-18). Every panel is server-rendered; this only
+ * picks which one shows. The hash opens a tab (#duel, #climb); #pro opens the Pro spec sheet (no tab for it).
+ */
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import { HIW_FINAL, HIW_TABS } from "@/content/how-it-works";
-import { PRO_HUD_ENABLED } from "@/lib/features";
+import { HIW_TABS } from "@/content/how-it-works";
 import s from "./page.module.css";
 
-type Panel = { eyebrow: string; h1: string; sub: string; body: ReactNode };
+type Game = { id: string; tab: string; tag: string; art: string; tone: string; body: ReactNode };
 
-/** Pro HUD hidden for launch (lib/features PRO_HUD_ENABLED, maker 2026-11-14): no Pilot / Pro tabs here or on the Ready up
- *  banner, so How to play is the Pilot lesson. #pro (the lobby's "See the spec sheet" link) still opens the spec sheet. */
-/** `final`: the Ready up banner. It repeats the switch (approved 2026-11-13: "add the pilot/pro toggle down at the ready up banner"). */
-export default function ModeTabs({ pilot, pro, final, finalStyle }: { pilot: Panel; pro: Panel; final?: ReactNode; finalStyle?: CSSProperties }) {
-  const [tab, setTab] = useState<"pilot" | "pro">("pilot");
+export default function ModeTabs({ h1, games, pro }: { h1: string; games: Game[]; pro: { h1: string; body: ReactNode } }) {
+  const [tab, setTab] = useState(games[0].id);
   useEffect(() => {
-    const read = () => setTab(location.hash === "#pro" ? "pro" : "pilot");
+    const read = () => {
+      const h = location.hash.replace("#", "");
+      setTab(h === "pro" || games.some((g) => g.id === h) ? h : games[0].id);
+    };
     read();
     addEventListener("hashchange", read);
     return () => removeEventListener("hashchange", read);
-  }, []);
-  const pick = (t: "pilot" | "pro") => {
-    setTab(t);
-    history.replaceState(null, "", t === "pro" ? "#pro" : location.pathname + location.search);
+  }, [games]);
+  const pick = (id: string) => {
+    setTab(id);
+    history.replaceState(null, "", id === games[0].id ? location.pathname + location.search : `#${id}`);
   };
-  const P = tab === "pro" ? pro : pilot;
+  const isPro = tab === "pro";
   return (
     <>
       <header className={s.head}>
-        <div className={s.headC}>
-          {P.eyebrow && <span className={s.eb}>{P.eyebrow}</span>}
-          <h1 className={s.h1}>{P.h1}</h1>
-          {P.sub && <p className={s.sub}>{P.sub}</p>}
-        </div>
-        {PRO_HUD_ENABLED && <div className={s.tog} role="tablist" aria-label={HIW_TABS.label}>
-          {(["pilot", "pro"] as const).map((t) => (
-            <button key={t} type="button" role="tab" id={`hiw-tab-${t}`} aria-controls={`hiw-panel-${t}`} aria-selected={tab === t}
-              className={tab === t ? s.on : ""} onClick={() => pick(t)} data-testid={`hiw-tab-${t}`}>{HIW_TABS[t]}</button>
-          ))}
-        </div>}
-      </header>
-      <div role={PRO_HUD_ENABLED ? "tabpanel" : undefined} id="hiw-panel-pilot" aria-labelledby={PRO_HUD_ENABLED ? "hiw-tab-pilot" : undefined} hidden={tab !== "pilot"}>{pilot.body}</div>
-      <div role={PRO_HUD_ENABLED ? "tabpanel" : undefined} id="hiw-panel-pro" aria-labelledby={PRO_HUD_ENABLED ? "hiw-tab-pro" : undefined} hidden={tab !== "pro"}>{pro.body}</div>
-      {final && (
-        <section className={s.final} style={finalStyle} aria-labelledby="hiw-final">
-          <div className={s.finalC}>
-            {final}
-            {PRO_HUD_ENABLED && <div className={s.finalTog}>
-              <span>{HIW_FINAL.tog}</span>
-              <div className={s.tog} role="group" aria-label={HIW_TABS.label}>
-                {(["pilot", "pro"] as const).map((t) => (
-                  <button key={t} type="button" aria-pressed={tab === t} className={tab === t ? s.on : ""} data-testid={`hiw-final-tab-${t}`}
-                    onClick={() => { pick(t); scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); }}>{HIW_TABS[t]}</button>
-                ))}
-              </div>
-            </div>}
+        <h1 className={s.h1}>{isPro ? pro.h1 : h1}</h1>
+        {!isPro && (
+          <div className={s.tabs} role="tablist" aria-label={HIW_TABS.label}>
+            {games.map((g) => (
+              <button key={g.id} type="button" role="tab" id={`hiw-tab-${g.id}`} aria-controls={`hiw-panel-${g.id}`} aria-selected={tab === g.id}
+                className={`${s.tab}${tab === g.id ? ` ${s.on}` : ""}`} style={{ "--tc": g.tone, backgroundImage: `url(${g.art})` } as CSSProperties}
+                onClick={() => pick(g.id)} data-testid={`hiw-tab-${g.id}`}>
+                <span className={s.tabTag}>{g.tag}</span>
+                <b>{g.tab}</b>
+              </button>
+            ))}
           </div>
-        </section>
-      )}
+        )}
+      </header>
+      {games.map((g) => (
+        <section key={g.id} role="tabpanel" id={`hiw-panel-${g.id}`} aria-labelledby={`hiw-tab-${g.id}`} hidden={tab !== g.id} className={s.panel}>{g.body}</section>
+      ))}
+      <div id="hiw-panel-pro" hidden={!isPro}>{pro.body}</div>
     </>
   );
 }

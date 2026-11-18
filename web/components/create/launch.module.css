@@ -379,3 +379,10 @@
   .liveChips b { font-size: 20px; }
   .btn { min-height: 50px; font-size: 19px; padding: 0 18px; }
 }
+
+/* lock chip: "can't change after launch" said with a lock, not a sentence (maker 2026-11-18) */
+.lockTag { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; flex: none;
+  background: rgba(243, 223, 168, .1); border: 1px solid rgba(243, 223, 168, .28); color: #F3DFA8; cursor: help; }
+.sh .lockTag { margin-left: 2px; }
+.moTitle:has(.lockTag) { flex-direction: row; align-items: center; gap: 10px; }
+.moTitle span.lockTag { font: inherit; color: #F3DFA8; }

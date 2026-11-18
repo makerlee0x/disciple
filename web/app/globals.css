@@ -694,6 +694,19 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .ds-select-menu li.hi { background: rgba(201, 206, 214, 0.1); }
 .ds-select-menu li.sel { background: rgba(201, 206, 214, 0.16); box-shadow: inset 2px 0 0 #C9CED6; }
 .ds-select-check { width: 12px; color: #C9CED6; font-weight: 700; }
+/* pill variant: the lobby / market filter bars (chip look, app font, gold tick) — maker 2026-11-18: no grey OS dropdowns */
+.ds-select.pill { min-width: 0; }
+.ds-select.pill .ds-select-btn { min-height: 40px; padding: 0 14px 0 16px; border-radius: 999px; background: var(--dsc3-panel-glass, rgba(14, 15, 19, .9));
+  border: 1px solid var(--dsc3-panel-border, rgba(255, 255, 255, .12)); color: var(--dsc-text, #fff); font: 600 14px / 1 var(--dsc-font-ui); }
+.ds-select.pill.sq .ds-select-btn { min-height: 44px; border-radius: 12px; }
+.ds-select.pill .ds-select-label { font: 600 14px / 1 var(--dsc-font-ui); letter-spacing: 0; color: #FFFFFF; }
+.ds-select.pill .ds-select-menu { min-width: max(100%, 180px); padding: 6px; border-radius: 14px; border: 1px solid var(--dsc3-panel-border, rgba(255, 255, 255, .14));
+  background: #15171C; box-shadow: 0 18px 44px rgba(0, 0, 0, .6); }
+.ds-select.pill .ds-select-menu li { padding: 10px 12px; border-radius: 10px; font: 600 14px / 1 var(--dsc-font-ui); color: #D7D9E4; }
+.ds-select.pill .ds-select-menu li.hi { background: rgba(255, 255, 255, .06); }
+.ds-select.pill .ds-select-menu li.sel { background: rgba(242, 193, 78, .12); box-shadow: none; color: #FFFFFF; }
+.ds-select.pill .ds-select-check { color: #F2C14E; }
+.ds-select.pill.right .ds-select-menu { left: auto; right: 0; }
 
 /* —— Settings modal —— */
 .ds-modal-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px; background: color-mix(in srgb, var(--dsc-bg) 72%, transparent); backdrop-filter: blur(6px); overflow-y: auto; }

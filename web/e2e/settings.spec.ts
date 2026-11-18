@@ -23,9 +23,7 @@ test("settings: max price move, bombs, vibration and Turbo leave all stick after
   await pick.click();
   await expect(pick).toHaveAttribute("aria-checked", "true");
 
-  const bombs = m.getByTestId("settings-bombs"), bombsWas = await bombs.getAttribute("aria-checked");
-  await bombs.click();
-  await expect(bombs).not.toHaveAttribute("aria-checked", bombsWas!);
+  await expect(m.getByTestId("settings-bombs")).toHaveCount(0);   // bomb visuals can't be turned off (maker 2026-11-18)
   const hap = m.getByTestId("settings-haptics"), hapWas = await hap.getAttribute("aria-checked");
   await hap.click();
   await expect(hap).not.toHaveAttribute("aria-checked", hapWas!);
@@ -38,7 +36,6 @@ test("settings: max price move, bombs, vibration and Turbo leave all stick after
   await page.reload();
   m = await openSettings(page);
   await expect(m.getByTestId(pickId!)).toHaveAttribute("aria-checked", "true");
-  await expect(m.getByTestId("settings-bombs")).not.toHaveAttribute("aria-checked", bombsWas!);
   await expect(m.getByTestId("settings-haptics")).not.toHaveAttribute("aria-checked", hapWas!);
   await expect(m.getByTestId(leaveId!)).toHaveAttribute("aria-checked", "true");
 });

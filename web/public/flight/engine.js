@@ -1331,7 +1331,6 @@ function onHotkey(e){
   if (e.code==='KeyW'||e.code==='ArrowUp') e.preventDefault();   // W/↑ held = mini acceleration (S.keys → S.wBoost; off-chain, no trade)
   if (e.code==='KeyM'&&!e.repeat) setChartMap();   /* HUD+ chart-map */
   if (e.code==='KeyP'&&!e.repeat) setPnlTag();   /* position tag near the rocket */
-  if (e.code==='KeyB'&&!e.repeat) setBombs(!S.bombsOn);
   if (e.code==='KeyF' && window.__flight.source.faster) window.__flight.source.faster();
   if (e.code==='KeyT' && source instanceof MockReplaySource){ source.turbo=!source.turbo; S.turbo=source.turbo; }
 }
@@ -2454,10 +2453,10 @@ function estimateImpactPct(trade){
   if (source.impact && trade.usd>0 && source.L) return Math.abs(source.impact(trade.usd,trade.side==='buy'?'buy':'sell')-1)*100;
   return 0;
 }
-S.bombsOn=localStorage.getItem('disciple.bombs')!=='off';
+S.bombsOn=true;   /* bombs always show (maker 2026-11-18: players can't turn bomb visuals off) */
 S.bombFrame=null; S.bombQ=[]; S.bombs=[]; S.bfx=new Pool(CAP.bfx); S.bombLabels=[]; S.lastBombT=-99; S.lastPuffT=-99;
 S.scorch=0; S.slowmoUntil=-1; S.timeScale=1; S.screenFlash=null;
-function setBombs(on){ S.bombsOn=on; try{localStorage.setItem('disciple.bombs',on?'on':'off');}catch(_){} dispatchEvent(new Event('apflightbombs')); }
+function setBombs(){ S.bombsOn=true; }   /* kept as a no-op for old callers */
 function setShake(){ /* camera shake removed permanently; kept as a no-op for the settings page API */ }
 /* Called from onEvent for every sell. Trades in the same frame are combined (compounded impact). */
 function noteSell(t){

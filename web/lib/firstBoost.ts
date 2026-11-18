@@ -17,7 +17,7 @@ import { LAUNCH_ABI_SHAPE, LAUNCH_MODE_NAME, LaunchMode, effectiveCreatorBuyCapB
 export const FIRST_BOOST_TIP_STARTS_OPEN = false;
 
 export const FIRST_BOOST_COPY = {
-  label: "First BOOST (optional)",
+  label: "First BOOST",
   helper: (pct: string) => `BOOST your own rocket in the launch, before anyone else. Enter a $ amount, up to ${pct} of supply. Paid from your cash.`,
   max: (usd: string, tokens: string, pct: string) => `Max ${usd} (${tokens} tokens, ${pct} of supply)`,
   pays: (amount: string, symbol: string) => `≈ ${amount} ${symbol} at the live pair price`,

@@ -22,6 +22,7 @@ import { buyListing, buyQuote, useMarket } from "@/lib/marketClient";
 import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
 import { itemArt } from "./Collection";
 import AnimClip from "@/components/ui/AnimClip";
+import DsSelect from "@/components/ui/DsSelect";
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 const short = (w: string) => `${w.slice(0, 6)}…${w.slice(-4)}`;
@@ -339,7 +340,7 @@ export function MarketShop({ wallet, crates }: { wallet: string | null; crates?:
             <label className="mk-search"><svg width="16" height="16" viewBox="0 0 24 24" aria-hidden><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M20 20l-4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
               <input placeholder="Search skins, serials, pilots" value={f.q} onChange={(e) => set({ q: e.target.value })} aria-label="Search" /></label>
             <button type="button" className={`mk-ftoggle${n ? " on" : ""}`} onClick={() => setShowF((v) => !v)} aria-expanded={showF}>Filters{n ? ` · ${n}` : ""}</button>
-            <select className="mk-sort" value={f.sort} onChange={(e) => set({ sort: e.target.value as Sort })} aria-label="Sort">{SORTS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}</select>
+            <DsSelect className="pill sq right mk-sort" value={f.sort} onChange={(v) => set({ sort: v as Sort })} ariaLabel="Sort" options={SORTS.map(([k, label]) => ({ value: k, label }))} />
           </div>
           {(rows == null || shown.length > 0) && <span className="mk-count">{rows == null ? "Loading…" : `${fmt(shown.length)} ${shown.length === 1 ? "item" : "items"}`}</span>}
           {rows != null && (shown.length ? (

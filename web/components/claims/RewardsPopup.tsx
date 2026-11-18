@@ -51,7 +51,6 @@ const T = {
   invitedN: (n: number) => `${n} invited`,
   rocketsN: (n: number) => `${n} ${n === 1 ? "rocket" : "rockets"}`,
   inviteLink: "Your invite link",
-  inviteHint: "Bring your crew",
   fromFriends: "Earned from friends",
   invited: "Friends invited",
   creator: "Host", creatorSub: "rockets you launched",
@@ -303,7 +302,7 @@ export default function RewardsPopup({ open, onClose, r }: { open: boolean; onCl
       )}
 
       <div className="p5-rw-invite">
-        <span className="lab">{T.inviteLink} <em>{T.inviteHint}</em></span>
+        <span className="lab">{T.inviteLink}</span>
         <div className="p5-ref" data-testid="referral-link">
           <span className="u">{me ? refLabel(username || null, me, typeof window !== "undefined" ? window.location.host : undefined) : "disciple.vip/r/you"}</span>
           <button type="button" className="p5-btn sm" onClick={copy} disabled={!link} data-testid="copy-ref"><Icon name="copy" size={16} /> {copied === "link" ? T.copied : T.copy}</button>

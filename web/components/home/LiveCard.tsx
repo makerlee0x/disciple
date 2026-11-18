@@ -55,7 +55,7 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
         {/* the bar's row is kept when progress is unknown so names line up across a shelf */}
         <span className={`${s.bar}${orbit == null ? " " + s.barOff : ""}`}><i style={{ width: `${orbit ?? 0}%` }} /></span>
         <span className={s.row}>
-          {seat != null ? <span className={s.seat}>Your seat <b>{seat}</b></span> : <span>{altShort(c.mcapUsd)} altitude</span>}
+          {seat != null ? <span className={s.seat}>Bag <b>{seat}</b></span> : <span>{altShort(c.mcapUsd)} altitude</span>}
           {d && <span className={`${s.diff} ${s[d.key]}`}>{d.label}</span>}
         </span>
       </span>

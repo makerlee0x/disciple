@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { deployment, isDeployed } from "@/lib/chains";
 import { TOTAL_SUPPLY_WEI as SUPPLY_WEI, launchBuyTokensOut, paramsFromQuotePrice } from "@/lib/curveMath";
 import {
-  FIRST_BOOST_COPY as COPY, FIRST_BOOST_TIP_STARTS_OPEN, bpsToPct, exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap, fmtAmount, fmtUsdWad, modeName, parseAmount, quoteRawToUsdWad, readFirstBoostLimits, readQuoteBalance, toInputString, usdToQuoteRaw,
+  FIRST_BOOST_COPY as COPY, FIRST_BOOST_TIP_STARTS_OPEN, bpsToPct, exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap, fmtAmount, fmtUsdWad, parseAmount, quoteRawToUsdWad, readFirstBoostLimits, readQuoteBalance, toInputString, usdToQuoteRaw,
   type FirstBoostLimits,
 } from "@/lib/firstBoost";
 import { DEFAULT_LAUNCH_MODE, LaunchMode, modesActive, readPveLoginVerified } from "@/lib/launchAbi";
@@ -33,7 +33,6 @@ const pctOfSupply = (tokens: bigint) => `${(Number((tokens * BigInt(1000000)) / 
  * dollar field; the cap is the Trench cap. The field blocks amounts over the cap, and MAX never exceeds it.
  */
 /** Short Easy rules for the launch builder's seat line (the long forms stay in FIRST_BOOST_COPY for the other variants). */
-const SEAT_EASY_LOCK = "It stays locked until the open market.";
 const SEAT_EASY_SIGN_IN = "Sign in with email, Google or X first.";
 
 export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker, value, onChange, onState, mode = DEFAULT_LAUNCH_MODE, privateLaunch = false, variant = "field" }: {
@@ -188,15 +187,12 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
   const isCustom = customOpen || (value !== "" && Number.isFinite(amount) && !isAmt(0) && !isAmt(5) && !isAmt(20) && !isMaxSel);
 
   if (variant === "seat") {
-    const seatNote = [
-      limits?.capBy === "mode" && pct ? COPY.modeCap(modeName(limits.mode), pct) : null,
-      pve && raw != null && raw > BigInt(0) ? SEAT_EASY_LOCK : null,
-      pve && raw != null && raw > BigInt(0) && (!me || pveVerified === false) ? SEAT_EASY_SIGN_IN : null,
-    ].filter(Boolean).join(" ");
+    // only the blocker stays (maker 2026-11-18: cut the cap / lock explainer; the Max chip already shows the cap)
+    const seatNote = pve && raw != null && raw > BigInt(0) && (!me || pveVerified === false) ? SEAT_EASY_SIGN_IN : "";
     const c = (on: boolean, tx = false) => `${L.chip}${tx ? ` ${L.chipTx}` : ""}${on ? ` ${L.on}` : ""}`;
     return (
       <div className={L.sec} data-testid="first-boost-chips" style={{ padding: 0, borderTop: 0 }}>
-        <div className={L.chips} role="group" aria-label="Your seat">
+        <div className={L.chips} role="group" aria-label="Ticket">
           <button type="button" className={c(isAmt(0) || value === "")} onClick={() => { setCustomOpen(false); onChange("0"); }}>{QUICK_LAUNCH_COPY.chip0}</button>
           <button type="button" className={c(isAmt(5))} disabled={maxUsd != null && maxUsd < 5} onClick={() => { setCustomOpen(false); onChange("5"); }}>{QUICK_LAUNCH_COPY.chip5}</button>
           <button type="button" className={c(isAmt(20))} disabled={maxUsd != null && maxUsd < 20} onClick={() => { setCustomOpen(false); onChange("20"); }}>{QUICK_LAUNCH_COPY.chip20}</button>
@@ -204,7 +200,7 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
           {customOpen || isCustom ? (
             <label className={c(true)}>
               <span aria-hidden>$</span>
-              <input className={L.chipInput} inputMode="decimal" autoComplete="off" aria-label="Custom seat" autoFocus={customOpen}
+              <input className={L.chipInput} inputMode="decimal" autoComplete="off" aria-label="Custom ticket" autoFocus={customOpen}
                 data-testid="first-boost-custom"
                 value={isAmt(0) || value === "" ? "" : value}
                 placeholder="0"
@@ -255,8 +251,6 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
                 <button type="button" className={`${s.bchip} ${isCustom ? s.on : ""}`} data-testid="first-boost-custom-open" onClick={() => { setCustomOpen(true); if (value === "" || isAmt(0) || isAmt(5) || isAmt(20) || isMaxSel) onChange(""); }}>{QUICK_LAUNCH_COPY.custom}</button>
               )}
             </div>
-            {limits?.capBy === "mode" && pct && <p className={s.boostNote}>{COPY.modeCap(modeName(limits.mode), pct)}</p>}
-            {pve && raw != null && raw > BigInt(0) && <p className={s.boostNote}>{COPY.easyLock}</p>}
             {pve && raw != null && raw > BigInt(0) && (!me || pveVerified === false) && (
               <p className={s.boostNote}>{COPY.pveLoginUnknown}</p>
             )}
@@ -298,8 +292,6 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
           <span className="first-boost-note">{fresh ? "Launchpad quote" : "estimate"}{usdg ? " · swap included" : ""} · anti-snipe exempt · 1% fee{creatorTaxBps ? ` + ${creatorTaxBps / 100}% creator tax` : ""}</span>
         </p>
       )}
-      {limits?.capBy === "mode" && <p className="first-boost-note first-boost-mode">{COPY.modeCap(modeName(limits.mode), pct!)}</p>}
-      {pve && raw != null && raw > BigInt(0) && <p className="first-boost-note first-boost-mode">{COPY.easyLock}</p>}
       {pve && raw != null && raw > BigInt(0) && (
         <p className="first-boost-note first-boost-mode">{!me ? COPY.pveLoginUnknown : pveVerified === false ? COPY.pveLoginAttest : COPY.pveLogin}</p>
       )}

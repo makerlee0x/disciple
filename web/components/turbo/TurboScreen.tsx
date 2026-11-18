@@ -296,7 +296,7 @@ export default function TurboScreen() {
     const exit = p.markPrice ?? p.entry;
     runs.add(run); bumpRuns((n) => n + 1); delete track.current[p.id];
     if (e.type === "liquidated") {
-      const bombs = (() => { try { return localStorage.getItem("disciple.bombs") !== "off"; } catch { return true; } })();
+      const bombs = true;   // bomb visuals can't be turned off (maker 2026-11-18)
       flight.current?.supernova(bombs);
       setNova({ short: !bombs, label: C.liquidatedToast(fmtLev(p.leverage)), result: { run, entry: p.entry, exit, liqMove: Math.abs(exit / p.entry - 1) } });
       return;

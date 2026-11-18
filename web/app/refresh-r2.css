@@ -112,6 +112,8 @@ input.r2-field:focus, .r2-field:focus-within { border-color: rgba(242,193,78,0.5
 .cx-v14 { font-size: 14px; font-weight: 600; }
 .cx-fine { font-size: 12px; line-height: 1.45; color: #9095A0; text-align: center; }
 .cx-fine.left { font-size: 13px; text-align: left; }
+.cx-final { display: inline-flex; align-items: center; justify-content: center; gap: 6px; align-self: center; color: #F3C770; font-weight: 600; }
+.cx-final svg { width: 14px; height: 14px; flex: none; }
 .cx-sky { position: relative; height: 150px; border-radius: 14px; overflow: hidden; background: 50% 40% / cover no-repeat; }
 .cx-sky::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(18,19,24,0) 30%, rgba(18,19,24,0.9)); }
 .cx-h { font-size: 28px; line-height: 1; color: #FFFFFF; }
@@ -792,6 +794,8 @@ textarea.he-ta { min-height: 76px; padding: 12px 14px; resize: none; display: bl
   display: flex; align-items: center; min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid #2E323A; background: #1B1D24;
   font-weight: 600; font-size: 14px; color: #E8EAEE; text-decoration: none;
 }
+.lb-help-l { gap: 10px; }
+.lb-help-l .lb-help-go { margin-left: auto; opacity: .5; }
 .lb-help-l:hover, .lb-help-l:focus-visible { color: #FFFFFF; border-color: rgba(243,223,168,0.45); outline: none; }
 @media (max-width: 760px) {
   .lb-help-out { display: none; }
@@ -1057,3 +1061,55 @@ html:not([data-you]) .lb-tabs a.lb-you-only, html[data-you] .lb-tabs a.lb-out-on
 }
 .r2-chips.cx-dir { margin-top: 0; }
 .r2-chips.cx-dir button { min-height: 36px; line-height: 36px; font-size: 15px; }
+
+/* ── Top pilots frame (maker 2026-11-18: "so empty… center it and put it in a frame"): one framed, centered panel; the
+   pilot's rocket beside the name; column heads; the season as a real countdown ─────────────────────────────────────── */
+.tp-frame { position: relative; margin: 0 auto; padding: 28px 32px 32px; border-radius: 28px; box-sizing: border-box;
+  border: 1px solid rgba(243,223,168,.16); background:
+    radial-gradient(120% 60% at 50% 0%, rgba(242,193,78,.08), transparent 60%),
+    linear-gradient(180deg, rgba(20,22,30,.92), rgba(11,12,16,.96));
+  box-shadow: 0 30px 80px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.04); }
+.tp-frame::before { content: ""; position: absolute; left: 32px; right: 32px; top: -1px; height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, transparent, #F2C14E 30%, #F3DFA8 50%, #F2C14E 70%, transparent); opacity: .7; }
+.t-traders .tp-frame { max-width: 880px; }
+.t-traders .tp-traders, .t-traders .tp-bar, .t-traders .tp-empty { max-width: none; }
+.tp-frame .tp-card { background: rgba(8,9,13,.55); }
+.tp-frame .tp-head { align-items: center; margin-bottom: 20px; }
+.tp-frame .tp-head h1 { font-size: 64px; }
+
+.tp-thead { display: grid; grid-template-columns: 40px minmax(0,1fr) auto; gap: 14px; padding: 12px 22px 8px; font: 500 11px/1 var(--dsc-font-mono);
+  letter-spacing: .1em; text-transform: uppercase; color: #7D8296; border-bottom: 1px solid rgba(232,234,238,.06); }
+.tp-thead span:first-child { text-align: center; }
+.tp-trows { padding: 4px 0; }
+.tp-trow { grid-template-columns: 40px 56px 30px minmax(0,1fr) auto; border-bottom: 1px solid rgba(232,234,238,.04); }
+.tp-trow:last-child { border-bottom: 0; }
+.tp-trows .tp-trow:nth-child(1) { background: linear-gradient(90deg, rgba(242,193,78,.12), transparent 70%); }
+.tp-trows .tp-trow:nth-child(2) { background: linear-gradient(90deg, rgba(215,220,230,.08), transparent 70%); }
+.tp-trows .tp-trow:nth-child(3) { background: linear-gradient(90deg, rgba(227,164,122,.09), transparent 70%); }
+.tp-trows .tp-trow.self { box-shadow: inset 3px 0 0 #F2C14E; }
+.tp-hull { width: 30px; height: 52px; display: grid; place-items: center; }
+.tp-hull img { max-width: 100%; max-height: 100%; object-fit: contain; filter: drop-shadow(0 4px 8px rgba(0,0,0,.5)); }
+
+.tp-clock { display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; align-items: center; column-gap: 18px; row-gap: 8px;
+  padding: 12px 16px 12px 18px; border-radius: 16px; border: 1px solid rgba(243,223,168,.25); background: linear-gradient(180deg, rgba(242,193,78,.1), rgba(242,193,78,.02)); }
+.tp-clockh { display: flex; flex-direction: column; gap: 4px; }
+.tp-clockh b { font-size: 26px; line-height: 1; color: #F3DFA8; text-transform: uppercase; }
+.tp-clockh span { font: 600 11px/1 var(--dsc-font-mono); letter-spacing: .12em; text-transform: uppercase; color: #9095A0; }
+.tp-clockd { display: flex; gap: 6px; }
+.tp-clockd span { min-width: 54px; padding: 8px 6px 6px; border-radius: 10px; background: rgba(8,9,13,.7); border: 1px solid rgba(232,234,238,.08); display: flex; align-items: baseline; justify-content: center; gap: 3px; }
+.tp-clockd b { font-size: 34px; line-height: 1; color: #FFFFFF; font-variant-numeric: tabular-nums; }
+.tp-clockd i { font: 800 13px/1 var(--dsc-font-game); font-style: normal; color: #F2C14E; }
+.tp-clockbar { grid-column: 1 / -1; display: block; height: 4px; border-radius: 2px; background: rgba(232,234,238,.08); overflow: hidden; }
+.tp-clockbar i { display: block; height: 100%; border-radius: 2px; background: linear-gradient(90deg, #F2C14E, #F3DFA8); }
+
+@media (max-width: 760px) {
+  .tp-frame { padding: 18px 12px 20px; border-radius: 20px; margin: 0 -4px; }
+  .tp-frame::before { left: 16px; right: 16px; }
+  .tp-frame .tp-head h1 { font-size: 44px; }
+  .tp-clock { width: 100%; box-sizing: border-box; grid-template-columns: minmax(0,1fr) auto; }
+  .tp-clockd span { min-width: 44px; }
+  .tp-clockd b { font-size: 26px; }
+  .tp-thead { padding: 10px 16px 6px; grid-template-columns: 28px minmax(0,1fr) auto; gap: 10px; }
+  .tp-trow { grid-template-columns: 28px 48px 24px minmax(0,1fr) auto; }
+  .tp-hull { width: 24px; height: 42px; }
+}

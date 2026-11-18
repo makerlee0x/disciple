@@ -14,7 +14,6 @@ import { Warn } from "@/components/cash/bits";
 export const QUICK_HELP_COPY = {
   eyebrow: "How to play",
   title: "Your first flight",
-  lede: "Seats cost real cash. Cash out for more than you paid in, and you win.",
   steps: [
     { tone: "up", tag: "Climb", title: "Boost", keys: ["1", "2", "3", "4"], key: "Space",
       phone: "Tap an amount → BOOST" },
@@ -23,7 +22,7 @@ export const QUICK_HELP_COPY = {
     { tone: "gold", tag: "Crew goal", title: "Reach orbit", keys: [], key: "$3,333 → $33,333",
       phone: "$33,333", phoneTag: "Orbit" },
   ],
-  warn: "If the rocket falls below where you boarded, your bag is worth less than you paid. Only fly with cash you're fine losing.",
+  warn: "Only fly with cash you're fine losing.",
   warnPhone: "Only fly with cash you're fine losing.",
   tutorial: "Full tutorial",
   back: "Back to the flight",
@@ -43,12 +42,10 @@ export default function HowItWorks({ onClose }: { onClose: () => void }) {
       <div className="qh-hd cx-d" style={{ backgroundImage: `url(${sky})` }}>
         <button type="button" className="r2-x qh-x" aria-label="Close" onClick={onClose}><X /></button>
         <div className="qh-hdtxt">
-          <span className="r2-eb">{C.eyebrow}</span>
           <h2 className="r2-g" id="qh-title">{C.title}</h2>
         </div>
       </div>
       <div className="qh-body cx-d">
-        <p className="qh-lede">{C.lede}</p>
         <div className="qh-steps">
           {C.steps.map((s) => (
             <div key={s.title} className={`qh-step ${s.tone}`}>
@@ -70,10 +67,9 @@ export default function HowItWorks({ onClose }: { onClose: () => void }) {
       {/* phone: bottom sheet */}
       <div className="qh-pbody cx-p">
         <div className="qh-phead">
-          <div><span className="r2-eb">{C.eyebrow}</span><h2 className="r2-g">{C.title}</h2></div>
+          <div><h2 className="r2-g">{C.title}</h2></div>
           <button type="button" className="r2-x" aria-label="Close" onClick={onClose}><X /></button>
         </div>
-        <p className="qh-lede">{C.lede}</p>
         {C.steps.map((s) => (
           <div key={s.title} className={`qh-step row ${s.tone}`}>
             <span className="r2-g qh-chip">{"phoneTag" in s ? s.phoneTag : s.title}</span>

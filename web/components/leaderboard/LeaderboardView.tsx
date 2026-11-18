@@ -22,7 +22,8 @@ import { BOARD_WINDOWS, type BoardPilot, type BoardWindow } from "@/lib/home/top
 import type { BoardCoin, BoardResponse, CrewBoardResponse, LifetimeResponse, LifetimeRow, ModeResponse, ModeRow, Named, OverallResponse, OverallRow, PositionsResponse } from "@/lib/server/leaderboard";
 import PointsShare from "@/components/points/PointsShare";
 import { BOT_DUEL_HREF, CREW_ENABLED, ROYALE_ENABLED } from "@/lib/features";
-import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
+import { DUEL_RANKED_LIVE, seasonAt } from "@/lib/duel/season";
+import { skinArt } from "@/lib/collection";
 import AnimClip from "@/components/ui/AnimClip";
 import { CLIMB_FREE } from "@/lib/climb/rules";
 
@@ -57,11 +58,14 @@ export const LEADERBOARD_COPY = {
   more: "Show 10 more",
   you: "You",
   emptyTitle: "The top spot is open",
-  realOnly: "Ranked opens with real money",
+  realOnly: "Nothing ranked yet",
   sp: "SP",
   pts: "Points",
   share: "Share",
-  season: (n: number, days: number) => `Season ${n} · ${days}d left`,
+  season: (n: number) => `Season ${n}`,
+  ends: "Ends in",
+  starts: "Starts in",
+  head: { pnl: "PnL", pts: "Points", level: "Level" },
   play: "Play now",
   duel: "Play a duel",
 } as const;
@@ -114,6 +118,36 @@ function CoinMark({ token, c }: { token: string; c?: BoardCoin }) {
     </span>
   );
 }
+/** The pilot's rocket: their equipped hull skin, upright (maker 2026-11-18: show what their rocket looks like). */
+function Hull({ skin }: { skin?: string }) {
+  return (
+    <span className="tp-hull" aria-hidden>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {skin ? <img src={withBase(skinArt(skin))} alt="" loading="lazy" decoding="async" /> : null}
+    </span>
+  );
+}
+
+/** Season countdown, a real clock (maker 2026-11-18: "way more pronounced"): days / hours / minutes to the season's end, or to its start before launch. */
+function SeasonClock({ n, startsAt, endsAt }: { n: number; startsAt: number; endsAt: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
+  const pre = now < startsAt;
+  const left = Math.max(0, (pre ? startsAt : endsAt) - now);
+  const d = Math.floor(left / 86_400_000), h = Math.floor(left / 3_600_000) % 24, m = Math.floor(left / 60_000) % 60;
+  const span = endsAt - startsAt, done = pre ? 0 : Math.min(1, Math.max(0, (now - startsAt) / span));
+  const C = LEADERBOARD_COPY;
+  return (
+    <div className="tp-clock" data-testid="lb-season-clock" aria-label={`${C.season(n)} ${pre ? C.starts : C.ends} ${d} days ${h} hours`}>
+      <div className="tp-clockh"><b className="r2-g">{C.season(n)}</b><span>{pre ? C.starts : C.ends}</span></div>
+      <div className="tp-clockd" aria-hidden>
+        {([[d, "D"], [h, "H"], [m, "M"]] as const).map(([v, u]) => <span key={u}><b className="r2-g">{String(v).padStart(2, "0")}</b><i>{u}</i></span>)}
+      </div>
+      <i className="tp-clockbar" aria-hidden><i style={{ width: `${Math.round(done * 100)}%` }} /></i>
+    </div>
+  );
+}
+
 function Rank({ n }: { n: number }) {
   return n <= 3 ? <span className={`tp-rm m${n}`} aria-label={`#${n}`}>{n}</span> : <span className="tp-rk">{n}</span>;
 }
@@ -126,6 +160,7 @@ function TraderRow({ p, coins, self }: { p: BoardPilot & Named & { rank: number 
     <div className={`tp-trow${self ? " self" : ""}`} role="link" tabIndex={0} onClick={go} onKeyDown={(e) => { if (e.key === "Enter") go(); }} aria-label={`#${p.rank} ${nameOf(p)}`}>
       <Rank n={p.rank} />
       <Face p={p} big />
+      <Hull skin={p.skin} />
       <div className="tp-tname"><b>{nameOf(p)}</b>{p.level ? <span>Lvl {p.level}</span> : null}</div>
       <div className="tp-tpnl">
         <b className={`r2-g ${p.pnlUsd < 0 ? "down" : "up"}`}>{signed(p.pnlUsd)}</b>
@@ -138,6 +173,11 @@ function TraderRow({ p, coins, self }: { p: BoardPilot & Named & { rank: number 
       </div>
     </div>
   );
+}
+
+/** Column heads over a ranked list: # · Pilot · the number. */
+function THead({ v }: { v: string }) {
+  return <div className="tp-thead" aria-hidden><span>#</span><span>{LEADERBOARD_COPY.cols.pilot}</span><span>{v}</span></div>;
 }
 
 function YourRank({ face, rank, label, value, down, share }: { face: { wallet: string } & Named & { username?: string | null }; rank: number | null; label: string; value: string; down?: boolean; share?: () => void }) {
@@ -158,6 +198,7 @@ function Traders({ d, me }: { d: BoardResponse; me: string | null }) {
   return (
     <section className="tp-card tp-traders" aria-label="Traders" data-testid="lb-traders">
       {me && <YourRank face={d.me ?? { wallet: me.toLowerCase() }} rank={d.me?.rank ?? null} label={LEADERBOARD_COPY.pnl} value={signed(d.me?.pnlUsd ?? 0)} down={!!d.me && d.me.pnlUsd < 0} />}
+      <THead v={LEADERBOARD_COPY.head.pnl} />
       <div className="tp-trows">
         {d.rows.slice(0, shown).map((p) => <TraderRow key={p.wallet} p={p} coins={d.coins} self={p.wallet === meLc} />)}
       </div>
@@ -213,6 +254,7 @@ function PointRow({ p, chip, chipColor, prev, value, self }: { p: { wallet: stri
     <div className={`tp-trow${self ? " self" : ""}`} role="link" tabIndex={0} onClick={go} onKeyDown={(e) => { if (e.key === "Enter") go(); }} aria-label={`#${p.rank} ${nameOf(p)}`}>
       <Rank n={p.rank} />
       <Face p={p} big />
+      <Hull skin={p.skin} />
       <div className="tp-tname"><b>{nameOf(p)}</b>{chip ? <span style={chipColor ? { color: chipColor } : undefined}>{chip}</span> : null}{prev ? <span className="tp-prev">{prev}</span> : null}</div>
       <div className="tp-tpnl"><b className="r2-g tp-white">{value}</b></div>
     </div>
@@ -232,7 +274,7 @@ function Overall({ d, me, seasonN }: { d: OverallResponse; me: string | null; se
     <>
       <div className="tp-cuts" aria-label="Top tiers">
         {TOP_TIERS.map((l) => (
-          <span key={l.id} style={{ color: l.color }}><b>{l.name}</b> {l.min.toLocaleString("en-US")} SP<i>{(d.tiers?.[l.id] ?? 0).toLocaleString("en-US")} pilots</i></span>
+          <span key={l.id} style={{ color: l.color }}><b>{l.name}</b> {l.min.toLocaleString("en-US")} SP<i>{(d.tiers?.[l.id] ?? 0).toLocaleString("en-US")} {(d.tiers?.[l.id] ?? 0) === 1 ? "pilot" : "pilots"}</i></span>
         ))}
       </div>
       <div className="tp-sorts tp-tiers" role="group" aria-label="Tier">
@@ -243,6 +285,7 @@ function Overall({ d, me, seasonN }: { d: OverallResponse; me: string | null; se
       </div>
       <section className="tp-card tp-traders" aria-label="Overall" data-testid="lb-overall">
         {me && <YourRank face={m ?? { wallet: meLc! }} rank={m?.rank ?? null} label={m ? leagueBy(m.league).name : LEADERBOARD_COPY.sp} value={sp(m?.pts ?? 0)} />}
+        <THead v={LEADERBOARD_COPY.sp} />
         <div className="tp-trows">
           {rows.map((r: OverallRow) => <PointRow key={r.wallet} p={r} chip={leagueBy(r.league).name} chipColor={leagueBy(r.league).color} prev={prevOf(r)} value={sp(r.pts)} self={r.wallet === meLc} />)}
         </div>
@@ -260,6 +303,7 @@ function Lifetime({ d, me }: { d: LifetimeResponse; me: string | null }) {
   return (
     <section className="tp-card tp-traders" aria-label="Lifetime" data-testid="lb-lifetime">
       {me && <YourRank face={m ?? { wallet: meLc! }} rank={m?.rank ?? null} label={LEADERBOARD_COPY.pts} value={pts(m?.pts ?? 0)} share={m?.username ? () => setCard(true) : undefined} />}
+      <THead v={LEADERBOARD_COPY.head.pts} />
       <div className="tp-trows">
         {d.rows.map((r: LifetimeRow) => <PointRow key={r.wallet} p={r} chip={leagueBy(r.league).name} chipColor={leagueBy(r.league).color} value={pts(r.pts)} self={r.wallet === meLc} />)}
       </div>
@@ -272,6 +316,7 @@ function ModeBoard({ d, me }: { d: ModeResponse; me: string | null }) {
   const meLc = me?.toLowerCase();
   return (
     <section className="tp-card tp-traders" aria-label={d.sort} data-testid={`lb-${d.sort}`}>
+      <THead v={d.sort === "climb" ? LEADERBOARD_COPY.head.level : LEADERBOARD_COPY.sp} />
       <div className="tp-trows">
         {d.rows.map((r: ModeRow) => d.sort === "climb"
           ? <PointRow key={r.wallet} p={r} chip={r.clearMs != null ? secs(r.clearMs) : undefined} value={(r.climbLevel ?? 1) >= CLIMB_FREE ? "Free" : `Lvl ${r.climbLevel ?? 1}`} self={r.wallet === meLc} />
@@ -447,7 +492,7 @@ export default function LeaderboardView() {
     : sub === "positions" ? !positions || positions.window !== win
     : !traders || traders.window !== win;
   const seasonInfo = overall?.season ?? life?.season ?? boards.royale?.season ?? boards.climb?.season;
-  const daysLeft = seasonInfo ? Math.max(0, Math.ceil((seasonInfo.endsAt - Date.now()) / 86_400_000)) : 0;
+  const clock = seasonAt(Date.now());
   const emptyBoard = (
     <section className="tp-card tp-empty" data-testid="lb-empty">
       <AnimClip id="A5-podium-empty" ratio="none" loop poster whenVisible className="tp-emptyvid" />
@@ -477,8 +522,10 @@ export default function LeaderboardView() {
   const narrow = !(rockets && sub === "positions");
   return (
     <div className={`tp-page${narrow ? " t-traders" : ""}`} data-testid="leaderboard">
+      <div className="tp-frame">
       <div className="tp-head">
         <h1 className="r2-g">{LEADERBOARD_COPY.title}</h1>
+        <SeasonClock n={clock.n} startsAt={clock.startsAt} endsAt={clock.endsAt} />
       </div>
       <div className="tp-modes" role="tablist" aria-label="Mode">
         {MODES.map((m) => (
@@ -499,9 +546,10 @@ export default function LeaderboardView() {
       ) : seasonInfo && mode !== "duel" ? (
         <div className="tp-bar">{mode === "overall" ? <div className="tp-tabs" role="tablist" aria-label="Points">
           {VIEWS.map((v) => <button key={v.k} type="button" role="tab" aria-selected={view === v.k} className={view === v.k ? "on" : ""} onClick={() => setView(v.k)} data-testid={`lb-view-${v.k}`}>{v.label}</button>)}
-        </div> : <span />}<span className="tp-season">{LEADERBOARD_COPY.season(seasonInfo.n, daysLeft)}</span></div>
+        </div> : <span />}</div>
       ) : <div className="tp-bar tp-bar0" />}
       {body}
+      </div>
     </div>
   );
 }
