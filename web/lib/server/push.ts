@@ -8,7 +8,7 @@ import "server-only";
  * of key turns alerts on; each device only gets pushes when its own kind is configured.
  */
 import { createHash, randomUUID } from "crypto";
-import { PUSH_DAILY_CAP, readPrefs, type PushKind, type PushMsg, type PushPrefs } from "@/lib/push";
+import { PUSH_DAILY_CAP, UNCAPPED_KINDS, readPrefs, type PushKind, type PushMsg, type PushPrefs } from "@/lib/push";
 import { kv, type Kv } from "./kv";
 import { sendPush, validEndpoint, vapidKeys } from "./webPush";
 import { apnsKeys, sendApns, validApnsToken, type ApnsEnv } from "./apns";
@@ -88,7 +88,7 @@ export async function notify(walletIn: string, kind: PushKind, event: string, ms
   if (!prefs[kind]) return "off";
   if (!subs.length) return "nosub";
   if (!(await s.setNX(K.once(event, w), "1", 30 * 86400))) return "dupe";
-  if ((await s.incrEx(K.n(w, Math.floor(now / 86_400_000)), 2 * 86400)) > PUSH_DAILY_CAP) return "capped";
+  if (!UNCAPPED_KINDS.includes(kind) && (await s.incrEx(K.n(w, Math.floor(now / 86_400_000)), 2 * 86400)) > PUSH_DAILY_CAP) return "capped";
   const m: PushMsg = { id: randomUUID(), kind, ...msg, ts: now };
   await s.zadd(K.inbox(w), [{ score: now, member: JSON.stringify(m) }]);
   const old = await s.zrange(K.inbox(w), 100);

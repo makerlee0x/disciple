@@ -73,7 +73,7 @@ body:has(.profile-page.hg) { background: var(--dsc3-page-bg); }
 
 /* flight log */
 .hg .p5-list ul { list-style: none; margin: 0; padding: 0; }
-.hg .p5-arow { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto 72px; align-items: center; gap: 16px; min-height: 52px;
+.hg .p5-arow { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto 72px; align-items: center; gap: 16px; min-height: 52px;
   border-top: 1px solid var(--hg-hair); font-size: 14px; }
 .hg .p5-arow .k { display: inline-flex; align-items: center; gap: 4px; font: 800 16px / 1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .02em; }
 .hg .p5-arow .r { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -107,7 +107,8 @@ body:has(.profile-page.hg) { background: var(--dsc3-page-bg); }
   .hg-fleet { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .hg-sec, .hg-cols { margin-top: 16px; }
   .hg-panel { padding: 18px; }
-  .hg .p5-arow { grid-template-columns: 70px minmax(0, 1fr) auto; }
+  .hg .p5-arow { grid-template-columns: 92px minmax(0, 1fr) auto; }
+  .hg .p5-arow .k { font-size: 14px; }
   .hg .p5-arow .t { display: none; }
   .hg-ghost { min-height: 44px; padding: 0 16px; }
 }

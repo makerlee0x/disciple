@@ -24,6 +24,7 @@ import { hasSavedSession, onPrivy, privyAuthenticated, privyLoaded } from "@/lib
 import { lastPill, saveLastPill, type LastPill } from "@/lib/walletState";
 import AccountMenu from "@/components/account/AccountMenu";
 import WelcomeToast, { TOPBAR_POPOVER_EVENT, markSignInStarted } from "@/components/account/WelcomeToast";
+import SoldToast from "@/components/account/SoldToast";
 import { COIN_DECIMALS, knownDecimals, usdgDecimals } from "@/lib/usdg";
 import { BOOKED_EVENT, blockOf, bookFill, fillBook, readAtOrAfter, txBlock, type FillReceiptDetail } from "@/lib/fillBook";
 import { pct } from "@/lib/aa/slippage";
@@ -476,6 +477,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
         </span>
       )}
       {compact && <WelcomeToast wallet={addr} />}
+      {compact && <SoldToast wallet={addr} />}
       {err && <span role="alert" style={{ fontSize: 10, color: "#ffb0c0", maxWidth: 320, textAlign: "right" }}>{err}</span>}
     </div>
   );
