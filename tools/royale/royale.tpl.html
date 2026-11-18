@@ -536,6 +536,21 @@ const WPN={
   "SNIPER":{usd:5,share:.6,ammo:5,r:3},
   "ROCKET LAUNCHER":{usd:10,share:.8,ammo:3,r:3},
   "RAILGUN":{usd:20,share:1,ammo:2,r:4}};
+/* live prices (maker 2026-11-18: "live charts, then real orders"): the page hosting this posts Hyperliquid mids as
+   {type:"disciple:px", px:{HYPE,SOL,ETH,BTC}}. A coin with a fresh price follows it; with none (offline, the standalone
+   prototype) it falls back to the old simulated walk. */
+const LIVE={}, LIVE_FRESH=5000;
+const liveOf=k=>{ const l=LIVE[k]; return l&&Date.now()-l.at<LIVE_FRESH?l:null; };
+addEventListener("message",e=>{ if(e.origin!==location.origin||!e.data) return; const d=e.data;
+  if(d.type==="disciple:px"&&d.px){ const now=Date.now(); for(const k of Object.keys(d.px)){ const p=+d.px[k]; if(!(p>0)) continue;
+      const l=LIVE[k]||(LIVE[k]={p,at:now,hist:[]}); l.p=p; l.at=now; l.hist.push({ts:now,p}); while(l.hist.length&&l.hist[0].ts<now-70000) l.hist.shift(); } }
+  if(d.type==="disciple:toast"&&typeof d.t==="string") toast(d.t); });
+/* real orders (hidden ?lighter=1 on the hosting page): your presses go up as {type:"disciple:royale", op, ...}; the page
+   turns them into Lighter orders. A gun's Lighter margin is its $ × its share of the coin's max (Lighter runs each coin
+   at its max), so the size of the bet matches the game. */
+function lx(d){ toParent(Object.assign({type:"disciple:royale"},d)); }
+function lxGuns(){ if(!G||!G.me||!G.me.alive) return; const me=G.me;
+  lx({op:"guns",mk:me.mk,sel:me.sel,sizes:me.inv.map(w=>{ const ww=W(w,me.mk); return Math.min(ww.usd,Math.floor(me.fuel*100)/100)*ww.lev/(MAXLEV[me.mk]||50); })}); }
 const levOf=(k,mk)=>{ const sh=WPN[k].share; return sh?Math.max(1,Math.round(sh*(MAXLEV[mk]||50))):1; };
 const RAR=[{n:"COMMON",c:"#A7AFBE",rgb:"167,175,190"},{n:"UNCOMMON",c:"#5FF0A0",rgb:"95,240,160"},{n:"RARE",c:"#4F8BFF",rgb:"79,139,255"},{n:"EPIC",c:"#A066FF",rgb:"160,102,255"},{n:"LEGENDARY",c:"#FF9A3C",rgb:"255,154,60"}];
 /* W(w, mk): the gun's numbers on map mk (default: the map you're on) */
@@ -579,7 +594,7 @@ function newGame(){
   const P=plan(), M={};
   for(const k of ORDER){ M[k]={k,p:MKD[k].p,vol:MKD[k].vol,dr:MKD[k].dr,drift:0,nextReg:0,ticks:[],closed:false,closeAt:P.close[k]==null?null:P.close[k]}; }
   // 60 s of history so the chart is full at GO
-  for(const k of ORDER){ const m=M[k]; for(let i=-300;i<=0;i++){ stepFeed(m,i*TICK); } }
+  for(const k of ORDER){ const m=M[k]; if(seedLive(m)) continue; for(let i=-300;i<=0;i++){ stepFeed(m,i*TICK); } }
   const pilots=[], names=roster().slice().sort(()=>Math.random()-.5); let n=0;
   const used=new Set(); for(const k of ORDER) for(let i=0;i<START[k];i++){ const lz=LZ&&LZ.bots.filter(b=>b.mk===k)[i]; pilots.push(newPilot(lz?lz.name:names[n++],false,k,used)); }
   const me=newPilot("you",true,dropMk); me.lane=.5; pilots.push(me);
@@ -591,9 +606,15 @@ function newGame(){
 function laneFor(pl){ const used=G.pilots.filter(p=>p!==pl&&!p.me&&p.alive&&p.mk===pl.mk).map(p=>p.lane);
   const slots=[.14,.86,.3,.7,.22,.78].sort(()=>Math.random()-.5); return slots.find(s=>used.every(u=>Math.abs(u-s)>.07))||rnd(.12,.88); }
 function stepFeed(m,t){
-  if(t>=m.nextReg){ m.drift=gauss()*m.vol*m.dr; m.nextReg=t+rnd(3,9); }
-  m.p*=1+m.drift+gauss()*m.vol; m.ticks.push({t,p:m.p}); if(m.ticks.length>420) m.ticks.splice(0,60);
+  const l=liveOf(m.k);
+  if(l) m.p+=(l.p-m.p)*.6;   // eased a little so a block's jump draws as a move, not a step
+  else { if(t>=m.nextReg){ m.drift=gauss()*m.vol*m.dr; m.nextReg=t+rnd(3,9); } m.p*=1+m.drift+gauss()*m.vol; }
+  m.ticks.push({t,p:m.p}); if(m.ticks.length>420) m.ticks.splice(0,60);
 }
+// 60 s of real history from the mids that came in while you were in the lobby (padded with the oldest one)
+function seedLive(m){ const l=liveOf(m.k); if(!l||!l.hist.length) return false; const now=Date.now(), h=l.hist; let j=0;
+  for(let i=-300;i<=0;i++){ const ts=now+i*TICK*1000; while(j+1<h.length&&h[j+1].ts<=ts) j++; m.p=h[j].p; m.ticks.push({t:i*TICK,p:m.p}); }
+  m.p=l.p; return true; }
 const price=pl=>G.M[pl.mk].p;
 const pnlOf=(pos,p)=>pos?pos.size*(p-pos.entry)/pos.entry*pos.side:0;
 const valueOf=pl=>pl.pos?Math.max(0,pl.pos.coll+pnlOf(pl.pos,price(pl))):0;
@@ -606,7 +627,7 @@ const openMks=()=>ORDER.filter(k=>!G.M[k].closed);
 /* ---------- trading ---------- */
 function open(pl,side){
   if(!pl.alive) return;
-  const w=wOf(pl), ww=W(w,pl.mk);
+  const w=wOf(pl), ww=W(w,pl.mk), gi=pl.inv[pl.sel]?pl.sel:0;   // gi: the Lighter size slot this shot uses
   if(pl.pos&&pl.pos.side!==side) close(pl,"flip");
   let st=Math.min(ww.usd,Math.floor(pl.fuel*100)/100); if(st<.5){ if(pl.me) toast("Out of fuel. Cash out first."); return; }
   const p=price(pl), size=st*ww.lev, fee=size*FEE; pl.fuel-=st+fee; w.ammo--; pl.trades=(pl.trades||0)+1;
@@ -616,19 +637,19 @@ function open(pl,side){
   else pl.pos={side,coll:st,size,entry:p,t:G.t,w};
   if(pl.pos) pl.pos.w=w;
   pl.flame=Math.min(2.2,pl.flame+.9); pl.kick-=260; pl.sq=-.2;
-  if(pl.me){ G.marks.push({t:G.t,p,k:side>0?"b":"d",mk:pl.mk}); fxTrade(pl,side,st); }
+  if(pl.me){ G.marks.push({t:G.t,p,k:side>0?"b":"d",mk:pl.mk}); fxTrade(pl,side,st); lx({op:side>0?"boost":"dump",mk:pl.mk,i:gi,usd:st*ww.lev/(MAXLEV[pl.mk]||50)}); lxGuns(); }
   else if(visible(pl)) fxTrade(pl,side,st);
 }
 function close(pl,why){
   if(!pl.pos) return 0; const p=price(pl), pos=pl.pos, fee=pos.size*FEE, net=Math.max(0,pos.coll+pnlOf(pos,p))-fee;
   pl.fuel+=net; pl.pos=null; const res=net-pos.coll; if(res>pl.best) pl.best=res;
-  if(pl.me){ G.marks.push({t:G.t,p,k:"x",mk:pl.mk}); if(why!=="flip"&&why!=="jump"&&why!=="storm"&&why!=="duel"){ popAt(pl,usd(res,true),res>=0?"#5FF0A0":"#FF8FBD"); if(res>0.05) sheet("cashout",xOf(pl),pl.y-LAY.rh*.3,LAY.rh*1.6,.7); sfx(res>=0?"cash":"lose"); }
+  if(pl.me){ lx({op:"close",mk:pl.mk}); lxGuns(); G.marks.push({t:G.t,p,k:"x",mk:pl.mk}); if(why!=="flip"&&why!=="jump"&&why!=="storm"&&why!=="duel"){ popAt(pl,usd(res,true),res>=0?"#5FF0A0":"#FF8FBD"); if(res>0.05) sheet("cashout",xOf(pl),pl.y-LAY.rh*.3,LAY.rh*1.6,.7); sfx(res>=0?"cash":"lose"); }
     if(Math.abs(res)>=1.5) G.moments.push({t:G.t,txt:(res>=0?"Cashed out ":"Took a loss ")+"in "+pl.mk,v:res}); }
   return res;
 }
 function liqCheck(pl){
   if(!pl.pos) return; const loss=-pnlOf(pl.pos,price(pl)); if(loss<LIQ*pl.pos.coll) return;
-  const lost=pl.pos.coll; pl._lastW=pl.pos.w; pl.pos=null; pl.nukes=(pl.nukes||0)+1; if(pl.me){ G.marks.push({t:G.t,p:price(pl),k:"x",mk:pl.mk}); G.moments.push({t:G.t,txt:"NUKE in "+pl.mk,v:-lost}); }
+  const lost=pl.pos.coll; pl._lastW=pl.pos.w; pl.pos=null; pl.nukes=(pl.nukes||0)+1; if(pl.me){ lx({op:"close",mk:pl.mk}); lxGuns(); G.marks.push({t:G.t,p:price(pl),k:"x",mk:pl.mk}); G.moments.push({t:G.t,txt:"NUKE in "+pl.mk,v:-lost}); }
   if(pl.me||visible(pl)) fxBomb(pl);
   // a NUKE costs the stake and blows up the weapon that fired it; you fly on with what's left
   const gun=pl.pos===null&&arguments.length?null:null; const w=pl._lastW;
@@ -662,7 +683,7 @@ tap($("bBoost"),()=>act("b")); tap($("bDump"),()=>act("d")); tap($("bOut"),()=>a
 document.querySelectorAll(".size button").forEach(b=>tap(b,()=>selSlot(+b.dataset.i)));
 function selSlot(i){ if(!G||!G.me.inv[i]) return; if(G.offer){ takeOffer(i); return; } G.me.sel=i; paintHot(); }
 const paintSizes=()=>paintHot();
-function paintHot(){ const inv=G?G.me.inv:[{k:"PISTOL",ammo:Infinity}], sel=G?G.me.sel:0; paintGun(inv[sel]||inv[0]);
+function paintHot(){ const inv=G?G.me.inv:[{k:"PISTOL",ammo:Infinity}], sel=G?G.me.sel:0; paintGun(inv[sel]||inv[0]); lxGuns();
   document.querySelectorAll(".size button").forEach(b=>{ const i=+b.dataset.i, w=inv[i];
     if(!w){ b.className="empty"; b.innerHTML="<b>EMPTY</b><small>fly into loot</small>"; return; }
     b.style.setProperty("--rc",rarOf(w).c);
@@ -731,7 +752,7 @@ function jump(pl,k){
   if(pl.pos) close(pl,"jump");
   const from=pl.mk; pl.mk=k; pl.jumpAt=null; pl.y=null; pl.x=null; pl.arrive=Math.min(pl.arrive,G.t); pl.lane=laneFor(pl);
   if(pl.df) endDf(pl.df,true);
-  if(pl.me){ G.me.lane=.5; G.me.xo=G.me.xt=0; G.me.yo=G.me.yt=0; G.jumpCool=G.t+G.P.jumpCool; G.mapOpen=false; feed("g","↑",`Jumped to <b>${k}</b> · ${MKD[k].best.toLowerCase()} loot · your PnL came with you`); sfx("jump"); G.crate=null; buildJump(); paintSizes(); }
+  if(pl.me){ lxGuns(); G.me.lane=.5; G.me.xo=G.me.xt=0; G.me.yo=G.me.yt=0; G.jumpCool=G.t+G.P.jumpCool; G.mapOpen=false; feed("g","↑",`Jumped to <b>${k}</b> · ${MKD[k].best.toLowerCase()} loot · your PnL came with you`); sfx("jump"); G.crate=null; buildJump(); paintSizes(); }
   else if(from===G.me.mk||k===G.me.mk) feed("m","→",`<b>${pl.name}</b> jumped ${from} → ${k}`);
 }
 function bestJump(exclude){ const o=openMks().filter(k=>k!==exclude); if(!o.length) return null;
@@ -921,6 +942,7 @@ function go(){
   rollSky(); const mapLine=`SKY · ${MAP.n} · FINAL CIRCLE ON ${finalMk()}`;
   $("drop").hidden=true; newGame(); G.me.y=null; FX.parts.length=FX.pops.length=FX.rings.length=0;
   $("feed").innerHTML=""; buildJump(); const c=$("count"); c.hidden=false; let n=3;
+  lx({op:"start",id:"royale-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,8),ms:240000,markets:ORDER.slice()}); lxGuns();
   const show=()=>{ c.innerHTML=`<div><small>DROPPING INTO ${G.me.mk}</small><small class="cmap">${mapLine}</small>${n}</div>`; };
   show(); dropClip("play"); sfx("count"); bed("amb_wind_high"); oneShotAmb("amb_mothership_pass",.7);
   const iv=setInterval(()=>{ n--; if(n>0){ show(); sfx("count"); return; } clearInterval(iv); c.innerHTML="<div>GO</div>"; sfx("go"); sfx("drop",.8); buzz(30); G.started=true; toParent({type:"disciple:music",on:true}); setTimeout(()=>{ c.hidden=true; dropClip("off"); },450);
@@ -928,7 +950,7 @@ function go(){
     feed("m","☁",`Sky: <b>${MAP.n}</b> · the storm ends on <b>${finalMk()}</b>`); },800);
 }
 function endMe(){
-  if(G.resShown) return; G.resShown=true;
+  if(G.resShown) return; G.resShown=true; lx({op:"end"});
   const me=G.me, place=me.place||1, win=place===1;
   if(win&&!me.place) me.place=1;
   setTimeout(()=>{
