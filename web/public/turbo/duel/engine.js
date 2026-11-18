@@ -713,7 +713,7 @@ function mount(root,host){
       }
       // camera: follow the middle of the pair, zoom out if the gap won't fit
       const top=LAY.under, bot=LAY.barTop, avail=bot-top;
-      const d=(G.bot.wy-G.me.wy)/K, ad=Math.abs(d)*500/LEV;  // smoothed $ lead (kicks included), scaled so 50× opens the gap as much as 500× did
+      const d=G.solo?0:(G.bot.wy-G.me.wy)/K, ad=Math.abs(d)*500/LEV;  // smoothed $ lead (kicks included), scaled so 50× opens the gap as much as 500× did
       // both rockets are the same size (the higher one is winning, always); a bigger lead opens the gap and pulls the camera
       // back a little (rockets shrink to ~55% at most, never ants): $1 ≈ 40% of the room, $2 ≈ 65%, $5 ≈ 96%
       const hT=LAY.rh0*(1-.45*Math.tanh(ad/4)); LAY.h+=(hT-LAY.h)*Math.min(1,dt*3); LAY.hr=LAY.h;
