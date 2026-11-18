@@ -16,7 +16,7 @@ import { lighterConfig, type LighterConfig } from "./config";
 import { LighterError } from "./rest";
 
 const BRIDGE = "https://bridge.lighter.xyz";
-export const DEPOSIT_MIN_NEW = 5, DEPOSIT_MIN = 3;
+export const DEPOSIT_MIN_NEW = 5, DEPOSIT_MIN = 5;   // maker 2026-11-18: one $5 minimum
 /** Lighter on Robinhood Chain takes USDG straight in: 1 USDG minimum per deposit (docs, Robinhood Chain section). */
 export const depositMins = (cfg: LighterConfig) => (cfg.payoutIsCash ? { minNew: 1, min: 1 } : cfg.network === "mainnet" ? { minNew: RELAY_MIN, min: RELAY_MIN } : { minNew: DEPOSIT_MIN_NEW, min: DEPOSIT_MIN });
 /** The chain whose USDG the deposit address takes: Robinhood Chain mainnet for Lighter main (4663). The browser

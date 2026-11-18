@@ -1,6 +1,6 @@
 /**
  * Lighter (Turbo's backup venue to Nova). Off unless LIGHTER_ENABLED=1. Signed-in pilots only (same gate as duels).
- * GET  → { ok, network, step, account, collateral, positions, feeBp }   step: deposit | key | tier | approve | ready
+ * GET  → { ok, network, step, account, collateral, positions, feeBp, mins }   step: deposit | key | tier | approve | ready
  * POST { op }
  *   key-start | approve-start          → { message }   the player's wallet signs it (personal_sign)
  *   key-finish | approve-finish { sig } → { hash }
@@ -60,7 +60,7 @@ function on() {
 export async function GET(req: Request) {
   try {
     const cfg = on(); const me = await pilotOf(req, { guestOk: false });
-    return out(200, { ok: true, network: cfg.network, url: cfg.url, feeBp: cfg.partnerFee / 100, withdraw: cfg.payoutIsCash, ...(await status(cfg, me.pid)) });
+    return out(200, { ok: true, network: cfg.network, url: cfg.url, feeBp: cfg.partnerFee / 100, withdraw: cfg.payoutIsCash, mins: depositMins(cfg), ...(await status(cfg, me.pid)) });
   } catch (e) { return lfail(e); }
 }
 

@@ -17,7 +17,8 @@ export type TurboCash = {
   canAdd: boolean;
   /** Turbo cash can go back to Cash (a venue whose withdrawals pay USDG on our chain, set-up finished) */
   canWithdraw: boolean;
-  /** smallest move into Turbo: Lighter on Robinhood Chain $1; Lighter main $5 for a first deposit, then $3 */
+  /** smallest move into Turbo, from the server (lib/server/lighter/bridge depositMins): $5, or $5.10 on Lighter main
+   *  (Relay's few cents must not take it under Lighter's 5 USDC floor); Lighter on Robinhood Chain $1 */
   minIn: number;
   /** Lighter set-up step, once read ("deposit" = no Lighter account yet) */
   lighterStep: string | null;
@@ -27,7 +28,7 @@ export type TurboCash = {
 
 const subs = new Set<(t: TurboCash) => void>();
 let wallet: string | null = null;
-type L = { usd: number; step: string | null; on: boolean; out?: boolean };
+type L = { usd: number; step: string | null; on: boolean; out?: boolean; mins?: { minNew: number; min: number } };
 let lighter: L = { usd: 0, step: null, on: false };
 let fuel: CashFuel = null;
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -36,7 +37,7 @@ let serverOff = false;
 let dev = false;
 
 function snap(): TurboCash {
-  return { usd: lighter.usd + (fuel?.usd ?? 0), canAdd: lighter.on, canWithdraw: !!lighter.out && lighter.step === "ready", minIn: lighter.out ? 1 : lighter.step === "deposit" ? 5 : 3, lighterStep: lighter.step, fuel };
+  return { usd: lighter.usd + (fuel?.usd ?? 0), canAdd: lighter.on, canWithdraw: !!lighter.out && lighter.step === "ready", minIn: (lighter.step === "deposit" ? lighter.mins?.minNew : lighter.mins?.min) ?? 5, lighterStep: lighter.step, fuel };
 }
 const emit = () => { const s = snap(); subs.forEach((cb) => cb(s)); };
 
@@ -48,10 +49,11 @@ export async function refreshTurboCash(): Promise<void> {
   try {
     const r = await lighterFetcher(w)("/api/lighter");
     if (r.status === 404) { serverOff = true; lighter = { usd: 0, step: null, on: false }; emit(); return; }
-    const j = (await r.json().catch(() => ({}))) as { ok?: boolean; step?: string; collateral?: string; withdraw?: boolean };
+    const j = (await r.json().catch(() => ({}))) as { ok?: boolean; step?: string; collateral?: string; withdraw?: boolean; mins?: { minNew?: number; min?: number } };
     if (w !== wallet || !r.ok || !j.ok) return;
     const usd = Number(j.collateral ?? 0);
-    lighter = { usd: Number.isFinite(usd) && usd > 0 ? usd : 0, step: j.step ?? null, on: true, out: !!j.withdraw };
+    lighter = { usd: Number.isFinite(usd) && usd > 0 ? usd : 0, step: j.step ?? null, on: true, out: !!j.withdraw,
+      mins: j.mins && Number(j.mins.minNew) > 0 && Number(j.mins.min) > 0 ? { minNew: Number(j.mins.minNew), min: Number(j.mins.min) } : undefined };
     emit();
   } catch { /* keep the last read */ }
 }
