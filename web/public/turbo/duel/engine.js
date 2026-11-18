@@ -588,8 +588,9 @@ function mount(root,host){
   // where the journey is: f = position in the theme's layers (0 = ground), fin = 0..1 fade into the final sky
   function skyStage(pan){ const N=SKY_ORDER.length; if(!G||!G.started) return {f:0,fin:0};
     if(G.solo&&CLR&&CLR.goal!=null){ const u=Math.min(1.4,soloProg()); G.sp=G.sp==null?u:G.sp+(u-G.sp)*.05;
-      const tp=Math.max(0,Math.min(1,G.t/G.len)), j=Math.min(1,Math.max(tp*.75,G.sp));
-      return {f:Math.max(0,Math.min(N-1,j*(N-1))),fin:Math.max(0,Math.min(1,(G.sp-1)/.3))}; }
+      const tp=Math.max(0,Math.min(1,G.t/G.len)), up=1-Math.pow(1-tp,1.6), j=Math.min(1,.55*up+.55*Math.min(1,G.sp));
+      G.lift=Math.max(0,Math.min(1,G.t/SOLO_LIFT));
+      return {f:Math.max(0,Math.min(N-1,1+j*(N-2))),fin:Math.max(0,Math.min(1,(G.sp-1)/.3)),solo:1}; }
     const run=Math.max(1,G.len-FINAL_MS), p=Math.max(0,Math.min(1,G.t/run));
     if(G.finalAt==null&&G.t>=run&&!G.over){ G.finalAt=G.t; toast("Final 12 seconds"); }   // latched: overtime stays on the moon
     const fin=G.finalAt!=null?Math.min(1,(G.t-G.finalAt)/1500):0;
@@ -597,10 +598,24 @@ function mount(root,host){
     return {f:Math.max(0,Math.min(N-1,p*(N-1)+nudge)),fin}; }
   function skyDens(pan){ const {f,fin}=skyStage(pan), i0=Math.floor(f), t=f-i0, sp=k=>k&&SPACE.has(k)?1:0;
     return (1-.88*(sp(SKY_ORDER[i0])*(1-t)+sp(SKY_ORDER[Math.min(SKY_ORDER.length-1,i0+1)])*t))*(1-.85*fin); }   // clouds thin out toward space, all but gone at the moon
+  // Climb (maker 2026-11-18: "think of a rocket rising ... the background needs to reflect that"): it's a launch. At GO the
+  // pad plate falls out the bottom of the screen within SOLO_LIFT ms, then each sky plate slides down as it fades into the
+  // next, so the whole run reads as rising. The journey runs on the clock and runs further as you near the goal.
+  const SOLO_LIFT=3500;
+  function drawSoloBackdrop(st){ const f=st.f, i0=Math.floor(f), t=f-i0;
+    const plate=(k,a,off)=>{ const im=imgs[k]; if(!im||!im.complete||a<=0) return; const s=Math.max(SW/im.width,SH/im.height)*1.6, w=im.width*s, h=im.height*s;
+      const sl=(h-SH)/2, y=(SH-h)/2+Math.max(-sl,Math.min(sl,off)); sx.globalAlpha=a; sx.drawImage(im,(SW-w)/2,y,w,h); sx.globalAlpha=1; };
+    sx.fillStyle="#121327"; sx.fillRect(0,0,SW,SH);
+    const SL=SH*.3;   // a plate slides this far as it fades in and out
+    plate(SKY_ORDER[i0],1,t*SL); if(t>0&&i0+1<SKY_ORDER.length) plate(SKY_ORDER[i0+1],t,(t-1)*SL);
+    if(st.fin>0) plate(A[FINAL_SKY]?FINAL_SKY:"sky4",st.fin,0);
+    const L=G.lift==null?0:G.lift; if(L<1){ const im=imgs[SKY_ORDER[0]]; if(im&&im.complete){ const s=Math.max(SW/im.width,SH/im.height)*1.12, w=im.width*s, h=im.height*s, e=L*L*(3-2*L);
+      sx.globalAlpha=1-L*.3; sx.drawImage(im,(SW-w)/2,(SH-h)/2+e*SH*1.15,w,h); sx.globalAlpha=1; } }   // the ground drops away under you
+    sx.fillStyle="rgba(11,10,22,.28)"; sx.fillRect(0,0,SW,SH); }
   function drawBackdrop(camAlt,pan){
-    const st=skyStage(pan), f=st.f, i0=Math.floor(f), t=f-i0;
+    const st=skyStage(pan); if(st.solo){ drawSoloBackdrop(st); return; } const f=st.f, i0=Math.floor(f), t=f-i0;
     const draw=(k,a)=>{const im=imgs[k]; if(!im||!im.complete||a<=0) return; const s=Math.max(SW/im.width,SH/im.height)*1.12;
-      const sl=(im.height*s*1.18-SH)/2, par=Math.max(-sl,Math.min(sl,-(pan||0)*.05+(G&&G.solo&&G.camW!=null&&CLR&&CLR.goal!=null?(G.camW+(G.rW-G.camW)*.5)*SH*.22-sl*.6:0))); sx.globalAlpha=a; sx.drawImage(im,(SW-im.width*s*1.18)/2,(SH-im.height*s*1.18)/2+par,im.width*s*1.18,im.height*s*1.18); sx.globalAlpha=1;};
+      const sl=(im.height*s*1.18-SH)/2, par=Math.max(-sl,Math.min(sl,-(pan||0)*.05)); sx.globalAlpha=a; sx.drawImage(im,(SW-im.width*s*1.18)/2,(SH-im.height*s*1.18)/2+par,im.width*s*1.18,im.height*s*1.18); sx.globalAlpha=1;};
     sx.fillStyle="#121327"; sx.fillRect(0,0,SW,SH);
     draw(SKY_ORDER[i0],1); if(t>0&&i0+1<SKY_ORDER.length) draw(SKY_ORDER[i0+1],t);
     if(THEME.g&&st.fin<1){ sx.globalAlpha=1-st.fin; sx.globalCompositeOperation="overlay"; sx.fillStyle=`rgba(${THEME.g})`; sx.fillRect(0,0,SW,SH); sx.globalCompositeOperation="source-over"; sx.globalAlpha=1; }
@@ -743,10 +758,10 @@ function mount(root,host){
     sx.save(); if(sh) sx.translate(rnd(-sh,sh)*.5,rnd(-sh,sh)*.5);
     const pan=LAY&&G?LAY.pan||0:0, dPan=LAY&&G?LAY.dPan||0:0; if(LAY) LAY.dPan=0;
     const camAlt=-cam.y/K, viewAlt=camAlt-pan/Math.max(60,LAY&&LAY.pxPer||60); drawBackdrop(viewAlt,pan);
-    const speed=G&&G.started&&!G.over?34:12, cdy=-camDy*.7-dPan;
+    const speed=G&&G.started&&!G.over?(G.solo?110+260*(1-(G.lift==null?1:G.lift)):34):12, cdy=-camDy*.7-dPan;
     FLY.step(sx,SW,SH,dt,cdy,skyDens(pan),[0,1],speed);
     // stars stream with the camera: climbing makes them rush down past you
-    const base=G&&G.started?50:25, v=base*dt - camDy*1.4 - dPan*.5;
+    const base=G&&G.started?(G.solo?180:50):25, v=base*dt - camDy*1.4 - dPan*.5;
     sx.fillStyle="rgba(255,255,255,.75)";
     for(const s of stars){ s.y+=v*s.z; if(s.y>SH){s.y-=SH;s.x=Math.random()*SW;} if(s.y<0){s.y+=SH;s.x=Math.random()*SW;} sx.fillRect(s.x,s.y,1.3*s.z,Math.max(1.5,Math.min(26,Math.abs(v)*1.6))*s.z); }
     if(G){
@@ -844,7 +859,7 @@ function mount(root,host){
     const c=$("count"), pc=$("preCount"); c.hidden=true; let shown=null;
     const bot=!!(M&&!M.net&&G.bot); $("lH").textContent=bot?"BOT MATCH":"BOTH READY"; $("lCancel").hidden=!bot;
     $("lSub").textContent=bot?`${G.bot.name} \u00b7 ${botKey.toUpperCase()} \u00b7 ${money(curFuel())} fuel \u00b7 no rating`:"";
-    if(G.solo) climbLaunch();
+    if(G.solo){ const pad=THEMES.find(t=>t.n==="THE PAD")||THEMES.find(t=>t.n==="MOONRISE"); if(pad){ THEME=pad; SKY_ORDER=pad.s; } climbLaunch(); }
     clearInterval(launchIv); const iv=launchIv=setInterval(()=>{ if(dead){clearInterval(iv);return;} const left=G.startAt-now_(); const n=Math.ceil(left/1000);
       if(left>0){ if(n!==shown){ shown=n; pc.textContent=n; pc.style.animation="none"; void pc.offsetWidth; pc.style.animation=""; if(n<=3) sfx("count"); } return; }
       if(!priceReady()){ if(shown!=="wait"){ shown="wait"; pc.textContent="\u2026"; $("lSub").textContent="Waiting for the live BTC price. GO as soon as it lands."; } return; }
