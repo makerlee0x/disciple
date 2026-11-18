@@ -11,10 +11,13 @@ test.describe("first visit", () => {
     await expect(page.getByTestId("lobby-signed-out")).toBeVisible();
     const modes = out(page).getByTestId("mode-select");
     await expect(modes.getByRole("heading", { name: "Pick a mode" })).toBeVisible();
-    for (const id of ["launch", "live", "free"]) await expect(out(page).getByTestId(`mode-${id}`)).toBeAttached();
-    // Turbo is on for everyone: Trading duel is in the row. Turbo royale is held for launch (lib/features ROYALE_ENABLED)
-    await expect(out(page).getByTestId("mode-duel")).toBeAttached();
-    await expect(out(page).getByTestId("mode-royale")).toHaveCount(0);
+    // Launch, Duel, Climb, Daily mission (maker 2026-11-18). Live flights is a top bar tab, not a card. Royale is held for launch.
+    for (const id of ["launch", "duel", "climb", "daily"]) await expect(out(page).getByTestId(`mode-${id}`)).toBeAttached();
+    for (const id of ["live", "free", "royale"]) await expect(out(page).getByTestId(`mode-${id}`)).toHaveCount(0);
+    await expect(out(page).getByTestId("mode-launch")).toContainText("Your own coin");
+    await expect(out(page).getByTestId("mode-duel")).toContainText("1v1");
+    await expect(out(page).getByTestId("mode-climb")).toContainText("Solo");
+    await expect(out(page).getByTestId("mode-daily")).toContainText("Solo");
   });
 
   test("the top bar has Live flights, Launch, Top pilots and Play now (the mark is the lobby)", async ({ page }) => {
@@ -28,11 +31,15 @@ test.describe("first visit", () => {
     await expect(bar.getByTestId("nav-turbo").first()).toBeVisible();
   });
 
-  test("Turbo tab goes straight to Trading duel while Royale is held", async ({ page }) => {
+  test("Turbo tab opens a menu with Duel and Climb", async ({ page }) => {
     await page.goto("/");
     const tab = page.locator(isPhone(page) ? ".lb-dock [data-testid=nav-turbo]" : ".lb-top [data-testid=nav-turbo]").first();
-    await expect(tab).toHaveAttribute("href", /\/turbo\/duel/);
-    await expect(page.getByTestId("turbo-menu")).toHaveCount(0);
+    await hydrated(tab);
+    await tab.click();
+    const menu = page.getByTestId("turbo-menu");
+    await expect(menu.getByRole("menuitem", { name: /duel/i })).toHaveAttribute("href", /\/turbo\/duel/);
+    await expect(menu.getByRole("menuitem", { name: /climb/i })).toHaveAttribute("href", /\/turbo\/climb/);
+    await expect(menu.getByRole("menuitem", { name: /royale/i })).toHaveCount(0);
   });
 
   test("Live flights opens every rocket", async ({ page }) => {
@@ -43,39 +50,38 @@ test.describe("first visit", () => {
   test("one click on any card opens it", async ({ page }) => {
     test.skip(isPhone(page), "phones: see the tap test below");
     await page.goto("/");
-    const live = out(page).getByTestId("mode-live");
-    await hydrated(live);
-    await live.click();
-    // Live flights opens the list of every rocket, not one random rocket
-    await expect(page).toHaveURL(/\/live$/);
+    const duel = out(page).getByTestId("mode-duel");
+    await hydrated(duel);
+    await duel.click();
+    await expect(page).toHaveURL(/\/turbo\/duel/);
   });
 
   test("desktop: arrow keys move between cards and Enter plays", async ({ page }) => {
     test.skip(isPhone(page), "keyboard row is desktop only");
     await page.goto("/");
-    await hydrated(out(page).getByTestId("mode-free"));
-    await out(page).getByTestId("mode-free").focus();
+    await hydrated(out(page).getByTestId("mode-daily"));
+    await out(page).getByTestId("mode-daily").focus();
     await page.keyboard.press("ArrowLeft");
-    await expect(out(page).getByTestId("mode-duel")).toBeFocused();
+    await expect(out(page).getByTestId("mode-climb")).toBeFocused();
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("ArrowRight"); // wraps round
     await expect(out(page).getByTestId("mode-launch")).toBeFocused();
     await page.keyboard.press("ArrowLeft");
-    await expect(out(page).getByTestId("mode-free")).toBeFocused();
+    await expect(out(page).getByTestId("mode-daily")).toBeFocused();
     await page.keyboard.press("Enter");
-    await expect(page).toHaveURL(/\/flight\/sim/);
+    await expect(page).toHaveURL(/\/flight\/sim\?daily=1/);
   });
 
   test("phone: one tap on a card opens it, even one at the side", async ({ page }) => {
     test.skip(!isPhone(page), "phone only");
     await page.goto("/");
-    const live = out(page).getByTestId("mode-live");
-    await hydrated(live);
-    await live.tap({ position: { x: 20, y: 120 } });
-    await expect(page).toHaveURL(/\/live$/);
+    const duel = out(page).getByTestId("mode-duel");
+    await hydrated(duel);
+    await duel.tap({ position: { x: 20, y: 120 } });
+    await expect(page).toHaveURL(/\/turbo\/duel/);
   });
 
-  test("the Trading duel card opens its mode", async ({ page }) => {
+  test("the Duel card opens its mode", async ({ page }) => {
     await page.goto("/");
     await expect(out(page).getByTestId("mode-duel")).toBeAttached();
     await expect(out(page).getByTestId("mode-duel")).toHaveAttribute("href", /\/turbo\/duel/);

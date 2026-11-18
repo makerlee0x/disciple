@@ -1,16 +1,16 @@
 "use client";
 /**
  * "Pick a mode" (lobby canvas board "Game modes", option A, maker picked 2026-11-14): the poster row at the top of the
- * lobby. Tall poster cards (Grok art plates, PR #380, web/public/art/modes; no sprite outside flight): Host a launch, Live
- * flights, Trading duel and Turbo royale (Turbo is on for everyone since 2026-11-16, see lib/turbo/flag.ts) and Free play.
+ * lobby. Tall poster cards (Grok art plates, PR #380, web/public/art/modes; no sprite outside flight): Launch, Duel, Climb
+ * and Daily mission, each with a pill (maker 2026-11-18). Royale is held for launch (ROYALE_ENABLED).
  * Carousel (maker 2026-11-15): one sideways-scrolling, snapping row on every screen size, and a click or tap anywhere on a
  * card opens that mode straight away (no focus step first). Desktop gets ‹ › buttons when the row overflows; phones get
- * dots. On phones the row opens centred on the last mode played (this browser), else Live flights signed in and Free play signed out.
+ * dots. On phones the row opens centred on the last mode played (this browser), else Duel signed in and Launch signed out.
  */
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { withBase } from "@/lib/base-path";
-import { DUEL_HREF, FLIGHTS_HREF, ROYALE_ENABLED } from "@/lib/features";
+import { CLIMB_HREF, DUEL_HREF, ROYALE_ENABLED } from "@/lib/features";
 import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
 import { isTurboEnabled } from "@/lib/turbo/flag";
 import s from "./modeSelect.module.css";
@@ -19,9 +19,9 @@ import AnimClip from "@/components/ui/AnimClip";
 
 /* Grok loops over the poster art (A3, 2026-11-17: image-to-video on the same plates, so the still and the clip line up).
    Royale has none yet. Each plays only while its card is on screen. */
-const CLIP: Partial<Record<ModeId, string>> = { launch: "A3-mode-launch", live: "A3-mode-live", duel: "A3-mode-duel", free: "A3-mode-free" };
+const CLIP: Partial<Record<ModeId, string>> = { launch: "A3-mode-launch", duel: "A3-mode-duel", climb: "A3-mode-live", daily: "A3-mode-free" };
 
-type ModeId = "launch" | "live" | "duel" | "royale" | "free";
+type ModeId = "launch" | "duel" | "royale" | "climb" | "daily";
 type Mode = { id: ModeId; title: [string, string]; tag: string; tone: string; href: string; art: string; pos: string };
 
 export const MODE_COPY = {
@@ -31,23 +31,26 @@ export const MODE_COPY = {
 
 const LAST = "disciple.lobby.mode";
 
-function modes(flying: number, duel: boolean): Mode[] {
+// Mode names (maker 2026-11-18, naming option C): one short name and a pill that says who it is for. Live flights is not a
+// card (it only pointed at the live list further down the lobby; the top bar still has it). Climb uses the Live flights plate
+// (the same art the Climb screen uses) and Daily mission the Free play plate, until they get their own.
+function modes(duel: boolean): Mode[] {
   const all: Mode[] = [
-    { id: "launch", title: ["Host a", "launch"], tag: "Real coins", tone: "#F3DFA8", href: "/create", art: "/art/modes/launch.webp", pos: "50% 30%" },
-    { id: "live", title: ["Live", "flights"], tag: flying > 0 ? `${flying} flying` : "Live", tone: "#5FF0A0", href: FLIGHTS_HREF, art: "/art/modes/live.webp", pos: "50% 30%" },
-    { id: "duel", title: ["Trading", "duel"], tag: DUEL_RANKED_LIVE ? "Ranked" : "1v1", tone: "#FF9CC4", href: DUEL_HREF, art: "/art/modes/duel.webp", pos: "50% 30%" },
-    { id: "royale", title: ["Turbo", "royale"], tag: "Practice", tone: "#F2C14E", href: "/turbo/royale", art: "/art/modes/last-pilot.webp", pos: "50% 30%" },
-    { id: "free", title: ["Free", "play"], tag: "Free", tone: "#8FE3FF", href: "/flight/sim", art: "/art/modes/free.webp", pos: "50% 30%" },
+    { id: "launch", title: ["Launch", ""], tag: "Your own coin", tone: "#F3DFA8", href: "/create", art: "/art/modes/launch.webp", pos: "50% 30%" },
+    { id: "duel", title: ["Duel", ""], tag: DUEL_RANKED_LIVE ? "Ranked" : "1v1", tone: "#FF9CC4", href: DUEL_HREF, art: "/art/modes/duel.webp", pos: "50% 30%" },
+    { id: "royale", title: ["Royale", ""], tag: "Practice", tone: "#F2C14E", href: "/turbo/royale", art: "/art/modes/last-pilot.webp", pos: "50% 30%" },
+    { id: "climb", title: ["Climb", ""], tag: "Solo", tone: "#5FF0A0", href: CLIMB_HREF, art: "/art/modes/live.webp", pos: "50% 30%" },
+    { id: "daily", title: ["Daily", "mission"], tag: "Solo", tone: "#8FE3FF", href: "/flight/sim?daily=1", art: "/art/modes/free.webp", pos: "50% 30%" },
   ];
-  return all.filter((m) => (m.id !== "duel" && m.id !== "royale") || duel).filter((m) => m.id !== "royale" || ROYALE_ENABLED);
+  return all.filter((m) => (m.id !== "duel" && m.id !== "royale" && m.id !== "climb") || duel).filter((m) => m.id !== "royale" || ROYALE_ENABLED);
 }
 
-export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; flying: number }) {
+export default function ModeSelect({ signedIn }: { signedIn: boolean; flying?: number }) {
   // Turbo flag reads localStorage, so check it after mount to keep server and first paint the same
   const [duel, setDuel] = useState(false);
   useEffect(() => { setDuel(isTurboEnabled()); }, []);
-  const list = useMemo(() => modes(flying, duel), [flying, duel]);
-  const [start, setStart] = useState<ModeId>(signedIn ? "live" : "launch");
+  const list = useMemo(() => modes(duel), [duel]);
+  const [start, setStart] = useState<ModeId>(signedIn ? "duel" : "launch");
   const [seen, setSeen] = useState<ModeId>(start);
   // no sound while swiping the row (maker found it odd); a card plays mode_select only when it is actually opened (click, not
   // the pointerdown that starts a swipe)
@@ -78,7 +81,7 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
     const max = t.scrollWidth - t.clientWidth;
     setEdge((e) => { const n = { prev: t.scrollLeft > 4, next: t.scrollLeft < max - 4 }; return n.prev === e.prev && n.next === e.next ? e : n; });
     const mid = t.scrollLeft + t.clientWidth / 2;
-    let best: ModeId = list[0]?.id ?? "free", d = Infinity;
+    let best: ModeId = list[0]?.id ?? "launch", d = Infinity;
     t.querySelectorAll<HTMLElement>("[data-mode]").forEach((el) => {
       const dd = Math.abs(el.offsetLeft + el.offsetWidth / 2 - mid);
       if (dd < d) { d = dd; best = el.dataset.mode as ModeId; }
@@ -129,7 +132,7 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
               prefetch={false}
               data-mode={m.id}
               className={s.card}
-              aria-label={`${m.title.join(" ")}. ${m.tag}`}
+              aria-label={`${m.title.join(" ").trim()}. ${m.tag}`}
               data-testid={`mode-${m.id}`}
               data-sfx="none"
               onClick={() => { if (appFeel()) playSfx("mode_select"); go(m); }}
@@ -141,7 +144,7 @@ export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; fl
               <span className={s.scrim} aria-hidden />
               <span className={s.tag} style={{ color: m.tone }}>{m.tag}</span>
               <span className={s.body}>
-                <b className={s.name}>{m.title[0]}<br />{m.title[1]}</b>
+                <b className={s.name}>{m.title[0]}{m.title[1] && <><br />{m.title[1]}</>}</b>
                 <span className={s.play} aria-hidden>{MODE_COPY.play}</span>
               </span>
             </Link>

@@ -17,7 +17,7 @@ test("sign in from the lobby, see the welcome toast and the pilot chip, then sig
   await expect(page.getByTestId("lobby")).toBeVisible();
   await expect(page.getByTestId("lobby-signed-out")).toHaveCount(0);
   // signed in, Pick a mode is on the lobby
-  await expect(page.getByTestId("mode-live")).toBeVisible();
+  await expect(page.getByTestId("mode-duel")).toBeVisible();
 
   // the key survives a reload (same pilot, no second welcome)
   await page.reload();

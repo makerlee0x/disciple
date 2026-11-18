@@ -89,13 +89,16 @@ export const DUEL_HREF = "/turbo/duel";
  *  (launch funnel item 7, maker 2026-11-17). Same entry as the first-run WelcomeIntro. */
 export const BOT_DUEL_HREF = "/turbo/duel?first=1";
 
+/** Climb, the solo Turbo mode (lobby row and Turbo menu, maker 2026-11-18). */
+export const CLIMB_HREF = "/turbo/climb";
+
 /**
  * Market tab in the top bar and the phone tab bar (nav rework, maker 2026-11-16: "we need the marketplace now in the nav
  * bar"). /market shipped with PR #444 and holds your crates too (PR #446), so the tab is on (maker 2026-11-17: "turn it on").
  * Kill switch: NEXT_PUBLIC_FEATURE_MARKET=0 (build-time) hides it.
  */
 export const MARKET_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_MARKET !== "0" && process.env.NEXT_PUBLIC_FEATURE_MARKET !== "false";
-/** Where the Live flights tab and the lobby's Live flights card go: every rocket, with its sort chips (not one random rocket). */
+/** Where the Live flights tab goes: every rocket, with its sort chips (not one random rocket). */
 export const FLIGHTS_HREF = "/live";
 
 /**

@@ -16,7 +16,7 @@ import LevelChip from "@/components/xp/LevelChip";
 import Icon, { type IconName } from "@/components/icons/Icon";
 import HelpButton from "@/components/HelpButton";
 import { QUICK_PLAY_EVENT } from "@/components/app/events";
-import { DUEL_HREF, FLIGHTS_HREF, MARKET_ENABLED, ROYALE_ENABLED } from "@/lib/features";
+import { CLIMB_HREF, DUEL_HREF, FLIGHTS_HREF, MARKET_ENABLED, ROYALE_ENABLED } from "@/lib/features";
 import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
 import { isTurboEnabled, turboEnvOn } from "@/lib/turbo/flag";
 
@@ -42,8 +42,9 @@ const TABS: readonly Tab[] = [
 
 /** The Turbo tab's modes. Royale is held for launch (ROYALE_ENABLED); with one mode the tab is a plain link to it, no menu. */
 export const TURBO_MODES: readonly { href: string; label: string; sub: string }[] = [
-  { href: DUEL_HREF, label: "Trading duel", sub: DUEL_RANKED_LIVE ? "Ranked" : "1v1" },
-  ...(ROYALE_ENABLED ? [{ href: "/turbo/royale", label: "Turbo royale", sub: "Practice" }] : []),
+  { href: DUEL_HREF, label: "Duel", sub: DUEL_RANKED_LIVE ? "Ranked" : "1v1" },
+  { href: CLIMB_HREF, label: "Climb", sub: "Solo" },
+  ...(ROYALE_ENABLED ? [{ href: "/turbo/royale", label: "Royale", sub: "Practice" }] : []),
 ];
 const TURBO_MENU = TURBO_MODES.length > 1;
 
