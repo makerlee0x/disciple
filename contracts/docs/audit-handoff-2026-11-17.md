@@ -1,6 +1,6 @@
 # DISCIPLE smart contract audit handoff
 
-**Code:** commit `b52f0b0` (audit-round fixes, then free hidden launches, LoginGate deleted, Safe handover after deploy; earlier rounds `9ca52f1`, `7adcab4`), private repo makerlee0x/disciple, PR #461 (`contracts/`). The source is attached as one text file: `disciple-contracts-b52f0b0.sol.txt` (44 files). A smaller core-only file is `disciple-core-b52f0b0.sol.txt`.
+**Code:** commit `dadf081` (audit-round fixes, then free hidden launches, LoginGate deleted, first-touch referrals with no deposit gate, Safe handover after deploy, tramps & walls not deployed, relayer cut 0, KOL slice 0 on mainnet; earlier rounds `b52f0b0`, `9ca52f1`, `7adcab4`), private repo makerlee0x/disciple, PR #461 (`contracts/`). The source is attached as one text file: `disciple-contracts-dadf081.sol.txt` (44 files, incl. Deploy.s.sol and HandoverToSafe.s.sol). A smaller core-only file is `disciple-core-dadf081.sol.txt`.
 **Stack:**
 - Solidity 0.8.26, via-IR, optimizer 200 runs, EVM cancun.
 - Uniswap v4-core v4.0.0, v4-periphery 9969eec, OpenZeppelin v5.7.0.
@@ -50,7 +50,7 @@ Assume the attacker is any EOA or contract, including one that calls the v4 Pool
    - **2 Burn:** the quote half goes to `0x…dEaD`. After graduation, the rocket-token half also goes straight to `0x…dEaD` with no sell.
    - `route` / `routeWith` can be called by anyone, and the caller receives nothing.
 6. **Other parts:**
-   - **TrampWallManager:** user one-sided limit bands in graduated pools.
+   - **TrampWallManager:** OUT OF SCOPE. Not deployed for launch (maker 2026-11-17); excluded from the bundle.
    - **ReferralRegistry:** first-touch referral, final right away (no deposit gate; UsdgDepositNotifier deleted 2026-11-17). On mainnet the referral 1% goes to the treasury via the referral sink, set before `lockSettings()`.
    - **DisciplePermitForwarder:** Permit2 spender for gasless withdrawals and relayed actions. No owner, holds no funds between calls.
 
@@ -69,7 +69,7 @@ Assume the attacker is any EOA or contract, including one that calls the v4 Pool
 | DiscipleRouter | post-graduation exact-in buy/sell, USDG routes | owner (Safe) |
 | QuotePricer | pair-coin USD price (TWAP of USDG pools) | owner + pokers |
 | QuoteProbe | listing-time buy/transfer simulation (always reverts) | owner |
-| TrampWallManager | limit bands | owner: keeper tip ≤ 1% |
+| TrampWallManager | not deployed for launch | n/a |
 | ReferralRegistry | referrals | owner + attester key |
 | RewardsVault | sniper-escrow pool | owner pays out |
 | AnonLauncher | hidden launches (stealth owner, EIP-712) | owner: harvest pointer only (no launch fee: hidden launches are free, `launchFee` is the constant 0) |
@@ -95,7 +95,7 @@ These are **locked at deploy**, in this commit:
 - **Deploy on 4663:** the renounces and the fee-settings lock can't be turned off by env. `PRICER_POKER` is required. `SAFE` is optional: set, every contract that keeps an owner is nominated to it (two-step); unset, the deployer keeps those roles until `script/HandoverToSafe.s.sol` nominates the Safe. The script reads the wiring back before it finishes.
 - **Per coin:** mode, pair, creator tax, fee destination and caps are fixed at launch.
 
-**Still tunable** by the owner, which the deploy nominates to the protocol Safe. A timelock is operational (the Safe's own setup), not enforced in these contracts. Unless noted, these only affect new coins, routes or price reads:
+**Still tunable** by the owner, which the deploy nominates to the protocol Safe. The Safe is 2-of-3, with no timelock at launch (maker 2026-11-17); HandoverToSafe can put a TimelockController in front later (USE_TIMELOCK). Unless noted, these only affect new coins, routes or price reads:
 - **Launchpad:**
   - pair coin, pricer, probe;
   - trusted router, plus a router kill switch on curves (existing curves read the trusted list live);
