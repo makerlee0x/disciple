@@ -1,48 +1,42 @@
 "use client";
 /**
- * /leaderboard: Top pilots (round 2 "Leaderboard" board, maker 2026-11-13). The lobby shelf's board all the way down:
- * time window (Today / Week / Month / All time), rank by (Banked $ / Best % ($20+ in) / Orbits aboard / Crews), a podium
- * for the top three, the table with each pilot's record ("7 of 12 green"), the "What counts" rules, and beside it the
- * Best call card and You this week (main mode hook loop mockup, maker 2026-11-13). Board guardrails: lib/home/topPilots
- * BOARD_RULES. Opens on the shortest window that has anyone in it, like the lobby shelf. Real numbers only
- * (GET /api/leaderboard: the same indexed fills as the lobby); nobody yet ⇒ "The top spot is open".
+ * /leaderboard: Top pilots, ranked by cold hard cash (maker 2026-11-18). Two tabs:
+ *  - Traders: realized $ PnL per pilot for the window (24H / 7D / 30D / ALL), your rank pinned on top, the rockets
+ *    behind each pilot's PnL as a coin stack. Red pilots are ranked too, so everyone who cashed out has a rank.
+ *  - Positions: the window's biggest single cash-outs (one trip aboard one rocket): size, entry → exit mcap, PnL, %,
+ *    time aboard and when it closed.
+ * Same indexed fills and guardrails as the lobby (lib/home/topPilots BOARD_RULES). No rules tooltip, no subtitles.
+ * Duels / Crews tabs stay behind their flags.
  */
 import { LEAGUES, leagueProgress } from "@/lib/duel/season";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { withBase } from "@/lib/base-path";
 import { onWallet } from "@/lib/walletState"; // = lib/wallet's, without viem
 import { displayName } from "@/lib/defaultUsername";
 import { profileUrl } from "@/lib/profile";
-import { lightOf } from "@/components/home/rocketBits";
-import { tierAt } from "@/lib/flight/tiers";
-import { BOARD_WINDOWS, type BestCall, type BoardPilot, type BoardSort, type BoardWindow } from "@/lib/home/topPilots";
-import type { BoardResponse, CrewBoardResponse } from "@/lib/server/leaderboard";
-import { BOT_DUEL_HREF, CREW_ENABLED, LOGBOOK_ENABLED } from "@/lib/features";
+import { altShort, lightOf } from "@/components/home/rocketBits";
+import { isStoreSrc } from "@/lib/coinImages";
+import { BOARD_WINDOWS, type BoardPilot, type BoardWindow } from "@/lib/home/topPilots";
+import type { BoardCoin, BoardResponse, CrewBoardResponse, Named, PositionsResponse } from "@/lib/server/leaderboard";
+import { BOT_DUEL_HREF, CREW_ENABLED } from "@/lib/features";
 import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
 import AnimClip from "@/components/ui/AnimClip";
 
-type Sort = BoardSort | "crews" | "duel";
-const SORTS: { k: Sort; label: string; col: string }[] = [
-  { k: "pnl", label: "Banked", col: "Banked" },
-  { k: "pctGain", label: "Best %", col: "Best %" },
-  { k: "orbits", label: "Orbits", col: "Orbits" },
-  ...(CREW_ENABLED ? [{ k: "crews" as Sort, label: "Crews", col: "Orbits" }] : []),
+type Tab = "traders" | "positions" | "crews" | "duel";
+const TABS: { k: Tab; label: string }[] = [
+  { k: "traders", label: "Traders" },
+  { k: "positions", label: "Positions" },
+  ...(CREW_ENABLED ? [{ k: "crews" as Tab, label: "Crews" }] : []),
 ];
-const WIN_SHORT: Record<BoardWindow, string> = { day: "Today", week: "Week", month: "Month", all: "All" };
-const TOP_EYEBROW: Record<BoardWindow, string> = { day: "Today's top pilot", week: "This week's top pilot", month: "This month's top pilot", all: "Top pilot of all time" };
+const WIN_LABEL: Record<BoardWindow, string> = { day: "24H", week: "7D", month: "30D", all: "ALL" };
 
 export const LEADERBOARD_COPY = {
   title: "Top pilots",
-  cols: { rank: "#", pilot: "Pilot", flights: "Flights", record: "Record", banked: "Banked", crew: "Crew", green: "Green rockets", pilots: "Pilots" },
-  rules: {
-    title: "How you rank",
-    items: ["Banked: cashed-out profit after fees. Losses count.", "Best %: flights with $20+ in.", "Your own launches don't count."],
-    note: LOGBOOK_ENABLED ? "Tap a pilot for their logbook. Open bags stay hidden." : "Tap a pilot for their Hangar. Open bags stay hidden.",
-  },
-  bestCall: { eyebrow: { day: "Best call today", week: "Best call of the week", month: "Best call of the month", all: "Best call of the month" } as Record<BoardWindow, string>, boarded: "Boarded", cashed: "Cashed out", put: (v: string) => `on ${v} put in`, aboard: "aboard", open: (n: string) => (LOGBOOK_ENABLED ? `See ${n}'s logbook` : `See ${n}'s profile`) },
-  youWeek: { title: { day: "You today", week: "You this week", month: "You this month", all: "You, all time" } as Record<BoardWindow, string>, banked: "banked $", red: (n: number, v: string) => `${n} red ${n === 1 ? "flight" : "flights"}, -${v}`, none: "No cash-outs yet in this window." },
+  yourRank: "Your rank",
+  pnl: "PnL",
+  cols: { rank: "#", pilot: "Pilot", rocket: "Rocket", size: "Size", entry: "Entry → exit", pnl: "PnL", pct: "%", held: "Held", closed: "Closed", crew: "Crew", green: "Green rockets", pilots: "Pilots" },
   more: "Show 10 more",
   you: "You",
   emptyTitle: "The top spot is open",
@@ -50,116 +44,138 @@ export const LEADERBOARD_COPY = {
   duel: "Play a duel",
 } as const;
 
-const money = (v: number) => (Math.abs(v) >= 10 ? `$${Math.round(Math.abs(v)).toLocaleString("en-US")}` : `$${Math.abs(v).toFixed(2)}`);
-const signed = (v: number) => `${v < 0 ? "-" : "+"}${money(v)}`;
-const pctTxt = (v: number | null) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${Math.round(v).toLocaleString("en-US")}%`);
-function holdTxt(ms: number) {
-  const m = Math.round(ms / 60000);
-  if (m < 60) return `${m}m`;
+/** +$2,279,655.33 / -$846.33 */
+const cash = (v: number) => `$${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const signed = (v: number) => `${v < -0.004 ? "-" : "+"}${cash(v)}`;
+/** $1.1M / $82,987 / $420.50 */
+function size(v: number) {
+  if (v >= 1e6) return `$${(v / 1e6).toFixed(1).replace(/\.0$/, "")}M`;
+  if (v >= 1e5) return `$${(v / 1e3).toFixed(1).replace(/\.0$/, "")}K`;
+  return v >= 1000 ? `$${Math.round(v).toLocaleString("en-US")}` : `$${v.toFixed(2)}`;
+}
+const pctTxt = (v: number) => `${v >= 0 ? "+" : ""}${Math.abs(v) >= 1000 ? Math.round(v).toLocaleString("en-US") : v.toFixed(1)}%`;
+function dur(ms: number) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
   const h = Math.floor(m / 60);
-  if (h < 48) return `${h}h ${m % 60}m`;
+  if (h < 24) return `${h}h ${m % 60}m`;
   return `${Math.floor(h / 24)}d ${h % 24}h`;
 }
-/** The number a row is ranked by, in its own unit. */
-function metric(p: BoardPilot, s: BoardSort) {
-  return s === "pnl" ? signed(p.pnlUsd) : s === "pctGain" ? pctTxt(p.bestPct) : String(p.orbits);
+function ago(ts: number) {
+  const m = Math.max(0, Math.floor((Date.now() - ts) / 60000));
+  if (m < 1) return "now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
-function gapTxt(gap: number, s: BoardSort) {
-  return s === "pnl" ? money(gap) : s === "pctGain" ? `${Math.max(1, Math.round(gap))}%` : `${gap} ${gap === 1 ? "orbit" : "orbits"}`;
-}
-const recordTxt = (p: BoardPilot) => `${p.green} of ${p.green + p.red} green`;
-/** the right-most column next to the ranked number: Flights on Banked, Banked on the others */
-const lastTxt = (p: BoardPilot, s: BoardSort) => (s === "pnl" ? String(p.flights) : signed(p.pnlUsd));
-const nameOf = (p: BoardPilot) => displayName(p.username, p.wallet);
-const lvl = (p: BoardPilot, short = false) => (p.level ? `${short ? "Lvl" : "Level"} ${p.level}` : "");
-const hrefOf = (p: BoardPilot) => (p.username ? profileUrl(p.username) : `/u/${p.wallet}`);
+const nameOf = (p: { username?: string | null; wallet: string }) => displayName(p.username ?? null, p.wallet);
+const hrefOf = (p: { username?: string | null; wallet: string }) => (p.username ? profileUrl(p.username) : `/u/${p.wallet}`);
 
-const POD = [
-  { av: "radial-gradient(circle at 35% 30%, #FFE7A6, #C8902B)", medal: "#F2C14E", bloom: "#F2C14E" },
-  { av: "radial-gradient(circle at 35% 30%, #E7ECF5, #8C96AA)", medal: "#D7DCE6", bloom: "#C9D3E6" },
-  { av: "radial-gradient(circle at 35% 30%, #F2C3A0, #9A5A33)", medal: "#E3A47A", bloom: "#D58A55" },
-];
-
-function Podium({ rows, win, sort }: { rows: (BoardPilot & { rank: number })[]; win: BoardWindow; sort: BoardSort }) {
-  const order = [rows[1], rows[0], rows[2]];
+/** Pilot face: their profile picture, else their initial on their light colour. */
+function Face({ p, big }: { p: { username?: string | null; wallet: string } & Named; big?: boolean }) {
   return (
-    <div className="tp-podium" data-testid="lb-podium">
-      {order.map((p, i) => {
-        if (!p) return <div key={`e${i}`} className="tp-pod empty" aria-hidden />;
-        const k = p.rank - 1, first = p.rank === 1;
-        const sub = [lvl(p), p.crew ? `[${p.crew}]` : "", recordTxt(p)].filter(Boolean).join(" · ");
-        return (
-          <Link key={p.wallet} href={hrefOf(p)} className={`tp-pod r${p.rank}`} aria-label={`#${p.rank} ${nameOf(p)}`}>
-            <span className="tp-bloom" style={{ background: POD[k].bloom }} aria-hidden />
-            {first && <span className="r2-eb tp-topeb">{TOP_EYEBROW[win]}</span>}
-            <span className="tp-av" style={{ background: POD[k].av }} aria-hidden>
-              {(nameOf(p)[0] ?? "?").toUpperCase()}
-              <span className="tp-medal" style={{ background: POD[k].medal }}>{p.rank}</span>
-            </span>
-            <b className="r2-g tp-podname">{nameOf(p)}</b>
-            <span className="tp-podsub">{sub}</span>
-            <span className="r2-g tp-podval">{metric(p, sort)}</span>
-          </Link>
-        );
-      })}
-    </div>
+    <span className={`tp-av ${big ? "md" : "sm"}`} style={{ background: lightOf(p.wallet) }} aria-hidden>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {p.pfp ? <img src={withBase(p.pfp)} alt="" loading="lazy" decoding="async" /> : (nameOf(p).replace(/^@/, "")[0] ?? "?").toUpperCase()}
+    </span>
   );
 }
+/** Rocket mark: its moderated image, else its ticker's first letter. */
+function CoinMark({ token, c }: { token: string; c?: BoardCoin }) {
+  return (
+    <span className="tp-coin" style={{ background: lightOf(token) }} aria-hidden>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {c && isStoreSrc(c.icon) ? <img src={c.icon} alt="" loading="lazy" decoding="async" /> : (c?.ticker[0] ?? "?").toUpperCase()}
+    </span>
+  );
+}
+function Rank({ n }: { n: number }) {
+  return n <= 3 ? <span className={`tp-rm m${n}`} aria-label={`#${n}`}>{n}</span> : <span className="tp-rk">{n}</span>;
+}
 
-function Row({ p, sort, self }: { p: BoardPilot & { rank: number }; sort: BoardSort; self?: boolean }) {
+function TraderRow({ p, coins, self }: { p: BoardPilot & Named & { rank: number }; coins: Record<string, BoardCoin>; self?: boolean }) {
   const router = useRouter();
   const go = () => router.push(hrefOf(p));
-  const name = nameOf(p);
-  const tag = [lvl(p, true), p.crew ? `[${p.crew}]` : ""].filter(Boolean).join(" · ");
+  const more = p.flights - p.coins.length;
   return (
-    <div className={`tp-row${self ? " tp-me" : ""}`} role="link" tabIndex={0} onClick={go} onKeyDown={(e) => { if (e.key === "Enter") go(); }} aria-label={`#${p.rank} ${name}`}>
-      <span className="tp-rk">{p.rank}</span>
-      <div className="tp-who">
-        <span className="tp-av sm" style={{ background: lightOf(p.wallet) }} aria-hidden>{(name[0] ?? "?").toUpperCase()}</span>
-        <div><b>{self ? `${LEADERBOARD_COPY.you} · ${name}` : name} <span className="tp-tag">{tag}</span></b><span className="tp-p">{recordTxt(p)}</span></div>
+    <div className={`tp-trow${self ? " self" : ""}`} role="link" tabIndex={0} onClick={go} onKeyDown={(e) => { if (e.key === "Enter") go(); }} aria-label={`#${p.rank} ${nameOf(p)}`}>
+      <Rank n={p.rank} />
+      <Face p={p} big />
+      <div className="tp-tname"><b>{nameOf(p)}</b>{p.level ? <span>Lvl {p.level}</span> : null}</div>
+      <div className="tp-tpnl">
+        <b className={`r2-g ${p.pnlUsd < 0 ? "down" : "up"}`}>{signed(p.pnlUsd)}</b>
+        {p.coins.length > 0 && (
+          <span className="tp-stack">
+            {p.coins.map((t) => <CoinMark key={t} token={t} c={coins[t]} />)}
+            {more > 0 && <span className="tp-coin n">{more}+</span>}
+          </span>
+        )}
       </div>
-      <span className="tp-num up">{metric(p, sort)}</span>
-      <span className="tp-rec tp-d">{recordTxt(p)}</span>
-      <span className="tp-num tp-d tp-dim">{lastTxt(p, sort)}</span>
     </div>
   );
 }
 
-function BestCallCard({ c, win }: { c: BestCall; win: BoardWindow }) {
-  const name = displayName(c.username ?? null, c.wallet);
-  const href = !LOGBOOK_ENABLED ? hrefOf({ wallet: c.wallet, username: c.username ?? null } as BoardPilot) : `/logbook?wallet=${c.wallet}${c.username ? `&name=${encodeURIComponent(c.username)}` : ""}`;
-  const t = LEADERBOARD_COPY.bestCall;
+function YourRank({ me, face }: { me: (BoardPilot & Named & { rank: number }) | null; face: { wallet: string } }) {
+  const t = LEADERBOARD_COPY;
   return (
-    <section className="tp-call" aria-label={t.eyebrow[win]} data-testid="lb-bestcall">
-      <div className="tp-callhd">
-        <span className="tp-eb gold">{t.eyebrow[win]}</span>
-        <b className="r2-g tp-callname">{name} on {c.coinName ? `$${c.coinName}` : "a rocket"}</b>
-        <div className="tp-zones">
-          <div><span>{t.boarded}</span><b className="r2-g">{tierAt(c.boardedMcap).name}</b></div>
-          <svg width="28" height="16" viewBox="0 0 28 16" aria-hidden><path d="M2 8h22M18 2l6 6-6 6" stroke="#F3DFA8" strokeWidth="2" fill="none" /></svg>
-          <div><span>{t.cashed}</span><b className="r2-g gold">{tierAt(c.cashedMcap).name}</b></div>
-        </div>
-        <div className="tp-callnums">
-          <div><b className="r2-g up">{pctTxt(c.pct)}</b><span>{t.put(money(c.basisUsd))}</span></div>
-          <div><b className="r2-g">{holdTxt(c.aboardMs)}</b><span>{t.aboard}</span></div>
-        </div>
+    <div className="tp-mine" data-testid="lb-me">
+      <Face p={me ?? face} big />
+      <div className="tp-minerk"><span>{t.yourRank}</span><b className="r2-g"><i>#</i> {me ? me.rank.toLocaleString("en-US") : "—"}</b></div>
+      <div className="tp-minepnl"><span>{t.pnl}</span><b className={`r2-g ${me && me.pnlUsd < 0 ? "down" : "up"}`}>{signed(me?.pnlUsd ?? 0)}</b></div>
+    </div>
+  );
+}
+
+function Traders({ d, me }: { d: BoardResponse; me: string | null }) {
+  const [shown, setShown] = useState(10);
+  useEffect(() => { setShown(10); }, [d.window]);
+  const meLc = me?.toLowerCase();
+  return (
+    <section className="tp-card tp-traders" aria-label="Traders" data-testid="lb-traders">
+      {me && <YourRank me={d.me} face={{ wallet: me.toLowerCase() }} />}
+      <div className="tp-trows">
+        {d.rows.slice(0, shown).map((p) => <TraderRow key={p.wallet} p={p} coins={d.coins} self={p.wallet === meLc} />)}
       </div>
-      <div className="tp-callft"><Link href={href} prefetch={false} className="r2-btn tp-callbtn">{t.open(name)}</Link></div>
+      {d.rows.length > shown && <div className="tp-more"><button type="button" className="r2-btn tp-morebtn" onClick={() => setShown((n) => n + 10)}>{LEADERBOARD_COPY.more}</button></div>}
     </section>
   );
 }
 
-function YouCard({ me, win }: { me: (BoardPilot & { rank: number }) | null; win: BoardWindow }) {
-  const t = LEADERBOARD_COPY.youWeek;
+function PositionRow({ p, c, self }: { p: PositionsResponse["rows"][number]; c?: BoardCoin; self?: boolean }) {
+  const router = useRouter();
+  const go = () => router.push(hrefOf(p));
+  const tick = c ? `$${c.ticker}` : "—";
   return (
-    <section className="tp-card tp-you" aria-label={t.title[win]} data-testid="lb-you">
-      <span className="tp-eb">{t.title[win]}</span>
-      {me ? (
-        <div className="tp-youbody">
-          <div><b className="r2-g">#{me.rank}</b><span>{t.banked}</span></div>
-          <div className="r"><b className={`r2-g ${me.pnlUsd >= 0 ? "up" : "down"}`}>{signed(me.pnlUsd)}</b>{me.red > 0 && <span>{t.red(me.red, money(me.lostUsd))}</span>}</div>
-        </div>
-      ) : <p className="tp-younone">{t.none}</p>}
+    <div className={`tp-prow${p.rank <= 3 ? ` m${p.rank}` : ""}${self ? " self" : ""}`} role="link" tabIndex={0} onClick={go} onKeyDown={(e) => { if (e.key === "Enter") go(); }} aria-label={`#${p.rank} ${nameOf(p)} ${tick}`}>
+      <Rank n={p.rank} />
+      <div className="tp-pwho"><Face p={p} /><b>{nameOf(p)}</b></div>
+      <div className="tp-pcoin"><CoinMark token={p.coin} c={c} /><b>{tick}</b><span className="tp-p">{nameOf(p)}</span></div>
+      <span className="tp-pc tp-d">{size(p.sizeUsd)}</span>
+      <span className="tp-pc tp-d tp-pmc">{altShort(p.entryMcap)}<i>→</i>{altShort(p.exitMcap)}</span>
+      <div className="tp-ppnl"><b className="r2-g up">{signed(p.pnlUsd)}</b><span className="tp-p">{pctTxt(p.pct)} · {dur(p.closedAt - p.openedAt)}</span></div>
+      <span className="tp-pc tp-d up">{pctTxt(p.pct)}</span>
+      <span className="tp-pc tp-d tp-dim">{dur(p.closedAt - p.openedAt)}</span>
+      <span className="tp-pc tp-d tp-dim">{ago(p.closedAt)}</span>
+    </div>
+  );
+}
+
+function Positions({ d, me }: { d: PositionsResponse; me: string | null }) {
+  const [shown, setShown] = useState(10);
+  useEffect(() => { setShown(10); }, [d.window]);
+  const c = LEADERBOARD_COPY.cols, meLc = me?.toLowerCase();
+  return (
+    <section className="tp-card tp-positions" aria-label="Positions" data-testid="lb-positions">
+      <div className="tp-pth tp-d" aria-hidden>
+        <span>{c.rank}</span><span>{c.pilot}</span><span>{c.rocket}</span><span>{c.size}</span><span>{c.entry}</span><span>{c.pnl}</span><span>{c.pct}</span><span>{c.held}</span><span>{c.closed}</span>
+      </div>
+      <div className="tp-prows">
+        {d.rows.slice(0, shown).map((p) => <PositionRow key={`${p.wallet}${p.coin}${p.openedAt}`} p={p} c={d.coins[p.coin]} self={p.wallet === meLc} />)}
+      </div>
+      {d.rows.length > shown && <div className="tp-more"><button type="button" className="r2-btn tp-morebtn" onClick={() => setShown((n) => n + 10)}>{LEADERBOARD_COPY.more}</button></div>}
     </section>
   );
 }
@@ -192,7 +208,6 @@ export const DUEL_BOARD_COPY = {
   cols: { rank: "#", pilot: "Pilot", rating: "Rating", record: "Record", peak: "Best" },
   emptyTitle: "No ranked duels yet",
   play: "Find a duel",
-  rules: { title: "How duel rating works", items: ["Seasons run monthly. Win +30 (+25 max streak bonus), lose −15. Rookie to Champion.", "Rating starts at 1,200. Upsets swing more.", "First 10 duels move faster.", "Ranked only. Friendlies and bots don't count."] },
 } as const;
 const recTxt = (r: DuelRow) => `${r.w}-${r.l}`;
 function DuelTable({ d, meLc }: { d: DuelBoardRes; meLc?: string }) {
@@ -252,186 +267,109 @@ function SeasonLadder({ d }: { d: SeasonRes }) {
   );
 }
 
-/** Scoring rules behind a small ⓘ next to the title (subcopy pass, maker 2026-11-17: no permanent rules panel or page sub). */
-function Rules({ duel }: { duel?: boolean }) {
-  const r = duel ? { ...DUEL_BOARD_COPY.rules, note: "" } : LEADERBOARD_COPY.rules;
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const off = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("pointerdown", off); document.addEventListener("keydown", esc);
-    return () => { document.removeEventListener("pointerdown", off); document.removeEventListener("keydown", esc); };
-  }, [open]);
-  return (
-    <span className="tp-info" ref={box}>
-      <button type="button" className="tp-ibtn" aria-label={r.title} aria-expanded={open} onClick={() => setOpen((v) => !v)} data-testid="lb-rules-info">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><circle cx="12" cy="12" r="8.5" /><path d="M12 11v5.25" /><circle cx="12" cy="7.85" r="1" fill="currentColor" stroke="none" /></svg>
-      </button>
-      {open && (
-        <section className="tp-rules tp-pop" role="dialog" aria-label={r.title}>
-          <span className="tp-eb">{r.title}</span>
-          <ul>{r.items.map((x) => <li key={x}>{x}</li>)}</ul>
-          {r.note && <p className="tp-note">{r.note}</p>}
-        </section>
-      )}
-    </span>
-  );
-}
-
 export default function LeaderboardView() {
   const [win, setWin] = useState<BoardWindow>("day");
-  const [sort, setSort] = useState<Sort>("pnl");
+  const [tab, setTab] = useState<Tab>("traders");
   const [me, setMe] = useState<string | null>(null);
-  const [data, setData] = useState<BoardResponse | null>(null);
+  const [traders, setTraders] = useState<BoardResponse | null>(null);
+  const [positions, setPositions] = useState<PositionsResponse | null>(null);
   const [crews, setCrews] = useState<CrewBoardResponse | null>(null);
-  const [mine, setMine] = useState<(BoardPilot & { rank: number }) | null>(null);
-  const [shown, setShown] = useState(10);
   const [duel, setDuel] = useState<DuelBoardRes | null>(null);
   const [season, setSeason] = useState<SeasonRes | null>(null);
   const picked = useRef(false);
   useEffect(() => onWallet((a) => setMe(a ?? null)), []);
-  const duelOpen = sort === "duel";
-  // Duels tab: only when the duel board answers (Turbo pass), refreshed when it opens
+  const isDuel = tab === "duel";
+  // Duels tab: ranked = real money only (lib/duel/season DUEL_RANKED_LIVE); shows only when the duel board answers
   useEffect(() => {
-    // ranked = real money only (lib/duel/season DUEL_RANKED_LIVE): no Duels board while duels are play money
     if (!DUEL_RANKED_LIVE) return;
     let alive = true;
     const q = me ? `?me=${me}` : "";
     fetch(withBase(`/api/duel/board${q}`)).then((r) => (r.ok ? r.json() : null)).then((d: DuelBoardRes | null) => { if (alive && d?.ok) setDuel(d); }).catch(() => {});
-    if (duelOpen) fetch(withBase(`/api/duel/board?board=season${me ? `&me=${me}` : ""}`)).then((r) => (r.ok ? r.json() : null)).then((d: SeasonRes | null) => { if (alive && d?.ok) setSeason(d); }).catch(() => {});
+    if (isDuel) fetch(withBase(`/api/duel/board?board=season${me ? `&me=${me}` : ""}`)).then((r) => (r.ok ? r.json() : null)).then((d: SeasonRes | null) => { if (alive && d?.ok) setSeason(d); }).catch(() => {});
     return () => { alive = false; };
-  }, [me, duelOpen]);
+  }, [me, isDuel]);
 
   useEffect(() => {
-    if (sort === "duel") return;
+    if (isDuel) return;
     let alive = true;
+    const sort = tab === "traders" ? "pnl" : tab;
     const q = new URLSearchParams({ window: win, sort });
-    if (me) q.set("me", me);
-    fetch(withBase(`/api/leaderboard?${q}`)).then((r) => (r.ok ? r.json() : null)).then((d: BoardResponse | CrewBoardResponse | null) => {
-      if (!alive || !d) return;
+    if (me && sort !== "positions") q.set("me", me);
+    const empty = () => {
+      if (tab === "positions") setPositions({ window: win, sort: "positions", rows: [], coins: {} });
+      else if (tab === "traders") setTraders({ window: win, sort: "pnl", rows: [], coins: {}, counts: { day: 0, week: 0, month: 0, all: 0 }, me: null, bestCall: null });
+    };
+    fetch(withBase(`/api/leaderboard?${q}`)).then((r) => (r.ok ? r.json() : null)).then((d: BoardResponse | CrewBoardResponse | PositionsResponse | null) => {
+      if (!alive) return;
+      if (!d) { empty(); return; }
       if (d.sort === "crews") { setCrews(d); return; }
+      if (d.sort === "positions") { setPositions(d); return; }
       // open on the shortest window that has anyone in it (once), like the lobby shelf
       if (!picked.current) {
         picked.current = true;
         const first = BOARD_WINDOWS.find((w) => d.counts[w.k] > 0)?.k;
         if (first && first !== win && d.counts[win] === 0) { setWin(first); return; }
       }
-      setData(d);
-      if (d.sort === "pnl") setMine(d.me);
-    }).catch(() => { if (alive) setData({ window: win, sort: sort === "crews" ? "pnl" : sort, rows: [], counts: { day: 0, week: 0, month: 0, all: 0 }, me: null, bestCall: null }); });
+      setTraders(d);
+    }).catch(() => { if (alive) empty(); });
     return () => { alive = false; };
-  }, [win, sort, me]);
-  // You this week always shows the Banked rank: fetch it once per window when another tab is open
-  useEffect(() => {
-    if (!me || sort === "pnl" || sort === "duel") return;
-    let alive = true;
-    fetch(withBase(`/api/leaderboard?${new URLSearchParams({ window: win, sort: "pnl", me })}`)).then((r) => (r.ok ? r.json() : null)).then((d: BoardResponse | null) => { if (alive && d) setMine(d.me); }).catch(() => {});
-    return () => { alive = false; };
-  }, [win, me, sort]);
-  useEffect(() => { setShown(10); }, [win, sort]);
+  }, [win, tab, me, isDuel]);
 
-  const isCrews = sort === "crews", isDuel = sort === "duel";
-  const ps: BoardSort = isCrews || isDuel ? "pnl" : sort;
-  const rows = data && data.sort === ps ? data.rows : [];
-  const rest = useMemo(() => rows.slice(3, shown), [rows, shown]);
-  const meRow = data?.me ?? null;
-  const meLc = me?.toLowerCase();
-  const pinned = meRow && meRow.rank > Math.min(shown, rows.length) ? meRow : null;
-  const meNote = meRow ? [lvl(meRow), meRow.rank > 1 && meRow.gap > 0 ? `${gapTxt(meRow.gap, ps)} to pass #${meRow.rank - 1}` : ""].filter(Boolean).join(" · ") : "";
-  const col = SORTS.find((s) => s.k === sort)?.col ?? "";
-  const last = ps === "pnl" ? LEADERBOARD_COPY.cols.flights : LEADERBOARD_COPY.cols.banked;
-  const call = (isCrews ? crews?.bestCall : data?.bestCall) ?? null;
-  const loading = isDuel ? !duel : isCrews ? !crews || crews.window !== win : !data;
+  const loading = isDuel ? !duel
+    : tab === "crews" ? !crews || crews.window !== win
+    : tab === "positions" ? !positions || positions.window !== win
+    : !traders || traders.window !== win;
+  const emptyBoard = (
+    <section className="tp-card tp-empty" data-testid="lb-empty">
+      <AnimClip id="A5-podium-empty" ratio="none" loop poster whenVisible className="tp-emptyvid" />
+      <span className="r2-eb">{WIN_LABEL[win]}</span>
+      <b className="r2-g">{LEADERBOARD_COPY.emptyTitle}</b>
+      <div className="tp-acts">
+        <Link href="/play" prefetch={false} className="r2-gold tp-play">{LEADERBOARD_COPY.play}</Link>
+        <Link href={BOT_DUEL_HREF} prefetch={false} className="r2-gold tp-play tp-play2" data-testid="lb-empty-duel">{LEADERBOARD_COPY.duel}</Link>
+      </div>
+    </section>
+  );
 
   return (
-    <div className="tp-page" data-testid="leaderboard">
+    <div className={`tp-page${tab === "traders" ? " t-traders" : ""}`} data-testid="leaderboard">
       <div className="tp-head">
-        <div>
-          <div className="tp-title"><h1 className="r2-g">{LEADERBOARD_COPY.title}</h1><Rules duel={isDuel} /></div>
+        <h1 className="r2-g">{LEADERBOARD_COPY.title}</h1>
+      </div>
+      <div className="tp-bar">
+        <div className="tp-tabs" role="tablist" aria-label="Board">
+          {TABS.map((s) => (
+            <button key={s.k} type="button" role="tab" aria-selected={tab === s.k} className={tab === s.k ? "on" : ""} onClick={() => setTab(s.k)}>{s.label}</button>
+          ))}
+          {duel && <button type="button" role="tab" aria-selected={isDuel} className={isDuel ? "on" : ""} onClick={() => setTab("duel")} data-testid="lb-duel-tab">{DUEL_BOARD_COPY.tab}</button>}
         </div>
-        {!isDuel && <div className="tp-seg" role="tablist" aria-label="Time window">
+        {!isDuel && <div className="tp-wins" role="tablist" aria-label="Time window">
           {BOARD_WINDOWS.map((w) => (
-            <button key={w.k} type="button" role="tab" aria-selected={win === w.k} className={win === w.k ? "on" : ""} onClick={() => { picked.current = true; setWin(w.k); }}>
-              <span className="tp-d">{w.label}</span><span className="tp-p">{WIN_SHORT[w.k]}</span>
-            </button>
+            <button key={w.k} type="button" role="tab" aria-selected={win === w.k} className={win === w.k ? "on" : ""} onClick={() => { picked.current = true; setWin(w.k); }}>{WIN_LABEL[w.k]}</button>
           ))}
         </div>}
       </div>
-      <div className="tp-sorts" role="tablist" aria-label="Rank by">
-        {SORTS.map((s) => (
-          <button key={s.k} type="button" role="tab" aria-selected={sort === s.k} className={sort === s.k ? "on" : ""} onClick={() => setSort(s.k)}>{s.label}</button>
-        ))}
-        {duel && <button type="button" role="tab" aria-selected={isDuel} className={isDuel ? "on" : ""} onClick={() => setSort("duel")} data-testid="lb-duel-tab">{DUEL_BOARD_COPY.tab}</button>}
-      </div>
 
-      <div className="tp-cols">
-        <div className="tp-main">
-          {loading ? (
-            <div className="tp-loading" aria-busy="true" />
-          ) : isDuel ? (
-            duel && duel.rows.length ? <>{season && <SeasonLadder d={season} />}<DuelTable d={duel} meLc={me?.toLowerCase()} /></> : (
-              <section className="tp-card tp-empty" data-testid="lb-empty">
-                <AnimClip id="A5-podium-empty" ratio="none" loop poster whenVisible className="tp-emptyvid" />
-                <div className="tp-emptybloom" aria-hidden />
-                <span className="r2-eb">All time</span>
-                <b className="r2-g">{DUEL_BOARD_COPY.emptyTitle}</b>
-                <Link href="/turbo/duel" prefetch={false} className="r2-gold tp-play">{DUEL_BOARD_COPY.play}</Link>
-              </section>
-            )
-          ) : isCrews ? (
-            crews && crews.crews.length ? <CrewTable d={crews} /> : (
-              <section className="tp-card tp-empty" data-testid="lb-empty">
-                <span className="r2-eb">{BOARD_WINDOWS.find((w) => w.k === win)!.label}</span>
-                <b className="r2-g">No crews yet</b>
-                <Link href="/crew" prefetch={false} className="r2-gold tp-play">Find a crew</Link>
-              </section>
-            )
-          ) : rows.length === 0 ? (
-            <section className="tp-card tp-empty" data-testid="lb-empty">
-              <AnimClip id="A5-podium-empty" ratio="none" loop poster whenVisible className="tp-emptyvid" />
-              <span className="r2-eb">{BOARD_WINDOWS.find((w) => w.k === win)!.label}</span>
-              <b className="r2-g">{LEADERBOARD_COPY.emptyTitle}</b>
-              <div className="tp-acts">
-                <Link href="/play" prefetch={false} className="r2-gold tp-play">{LEADERBOARD_COPY.play}</Link>
-                <Link href={BOT_DUEL_HREF} prefetch={false} className="r2-gold tp-play tp-play2" data-testid="lb-empty-duel">{LEADERBOARD_COPY.duel}</Link>
-              </div>
-            </section>
-          ) : (
-            <>
-              <Podium rows={rows} win={win} sort={ps} />
-              {(rest.length > 0 || pinned) && (
-                <section className="tp-card tp-table" aria-label="Rankings">
-                  <div className="tp-th tp-d" aria-hidden><span>{LEADERBOARD_COPY.cols.rank}</span><span>{LEADERBOARD_COPY.cols.pilot}</span><span>{col}</span><span>{LEADERBOARD_COPY.cols.record}</span><span>{last}</span></div>
-                  <div className="tp-rows">
-                    {rest.map((p) => <Row key={p.wallet} p={p} sort={ps} self={p.wallet === meLc} />)}
-                  </div>
-                  {rows.length > shown && (
-                    <div className="tp-more"><button type="button" className="r2-btn tp-morebtn" onClick={() => setShown((n) => n + 10)}>{LEADERBOARD_COPY.more}</button></div>
-                  )}
-                  {pinned && (
-                    <div className="tp-row tp-me" aria-label="Your rank" data-testid="lb-me">
-                      <span className="tp-rk">{pinned.rank}</span>
-                      <div className="tp-who">
-                        <span className="tp-av sm ring tp-d" aria-hidden>{pinned.level ?? "·"}</span>
-                        <div><b><span className="tp-d">{LEADERBOARD_COPY.you} · {nameOf(pinned)}</span><span className="tp-p">{LEADERBOARD_COPY.you}</span></b><span>{meNote}</span></div>
-                      </div>
-                      <span className="tp-num up">{metric(pinned, ps)}</span>
-                      <span className="tp-rec tp-d">{recordTxt(pinned)}</span>
-                      <span className="tp-num tp-d tp-dim">{lastTxt(pinned, ps)}</span>
-                    </div>
-                  )}
-                </section>
-              )}
-            </>
-          )}
-        </div>
-        <aside className="tp-side">
-          {!isDuel && call && <BestCallCard c={call} win={win} />}
-          {!isDuel && me && <YouCard me={mine} win={win} />}
-        </aside>
-      </div>
+      {loading ? (
+        <div className="tp-loading" aria-busy="true" />
+      ) : isDuel ? (
+        duel && duel.rows.length ? <>{season && <SeasonLadder d={season} />}<DuelTable d={duel} meLc={me?.toLowerCase()} /></> : (
+          <section className="tp-card tp-empty" data-testid="lb-empty">
+            <AnimClip id="A5-podium-empty" ratio="none" loop poster whenVisible className="tp-emptyvid" />
+            <b className="r2-g">{DUEL_BOARD_COPY.emptyTitle}</b>
+            <Link href="/turbo/duel" prefetch={false} className="r2-gold tp-play">{DUEL_BOARD_COPY.play}</Link>
+          </section>
+        )
+      ) : tab === "crews" ? (
+        crews && crews.crews.length ? <CrewTable d={crews} /> : (
+          <section className="tp-card tp-empty" data-testid="lb-empty">
+            <b className="r2-g">No crews yet</b>
+            <Link href="/crew" prefetch={false} className="r2-gold tp-play">Find a crew</Link>
+          </section>
+        )
+      ) : tab === "positions" ? (
+        positions && positions.rows.length ? <Positions d={positions} me={me} /> : emptyBoard
+      ) : traders && (traders.rows.length || traders.me) ? <Traders d={traders} me={me} /> : emptyBoard}
     </div>
   );
 }

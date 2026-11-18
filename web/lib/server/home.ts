@@ -18,7 +18,7 @@ import { pairOf, pairSymOf, shortHex } from "@/lib/home/pairs";
 import { isHiddenCoin } from "@/lib/home/hiddenCoins";
 import { flaggedCopySet } from "@/lib/server/nameLock";
 import { chipOf, lobbyAgeTokens, pickHero, statsFromFills, type HomeCoin, type HomeData } from "@/lib/home/trending";
-import { bestCalls, pilotBoard, topPilots, tickerOf, type BestCalls, type BoardOpts, type PilotBoard, type TickerItem, type TopPilots } from "@/lib/home/topPilots";
+import { bestCalls, pilotBoard, positionBoard, type PositionBoard, topPilots, tickerOf, type BestCalls, type BoardOpts, type PilotBoard, type TickerItem, type TopPilots } from "@/lib/home/topPilots";
 import { levelInfo } from "@/lib/xp";
 import { resolveKeys } from "./imageStore";
 import { usernameOf } from "./usernames";
@@ -28,7 +28,7 @@ import { indexTrades, tradesOf } from "./trades";
 const CACHE_MS = 15_000;
 const FILLS_CAP = 2000;
 const MAX_COINS = 120;
-const g = globalThis as unknown as { __dscHome?: { at: number; v: HomeData }; __dscHomeP?: Promise<HomeData> | null; __dscBoard?: { at: number; v: PilotBoard } };
+const g = globalThis as unknown as { __dscHome?: { at: number; v: HomeData }; __dscHomeP?: Promise<HomeData> | null; __dscBoard?: { at: number; v: PilotBoard }; __dscPositions?: { at: number; v: PositionBoard } };
 
 const timeout = <T,>(p: Promise<T>, ms: number, fallback: T) =>
   Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
@@ -104,6 +104,7 @@ async function build(): Promise<HomeData> {
   for (const k of Object.keys(calls) as (keyof BestCalls)[]) { const c = calls[k]; if (c) c.coinName = coins.find((x) => x.token === c.coin)?.ticker ?? ""; }
   // the full /leaderboard (lib/server/leaderboard) ranks from the same fills; kept server side, not in HomeData
   g.__dscBoard = { at: now, v: pilotBoard(fillsBy, now, opts) };
+  g.__dscPositions = { at: now, v: positionBoard(fillsBy, now, opts) };
   const ticker = tickerOf(fillsBy, new Map(coins.map((c) => [c.token, c.name])));
   await timeout(namePilots(pilots, ticker, calls), 2_500, undefined);
   return { at: now, coins, ...pick, chips, pilots, bestCalls: calls, ticker };
@@ -131,6 +132,12 @@ async function namePilots(pilots: TopPilots, ticker: TickerItem[], calls?: BestC
 export async function getPilotBoard(budgetMs = 9_000): Promise<PilotBoard | null> {
   await getHomeData(budgetMs);
   return g.__dscBoard?.v ?? null;
+}
+
+/** Each window's best single cash-outs (lib/home/topPilots positionBoard), from the last home build; null before the first. */
+export async function getPositionBoard(budgetMs = 9_000): Promise<PositionBoard | null> {
+  await getHomeData(budgetMs);
+  return g.__dscPositions?.v ?? null;
 }
 
 /** Home data, cached CACHE_MS; never throws (empty state on failure). */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BOARD_RULES, bestCalls, gapToNext, pilotBoard, rankBoard, topPilots } from "@/lib/home/topPilots";
+import { BOARD_RULES, bestCalls, gapToNext, pilotBoard, positionBoard, rankBoard, topPilots } from "@/lib/home/topPilots";
 import type { Fill } from "@/lib/trades";
 
 const H = 3600_000, NOW = 100 * H;
@@ -72,5 +72,29 @@ describe("board guardrails (maker, Nov 13)", () => {
     const b = pilotBoard(fills, NOW, { graduated: new Set(["g1"]) });
     expect(rankBoard(b.day, "orbits").map((p) => p.wallet).sort()).toEqual(["0xa", "0xb"]);
     expect(rankBoard(pilotBoard(fills, NOW).day, "orbits")).toEqual([]);
+  });
+});
+
+describe("cash board (maker, Nov 18)", () => {
+  it("PnL ranks red pilots too, and names the rockets behind the PnL", () => {
+    const fills = [
+      [f("0xr", "c1", "buy", 10, 100, NOW - 5 * H), f("0xr", "c1", "sell", 10, 60, NOW - 4 * H)],
+      [f("0xg", "c2", "buy", 10, 10, NOW - 5 * H), f("0xg", "c2", "sell", 10, 30, NOW - 4 * H)],
+      [f("0xg", "c3", "buy", 10, 10, NOW - 5 * H), f("0xg", "c3", "sell", 10, 80, NOW - 4 * H)],
+    ];
+    const ranked = rankBoard(pilotBoard(fills, NOW).day, "pnl");
+    expect(ranked.map((p) => [p.wallet, p.pnlUsd])).toEqual([["0xg", 90], ["0xr", -40]]);
+    expect(ranked[0].coins).toEqual(["c3", "c2"]);
+  });
+  it("positions: one row per trip aboard, partial sells summed, winners only", () => {
+    const fills = [[
+      f("0xa", "c1", "buy", 100, 100, NOW - 6 * H, 10_000),
+      f("0xa", "c1", "sell", 50, 150, NOW - 5 * H, 40_000),
+      f("0xa", "c1", "sell", 50, 250, NOW - 4 * H, 60_000),
+      f("0xb", "c1", "buy", 10, 100, NOW - 6 * H), f("0xb", "c1", "sell", 10, 50, NOW - 5 * H),
+    ]];
+    const day = positionBoard(fills, NOW).day;
+    expect(day).toHaveLength(1);
+    expect(day[0]).toMatchObject({ wallet: "0xa", coin: "c1", sizeUsd: 100, pnlUsd: 300, pct: 300, entryMcap: 10_000, exitMcap: 60_000, openedAt: NOW - 6 * H, closedAt: NOW - 4 * H });
   });
 });
