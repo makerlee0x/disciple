@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_PUSH_PREFS, pushCopy, readPrefs } from "@/lib/push";
 
 describe("push alerts", () => {
-  it("only orbit is on by default; unknown keys are ignored", () => {
-    expect(DEFAULT_PUSH_PREFS).toEqual({ orbit: true, host: false, crew: false });
-    expect(readPrefs({ host: true, evil: true, orbit: "yes" })).toEqual({ orbit: true, host: true, crew: false });
+  it("orbit, launch milestones, duel requests and market sales are on by default; unknown keys are ignored", () => {
+    expect(DEFAULT_PUSH_PREFS).toEqual({ orbit: true, host: true, crew: false, duel: true, market: true });
+    expect(readPrefs({ host: false, evil: true, orbit: "yes", market: false })).toEqual({ orbit: true, host: false, crew: false, duel: true, market: false });
     expect(readPrefs(null)).toEqual(DEFAULT_PUSH_PREFS);
   });
   it("copy names what happened, never a trade", () => {

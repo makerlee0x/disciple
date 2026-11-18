@@ -30,6 +30,7 @@ import { OT_MS } from "@/lib/duel/rules";
 import { armMatch, buzzer, sleep } from "@/lib/server/lighter/match";
 import { depositAddress, depositChain, depositMins, depositStatus } from "@/lib/server/lighter/bridge";
 import { finishWithdraw, startWithdraw, withdrawable } from "@/lib/server/lighter/withdraw";
+import { noteTurboIn, noteTurboOut } from "@/lib/server/cashHistory";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
 import { body, out, pilotOf, requirePass } from "@/lib/server/duel/http";
@@ -107,7 +108,11 @@ export async function POST(req: Request) {
         return out(200, { ok: true, ...(await finishSigned(cfg, me.pid, b.op === "key-finish" ? "key" : "approve", b.sig)) });
       }
       case "tier": await setTier(cfg, me.pid); return out(200, { ok: true });
-      case "deposit-address": return out(200, { ok: true, ...(await depositAddress(me.pid, Number(b.usd) || undefined)), ...depositMins(cfg), chainId: depositChain(cfg) });
+      case "deposit-address": {
+        const d = await depositAddress(me.pid, Number(b.usd) || undefined);
+        await noteTurboIn(me.pid, d.address);   // the Flight log labels cash sent here as Turbo cash
+        return out(200, { ok: true, ...d, ...depositMins(cfg), chainId: depositChain(cfg) });
+      }
       case "deposit-status": return out(200, { ok: true, ...(await depositStatus(me.pid)) });
       case "tier-info": return out(200, { ok: true, ...(await tierInfo(cfg, me.pid)) });
       case "withdraw-info": return out(200, { ok: true, ...(await withdrawable(cfg, me.pid)) });
@@ -118,7 +123,9 @@ export async function POST(req: Request) {
       }
       case "withdraw-finish": {
         if (typeof b.sig !== "string" || !/^0x[0-9a-fA-F]+$/.test(b.sig)) throw new LighterError(400, "Bad signature.");
-        return out(200, { ok: true, ...(await finishWithdraw(cfg, me.pid, b.sig)) });
+        const w = await finishWithdraw(cfg, me.pid, b.sig);
+        await noteTurboOut(me.pid, w.usd);   // the Flight log labels the cash that lands next as from Turbo
+        return out(200, { ok: true, ...w });
       }
       default: throw new LighterError(400, "Unknown op.");
     }

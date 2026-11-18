@@ -599,6 +599,7 @@ textarea.he-ta { min-height: 76px; padding: 12px 14px; resize: none; display: bl
 .am-tacts { display: flex; gap: 8px; margin-top: 4px; }
 .am-tacts .r2-gold { width: auto; min-height: 38px; font-size: 16px; padding: 0 14px; }
 .am-tacts .r2-btn { min-height: 38px; }
+.am-tacts a.r2-gold { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 @keyframes amIn { from { opacity: 0; transform: translateY(-6px); } }
 @media (max-width: 720px) { .am-toast { left: 16px; right: 16px; width: auto; top: calc(var(--ap-safe-top, 0px) + 68px); } }
 @media (prefers-reduced-motion: reduce) { .am-toast { animation: none; } .am-spin { animation: none; } }

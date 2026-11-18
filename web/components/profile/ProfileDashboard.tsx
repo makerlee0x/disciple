@@ -20,14 +20,16 @@ import IdentitySigil from "./IdentitySigil";
 import BioText from "./BioText";
 import Pager, { pageCount, pageSlice } from "./Pager";
 import { useLivePortfolio } from "./LiveHoldings";
-import { useRealActivity } from "./RealActivity";
+import { useCashHistory, useRealActivity } from "./RealActivity";
+import type { CashKind, CashRow } from "@/lib/cashHistory";
+import { ACTIVE_CHAIN } from "@/lib/chains";
 import PortfolioBlock from "./PortfolioBlock";
 import { ChestGlyph } from "./Glyphs";
 import { agoLabel, usd2 } from "./money";
 import RewardsPopup from "@/components/claims/RewardsPopup";
 import { useRewards } from "@/components/claims/useRewards";
 import InvitesCard from "@/components/invites/InvitesCard";
-import Icon from "@/components/icons/Icon";
+import Icon, { type IconName } from "@/components/icons/Icon";
 import type { ActivityItem } from "@/lib/stats";
 import type { LifetimeRow } from "@/lib/server/leaderboard";
 import PointsShare from "@/components/points/PointsShare";
@@ -43,10 +45,44 @@ const PAGE = { activity: 12 } as const;
 /** The app's Hangar jump row: section heading id → label. */
 const HANGAR_JUMPS = [["hg-looks", "Your rocket"], ["hg-trophies", "Trophies"], ["hg-fleet", "Fleet"], ["hg-log", "Flight log"]] as const;
 
-/** Activity (real trades only): ↑ BOOST / ↓ DUMP · rocket · dollars · when. */
-function Activity({ rows, isPrivate, owner }: { rows: ActivityItem[] | null; isPrivate: boolean; owner: string }) {
+/** Flight log row looks: chip label, icon, colour (up = green; plain = no tint). */
+const LOG_KIND: Record<ActivityItem["kind"] | CashKind, { label: string; icon: IconName; tone: "up" | "down" | "" }> = {
+  buy: { label: "BOOST", icon: "arrow-up", tone: "up" },
+  sell: { label: "DUMP", icon: "arrow-down", tone: "down" },
+  bomb: { label: "DUMP", icon: "arrow-down", tone: "down" },
+  bought: { label: "BOUGHT", icon: "wallet", tone: "" },
+  sold: { label: "SOLD", icon: "check", tone: "up" },
+  deposit: { label: "DEPOSIT", icon: "plus", tone: "up" },
+  withdraw: { label: "WITHDRAW", icon: "minus", tone: "" },
+  "turbo-in": { label: "TURBO IN", icon: "bolt", tone: "" },
+  "turbo-out": { label: "TURBO OUT", icon: "bolt", tone: "up" },
+  fees: { label: "FEES", icon: "fees", tone: "up" },
+  rewards: { label: "REWARDS", icon: "gift", tone: "up" },
+};
+const CASH_TEXT: Partial<Record<CashKind, string>> = { "turbo-in": "Turbo cash", "turbo-out": "Turbo cash", fees: "Creator fees", rewards: "Rewards" };
+type LogRow = { id: string; ts: number; kind: keyof typeof LOG_KIND; text: string; usd?: number; href?: string; ext?: boolean };
+const txUrl = (tx?: string) => { const b = ACTIVE_CHAIN.blockExplorers?.default.url; return b && tx && /^0x[0-9a-fA-F]{64}$/.test(tx) ? `${b}/tx/${tx}` : undefined; };
+
+/** Trades (BOOST / DUMP) and, on your own Hangar, every cash move, newest first. A cash row in a trade's tx is dropped. */
+function logRows(trades: ActivityItem[], cash: CashRow[] | null): LogRow[] {
+  const tradeTx = new Set(trades.map((a) => a.id.split(":")[0].toLowerCase()));
+  const rows: LogRow[] = trades.map((a) => ({ id: a.id, ts: a.ts, kind: a.kind, text: a.text, usd: a.usd, href: a.coin ? `/coin/${a.coin}` : undefined }));
+  for (const c of cash ?? []) {
+    if (c.tx && tradeTx.has(c.tx.toLowerCase())) continue;
+    const market = c.kind === "bought" || c.kind === "sold";
+    rows.push({
+      id: `cash:${c.id}`, ts: c.ts, kind: c.kind, usd: c.usd, text: c.text ?? CASH_TEXT[c.kind] ?? "",
+      ...(txUrl(c.tx) ? { href: txUrl(c.tx), ext: true } : market ? { href: "/market" } : {}),
+    });
+  }
+  return rows.sort((a, b) => b.ts - a.ts);
+}
+
+/** Flight log: ↑ BOOST / ↓ DUMP · rocket, plus (own) market, deposits, withdrawals, Turbo cash · dollars · when. */
+function Activity({ rows: trades, cash, isPrivate, owner }: { rows: ActivityItem[] | null; cash: CashRow[] | null; isPrivate: boolean; owner: string }) {
   const [page, setPage] = useState(1);
-  if (rows == null) return <div className="p5-list" aria-busy="true" data-testid="tab-activity" />;
+  const rows = useMemo(() => (trades ? logRows(trades, cash) : null), [trades, cash]);
+  if (rows == null || (isPrivate && cash == null && !rows.length)) return <div className="p5-list" aria-busy="true" data-testid="tab-activity" />;
   if (!rows.length) {
     return isPrivate ? (
       <div className="p5-empty" data-testid="tab-activity">
@@ -59,11 +95,11 @@ function Activity({ rows, isPrivate, owner }: { rows: ActivityItem[] | null; isP
     <div className="p5-list" data-testid="tab-activity">
       <ul>
         {pageSlice(rows, p, PAGE.activity).map((a) => {
-          const boost = a.kind === "buy";
+          const k = LOG_KIND[a.kind];
           return (
-            <li key={a.id} className="p5-arow">
-              <span className={`k ${boost ? "up" : "down"}`}><Icon name={boost ? "arrow-up" : "arrow-down"} size={12} />{boost ? "BOOST" : "DUMP"}</span>
-              <span className="r">{a.coin ? <Link href={`/coin/${a.coin}`}>{a.text}</Link> : a.text}</span>
+            <li key={a.id} className="p5-arow" data-kind={a.kind}>
+              <span className={`k ${k.tone}`}><Icon name={k.icon} size={12} />{k.label}</span>
+              <span className="r">{a.href ? (a.ext ? <a href={a.href} target="_blank" rel="noreferrer">{a.text}</a> : <Link href={a.href}>{a.text}</Link>) : a.text}</span>
               <span className="u">{a.usd != null ? usd2(a.usd) : ""}</span>
               <span className="t">{agoLabel(a.ts)}</span>
             </li>
@@ -216,6 +252,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const looks = useLoadout(isPrivate, progress, wallet || null);
   const loadout = looks.loadout;
   const activity = useRealActivity(wallet);
+  const cash = useCashHistory(wallet, isPrivate);
   const rewards = useRewards(isPrivate && !!wallet);
   const { col } = useCollection(isPrivate ? wallet || null : null);
   // lifetime points (maker 2026-11-18: never reset, the airdrop ranking) + rank, on every profile
@@ -311,7 +348,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       </div>
       <section className="dsc3-panel hg-panel" aria-labelledby="hg-log">
         <header className="hg-panelh"><h2 id="hg-log">Flight log</h2></header>
-        <Activity rows={noWallet ? [] : activity} isPrivate={isPrivate} owner={ownerName} />
+        <Activity rows={noWallet ? [] : activity} cash={noWallet ? [] : cash} isPrivate={isPrivate} owner={ownerName} />
       </section>
       {isPrivate && <InvitesCard />}
     </div>

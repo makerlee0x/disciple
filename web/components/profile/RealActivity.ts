@@ -7,6 +7,7 @@ import { publicClient } from "@/lib/protocol-viem";
 import { IS_STATIC_PREVIEW, withBase } from "@/lib/base-path";
 import { playerUsd, type Fill } from "@/lib/trades";
 import type { ActivityItem } from "@/lib/stats";
+import type { CashRow } from "@/lib/cashHistory";
 
 const erc20 = parseAbi(["function symbol() view returns (string)", "function name() view returns (string)"]);
 const isAddr = (a: string | null | undefined): a is string => !!a && /^0x[0-9a-fA-F]{40}$/.test(a);
@@ -48,5 +49,32 @@ export function useRealActivity(wallet: string | null): ActivityItem[] | null {
     })().then((out) => { if (alive) setRows(out); }).catch(() => { if (alive) setRows([]); });
     return () => { alive = false; };
   }, [wallet]);
+  return rows;
+}
+
+/**
+ * The signed-in pilot's money rows for the Flight log (app/api/cash/history): market buys and sales, deposits, withdrawals,
+ * Turbo cash in and out, creator fees, rewards. Own profile only. `null` while loading; `[]` on none or a failed read.
+ * While the server's first chain scan is still catching up (`done: false`) it reads again a few times.
+ */
+export function useCashHistory(wallet: string | null, enabled: boolean): CashRow[] | null {
+  const [rows, setRows] = useState<CashRow[] | null>(null);
+  useEffect(() => {
+    setRows(null);
+    if (!enabled || !isAddr(wallet) || IS_STATIC_PREVIEW || !isDeployed()) { setRows(enabled && wallet ? [] : null); return; }
+    let alive = true, tries = 0, t: number | undefined;
+    const read = async () => {
+      const { privyAccessToken } = await import("@/lib/aa/sessionState");
+      const token = await privyAccessToken().catch(() => null);
+      if (!token) { if (alive) setRows([]); return; }
+      const r = await fetch(withBase("/api/cash/history"), { headers: { authorization: `Bearer ${token}`, "x-wallet": wallet }, cache: "no-store" }).catch(() => null);
+      const j = (r?.ok ? await r.json().catch(() => ({})) : {}) as { rows?: CashRow[]; done?: boolean };
+      if (!alive) return;
+      setRows(j.rows ?? []);
+      if (j.done === false && ++tries < 6) t = window.setTimeout(read, 3_000);
+    };
+    read().catch(() => { if (alive) setRows([]); });
+    return () => { alive = false; window.clearTimeout(t); };
+  }, [wallet, enabled]);
   return rows;
 }

@@ -143,6 +143,7 @@ describe("market server (local KV)", () => {
     expect(rec?.history.at(-1)).toMatchObject({ ev: "moved", from: A, to: B, via: "market", price: 1000, tx: "0xabc" });
     expect((await mkt.listingById(l.listing.id))?.state).toBe("sold");
     expect((await mkt.salesOf(mine[0].item))[0]).toMatchObject({ uid: mine[0].uid, price: 1000 });
+    expect(await kvMod.kv().zrange(mkt.MKT.bought(B), 10, true)).toContain(l.listing.id);   // the buyer's Flight log index
     expect((await mkt.buyListing(C, l.listing.id, good, ok)).ok).toBe(false);
   });
 

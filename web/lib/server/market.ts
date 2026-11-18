@@ -13,6 +13,7 @@ import "server-only";
  *   mkt:<chain>:o:<id>        JSON Offer              one trade offer
  *   mkt:<chain>:offers:<w>    zset score=at, id       offers a pilot sent or got
  *   mkt:<chain>:hold:<id>     SET NX buyer            one buyer at a time while a payment is in flight
+ *   mkt:<chain>:bought:<w>    zset score=at, id       listings a pilot bought (their Flight log)
  *   col:<chain>:listed:<uid>  listing id              (collection.ts) the copy is on the market
  *   col:<chain>:frozen:<uid>  reason                  (collection.ts) frozen by an admin
  *
@@ -41,6 +42,7 @@ export const MKT = {
   o: (id: string) => `${ns()}:o:${id}`,
   offers: (w: string) => `${ns()}:offers:${w}`,
   hold: (id: string) => `${ns()}:hold:${id}`,
+  bought: (w: string) => `${ns()}:bought:${w}`,
 };
 const parse = <T,>(v: string | null): T | null => { if (!v) return null; try { return JSON.parse(v) as T; } catch { return null; } };
 const lc = (w: string) => w.toLowerCase();
@@ -279,11 +281,21 @@ export async function settleSale(id: string, buyerIn: string, tx: string | undef
     const sale: Sale = { listing: l.id, uid: l.uid, item: l.item, serial: c.serial, burn: c.burn, price: l.price, at: now };
     await s.zadd(MKT.sales(l.item), [{ score: now, member: JSON.stringify(sale) }]);
     await s.zadd(MKT.sales(), [{ score: now, member: JSON.stringify(sale) }]);
+    await s.zadd(MKT.bought(buyer), [{ score: now, member: l.id }]);
     return done;
   });
   await s.delIfEq(MKT.hold(id), buyer);
   if (isFail(r)) console.error("[market] paid but not settled", { id, buyer, reason: r.reason });
+  else await notifySold(r, s).catch((e) => console.error("[market] sold push", e));
   return r;
+}
+
+/** Tell the seller their item sold (push alert, kind "market"; the sale also lands in their Flight log). */
+async function notifySold(l: Listing, s: Kv) {
+  const { notify } = await import("./push");
+  const { pushCopy } = await import("@/lib/push");
+  const name = itemById(l.item)?.name ?? "Your item";
+  await notify(l.seller, "market", `sold:${l.id}`, { ...pushCopy.sold(name, sellerCents(l.price)), url: "/profile#hg-log" }, Date.now(), s);
 }
 
 /* --------------------------------------------------------------- trade offers --------------------------------------------------------------- */
