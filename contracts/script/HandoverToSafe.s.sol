@@ -68,7 +68,18 @@ contract HandoverToSafe is Script {
                 timelock = address(new TimelockController(delay, roles, roles, address(0)));
                 console2.log("TimelockController", timelock);
             }
-            require(TimelockController(payable(timelock)).getMinDelay() >= 1 hours, "Handover: timelock delay too short");
+            TimelockController tl = TimelockController(payable(timelock));
+            require(tl.getMinDelay() >= 1 hours, "Handover: timelock delay too short");
+            require(
+                tl.hasRole(tl.PROPOSER_ROLE(), safe) && tl.hasRole(tl.EXECUTOR_ROLE(), safe)
+                    && tl.hasRole(tl.CANCELLER_ROLE(), safe),
+                "Handover: timelock roles"
+            );
+            require(
+                !tl.hasRole(tl.DEFAULT_ADMIN_ROLE(), deployer) && !tl.hasRole(tl.PROPOSER_ROLE(), deployer)
+                    && !tl.hasRole(tl.EXECUTOR_ROLE(), address(0)),
+                "Handover: timelock has extra role holders"
+            );
             owner_ = timelock;
         }
 

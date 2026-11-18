@@ -320,6 +320,7 @@ contract Deploy is NetworkConfig {
             if (lockedLP.owner() != address(0)) _nominate(address(lockedLP), safe);
             if (harvest.owner() != address(0)) _nominate(address(harvest), safe);
         }
+        require(router.usdg() == o.usdg, "verify: router.usdg"); // round 5: the write-once USDG half
         _verify(mainnet, feeRouter, hook, lockedLP, harvest, launchpad, router, AnonLauncher(o.anonLauncher));
 
         vm.stopBroadcast();
@@ -389,6 +390,8 @@ contract Deploy is NetworkConfig {
         require(feeRouter.launchpad() == address(launchpad), "verify: feeRouter.launchpad");
         require(address(feeRouter.lockedLP()) == address(lockedLP), "verify: feeRouter.lockedLP");
         require(router.launchpad() == address(launchpad), "verify: router.launchpad");
+        // round 5 (C-N1): claim routers must be set before lockSettings freezes the list
+        require(feeRouter.isClaimRouter(address(router)) && feeRouter.isClaimRouter(address(harvest)), "verify: claim routers");
         if (mainnet) {
             // audit 2026-11-18 E-L3: the locked values, not just the lock (env overrides could lock wrong values)
             require(feeRouter.kolCreatorShareBps() == 0, "verify: KOL share 0");

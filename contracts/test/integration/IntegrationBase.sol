@@ -255,10 +255,11 @@ abstract contract IntegrationBase is Test {
     }
 
     /// @dev Keeps the STRATEGY TWAP launch-ready without an external call when it already is (so a pending
-    ///      vm.expectRevert still targets the launch). Re-warms after 50 minutes (freshness bound is 2 windows).
+    ///      vm.expectRevert still targets the launch). Re-warms after 14 minutes (the newest keeper poke must be
+    ///      under half a window old, audit 2026-11-18 E-L1 follow-up).
     function _warmStrategy() internal {
         uint256 t = vm.getBlockTimestamp();
-        if (strategyWarmAt != 0 && t < strategyWarmAt + 3000) return;
+        if (strategyWarmAt != 0 && t < strategyWarmAt + 840) return;
         _warmQuote(address(strategy));
         strategyWarmAt = vm.getBlockTimestamp();
     }

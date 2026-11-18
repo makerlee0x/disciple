@@ -243,6 +243,23 @@ contract JitTwapTest is IntegrationBase {
         assertEq(c2.quotePriceUsd(), p1, "curve baked manipulated price");
     }
 
+    /// Audit 2026-11-18 follow-up: a densely poked history that stopped long ago is stale; the gap from the newest
+    /// keeper observation to now counts against the half-window bound (2x window freshness alone allowed 50 min).
+    function test_pricer_dense_history_then_keeper_stops_is_stale() public {
+        _next(3600);
+        _warmQuote(address(strategy));
+        pricer.launchPriceUsd(address(strategy)); // fresh
+        uint32 w = pricer.twapWindow();
+        _next(w / 2 - 60);
+        pricer.launchPriceUsd(address(strategy)); // newest poke 14 min old: ok
+        _next(120);
+        vm.expectRevert(abi.encodeWithSelector(QuotePricer.StalePrice.selector, address(strategy)));
+        pricer.launchPriceUsd(address(strategy)); // 16 min since the last poke
+        _next(3000 - w / 2 - 60);
+        vm.expectRevert(abi.encodeWithSelector(QuotePricer.StalePrice.selector, address(strategy)));
+        pricer.launchPriceUsd(address(strategy)); // the auditor's 50 min case
+    }
+
     function test_pricer_sustained_move_is_rate_limited_then_tracks() public {
         _next(3600);
         pricer.poke(address(strategy));

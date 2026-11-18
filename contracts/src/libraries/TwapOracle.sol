@@ -60,13 +60,16 @@ library TwapOracle {
         return s.obs[s.index];
     }
 
-    /// @notice Largest gap between consecutive observations, walking back from the newest until one at or before
+    /// @notice Largest gap (including newest observation -> now) between consecutive observations, walking back from the newest until one at or before
     ///         `since` (that crossing gap included). type(uint32).max if the history doesn't reach `since`.
     /// @dev Audit 2026-11-18 E-L1: a single poke after a long keeper gap makes `consult` report full coverage at the
     ///      stale tick; callers bound this gap so the whole window must be densely observed.
     function maxGapSince(State storage s, uint32 since) internal view returns (uint32 g) {
         uint16 i = s.index;
         uint16 n = s.count;
+        // gap from the newest observation to now counts too (a dense history that stopped long ago is stale)
+        g = uint32(block.timestamp) - s.obs[i].ts;
+        if (s.obs[i].ts <= since) return g;
         for (uint16 k = 1; k < n; ++k) {
             uint16 j = i == 0 ? CARDINALITY - 1 : i - 1;
             uint32 a = s.obs[i].ts;

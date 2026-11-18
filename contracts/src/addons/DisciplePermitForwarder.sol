@@ -262,6 +262,10 @@ contract DisciplePermitForwarder is ReentrancyGuard {
                     || sel == 0x4000aea0 || sel == 0x1296ee62 || sel == 0xcae9ca51 || sel == 0x9bd9bbc6
                     || sel == 0x62ad1b83 || sel == 0x959b8c3f || sel == 0x42842e0e || sel == 0xb88d4fde
                     || sel == 0xf242432a || sel == 0x2eb2c2d6 || sel == 0xd73dd623
+                    // round 5 (L3-I1): other-arity variants (1363 from-forms, 4-arg 677, 2-arg approveAndCall,
+                    // ERC-223 transfer, approve-with-data, ERC-777 burn)
+                    || sel == 0xc1d34b89 || sel == 0xd8fbe994 || sel == 0x257591c5 || sel == 0x3177029f
+                    || sel == 0xbe45fd62 || sel == 0x5c17f9f4 || sel == 0xfe9d9303
                 ) revert ForbiddenTarget(t);
             }
             (bool ok, bytes memory ret) = t.call(data);
