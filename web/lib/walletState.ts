@@ -21,7 +21,10 @@ export function lastWallet(): Addr | null {
 /** The last signed-in pill in this browser (public facts only: address, @name, cash). On a refresh the top bar paints it
  *  at once while Privy reconnects (several seconds: SDK chunk, Privy session check, wallet iframe), then the real wallet
  *  confirms or replaces it. */
-export type LastPill = { address: Addr; name: string | null; cashUsd: number | null };
+export type LastPill = { address: Addr; name: string | null; cashUsd: number | null;
+  /** what the pill looked like: picture (NFT = hex frame), level and progress. The root layout's YOU_JS paints these into the
+   *  top bar placeholder before any script loads (keep the field names in step with it). */
+  img?: string | null; nft?: boolean; level?: number; progress?: number; cash?: string; label?: string };
 const PILL_LS = "disciple.lastPill";
 export function lastPill(): LastPill | null {
   const a = lastWallet();
@@ -29,7 +32,8 @@ export function lastPill(): LastPill | null {
   try {
     const v = JSON.parse(localStorage.getItem(PILL_LS) || "null") as Partial<LastPill> | null;
     const same = !!v && typeof v.address === "string" && v.address.toLowerCase() === a.toLowerCase();
-    return { address: a, name: same && typeof v!.name === "string" ? v!.name : null, cashUsd: same && typeof v!.cashUsd === "number" ? v!.cashUsd : null };
+    if (!same) return { address: a, name: null, cashUsd: null };
+    return { ...v, address: a, name: typeof v!.name === "string" ? v!.name : null, cashUsd: typeof v!.cashUsd === "number" ? v!.cashUsd : null };
   } catch { return { address: a, name: null, cashUsd: null }; }
 }
 export function saveLastPill(p: LastPill) { try { localStorage.setItem(PILL_LS, JSON.stringify(p)); } catch { /* private mode */ } }

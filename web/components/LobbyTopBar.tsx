@@ -18,7 +18,7 @@ import HelpButton from "@/components/HelpButton";
 import { QUICK_PLAY_EVENT } from "@/components/app/events";
 import { DUEL_HREF, FLIGHTS_HREF, MARKET_ENABLED } from "@/lib/features";
 import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
-import { isTurboEnabled } from "@/lib/turbo/flag";
+import { isTurboEnabled, turboEnvOn } from "@/lib/turbo/flag";
 
 // Nav rework (maker 2026-11-16): the DISCIPLE mark is the way to the lobby, so there is no Lobby tab. Desktop doors:
 // Live flights (every rocket, /live), Turbo (a small menu: Trading duel, Turbo royale), Launch, Market (once /market is
@@ -59,7 +59,13 @@ export default function LobbyTopBar() {
   const [you, setYou] = useState(false);
   useEffect(() => {
     // until Privy has loaded, a saved session counts as signed in (no Play now / missing tabs flash for players)
-    const sync = () => setYou(privyAuthenticated() || !!aaSession() || !!walletId()?.address || (!privyLoaded() && hasSavedSession()));
+    // html[data-you] drives the signed-in / signed-out layout in CSS: the root layout's YOU_JS sets it before the first
+    // paint from the same saved session, so the bar doesn't paint signed out and then jump (maker 2026-11-18)
+    const sync = () => {
+      const v = privyAuthenticated() || !!aaSession() || !!walletId()?.address || (!privyLoaded() && hasSavedSession());
+      document.documentElement.toggleAttribute("data-you", v);
+      setYou(v);
+    };
     sync();
     const a = onPrivy(sync), b = onSessionChange(sync);
     addEventListener(WALLET_ID_EVENT, sync);
@@ -97,8 +103,8 @@ export default function LobbyTopBar() {
   const isOn = (href: string) => (pressed != null ? pressed === href : at(href));
   const press = (href: string) => { if (!at(href)) setPressed(href); };
 
-  // Turbo: the flag reads localStorage, so check after mount (server and first paint match)
-  const [turbo, setTurbo] = useState(false);
+  // Turbo: the localStorage part of the flag is read after mount (server and first paint match)
+  const [turbo, setTurbo] = useState(turboEnvOn);   // on in this build: the tab is in the first paint (no pop-in)
   useEffect(() => { setTurbo(isTurboEnabled()); }, []);
   // the Turbo menu: one open at a time, placed under its tab (top bar) or above it (phone tab bar). position: fixed, because
   // the tab row scrolls sideways and would clip it.
@@ -122,7 +128,8 @@ export default function LobbyTopBar() {
 
   const nav = (dock: boolean) => (
     <nav className={`lb-tabs${dock ? " lb-dock" : " lb-top"}`} aria-label="Main">
-      {TABS.filter((t) => (dock ? !t.desk : !t.phone) && (!t.you || you) && (!t.out || !you) && (!t.menu || turbo)).map((t) => t.menu ? (
+      {/* signed-in / signed-out tabs are both rendered and shown by html[data-you] (CSS), so they never pop in after load */}
+      {TABS.filter((t) => (dock ? !t.desk : !t.phone) && (!t.menu || turbo)).map((t) => t.menu ? (
         <button key={t.key} type="button" className={`lb-tab-btn${turboOn || menu?.dock === dock ? " on" : ""}`} aria-haspopup="menu"
           aria-expanded={menu?.dock === dock} data-testid={`nav-${t.key}`} onClick={(e) => openMenu(dock, e.currentTarget)}>
           <Icon name={t.icon} size={22} className="lb-ico" />
@@ -130,7 +137,7 @@ export default function LobbyTopBar() {
           {!dock && <Icon name="chevron-down" size={16} className="lb-caret" />}
         </button>
       ) : (
-        <Link key={t.key} href={t.href} className={isOn(t.href) ? "on" : undefined} aria-current={at(t.href) ? "page" : undefined}
+        <Link key={t.key} href={t.href} className={[isOn(t.href) ? "on" : "", t.you ? "lb-you-only" : "", t.out ? "lb-out-only" : ""].filter(Boolean).join(" ") || undefined} aria-current={at(t.href) ? "page" : undefined}
           onPointerDown={dock ? () => press(t.href) : undefined} data-testid={`nav-${t.key}`}>
           <Icon name={t.icon} size={22} className="lb-ico" />
           <span className="lb-lbl">{dock && t.short ? t.short : t.label}</span>
@@ -140,18 +147,18 @@ export default function LobbyTopBar() {
   );
 
   return (<>
-    <header className={`lb-bar${you ? "" : " lb-out"}`} data-testid="lobby-topbar">
+    <header className="lb-bar" data-testid="lobby-topbar">
       <Link href="/" className="lb-brand" aria-label="DISCIPLE lobby">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img className="lb-lockup" src="/brand/disciple-lockup-horizontal-light.svg" alt="DISCIPLE" width={141} height={30} />
       </Link>
       {nav(false)}
       {!you && <HelpButton className="lb-help-out" />}
-      <Link href="/play" prefetch={false} className={`lb-playnow${you ? " lb-playnow-you" : ""}`} data-testid="topbar-play" data-sfx="primary">Play now</Link>
+      <Link href="/play" prefetch={false} className="lb-playnow" data-testid="topbar-play" data-sfx="primary">Play now</Link>
       <LevelChip toastOnly />
     </header>
     {/* phones: the bottom tab bar lives outside the header, so nothing about the header (scroll, compositing) can move it */}
-    <div className={you ? "" : "lb-out"} style={{ display: "contents" }}>{nav(true)}</div>
+    {nav(true)}
     {menu && (
       <div className={`lb-menu${menu.dock ? " lb-menu-dock" : ""}`} role="menu" aria-label="Turbo modes" data-testid="turbo-menu"
         style={menu.dock ? { left: menu.x, bottom: menu.y } : { left: menu.x, top: menu.y }}>
