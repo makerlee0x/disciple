@@ -29,7 +29,7 @@ import "server-only";
 import { createHash, createHmac, randomBytes, randomInt, randomUUID } from "node:crypto";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import {
-  CRATE, DUPE_XP, EARN, REWARDS, rewardEarned, FIRST_EDITION_MS, FLIGHTTRAK_PCT, ITEMS, PRESTIGE_HULL, RARITY_NAME,
+  CRATE, DUPE_XP, supplyCap, EARN, REWARDS, rewardEarned, FIRST_EDITION_MS, FLIGHTTRAK_PCT, ITEMS, PRESTIGE_HULL, RARITY_NAME,
   STARTER_SKIN, STARTER_TAG, STARTER_TRAIL, TRADE_UP_N, TRAILS, dayIndex, dropPool, duelCrateTier, itemById, itemTitle, prestigeUnlocked, rollCrate,
   rollsFromDigest, tradeUpPool, tradeUpTarget, trailId,
   type Collection, type Copy, type Crate, type Item, type Opened, type Rarity, type Slot,
@@ -46,6 +46,10 @@ export const COLK = {
   rw: (w: string) => `${ns()}:rw:${w}`,
   own: (w: string) => `${ns()}:own:${w}`,
   supply: (item: string) => `${ns()}:supply:${item}`,
+  /** tradable (unbound) copies made of an item, against its supplyCap */
+  minted: (item: string) => `${ns()}:minted:${item}`,
+  /** items whose tradable supply is used up */
+  soldout: () => `${ns()}:soldout`,
   sfirst: (n: number | string) => `${ns()}:sfirst:${n}`,
   seed: (day: number) => `${ns()}:seed:${day}`,
   crates: (w: string) => `${ns()}:crates:${w}`,
@@ -121,6 +125,23 @@ async function addEvent(uid: string, e: CopyEvent, s: Kv) {
   await s.set(COLK.copy(uid), JSON.stringify(r));
 }
 /** A new copy: a fresh uid (claimed with SET NX, so never reused), the next serial for its item, and its record. */
+/** Claim one unit of an item's tradable supply. false = sold out (and it's marked sold out). */
+async function claimSupply(item: Item, s: Kv): Promise<boolean> {
+  const cap = supplyCap(item);
+  if (!isFinite(cap)) return true;
+  const n = await s.incrEx(COLK.minted(item.id), FOREVER);
+  if (n >= cap) await s.sadd(COLK.soldout(), item.id);
+  if (n <= cap) return true;
+  await s.decrIfPositive(COLK.minted(item.id));
+  return false;
+}
+export async function soldOut(s: Kv = kv()): Promise<Set<string>> { return new Set(await s.smembers(COLK.soldout())); }
+/** a tradable copy, or null when the item is sold out */
+async function mintCopy(item: Item, origin: Copy["origin"], r: { burn: number; seed: number; trak: boolean }, now: number, s: Kv,
+  owner: string, how: { crate?: string; proofDay?: number; from?: string[] } = {}, fe?: boolean): Promise<Copy | null> {
+  if (!(await claimSupply(item, s))) return null;
+  return makeCopy(item, origin, false, r, now, s, owner, how, fe);
+}
 async function makeCopy(item: Item, origin: Copy["origin"], bound: boolean, r: { burn: number; seed: number; trak: boolean }, now: number, s: Kv,
   owner: string, how: { crate?: string; proofDay?: number; from?: string[] } = {}, fe?: boolean): Promise<Copy> {
   const serial = await s.incrEx(COLK.supply(item.id), FOREVER);
@@ -336,11 +357,19 @@ export async function openCrate(walletIn: string, crateId: string, now = Date.no
     if (!member || !crate) return { ok: false, reason: "That crate is already open." };
     if (!(await s.zrem(COLK.crates(w), member))) return { ok: false, reason: "That crate is already open." };
     const { rolls, proof } = await provableRolls(crate.id, now, s);
-    const item = rollCrate(crate.tier, dropPool(now), rolls.r1, rolls.r2);
-    const inv = await invOf(w, now, s);
-    const dupe = !!item && inv.some((c) => c.item === item.id);
+    const bound = boundSrc(crate.src), how = { crate: crate.id, ...(proof ? { proofDay: proof.day } : {}) };
+    // tradable crates skip sold-out items (supplyCap): same rarity first, then a rarity lower
+    const out = bound ? new Set<string>() : await soldOut(s);
+    let item = rollCrate(crate.tier, dropPool(now).filter((i) => !out.has(i.id)), rolls.r1, rolls.r2);
     let copy: Copy | undefined;
-    if (item) { copy = await makeCopy(item, "crate", boundSrc(crate.src), rolls, now, s, w, { crate: crate.id, ...(proof ? { proofDay: proof.day } : {}) }); inv.push(copy); await writeInv(w, inv, s); }
+    for (let tries = 0; item && !copy && tries < 6; tries++) {
+      copy = bound ? await makeCopy(item, "crate", true, rolls, now, s, w, how) : (await mintCopy(item, "crate", rolls, now, s, w, how)) ?? undefined;
+      if (!copy) { out.add(item.id); item = rollCrate(crate.tier, dropPool(now).filter((i) => !out.has(i.id)), rolls.r1, rolls.r2); }
+    }
+    if (!copy) item = null;
+    const inv = await invOf(w, now, s);
+    const dupe = !!item && inv.some((c) => c.item === item!.id);
+    if (copy) { inv.push(copy); await writeInv(w, inv, s); }
     const xp = CRATE[crate.tier].xp;
     await award(w, { src: `crate:${crate.id}`, kind: "crate", xp, label: `${RARITY_NAME[crate.tier]} crate`, ts: now }, s);
     const opened: Opened = { crate, item, copy, dupe, xp, at: now, proof };
@@ -363,7 +392,8 @@ export async function grantTestCopies(walletIn: string, ids: string[], now = Dat
     for (const id of ids.slice(0, 40)) {
       const it = itemById(id);
       if (!it || it.prestige) { skipped.push(id); continue; }
-      const copy = await makeCopy(it, "crate", false, freshRolls(), now, s, w, { crate: "admin-test" });
+      const copy = await mintCopy(it, "crate", freshRolls(), now, s, w, { crate: "admin-test" });
+      if (!copy) { skipped.push(id); continue; }
       inv.push(copy); copies.push(copy);
     }
     if (copies.length) await writeInv(w, inv, s);
@@ -418,12 +448,17 @@ export async function tradeUp(walletIn: string, uids: string[], now = Date.now()
     for (const c of copies) if (await isListed(c.uid, s)) return { ok: false, reason: "One of those is on the market. Take it off first." };
     // a frozen copy (reported stolen or farmed) can't be laundered into a fresh, unfrozen one
     for (const c of copies) if (await frozenReason(c.uid, s)) return { ok: false, reason: "One of those is frozen while we look into it." };
-    const pool = tradeUpPool(series, rar, now);
-    if (!pool.length) return { ok: false, reason: "Nothing to trade up into for that series yet." };
-    const out = pool[randomInt(0, pool.length)];
-    const r = freshRolls();
-    // first edition only comes out of crates
-    const copy = await makeCopy(out, "tradeup", copies.some((c) => c.bound), { burn: copies.reduce((a, c) => a + c.burn, 0) / copies.length, seed: r.seed, trak: randomInt(0, 100) < FLIGHTTRAK_PCT }, now, s, w, { from: want }, false);
+    const gone = await soldOut(s);
+    const pool = tradeUpPool(series, rar, now).filter((i) => !gone.has(i.id));
+    if (!pool.length) return { ok: false, reason: "Nothing left to trade up into for that series." };
+    const r = freshRolls(), bnd = copies.some((c) => c.bound), rr = { burn: copies.reduce((a, c) => a + c.burn, 0) / copies.length, seed: r.seed, trak: randomInt(0, 100) < FLIGHTTRAK_PCT };
+    // first edition only comes out of crates; a sold-out pick rolls again among what's left
+    let out: Item | undefined, copy: Copy | null = null;
+    for (const left = [...pool]; !copy && left.length;) {
+      out = left.splice(randomInt(0, left.length), 1)[0];
+      copy = bnd ? await makeCopy(out, "tradeup", true, rr, now, s, w, { from: want }, false) : await mintCopy(out, "tradeup", rr, now, s, w, { from: want }, false);
+    }
+    if (!copy || !out) return { ok: false, reason: "Nothing left to trade up into for that series." };
     const left = inv.filter((c) => !want.includes(c.uid)); left.push(copy);
     await writeInv(w, left, s);
     for (const u of want) await addEvent(u, { ev: "burned", at: now, owner: w, why: "tradeup", into: copy.uid }, s);

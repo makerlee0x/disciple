@@ -30,6 +30,8 @@ export async function POST(req: Request) {
   if (b.op === "freeze") { const r = await freezeCopy(str(b.copy), `${str(b.reason) || "frozen"} (by ${by})`); return out(r.ok ? 200 : 400, r); }
   if (b.op === "unfreeze") return out(200, await unfreezeCopy(str(b.copy)));
   if (b.op === "grant") {
+    // test copies never on the live site (maker 2026-11-18): previews and local only
+    if (process.env.VERCEL_ENV === "production") return out(403, { ok: false, reason: "Test items are off on production." });
     const w = /^0x[0-9a-fA-F]{40}$/.test(str(b.wallet)) ? str(b.wallet) : await walletOf(str(b.username).replace(/^@/, "").toLowerCase());
     if (!w || !/^0x[0-9a-fA-F]{40}$/.test(w)) return out(400, { ok: false, reason: "Need a wallet or a username." });
     const items = Array.isArray(b.items) ? b.items.filter((x): x is string => typeof x === "string") : [];

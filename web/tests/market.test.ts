@@ -62,6 +62,19 @@ describe("market server (local KV)", () => {
     for (const c of r.copies) expect((await mkt.listCopy(T, c.uid, 500)).ok).toBe(true);
   });
 
+  it("tradable supply stops at the cap: a sold-out item can't be granted again", async () => {
+    const { ITEMS, supplyCap } = await import("@/lib/collection");
+    const myth = ITEMS.find((i) => i.rar === "mythic" && !i.prestige && i.kind === "skin")!;
+    expect(supplyCap(myth)).toBe(12);
+    const U = "0x" + "8b".repeat(20);
+    const r = await col.grantTestCopies(U, Array(14).fill(myth.id));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.copies).toHaveLength(12);
+    expect(r.skipped).toHaveLength(2);
+    expect((await col.soldOut()).has(myth.id)).toBe(true);
+  });
+
   it("the same two pilots only pay a crate once a day", async () => {
     const P = "0x" + "e5".repeat(20), Q = "0x" + "f6".repeat(20);
     // duel crates only (the first win also pays the welcome crate, once)
