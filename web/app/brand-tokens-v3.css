@@ -286,12 +286,20 @@ html:not([data-you]) .lb-bar { padding-right: calc(24px + 110px); }
 .wb-skel { display: block; width: 104px; height: 44px; border-radius: var(--dsc3-control-radius); background: rgba(255, 255, 255, 0.08); }
 @media (max-width: 760px) { .wb-skel { width: 80px; height: 40px; } }
 /* a returning player (html[data-you]): the placeholder is the signed-in strip's own slots, so nothing moves when it loads */
-.wb-skel-help, .wb-skel-cash, .wb-skel-pilot { display: none; }
-html[data-you] .wb-skel-out { display: none; }
-html[data-you] .wb-skel-help { display: block; width: 44px; border-radius: 999px; }
-html[data-you] .wb-skel-cash { display: block; width: var(--wb-cash-w); border-radius: 999px; }
-html[data-you] .wb-skel-pilot { display: block; width: var(--wb-pilot-w); height: 48px; border-radius: 999px; }
-@media (max-width: 760px) { html[data-you] .wb-skel-help { width: 36px; height: 36px; } html[data-you] .wb-skel-pilot { width: 48px; height: 44px; } }
+html:not([data-you]) .wb-slot .wb-pp, html[data-you] .wb-skel-out { display: none !important; }
+/* the remembered pill's text and picture come from CSS vars set before the first paint (root layout YOU_JS) */
+.pp-cash::after { content: var(--pp-cash, ""); }
+.pp-cash { min-width: 1ch; }
+.wb-slot .pp-name { font: 600 14px / 1 var(--dsc-font-ui); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-name::after { content: var(--pp-name, ""); }
+.pp-lv::after { content: var(--pp-lv, ""); }
+.pp-av { background: var(--pp-img, none) center / cover no-repeat, rgba(255, 255, 255, 0.08); }
+html[data-pp-nft] .pp-av { clip-path: polygon(25% 3%, 75% 3%, 100% 50%, 75% 97%, 25% 97%, 0 50%); border-radius: 0; }
+/* no picture: the level sits in a gold ring, like LevelRing */
+html:not([data-pp-img]) .pp-lv { display: none; }
+html:not([data-pp-img]) .pp-av { box-sizing: border-box; border: 3px solid var(--dsc3-light-gold); display: grid; place-items: center; background: none; }
+html:not([data-pp-img]) .pp-av::after { content: var(--pp-lv, ""); font: 800 14px / 1 var(--dsc-font-game); color: #FFFFFF; }
+html[data-you]:not([data-pp-lv]) .pp-av { border-color: rgba(255, 255, 255, 0.12); }
 body.game .wb-slot { display: none; }
 
 /* ── iPhone app (html.app, set before paint by the root layout's APP_JS) ─────────────────────────────────────────────

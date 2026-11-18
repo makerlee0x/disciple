@@ -15,11 +15,31 @@ import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 // The wallet pill (viem, @noble/curves, AA session; ~140 KB of JS) is position:fixed chrome, so it loads in its own chunk
 // after hydration instead of sitting in every page's first-load JS ahead of the LCP. Fixed positioning = no layout shift.
 // Until that chunk lands, a quiet placeholder holds the Sign in / pilot chip slot so the top bar never shows a gap
-// (phones: Sign in used to pop in a beat after Play now). A returning player (html[data-you], root layout) gets the signed-in strip's slots instead.
-const WalletButton = dynamic(() => import("./WalletButton"), {
-  ssr: false,
-  loading: () => <div aria-hidden className="wb-root wb-slot" data-compact="true"><div className="wb-row"><span className="wb-skel wb-skel-out" /><span className="wb-skel wb-skel-help" /><span className="wb-skel wb-skel-cash" /><span className="wb-skel wb-skel-pilot" /></div></div>,
-});
+// (phones: Sign in used to pop in a beat after Play now). A returning player (html[data-you], root layout) gets the signed-in
+// strip itself, drawn with the same classes and filled before the first paint from the pill saved last time (root layout
+// YOU_JS sets --pp-cash / --pp-name / --pp-lv / --pp-img), so cash, name, level and picture are there at once (maker 2026-11-18).
+const WalletSlot = () => (
+  <div aria-hidden className="wb-root wb-slot" data-compact="true">
+    <div className="wb-row">
+      <span className="wb-skel wb-skel-out" />
+      <span className="lb-help wb-pp"><span className="lb-help-btn">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6" /><circle cx="12" cy="17" r=".6" fill="currentColor" /></svg>
+      </span></span>
+      <span className="wb-cash wb-pp">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg>
+        <b className="pp-cash" />
+        <svg className="wb-cash-plus" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M12 5v14M5 12h14" /></svg>
+      </span>
+      <span className="wb-pilot wb-pp">
+        <span className="wb-pfp pp-av" />
+        <span className="pp-name" />
+        <b className="wb-lv pp-lv" />
+        <svg className="wb-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M6 9l6 6 6-6" /></svg>
+      </span>
+    </div>
+  </div>
+);
+const WalletButton = dynamic(() => import("./WalletButton"), { ssr: false, loading: WalletSlot });
 // Funnel counter beacon (lib/funnelClient): client-only, own chunk, fails silently.
 const FunnelBeacon = dynamic(() => import("./FunnelBeacon"), { ssr: false });
 // Referral deposit sheet (viem + the claims contracts): an overlay that only shows after a referral link, so it loads after

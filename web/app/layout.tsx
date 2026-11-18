@@ -32,7 +32,9 @@ const APP_JS = `(function(){try{if(navigator.userAgent.indexOf("DiscipleApp/")>-
 /** Top bar holds still on a refresh (maker 2026-11-18): a browser with a saved, unexpired session (lib/aa/sessionState
  *  SESSION_LS) gets html[data-you] before the first paint, so the server-rendered bar is already the signed-in one.
  *  LobbyTopBar keeps it in sync once Privy answers. */
-const YOU_JS = `(function(){try{var s=JSON.parse(localStorage.getItem("disciple.aa.session.v2")||"null");if(s&&s.owner&&(!s.expiresAt||s.expiresAt>Date.now()))document.documentElement.setAttribute("data-you","")}catch(e){}})()`;
+// …and paints the pill saved last time (lib/walletState LastPill) into the wallet placeholder (components/AppShell WalletSlot)
+// through CSS vars, so cash, name, level and picture show before any script has loaded
+const YOU_JS = `(function(){try{var d=document.documentElement,L=localStorage,s=JSON.parse(L.getItem("disciple.aa.session.v2")||"null");if(!(s&&s.owner&&(!s.expiresAt||s.expiresAt>Date.now())))return;d.setAttribute("data-you","");var w=(L.getItem("disciple.lastWallet")||"").toLowerCase(),p=JSON.parse(L.getItem("disciple.lastPill")||"null");if(!p||!w||String(p.address||"").toLowerCase()!==w)return;var q=function(v){return JSON.stringify(String(v).slice(0,40))},S=function(k,v){d.style.setProperty(k,v)};if(p.cash)S("--pp-cash",q(p.cash));if(p.label)S("--pp-name",q(p.label));if(p.level){S("--pp-lv",q(p.level));d.setAttribute("data-pp-lv","")}var i=p.img;if(typeof i=="string"&&(i.charAt(0)=="/"||i.indexOf("https://")===0)&&!/["'()<>]|[\\s\\\\]/.test(i)){S("--pp-img","url("+JSON.stringify(i)+")");d.setAttribute("data-pp-img","");if(p.nft)d.setAttribute("data-pp-nft","")}}catch(e){}})()`;
 
 const SITE_TITLE = "DISCIPLE · Ride it to orbit";
 const SITE_LINE = "Every rocket is a live match. The crew boosts it up, and anyone can bomb it down.";

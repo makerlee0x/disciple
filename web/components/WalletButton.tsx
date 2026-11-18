@@ -65,14 +65,17 @@ function metaOf(coin: Address) {
  */
 /** maker 2026-11-17: the picture sits plain in the pill; the level progress runs around the pill's own border and the
  *  level number is a chip in the pill. */
-function usePilotParts(wallet: string | null) {
+function usePilotParts(wallet: string | null, last: LastPill | null) {
   const { xp } = useXp(wallet);
-  const { img, nft } = usePilotPfp(wallet);
-  const info = xp?.level ?? levelInfo(0);
+  const pfp = usePilotPfp(wallet);
+  // until this wallet's picture / XP load, keep what the pill showed last time (no level-1 ring flash on a refresh)
+  const was = last && wallet && last.address.toLowerCase() === wallet.toLowerCase() ? last : null;
+  const img = pfp.loaded ? pfp.img : pfp.img ?? was?.img ?? null, nft = pfp.loaded || pfp.img ? pfp.nft : !!was?.nft;
+  const info = xp?.level ?? (was?.level ? { ...levelInfo(0), level: was.level, progress: was.progress ?? 0 } : levelInfo(0));
   return { info, avatar: img
     // eslint-disable-next-line @next/next/no-img-element
     ? <span className={nft ? "wb-pfp pfp-hex" : "wb-pfp"}><img src={img} alt="" width={36} height={36} /></span>
-    : <LevelRing info={{ ...info, progress: 0 }} size={36} />, hasPfp: !!img };
+    : <LevelRing info={{ ...info, progress: 0 }} size={36} />, hasPfp: !!img, img, nft };
 }
 /** Gold progress stroke around the pill's border, starting top-centre, clockwise. Sized to the pill (ResizeObserver). */
 function PillProgress({ progress }: { progress: number }) {
@@ -113,7 +116,8 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
   }, []);
   useEffect(() => { if (addr) setGuess(null); }, [addr]);
   const shown: Address | null = addr ?? (guess?.address as Address | undefined) ?? null;
-  const pilot = usePilotParts(shown);
+  const [remembered] = useState<LastPill | null>(() => (typeof window !== "undefined" ? lastPill() : null));
+  const pilot = usePilotParts(shown, remembered);
   const [busy, setBusy] = useState("");
   const [, setEth] = useState<bigint | null>(null);
   const [cashText, setCashText] = useState("");
@@ -224,7 +228,14 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
     return () => { alive = false; removeEventListener(PROFILE_CHANGED_EVENT, changed); };
   }, [shown, ownerAddr]);
   // remember the real pill for the next refresh
-  useEffect(() => { if (addr) saveLastPill({ address: addr, name: uname, cashUsd: pf?.cashUsd ?? null }); }, [addr, uname, pf?.cashUsd]);
+  useEffect(() => {
+    if (!addr) return;
+    const prev = lastPill();
+    const keep = prev && prev.address.toLowerCase() === addr.toLowerCase() ? prev : null;
+    const cashUsd = pf?.cashUsd ?? keep?.cashUsd ?? null;
+    saveLastPill({ address: addr, name: uname, cashUsd, cash: cashUsd == null ? undefined : usd2(cashUsd), label: chipLabel(uname, addr),
+      img: pilot.img, nft: pilot.nft, level: pilot.info.level, progress: pilot.info.progress });
+  }, [addr, uname, pf?.cashUsd, pilot.img, pilot.nft, pilot.info.level, pilot.info.progress]);
   const cashUsd = pf?.cashUsd ?? (guess && shown === guess.address ? guess.cashUsd : null) ?? 0;
 
   // premium sidebar: the Sidebar's account card shows the same address + name (display only; lib/walletCta.ts)
