@@ -73,6 +73,8 @@ export default function RootLayout({
             load. Same test as Sidebar's isCollapsibleRoute, before the first paint; Sidebar keeps it in sync after that. */}
         <script dangerouslySetInnerHTML={{ __html: GAME_ROUTE_JS }} />
         <script dangerouslySetInnerHTML={{ __html: APP_JS }} />
+        {/* Privy's session check and wallet iframe live on auth.privy.io: open the connection while the page loads */}
+        <link rel="preconnect" href="https://auth.privy.io" />
         <script id={SPONSORSHIP_CONFIG_ID} type="application/json" dangerouslySetInnerHTML={{ __html: JSON.stringify(sponsorshipConfig()) }} />
         <IconSprite />
         <IosZoomLock />

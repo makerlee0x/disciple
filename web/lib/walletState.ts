@@ -18,6 +18,21 @@ const LAST_LS = "disciple.lastWallet";
 export function lastWallet(): Addr | null {
   try { const v = localStorage.getItem(LAST_LS); return v && /^0x[0-9a-fA-F]{40}$/.test(v) ? (v as Addr) : null; } catch { return null; }
 }
+/** The last signed-in pill in this browser (public facts only: address, @name, cash). On a refresh the top bar paints it
+ *  at once while Privy reconnects (several seconds: SDK chunk, Privy session check, wallet iframe), then the real wallet
+ *  confirms or replaces it. */
+export type LastPill = { address: Addr; name: string | null; cashUsd: number | null };
+const PILL_LS = "disciple.lastPill";
+export function lastPill(): LastPill | null {
+  const a = lastWallet();
+  if (!a) return null;
+  try {
+    const v = JSON.parse(localStorage.getItem(PILL_LS) || "null") as Partial<LastPill> | null;
+    const same = !!v && typeof v.address === "string" && v.address.toLowerCase() === a.toLowerCase();
+    return { address: a, name: same && typeof v!.name === "string" ? v!.name : null, cashUsd: same && typeof v!.cashUsd === "number" ? v!.cashUsd : null };
+  } catch { return { address: a, name: null, cashUsd: null }; }
+}
+export function saveLastPill(p: LastPill) { try { localStorage.setItem(PILL_LS, JSON.stringify(p)); } catch { /* private mode */ } }
 export function connectedAddress() { return current; }
 export function onWallet(f: (a: Addr | null) => void) { subs.add(f); f(current); return () => { subs.delete(f); }; }
 // dev only (screenshots): window.__walletDev("0x…") shows the signed-in screens with no Privy, like window.__turboDev
