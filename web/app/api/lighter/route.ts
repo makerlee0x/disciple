@@ -10,6 +10,9 @@
  *   warm                                → loads key, signer, market and nonce into this instance before a duel
  *   presign { market, sizes: [usd…] (or usd), used?: { nonce, kind, i }, floor? } → ticket: the next long, short and close, signed at one
  *                                         nonce with a short expiry; the browser sends the one it taps straight to Lighter
+ *   deposit-address                     → { address, minNew, min }  the player's Lighter deposit address (USDG on
+ *                                         Robinhood Chain; mainnet only, needs LIGHTER_BRIDGE_KEY)
+ *   deposit-status                      → { state: none|processing|completed|unknown }
  *   arm { kind: duel|climb|royale, id, markets?, ms? } → the buzzer closes this match's Lighter positions server-side
  *                                         (duel: when the room settles; climb / royale: a server timer of ms, at most 4.5 min)
  *   relay { txType, txInfo }            → { hash }   fallback when the browser can't reach Lighter: sends a pre-signed order
@@ -20,6 +23,7 @@ import { after } from "next/server";
 import { getRoom } from "@/lib/server/duel/store";
 import { OT_MS } from "@/lib/duel/rules";
 import { armMatch, buzzer, sleep } from "@/lib/server/lighter/match";
+import { DEPOSIT_MIN, DEPOSIT_MIN_NEW, depositAddress, depositStatus } from "@/lib/server/lighter/bridge";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
 import { body, out, pilotOf, requirePass } from "@/lib/server/duel/http";
@@ -93,6 +97,8 @@ export async function POST(req: Request) {
         return out(200, { ok: true, ...(await finishSigned(cfg, me.pid, b.op === "key-finish" ? "key" : "approve", b.sig)) });
       }
       case "tier": await setTier(cfg, me.pid); return out(200, { ok: true });
+      case "deposit-address": return out(200, { ok: true, ...(await depositAddress(me.pid)), minNew: DEPOSIT_MIN_NEW, min: DEPOSIT_MIN });
+      case "deposit-status": return out(200, { ok: true, ...(await depositStatus(me.pid)) });
       default: throw new LighterError(400, "Unknown op.");
     }
   } catch (e) { return lfail(e); }

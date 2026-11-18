@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { withBase } from "@/lib/base-path";
 import { aaSession, onPrivy, onSessionChange, privyAccessToken, privyLogin } from "@/lib/aa/sessionState";
 import { onWallet } from "@/lib/walletState";
+import { lighterAddCash } from "@/lib/lighter/deposit";
 import { aaSignMessage } from "@/lib/aa/session";
 import { LighterTaps, lighterClose, lighterOpen, lighterSetUp, lighterStatus, type LighterStep, type LighterTicket, type TapKind, type TapVia } from "@/lib/lighter/client";
 
@@ -25,6 +26,7 @@ export default function LighterTest() {
   const [st, setSt] = useState<Status | null>(null);
   const [market, setMarket] = useState<(typeof MARKETS)[number]>("BTC");
   const [usd, setUsd] = useState(5);
+  const [cash, setCash] = useState(10);
   const [busy, setBusy] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const say = (s: string) => setLog((l) => [`${new Date().toLocaleTimeString()}  ${s}`, ...l].slice(0, 40));
@@ -106,6 +108,10 @@ export default function LighterTest() {
         {!wallet && <button className={btn} onClick={() => privyLogin()}>Sign in</button>}
         <button className={btn} disabled={busy || !wallet} onClick={() => void refresh()}>Refresh</button>
         <button className={btn} disabled={busy || !step || step === "deposit" || step === "ready"} onClick={() => void run("set-up", async () => ({ step: await lighterSetUp(f, sign) }))}>Set up</button>
+      </div>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <input className="w-20 rounded-lg border border-white/25 bg-black px-2 py-2" type="number" min={3} value={cash} onChange={(e) => setCash(Number(e.target.value))} />
+        <button className={btn} disabled={busy || !wallet} onClick={() => void run(`add $${cash} cash`, async () => ({ step: await lighterAddCash(f, cash, sign, (x) => say(`add cash: ${x}`)) }))}>Add cash to Lighter</button>
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <select className="rounded-lg border border-white/25 bg-black px-2 py-2" value={market} onChange={(e) => setMarket(e.target.value as typeof market)}>
