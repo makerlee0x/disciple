@@ -2,9 +2,8 @@
  * Add cash into Lighter, browser side. Cash (USDG on Robinhood Chain) goes to the player's Lighter deposit address with
  * the usual gasless cash-out (no gas, no new signature prompt), Lighter's bridge credits it as USDC (the first deposit
  * creates the Lighter account), then the rest of Lighter set-up runs on its own (silent signatures).
- * Lighter on Robinhood Chain: an intent address on our own chain (1 USDG min). Lighter main: a Relay deposit address
- * that swaps it to USDC on Arbitrum and delivers it to the wallet's Lighter intent address ($5.10 min). The server picks
- * (lib/server/lighter/bridge.ts).
+ * Lighter on Robinhood Chain: an intent address on our own chain (1 USDG min). Lighter main: the Fun.xyz bridge
+ * ($5 first, $3 after). The server picks (lib/server/lighter/bridge.ts).
  */
 import { formatUnits, parseUnits, type Address } from "viem";
 import { publicClient } from "@/lib/protocol-viem";
@@ -27,7 +26,7 @@ export async function lighterAddCash(f: Fetcher, usd: number, signMessage: (msg:
   if (!owner) throw new Error("Sign in first.");
   onStep("address");
   const [{ address, minNew, min }, before] = await Promise.all([
-    post<{ address: Address; minNew: number; min: number }>(f, "deposit-address", { usd }),
+    post<{ address: Address; minNew: number; min: number }>(f, "deposit-address"),
     lighterStatus(f) as Promise<{ step: LighterStep; collateral?: string }>,
   ]);
   const floor = before.step === "deposit" ? minNew : min;

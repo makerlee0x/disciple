@@ -18,18 +18,15 @@ import { LighterError } from "./rest";
 const BRIDGE = "https://bridge.lighter.xyz";
 export const DEPOSIT_MIN_NEW = 5, DEPOSIT_MIN = 3;
 /** Lighter on Robinhood Chain takes USDG straight in: 1 USDG minimum per deposit (docs, Robinhood Chain section). */
-export const depositMins = (cfg: LighterConfig) => (cfg.payoutIsCash ? { minNew: 1, min: 1 } : cfg.network === "mainnet" && !process.env.LIGHTER_BRIDGE_KEY ? { minNew: RELAY_MIN, min: RELAY_MIN } : { minNew: DEPOSIT_MIN_NEW, min: DEPOSIT_MIN });
+export const depositMins = (cfg: LighterConfig) => (cfg.payoutIsCash ? { minNew: 1, min: 1 } : { minNew: DEPOSIT_MIN_NEW, min: DEPOSIT_MIN });
 
 /**
- * Lighter main (maker 2026-11-18, picked over Lighter on Robinhood Chain for its 0.5 bp Plus fee): it doesn't take
- * Robinhood Chain deposits, but it gives each wallet an intent address for USDC on Arbitrum (CCTP, 5 USDC min). Relay
- * (relay.link) swaps the player's USDG on Robinhood Chain into USDC on Arbitrum and delivers it to that address. Its
- * deposit-address mode means the player only sends USDG to an address, which the gasless cash-out already does: no gas,
- * no new signature. Quoted live 2026-11-18: about $0.04 on $10, filled in ~1 s.
+ * Lighter main -> Cash (maker 2026-11-18 moved Turbo to Lighter main for its 0.5 bp Plus fee). Cash in needs nothing
+ * extra: the Fun.xyz bridge below takes USDG on Robinhood Chain, the same route Lighter's own app uses. Cash out: Lighter
+ * pays fast withdrawals in USDC; a Relay (relay.link) deposit address turns that into USDG in the player's wallet on
+ * Robinhood Chain (Lighter's own app ships Relay's client for its "receive USDG on Robinhood" withdrawals).
  */
 const RELAY = "https://api.relay.link";
-export const RELAY_MIN = 5.1;         // Lighter's 5 USDC intent minimum, plus Relay's few cents
-const LIGHTER_INTENT_MIN = 5;
 export const ARBITRUM_ID = 42161;
 export const ARBITRUM_USDC = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
 export const RH_USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168";
@@ -48,7 +45,6 @@ export function parseRelayDeposit(j: unknown): RelayDeposit {
 }
 
 type RelayLeg = { from: number; fromToken: string; to: number; toToken: string };
-const TO_TURBO: RelayLeg = { from: RH_CHAIN, fromToken: RH_USDG, to: ARBITRUM_ID, toToken: ARBITRUM_USDC };
 const TO_CASH: RelayLeg = { from: ARBITRUM_ID, fromToken: ARBITRUM_USDC, to: RH_CHAIN, toToken: RH_USDG };
 
 async function relayQuote(leg: RelayLeg, wallet: string, recipient: string, usd: number): Promise<RelayDeposit> {
@@ -64,12 +60,6 @@ async function relayQuote(leg: RelayLeg, wallet: string, recipient: string, usd:
   const j = await res.json().catch(() => ({}));
   if (!res.ok) throw new LighterError(502, (j as { message?: string }).message || "The swap service didn't answer.");
   return parseRelayDeposit(j);
-}
-
-async function relayDeposit(wallet: string, recipient: string, usd: number): Promise<RelayDeposit> {
-  const d = await relayQuote(TO_TURBO, wallet, recipient, usd);
-  if (d.outUsd < LIGHTER_INTENT_MIN) throw new LighterError(400, `Add at least $${RELAY_MIN.toFixed(2)}.`);
-  return d;
 }
 
 /** Lighter main -> Cash: a Relay deposit address on Arbitrum that turns `usd` of USDC into USDG in the wallet on
@@ -113,15 +103,9 @@ function bridgeKey() {
 }
 
 /** The player's Lighter deposit address (USDG on Robinhood Chain → USDC on Lighter perps). */
-export async function depositAddress(wallet: string, usd?: number): Promise<{ address: string; outUsd?: number; feeUsd?: number | null }> {
+export async function depositAddress(wallet: string): Promise<{ address: string }> {
   const cfg = lighterConfig();
   if (cfg.payoutIsCash) return intentAddress(cfg, wallet);
-  if (cfg.network === "mainnet" && !process.env.LIGHTER_BRIDGE_KEY) {
-    // Lighter main without the Fun.xyz key: Relay, USDG -> USDC on Arbitrum -> the wallet's Lighter intent address
-    if (!(typeof usd === "number" && usd > 0)) throw new LighterError(400, "Pick an amount.");
-    const intent = await intentAddress(cfg, wallet, ARBITRUM_ID);
-    return relayDeposit(wallet, intent.address, usd);
-  }
   if (cfg.network !== "mainnet") throw new LighterError(409, "Lighter testnet takes test cash from its faucet, not Add cash.");
   const hit = await kv().get(key(wallet)).catch(() => null);
   if (hit) return { address: hit };
