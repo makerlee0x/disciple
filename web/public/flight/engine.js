@@ -1449,8 +1449,8 @@ function liftRange(){ const P=phoneHud(W,CLEAN), bottom=P&&P.hudTop?P.hudTop:H-6
   return [Math.min(0,top-ay), Math.max(0,bottom-60-ay)]; }
 function liftTo(y){ const [lo,hi]=liftRange(); S.lift.yt=clamp(y,lo,hi); }
 function freeFlyStep(dt){ const K=S.keys||{}, L=S.lift;
-  if(!S.menuOpen){ if(K.KeyW||K.ArrowUp) liftTo(L.yt-380*dt); if(K.KeyS||K.ArrowDown) liftTo(L.yt+380*dt); }
-  liftTo(L.yt); L.yo+=(L.yt-L.yo)*Math.min(1,dt*8); S.ry+=L.yo; }
+  if(!S.menuOpen){ if(K.KeyW||K.ArrowUp) liftTo(L.yt-200*dt); if(K.KeyS||K.ArrowDown) liftTo(L.yt+200*dt); }   // calmer (was 380 px/s, follow 8)
+  liftTo(L.yt); L.yo+=(L.yt-L.yo)*Math.min(1,dt*4); S.ry+=L.yo; }
 /* @tricks (maker 2026-11-14: bring the Trading duel's spin + flip into the main flight, phone and browser). Cosmetic only:
    nothing trades, the altitude / PnL never move. Phone: a quick swipe UP on the sky = SPIN (barrel roll), a double-tap on the
    sky = FLIP (a full loop about the body's middle). Desktop: Q = spin, E = flip (unless those keys are bound to a trade preset,
@@ -2641,7 +2641,7 @@ function phDrawBomb(x,y,tier,u){ const r=(10+(PH_K[tier]||0.3)*10)*phS(), vy=200
   ctx.fillStyle='#FFD36E'; ctx.beginPath(); ctx.arc(0,-r-3,3+Math.random()*2.5,0,6.2832); ctx.fill(); ctx.restore(); }
 function phDrawScreen(){
   if(PHX.red>0){ const g=ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.25,W/2,H/2,Math.max(W,H)*0.75); g.addColorStop(0,'rgba(240,48,127,0)'); g.addColorStop(1,`rgba(240,48,127,${Math.min(0.75,PHX.red)*0.6})`); ctx.fillStyle=g; ctx.fillRect(0,0,W,H); }
-  const PB=phBand(), top=PB?PB.top+(phCardBusy()?64:0):BANNER_Y+50;
+  const PB=phBand(), top=PB?PB.top+(phCardBusy()?64:0):BANNER_Y+(phCardBusy()?110:50);
   for(const p of PHX.pops){ const a=p.age, sc=Math.min(1,a*9)*(1+0.55*Math.exp(-a*7)), al=Math.min(1,(p.max-a)*3);
     ctx.save(); ctx.font=GF(p.size,800); const tw=ctx.measureText(p.txt).width, half=tw*sc/2+8;
     const x=clamp(p.x+Math.sin(a*60)*Math.max(0,4-a*12),(PB?PB.x0:16)+half,(PB?PB.x1:W-16)-half), y=Math.max(top+p.size*0.6,p.y-a*60);
@@ -2745,7 +2745,7 @@ function drawBombScreen(){ // un-shaken overlays: flash + label pops
     // tier icon (DISCIPLE bomb family) + 6-orb tier meter (reached = solid) lead the label; text unchanged
     const tw=ctx.measureText(l.txt).width, ih=Math.round(fs*1.15), mh=Math.round(Math.max(12,fs*0.8)), iw=ih, mw=iconW('meter-orbs-1',mh), gap=Math.round(fs*0.3), lead=iw+gap+mw+gap*1.4;
     const PB=phBand(), w=tw+lead, fit=Math.min(1,(PB?(PB.x1-PB.x0)/1.15:W-40)/(w+24)), lx=PB?W/2:clamp(l.x,Math.min(W/2,w*fit/2+20),Math.max(W/2,W-w*fit/2-20)),
-      ly=clamp(l.y-90-l.age*18-(l.tier>=5?120:0),PB?PB.top+(phCardBusy()?64:0)+fs*0.95*pop*fit+4:BANNER_Y+50,H-30);   /* phone: centred in the open sky, under the feed pill (and under a zone card) */
+      ly=clamp(l.y-90-l.age*18-(l.tier>=5?120:0),PB?PB.top+(phCardBusy()?64:0)+fs*0.95*pop*fit+4:BANNER_Y+(phCardBusy()?110:50),H-30);   /* phone: centred in the open sky, under the feed pill (and under a zone card) */
     ctx.translate(lx,ly); ctx.scale(pop*fit,pop*fit);   /* fit: never wider than the screen (phone: ATOM BOMB ran off the edge) */
     ctx.fillStyle='rgba(10,8,20,.62)'; ctx.beginPath(); ctx.roundRect?ctx.roundRect(-w/2-12,-fs*0.95,w+24,fs*1.45,8):ctx.rect(-w/2-12,-fs*0.95,w+24,fs*1.45); ctx.fill();
     const col=l.tier>=5?'#fffdf2':'#ffd77a', cy=-fs*0.95+fs*1.45/2, x0=-w/2;
@@ -2768,10 +2768,12 @@ function debugBomb(spec,opt){ opt=opt||{};
    screen width: crosses the full width in ≈1 s of holding. Release damps to a stop (tilt eases upright).
    Edges: soft stop with a small bounce. Returns st.x; st.vx in px/s. */
 const STEER_VMAX=1.1, STEER_ACC=7, STEER_DAMP=7, STEER_REV=2.2, STEER_BOUNCE=0.18;   // ×W per s / s²
+/* Free play / Daily (maker 2026-11-18: "way too fast and sensitive, it's chaos"): calmer A/D and drag, ~half the top speed and pickup. */
+function STEER_K(){ return typeof FREE_FLY!=='undefined'&&FREE_FLY?0.5:1; }
 function steerMargin(W){ return Math.min(60, W*0.045); }
 function stepSteer(st, dir, dt, W){
   dir=Number.isFinite(dir)?Math.max(-1,Math.min(1,dir)):0; if(!(dt>0)) return st.x;
-  const vmax=STEER_VMAX*W, acc=STEER_ACC*W, m=steerMargin(W);
+  const vmax=STEER_VMAX*W*STEER_K(), acc=STEER_ACC*W*STEER_K(), m=steerMargin(W);
   let vx=Number.isFinite(st.vx)?st.vx:0;
   if (dir){ const rev=vx*dir<0?STEER_REV:1; vx+=dir*acc*rev*dt; if (Math.abs(vx)>vmax) vx=Math.sign(vx)*vmax; }
   else vx*=Math.exp(-STEER_DAMP*dt);
@@ -2797,7 +2799,7 @@ function stepSteerAuto(st, dir, dt, W){
 /* Drag-to-steer (phones): target x → a steering input for stepSteer. Desired velocity ∝ distance (capped at the key max),
    input = velocity error; so the rocket chases the finger with the same acceleration / bank as the keys and settles on it. */
 const DRAG_K=9, DRAG_GAIN=0.3;
-function steerDragDir(st, tx, W){ if(!Number.isFinite(tx)) return 0; const vmax=STEER_VMAX*W, x=Number.isFinite(st.x)?st.x:W/2, vx=Number.isFinite(st.vx)?st.vx:0;
+function steerDragDir(st, tx, W){ if(!Number.isFinite(tx)) return 0; const vmax=STEER_VMAX*W*STEER_K(), x=Number.isFinite(st.x)?st.x:W/2, vx=Number.isFinite(st.vx)?st.vx:0;
   const want=Math.max(-vmax,Math.min(vmax,(tx-x)*DRAG_K)); return Math.max(-1,Math.min(1,(want-vx)/(vmax*DRAG_GAIN))); }
 /*STEER-END*/
 /*HEADING-BEGIN*/
@@ -2949,7 +2951,7 @@ function simStep(stepDt){
   ammoTierStep(); pushMark();
   /* SPRING — altitude tracks price. ω≈22 rad/s, ζ≈0.72 → ~150 ms rise with a little overshoot.
      Tunables: SPRING_W (stiffness), SPRING_Z (damping; <1 overshoots). */
-  const SPRING_W=10, SPRING_Z=1.0;   // critically damped (~0.35 s): no overshoot bounce, no screen snap
+  const SPRING_W=FREE_FLY?6:10, SPRING_Z=1.0;   // free play / Daily: the market runs 1.5x, so a softer follow keeps the rocket from jerking   // critically damped (~0.35 s): no overshoot bounce, no screen snap
   simMarketStep(dt);   // (sim off on live coins: S.simF stays 1)
   const realAlt=mcapToAlt(shownMcap());   // = the price the HUD shows and PnL marks (paper: × sim offset; live: real)
   const target=realAlt+(S.boostAnim&&S.boostAnim.length?baOffset(S.boostAnim,realAlt,performance.now()):0);   // + pending shots' visual lead (@boostanim)
@@ -3179,6 +3181,9 @@ function drawZoneCard(){ const k=S.tierShown, bn=tierName(k); if(!bn) return;
   /* phone: a compact two-line card in the open sky under the feed pill; the altitude joins the kicker so the card stays clear of the rocket */
   const kick=(up?`ZONE ${String(k+1).padStart(2,'0')} / ${TIERS.length}`:'DROPPED TO')+(PB?' · '+fmtUsd(TIERS[k].lo):'');
   let fs=PB?36:Math.min(84,Math.max(40,W*0.075)); ctx.font=GF(fs,800); while(ctx.measureText(bn).width>(PB?PB.x1-PB.x0:W-48)&&fs>26){ fs-=4; ctx.font=GF(fs,800); }
+  /* desktop: a soft dark plate behind the card (maker 2026-11-18: rocket names, BOMB and FLIP! pops showed through the letters) */
+  if(!PB){ const pw=Math.min(W-32,ctx.measureText(bn).width+120), py0=BY-fs*0.8-40, ph=fs*0.8+40+60; ctx.save(); ctx.fillStyle='rgba(8,9,18,.78)'; ctx.shadowColor='rgba(8,9,18,.78)'; ctx.shadowBlur=36;
+    ctx.beginPath(); ctx.roundRect?ctx.roundRect(W/2-pw/2,py0,pw,ph,18):ctx.rect(W/2-pw/2,py0,pw,ph); ctx.fill(); ctx.restore(); }
   ctx.font=GF(PB?13:17,700); ctx.fillStyle=up?'#F2C14E':'#F0307F'; if('letterSpacing' in ctx) ctx.letterSpacing=PB?'3px':'4px'; ctx.fillText(kick,W/2,PB?PB.top+12:BY-fs*0.8-12); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; ctx.font=GF(fs,800);
   const rise=(1-inA)*(PB?8:14); ctx.fillStyle='#FFFFFF'; glowText(bn,W/2,BY+rise,up?'rgb(242,193,78)':'rgb(240,48,127)',14,0.28);
   const rw=Math.min(W-80,ctx.measureText(bn).width)*clamp(age/0.6,0,1); ctx.fillStyle=up?'rgba(243,223,168,.8)':'rgba(240,48,127,.7)'; ctx.fillRect(W/2-rw/2,BY+(PB?8:16),rw,2);

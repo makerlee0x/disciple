@@ -7,15 +7,23 @@
 .wrap { max-width: 1240px; margin: 0 auto; padding: 40px 40px 32px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px; min-height: 100%; }
 .g { font-family: var(--dsc-font-game, "Barlow Condensed", sans-serif); }
 
-.head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
-.titleBox { display: flex; flex-direction: column; gap: 4px; }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.titleBox { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
 .title { margin: 0; font-family: var(--dsc-font-game); font-weight: 800; font-size: 56px; line-height: .95; letter-spacing: .5px; }
-.sub { font-size: 16px; color: #D7D9E4; }
-.back { display: none; }
+.back { display: inline-flex; align-items: center; gap: 6px; height: 44px; box-sizing: border-box; padding: 0 14px 0 10px; border-radius: 12px; flex: none;
+  background: rgba(18,19,39,.78); border: 1px solid #2E323A; color: #F2F3F7; text-decoration: none; font: 700 16px var(--dsc-font-game); letter-spacing: 1px; }
+.back:hover { border-color: rgba(243,223,168,.5); }
+.back:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+/* streak badge (maker 2026-11-18: "could look better"): flame coin + big number + stacked label, gold rim */
 .streak {
-  display: inline-flex; align-items: center; gap: 8px; height: 44px; box-sizing: border-box; padding: 0 16px; border-radius: 999px; flex: none;
-  background: rgba(18,19,39,.78); border: 1px solid rgba(243,223,168,.35); font: 700 20px var(--dsc-font-game); color: #F3DFA8;
+  display: inline-flex; align-items: center; gap: 10px; height: 48px; box-sizing: border-box; padding: 0 16px 0 6px; border-radius: 999px; flex: none;
+  background: linear-gradient(180deg, rgba(60,40,22,.85), rgba(18,19,39,.9)); border: 1px solid rgba(242,193,78,.55);
+  box-shadow: inset 0 1px 0 rgba(255,241,201,.18), 0 6px 18px rgba(255,122,61,.14); color: #F3DFA8;
 }
+.streakIcon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: radial-gradient(circle at 50% 40%, rgba(255,122,61,.35), rgba(18,19,39,.9) 70%); border: 1px solid rgba(242,193,78,.4); }
+.streakIcon svg { width: 22px; height: 22px; }
+.streakN { font: 800 28px/1 var(--dsc-font-game); color: #FFF1C9; }
+.streakL { font: 700 11px/1.05 var(--dsc-font-game); letter-spacing: 1.5px; color: #F2C14E; }
 
 .top { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); gap: 24px; }
 .daily { position: relative; min-height: 404px; border-radius: 20px; overflow: hidden; border: 1px solid rgba(243,223,168,.35); background: #121327; }
@@ -48,6 +56,9 @@
 .rank1 { color: #F2C14E; }
 .mult { font: 700 18px var(--dsc-font-game); color: #5FF0A0; }
 .rule { height: 1px; background: #2E323A; margin: 4px 0; }
+.skel { display: block; height: 14px; width: 60%; border-radius: 7px; background: rgba(215,217,228,.12); animation: fpSkel 1.2s ease-in-out infinite alternate; }
+@keyframes fpSkel { from { opacity: .45; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
 .boardNote { font-size: 12px; color: rgba(215,217,228,.75); }
 .empty { font-size: 14px; color: #D7D9E4; line-height: 1.45; }
 
@@ -77,11 +88,14 @@
   .hub { left: 0; }
   .wrap { padding: calc(var(--ap-safe-top, 0px) + 14px) 16px 110px; gap: 20px; }
   .head { align-items: center; }
-  .back { display: grid; place-items: center; width: 44px; height: 44px; box-sizing: border-box; border-radius: 12px; background: rgba(18,19,39,.78); border: 1px solid #2E323A; flex: none; }
+  .back { width: 44px; padding: 0; justify-content: center; }
+  .backT { display: none; }
   .titleBox { align-items: center; }
   .title { font-size: 26px; letter-spacing: 1px; }
-  .sub { display: none; }
-  .streak { height: 44px; padding: 0 12px; font-size: 18px; }
+  .streak { height: 44px; padding: 0 10px 0 4px; gap: 6px; }
+  .streakIcon { width: 34px; height: 34px; }
+  .streakN { font-size: 22px; }
+  .streakL { display: none; }
   .top { grid-template-columns: 1fr; }
   .board { padding: 16px; border-radius: 16px; gap: 8px; }
   .boardT { font-size: 18px; }

@@ -34,7 +34,7 @@ export function dailyStreak(today: number): number {
   return n;
 }
 
-const Flame = ({ size = 18 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#F2C14E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-3 2-4 2-7 2 1 3 2 3 4" /></svg>;
+const Flame = ({ size = 18 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden><defs><linearGradient id="fpFlame" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stopColor="#FF7A3D" /><stop offset="1" stopColor="#F2C14E" /></linearGradient></defs><path d="M12 2.5c1.2 3.6 5.5 5.4 5.5 10.6A5.5 5.5 0 0 1 6.5 13c0-3 1.8-4.4 2.2-7.2 1.9 1 3 2.6 3.1 4.6.9-1.6 1-4.6.2-7.9z" fill="url(#fpFlame)" /><path d="M12 21a2.6 2.6 0 0 1-2.6-2.6c0-1.9 1.6-2.6 2.1-4.4 1.6 1.2 3.1 2.4 3.1 4.4A2.6 2.6 0 0 1 12 21z" fill="#FFF1C9" /></svg>;
 
 export type Board = { count: number; top: { runId: string; name: string; multiple: number }[] } | null;
 /** today's board (GET /api/daily): the top 10 and how many pilots are on it */
@@ -69,9 +69,9 @@ export function FreePlayHub({ dailyId, msg, onDaily, tune }: {
     <div className={s.hub} data-testid="sim-select">
       <div className={s.wrap}>
         <div className={s.head}>
-          <Link href="/" className={s.back} aria-label="Back to the lobby"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 5l-7 7 7 7" /></svg></Link>
-          <div className={s.titleBox}><h1 className={s.title}>FREE PLAY</h1><span className={s.sub}>Fake cash. One chart a day.</span></div>
-          {streak > 0 ? <span className={s.streak} data-testid="fp-streak"><Flame />{streak}-day streak</span> : <span style={{ width: 44 }} aria-hidden />}
+          <Link href="/" className={s.back} aria-label="Back to the lobby"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 5l-7 7 7 7" /></svg><span className={s.backT}>BACK</span></Link>
+          <div className={s.titleBox}><h1 className={s.title}>DAILY MISSION</h1></div>
+          {streak > 0 ? <span className={s.streak} data-testid="fp-streak" aria-label={`${streak}-day streak`}><span className={s.streakIcon}><Flame size={16} /></span><b className={s.streakN}>{streak}</b><span className={s.streakL}>DAY<br />STREAK</span></span> : <span style={{ width: 44 }} aria-hidden />}
         </div>
 
         <div className={s.top}>
@@ -79,16 +79,13 @@ export function FreePlayHub({ dailyId, msg, onDaily, tune }: {
             <div className={s.dailyArt} aria-hidden />
             <div className={s.dailyShade} aria-hidden />
             <div className={s.dailyBody}>
-              <div className={s.tags}><span className={s.tag}>SAME CHART FOR EVERYONE</span><span className={s.tag}>NEW FLIGHT IN {untilText(dailyEndsAt(dailyId) - now)}</span></div>
+              <div className={s.tags}><span className={s.tag}>#{dailyId}</span><span className={s.tag}>FREE PLAY</span><span className={s.tag}>NEW IN {untilText(dailyEndsAt(dailyId) - now)}</span></div>
               <div>
-                <span className={s.kicker}>DAILY FLIGHT #{dailyId}</span>
-                <div className={s.dailyH}>Same chart.<br />Everyone apes it.</div>
-                <p className={s.dailyP}>{mine ? `You cashed out at ${fmtMultiple(mine.multiple)}. New chart at midnight UTC.` : "One shot a day. Best cash-out takes the board."}</p>
+                <div className={s.dailyH}>Same sky.<br />Everyone apes it.</div>
               </div>
-              <div className={s.phoneMeta}><span>{best ? <>Best today <b style={{ color: "#5FF0A0", fontWeight: 600 }}>{fmtMultiple(best.multiple)}</b> by {best.name}</> : "Nobody\u2019s flown it yet"}</span><span>{pilots}</span></div>
+              <div className={s.phoneMeta}><span>{best ? <>Best today <b style={{ color: "#5FF0A0", fontWeight: 600 }}>{fmtMultiple(best.multiple)}</b> by {best.name}</> : "No runs yet"}</span><span>{pilots}</span></div>
               <div className={s.ctaRow}>
                 <button type="button" className={s.cta} data-testid="sim-daily" onClick={onDaily}>{mine ? "SEE YOUR RESULT" : "FLY TODAY'S FLIGHT"}</button>
-                {pilots && <span className={`${s.meta} ${s.desk}`}>{pilots} so far</span>}
               </div>
               {msg && <span className={s.msg} data-testid="sim-daily-msg">{msg}</span>}
             </div>
@@ -98,15 +95,14 @@ export function FreePlayHub({ dailyId, msg, onDaily, tune }: {
             <div className={s.boardHead}><span className={s.boardT}>TODAY&apos;S BOARD</span><span className={s.meta}>{pilots || `Daily #${dailyId}`}</span></div>
             {board && board.top.length ? board.top.slice(0, 5).map((r, i) => (
               <div key={r.runId} className={s.row}><span><b className={`${s.rank} ${i === 0 ? s.rank1 : ""}`}>{i + 1}</b>{r.name}</span><span className={s.mult}>{fmtMultiple(r.multiple)}</span></div>
-            )) : <div className={s.empty}>{board ? "Empty. Go take #1." : "Loading the board…"}</div>}
+            )) : <div className={s.empty}>{board ? "No runs yet" : <span className={s.skel} role="status" aria-label="Loading the board" />}</div>}
             <div className={s.rule} />
             <div className={s.row} style={{ color: "#D7D9E4" }}><span>{mine ? `You · #${mine.rank}` : "You · not flown yet"}</span><span className={s.mult} style={{ color: mine ? "#5FF0A0" : "#D7D9E4" }}>{mine ? fmtMultiple(mine.multiple) : "–"}</span></div>
-            <span className={s.boardNote}>{wallet || mine?.boarded ? "Resets midnight UTC." : "Sign in to make the board. Resets midnight UTC."}</span>
+            {!(wallet || mine?.boarded) && <span className={s.boardNote}>Sign in to make the board.</span>}
           </aside>
         </div>
 
         {tune}
-        <div className={s.foot}>Fake money. Nothing here touches your wallet.</div>
       </div>
     </div>
   );

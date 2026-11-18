@@ -28,7 +28,7 @@ const runState = (page: Page) => page.evaluate(() => {
 test("the Free play hub shows today's daily and its board, with no practice levels", async ({ page }) => {
   await page.goto("/flight/sim");
   const hub = page.getByTestId("sim-select");
-  await expect(hub.getByRole("heading", { name: "FREE PLAY" })).toBeVisible();
+  await expect(hub.getByRole("heading", { name: "DAILY MISSION" })).toBeVisible();
   await expect(hub.getByTestId("sim-daily")).toHaveText("FLY TODAY'S FLIGHT");
   // practice was removed (maker 2026-11-16): the daily is the whole mode
   for (const d of ["pve", "pvp", "trench"]) await expect(hub.getByTestId(`sim-diff-${d}`)).toHaveCount(0);

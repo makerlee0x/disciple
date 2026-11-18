@@ -70,17 +70,17 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
     <div className={s.pre} data-testid="daily-pre">
       <div className={s.bg} aria-hidden />
       <header className={s.top}>
-        <button type="button" className={s.back} onClick={() => { cd.cancel(); onBack(); }} disabled={counting} aria-label="Back to Free play">
+        <button type="button" className={s.back} onClick={() => { cd.cancel(); onBack(); }} disabled={counting} aria-label="Back">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 5l-7 7 7 7" /></svg>BACK
         </button>
-        <div className={s.title}>DAILY FLIGHT #{dailyId}</div>
+        <div className={s.title}>DAILY MISSION #{dailyId}</div>
         <span className={s.chip}>New in {untilText(dailyEndsAt(dailyId) - now)}</span>
       </header>
 
       <div className={s.hero}>
-        <h1 className={s.h}>Same chart.<br />Everyone apes it.</h1>
+        <h1 className={s.h}>Same sky.<br />Everyone apes it.</h1>
         <div className={s.facts}>
-          <span><b>{Math.round(dailyRealSeconds())} sec</b></span><span><b>$250</b>fake cash</span><span><b>1</b>shot</span>
+          <span><b>{Math.round(dailyRealSeconds())} sec</b></span><span><b>$250</b></span><span><b>1</b>shot</span>
         </div>
       </div>
 

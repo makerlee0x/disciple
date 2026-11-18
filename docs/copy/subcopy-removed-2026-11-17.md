@@ -271,3 +271,18 @@ Removed (restore by adding back):
 - Board empty: `Empty. Go take #1.` → `No runs yet`. Board loading: `Loading the board…` → pulse bar.
 - Board note, signed in: `You're signed in. Your score counts.` → nothing. Signed out: `Sign in to make the board. You can do it after you land.` → `Sign in to make the board.`
 - Under LAUNCH: `Fake money. Only your first run counts.` (the `$250 fake cash` and `1 shot` pills say it).
+- Hero heading on both the pre-launch and the hub: `Same chart.` → `Same sky.` (maker: no "chart"). `$250 fake cash` pill → `$250` (the FREE PLAY tag says it). Top bar `DAILY FLIGHT #n` → `DAILY MISSION #n`.
+
+### Daily result (`web/components/sim/DailyResult.tsx`)
+- Story line under the chart (`Peak came 25s after you left. Asteroid dumped.` / `Sold the top.` / `Held to the end.` …): removed from view, still the chart's aria-label.
+- Legend `Boarded $5.0K` / `You out 1.1×` / `Never boarded` / `No exit` → `In $5.0K` / `Out 1.1×` / `–` / `Held`.
+- XP card sub `1,490 XP to Needle Walnut & Brass skin` removed (cap note, errors and "Sign in to keep it" stay).
+- Header + share text `Daily flight #n` → `Daily mission #n`.
+
+### Daily hub (`web/components/sim/FreePlay.tsx`)
+- Title `FREE PLAY` → `DAILY MISSION`; sub `Fake cash. One chart a day.` removed.
+- Tags `SAME CHART FOR EVERYONE` / `NEW FLIGHT IN …` → `#n` / `FREE PLAY` / `NEW IN …`. Kicker `DAILY FLIGHT #n` removed.
+- Hero sub `You cashed out at 1.1×. New chart at midnight UTC.` / `One shot a day. Best cash-out takes the board.` removed.
+- `1 pilot so far` next to the button removed (board header shows the count).
+- Board: `Empty. Go take #1.` → `No runs yet`, `Loading the board…` → pulse, `Resets midnight UTC.` removed, signed-out note → `Sign in to make the board.`; phone `Nobody's flown it yet` → `No runs yet`.
+- Footer `Fake money. Nothing here touches your wallet.` removed.

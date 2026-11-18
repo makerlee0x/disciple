@@ -12,8 +12,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import LevelRing from "@/components/xp/LevelRing";
 import AnimClip from "@/components/ui/AnimClip";
 import { freePlayXp, FREE_PLAY_XP } from "@/lib/xp";
-import { nextLevelUnlock } from "@/lib/unlocks";
-import { fetchXp, usePilotWallet, XP_CHANGED_EVENT } from "@/lib/xpClient";
+import { usePilotWallet, XP_CHANGED_EVENT } from "@/lib/xpClient";
 import { privyLogin, privyReady } from "@/lib/aa/sessionState";
 import { dailyEndsAt, dailyRecap, fmtMultiple as mult, DAILY, type DailyScore } from "@/lib/sim/daily";
 import { claimFreePlayXp, deviceId, refreshRank, type DailyVerdict, type FreePlayXpResult } from "@/lib/sim/dailyClient";
@@ -71,7 +70,6 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
   // XP: saved as soon as there is a scored run and a signed-in pilot
   const pilot = usePilotWallet(), waiting = freePlayXp("daily", s);
   const [xp, setXp] = useState<FreePlayXpResult | { ok: false; reason: string } | null>(null);
-  const [mine, setMine] = useState<{ total: number; prestige: number } | null>(null);
   const claimed = useRef<string | null>(null);
   const save = async () => {
     if (!verdict || !pilot) return; claimed.current = pilot; setXp(null);
@@ -79,14 +77,11 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
     if (r) { setXp(r); if (r.ok) { dispatchEvent(new CustomEvent(XP_CHANGED_EVENT)); refreshRank(id, verdict.runId).then((k) => { if (k) setRank(k); }); } }
   };
   useEffect(() => { if (verdict && pilot && claimed.current !== pilot) save(); }, [verdict, pilot]);   // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (!pilot) { setMine(null); return; } fetchXp(pilot).then((x) => { if (x) setMine({ total: x.totalXp, prestige: x.level.prestige }); }); }, [pilot]);
   const saved = xp && xp.ok ? xp : null;
-  const unlock = saved ? nextLevelUnlock(saved.totalXp, saved.level.prestige) : nextLevelUnlock(mine?.total ?? 0, mine?.prestige ?? 0, waiting);
-  const unlockLine = unlock ? `${unlock.more.toLocaleString("en-US")} XP to ${unlock.name} ${unlock.part}` : "";
   // signed-in board (maker 2026-11-13): a score goes on the board when its pilot signs in and saves it
   const posted = !!saved || !!rank?.boarded, showCard = waiting > 0 || !posted;
   const xpHead = saved ? (waiting > 0 ? `+${saved.xp} XP` : "ON THE BOARD") : waiting > 0 ? (pilot ? `+${waiting} XP` : `+${waiting} XP waiting`) : "POST YOUR SCORE";
-  const xpSub = saved ? (waiting > 0 && !saved.already && saved.xp < waiting ? `Daily cap ${FREE_PLAY_XP.perDay} XP` : unlockLine)
+  const xpSub = saved ? (waiting > 0 && !saved.already && saved.xp < waiting ? `Daily cap ${FREE_PLAY_XP.perDay} XP` : "")
     : xp && !xp.ok ? xp.reason : pilot ? "" : "Sign in to keep it";
 
   // chart: 330×98, log scale, markers at boarded / your best exit / the peak, a tick where the dump hit
@@ -104,9 +99,9 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
     try { if (navigator.share) { await navigator.share({ title: "DISCIPLE Daily flight", text, url }); return; } } catch { return; }
     try { await navigator.clipboard.writeText(`${text} ${url}`); setNote("Link copied"); } catch { setNote(url); }
   };
-  const challenge = () => { if (verdict) send(`${location.origin}/d/${id}?c=${verdict.runId}${ref && `&${ref}`}`, `I cashed out at ${mult(s.multiple)} on Daily flight #${id}. Beat it.`); };
+  const challenge = () => { if (verdict) send(`${location.origin}/d/${id}?c=${verdict.runId}${ref && `&${ref}`}`, `I cashed out at ${mult(s.multiple)} on Daily mission #${id}. Beat it.`); };
   const share = () => send(`${location.origin}/d/${id}${verdict ? `?c=${verdict.runId}${ref && `&${ref}`}` : ref && `?${ref}`}`,
-    s.invested <= 0 ? `Daily flight #${id} on DISCIPLE` : `${mult(s.multiple)} on Daily flight #${id}${rank?.boarded ? `, #${rank.rank} today` : ""}.`);
+    s.invested <= 0 ? `Daily mission #${id} on DISCIPLE` : `${mult(s.multiple)} on Daily mission #${id}${rank?.boarded ? `, #${rank.rank} today` : ""}.`);
   const rankText = (r: NonNullable<typeof rank>) => r.count <= 1 ? `#${r.rank} today` : `#${r.rank.toLocaleString("en-US")} of ${r.count.toLocaleString("en-US")} today${r.count >= 10 ? ` · top ${r.topPct}%` : ""}`;
   const meOnBoard = !!(board && verdict && board.top.some((r) => r.runId === verdict.runId));
 
@@ -140,7 +135,7 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
       <div className="dr-bg" aria-hidden><AnimClip id="B6-daily" loop className="dr-vid" /></div>
       <div className="dr-wrap"><div className="dr-main">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ ...game, fontWeight: 700, fontSize: 15, letterSpacing: 1.5, color: "#F3DFA8" }}>DAILY FLIGHT #{id}</span>
+          <span style={{ ...game, fontWeight: 700, fontSize: 15, letterSpacing: 1.5, color: "#F3DFA8" }}>DAILY MISSION #{id}</span>
           <button type="button" data-testid="daily-close" aria-label="Close and go to Free play" onClick={onClose} style={{ width: 44, height: 44, boxSizing: "border-box", borderRadius: 12, background: "rgba(18,19,39,0.78)", border: "1px solid #2E323A", display: "grid", placeItems: "center", cursor: "pointer" }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg></button>
         </div>
@@ -161,7 +156,7 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
         </div>
 
         <div style={{ marginTop: 16, padding: "12px 14px", borderRadius: 16, background: "rgba(22,24,28,0.85)", border: "1px solid #2E323A" }}>
-          <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Flight chart: ${storyLine(s, rc.dumper)}`} style={{ display: "block" }}>
+          <svg width="100%" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Flight: ${storyLine(s, rc.dumper)}`} style={{ display: "block" }}>
             <path d={d} fill="none" stroke="#5FF0A0" strokeWidth="2" strokeLinejoin="round" />
             {rc.dumpAtS != null && <line x1={X(rc.dumpAtS)} y1={Y(at(rc.dumpAtS))} x2={X(rc.dumpAtS)} y2={Y(at(rc.dumpAtS)) - 16} stroke="#F0307F" strokeWidth="2" />}
             {s.boardedAtS != null && <circle cx={X(s.boardedAtS)} cy={Y(at(s.boardedAtS))} r="5" fill="#F2F3F7" />}
@@ -170,11 +165,10 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
             {ghost?.outAtS != null && <circle data-testid="daily-ghost-mark" cx={X(ghost.outAtS)} cy={Y(at(ghost.outAtS))} r="6" fill="none" stroke={GOLD} strokeWidth="2" strokeDasharray="3 2" />}
           </svg>
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12, gap: 6 }}>
-            <span style={{ color: "#D7D9E4" }}><b style={{ color: "#F2F3F7", fontWeight: 600 }}>●</b> {s.boardedMcap ? `Boarded ${fmt(s.boardedMcap)}` : "Never boarded"}</span>
-            <span style={{ color: "#F3DFA8" }}><b style={{ fontWeight: 600 }}>●</b> {s.outAtS != null ? `You out ${mult(s.multiple)}` : "No exit"}</span>
+            <span style={{ color: "#D7D9E4" }}><b style={{ color: "#F2F3F7", fontWeight: 600 }}>●</b> {s.boardedMcap ? `In ${fmt(s.boardedMcap)}` : "–"}</span>
+            <span style={{ color: "#F3DFA8" }}><b style={{ fontWeight: 600 }}>●</b> {s.outAtS != null ? `Out ${mult(s.multiple)}` : "Held"}</span>
             <span style={{ color: "#FF9CC4" }}>○ Peak {peakX ? mult(peakX) : fmt(s.peakMcap)}</span>
           </div>
-          <div data-testid="daily-story" style={{ marginTop: 4, fontSize: 12, color: "#D7D9E4" }}>{storyLine(s, rc.dumper)}</div>
           {ghost && <div data-testid="daily-ghost-line" style={{ marginTop: 4, fontSize: 12, color: "#F3DFA8" }}>{ghost.name}: {mult(ghost.multiple)}{ghost.outAtS != null ? ` at ${Math.round(ghost.outAtS)}s` : ""}. {s.multiple > ghost.multiple ? "You win." : s.multiple === ghost.multiple ? "Tie." : "They win."}</div>}
         </div>
 
