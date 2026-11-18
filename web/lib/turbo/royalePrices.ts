@@ -155,7 +155,7 @@ export function streamLighterMids(cb: (m: RoyaleMids) => void, host: string = LI
 
 /** Royale's feed: Lighter's price per coin once it has one (for good), Hyperliquid's before that; at most every
  *  `everyMs`, and the last prices again every second */
-export function streamRoyalePrices(cb: (m: RoyaleMids) => void, everyMs = 250): () => void {
+export function streamRoyalePrices(cb: (m: RoyaleMids) => void, everyMs = 250, host: string = LIGHTER_PRICE_HOST): () => void {
   const merged = royaleMerge();
   let last = 0, timer: ReturnType<typeof setTimeout> | null = null;
   const flush = () => {
@@ -165,7 +165,7 @@ export function streamRoyalePrices(cb: (m: RoyaleMids) => void, everyMs = 250): 
   };
   const kick = () => { if (!timer) timer = setTimeout(flush, Math.max(0, everyMs - (Date.now() - last))); };
   const beat = setInterval(() => { if (Date.now() - last > 900) kick(); }, 1_000);
-  const stopL = streamLighterMids((m) => { merged.lighter(m); kick(); });
+  const stopL = streamLighterMids((m) => { merged.lighter(m); kick(); }, host);
   const stopH = streamRoyaleMids((m) => { merged.hyperliquid(m); kick(); }, 0);
   return () => { stopL(); stopH(); clearInterval(beat); if (timer) clearTimeout(timer); };
 }

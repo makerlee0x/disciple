@@ -1,9 +1,13 @@
 import "server-only";
 /**
  * The duel's price, server side. Every duel trade fills at THIS price, never at a price the client sends, so a
- * pilot can't pick their own fills. Source: Hyperliquid public allMids (the same stand-in feed Turbo's screens use)
- * until Nova gives us a server-side price/fill stream; swap `fetchMid` then. Cached ~400 ms per instance.
+ * pilot can't pick their own fills. Source: Lighter's live BTC mark when Lighter runs on real money (the exchange the
+ * real orders go to), else Hyperliquid public allMids. Cached ~400 ms per instance.
  */
+import { lighterConfig } from "@/lib/server/lighter/config";
+import { marketBySymbol, marketNow } from "@/lib/server/lighter/rest";
+/** the venue the duel prices on: "lighter" (its live mark) or "hyperliquid" */
+export const duelPriceVenue = () => (lighterOn() ? "lighter" : "hyperliquid");
 const HL_INFO = process.env.DUEL_PRICE_URL || "https://api.hyperliquid.xyz/info";
 let cache: { p: number; at: number } | null = null;
 let inflight: Promise<number | null> | null = null;
@@ -12,7 +16,24 @@ let override: MidSource | null = null;
 /** tests: inject a price source (null = back to Hyperliquid) */
 export function setDuelPriceSource(f: MidSource | null) { override = f; cache = null; }
 
+/** Lighter's live BTC mark, from the exchange the real orders go to (maker 2026-11-18: "use lighter's live btc for duel
+ *  and royale"). Only on a real-money network with Lighter on: testnet books are empty, so their prices mean nothing. */
+function lighterOn() {
+  const c = lighterConfig();
+  return c.enabled && (c.network === "rh-mainnet" || c.network === "mainnet") ? c : null;
+}
+async function fetchLighterMid(): Promise<number | null> {
+  const cfg = lighterOn(); if (!cfg) return null;
+  try {
+    const m = await marketBySymbol(cfg, "BTC");
+    const now = await marketNow(cfg, m.market_id);
+    const p = Number(now.mark_price ?? now.last_trade_price);
+    return p > 0 ? p : null;
+  } catch { return null; }
+}
 async function fetchMid(): Promise<number | null> {
+  // Lighter's price when it's on; no fallback to Hyperliquid then, so a duel's price never jumps between venues
+  if (lighterOn()) return fetchLighterMid();
   const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 1500);
   try {
     const r = await fetch(HL_INFO, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "allMids" }), signal: ctl.signal, cache: "no-store" });

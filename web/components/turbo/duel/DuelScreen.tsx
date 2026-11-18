@@ -27,6 +27,8 @@ import { FEE, LEV, PCTS, pctUsd, fuelOf } from "@/lib/duel/rules";
 
 const trailRgb = (id?: string) => TRAILS.find((t) => trailId(t.id) === id)?.rgb;
 import { useTurboMusic } from "@/lib/game/turboMusic";
+import { lighterPriceHost } from "@/lib/turbo/priceVenue";
+import { streamLighterMids } from "@/lib/turbo/royalePrices";
 
 type Tick = { ts: number; p: number };
 interface EngineApi {
@@ -73,11 +75,18 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
     const hist: Tick[] = [];
 
     // live BTC, kept 90 s back so the chart is full when a duel starts
-    const stopPrice = getTurboAdapter().subscribePrice("BTC", (t) => {
-      const ts = t.ts || Date.now(); hist.push({ ts, p: t.price });
+    // When the duel server scores on Lighter (lib/server/duel/price), the chart is Lighter's BTC too, so both match
+    const onTick = (price: number, at: number) => {
+      const ts = at || Date.now(); hist.push({ ts, p: price });
       while (hist.length && hist[0].ts < ts - 90_000) hist.shift();
-      api?.price(t.price, ts);
+      api?.price(price, ts);
+    };
+    let pxDead = false, stopPx = () => {};
+    void lighterPriceHost().then((h) => {
+      if (pxDead) return;
+      stopPx = h ? streamLighterMids((m) => { if (m.BTC) onTick(m.BTC, Date.now()); }, h) : getTurboAdapter().subscribePrice("BTC", (t) => onTick(t.price, t.ts));
     });
+    const stopPrice = () => { pxDead = true; stopPx(); };
 
     // Hangar looks (lib/collection: skin, trail, name tag): yours, and a real rival's, from /api/looks; the engine reads them as each duel starts
     type Fx = { burn: number; seed: number; trak?: number };

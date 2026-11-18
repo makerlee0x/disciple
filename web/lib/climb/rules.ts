@@ -23,7 +23,7 @@ export const CLIMB_MIN_BALANCE = 5;
 export function climbLevelsFor(balance: number): ClimbLevel[] {
   const base = Number.isFinite(balance) && balance >= CLIMB_MIN_BALANCE ? balance : CLIMB_BASE;
   return CLIMB_LEVELS.map((l) => {
-    const fuel = Math.max(1, Math.floor((base * l.fuel) / CLIMB_BASE * 100) / 100);   // $1 levels stay (maker 2026-11-18: "nice for newbie players")
+    const fuel = Math.max(2, Math.floor((base * l.fuel) / CLIMB_BASE * 100) / 100);   // $2 floor (maker 2026-11-18): covers Lighter's ~$12.60 BTC minimum at 10x
     const goal = Math.max(0.01, Math.round(fuel * (l.goal / l.fuel) * 100) / 100);
     return { ...l, fuel, goal, pct: Math.round((l.goal / l.fuel) * 1000) / 10 };
   });

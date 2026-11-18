@@ -7,7 +7,8 @@
  * real Lighter orders (lib/lighter/royale).
  */
 import { useEffect, useRef, useState } from "react";
-import { streamRoyalePrices } from "@/lib/turbo/royalePrices";
+import { LIGHTER_PRICE_HOST, streamRoyalePrices } from "@/lib/turbo/royalePrices";
+import { lighterPriceHost } from "@/lib/turbo/priceVenue";
 import { lighterWanted } from "@/lib/lighter/duel";
 import { RoyaleLighter } from "@/lib/lighter/royale";
 import { onWallet } from "@/lib/walletState";
@@ -32,7 +33,10 @@ export default function RoyalePage() {
   useEffect(() => {
     if (!on) return;
     const post = (d: unknown) => { try { frame.current?.contentWindow?.postMessage(d, location.origin); } catch { /* gone */ } };
-    const stop = streamRoyalePrices((px) => post({ type: "disciple:px", px }));
+    // Lighter's own exchange (the one real orders go to) when the server says so, else Lighter main
+    let dead = false, stopPx = () => {};
+    void lighterPriceHost().then((h) => { if (!dead) stopPx = streamRoyalePrices((px) => post({ type: "disciple:px", px }), 250, h ?? LIGHTER_PRICE_HOST); });
+    const stop = () => { dead = true; stopPx(); };
     let wallet: string | null = null;
     const offW = onWallet((a) => { wallet = a; });
     const lx = lighterWanted() ? new RoyaleLighter(() => wallet, (t) => post({ type: "disciple:toast", t })) : null;
