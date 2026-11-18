@@ -36,6 +36,8 @@ import { lighterConfig, isLighterMarket } from "@/lib/server/lighter/config";
 import { LighterError } from "@/lib/server/lighter/rest";
 import { closeMarket, finishSigned, openMarket, MAX_SIZES, presign, relay, setTier, startApprove, startKey, status, warm, type Used } from "@/lib/server/lighter/player";
 export const runtime = "nodejs";
+/** Lighter refuses signed txs from US IPs, and our other functions run in iad1 (Washington) */
+export const preferredRegion = "fra1";
 export const dynamic = "force-dynamic";
 /** arm's timer for Climb / Royale runs in after() for the match length */
 export const maxDuration = 300;
