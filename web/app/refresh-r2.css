@@ -977,3 +977,11 @@ html:not([data-you]) .lb-tabs a.lb-you-only, html[data-you] .lb-tabs a.lb-out-on
   .tp-modes button { flex: none; min-height: 38px; padding: 0 14px; font-size: 17px; }
   .tp-season { padding: 4px 0; font-size: 13px; }
 }
+
+/* Top pilots tiers (maker 2026-11-18): cutoffs for the top two tiers, a tier filter, last season's badge */
+.tp-cuts { display: flex; flex-wrap: wrap; gap: 10px 22px; margin: -12px 0 14px; font: 700 15px/1.2 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .03em; }
+.tp-cuts b { font-weight: 800; }
+.tp-cuts i { font-style: normal; font-weight: 600; color: #9095A0; margin-left: 8px; }
+.tp-sorts.tp-tiers { margin-bottom: 16px; }
+.tp-sorts.tp-tiers button { min-height: 36px; padding: 0 12px; font-size: 14px; }
+.tp-tname span.tp-prev { margin-left: 6px; color: #9095A0; background: transparent; border: 1px solid #2E323A; }

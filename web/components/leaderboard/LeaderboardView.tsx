@@ -200,29 +200,48 @@ const leagueBy = (id: string) => LEAGUES.find((l) => l.id === id) ?? LEAGUES[0];
 const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
 /** One ranked row on a points / level board (Overall, Royale, Climb): rank, face, name + chip, the number. */
-function PointRow({ p, chip, chipColor, value, self }: { p: { wallet: string; username: string | null; rank: number } & Named; chip?: string; chipColor?: string; value: string; self?: boolean }) {
+function PointRow({ p, chip, chipColor, prev, value, self }: { p: { wallet: string; username: string | null; rank: number } & Named; chip?: string; chipColor?: string; prev?: string; value: string; self?: boolean }) {
   const router = useRouter();
   const go = () => router.push(hrefOf(p));
   return (
     <div className={`tp-trow${self ? " self" : ""}`} role="link" tabIndex={0} onClick={go} onKeyDown={(e) => { if (e.key === "Enter") go(); }} aria-label={`#${p.rank} ${nameOf(p)}`}>
       <Rank n={p.rank} />
       <Face p={p} big />
-      <div className="tp-tname"><b>{nameOf(p)}</b>{chip ? <span style={chipColor ? { color: chipColor } : undefined}>{chip}</span> : null}</div>
+      <div className="tp-tname"><b>{nameOf(p)}</b>{chip ? <span style={chipColor ? { color: chipColor } : undefined}>{chip}</span> : null}{prev ? <span className="tp-prev">{prev}</span> : null}</div>
       <div className="tp-tpnl"><b className="r2-g tp-white">{value}</b></div>
     </div>
   );
 }
 
-function Overall({ d, me }: { d: OverallResponse; me: string | null }) {
+/* Tiers (maker 2026-11-18, the LoL ladder): the visible tier is the league from season points; a filter by tier, the cutoff
+   for the top two tiers up top, and last season's finish as a badge. Matchmaking stays on the hidden rating. */
+const TOP_TIERS = [...LEAGUES].reverse().slice(0, 2);
+function Overall({ d, me, seasonN }: { d: OverallResponse; me: string | null; seasonN: number }) {
   const meLc = me?.toLowerCase();
   const m = d.me;
+  const [tier, setTier] = useState<string>("all");
+  const rows = tier === "all" ? d.rows : d.rows.filter((r) => r.league === tier);
+  const prevOf = (r: OverallRow) => (r.prev ? `S${seasonN - 1} ${leagueBy(r.prev).name}` : undefined);
   return (
-    <section className="tp-card tp-traders" aria-label="Overall" data-testid="lb-overall">
-      {me && <YourRank face={m ?? { wallet: meLc! }} rank={m?.rank ?? null} label={m ? leagueBy(m.league).name : LEADERBOARD_COPY.sp} value={sp(m?.pts ?? 0)} />}
-      <div className="tp-trows">
-        {d.rows.map((r: OverallRow) => <PointRow key={r.wallet} p={r} chip={leagueBy(r.league).name} chipColor={leagueBy(r.league).color} value={sp(r.pts)} self={r.wallet === meLc} />)}
+    <>
+      <div className="tp-cuts" aria-label="Top tiers">
+        {TOP_TIERS.map((l) => (
+          <span key={l.id} style={{ color: l.color }}><b>{l.name}</b> {l.min.toLocaleString("en-US")} SP<i>{(d.tiers?.[l.id] ?? 0).toLocaleString("en-US")} pilots</i></span>
+        ))}
       </div>
-    </section>
+      <div className="tp-sorts tp-tiers" role="group" aria-label="Tier">
+        <button type="button" className={tier === "all" ? "on" : undefined} onClick={() => setTier("all")}>All tiers</button>
+        {[...LEAGUES].reverse().map((l) => (
+          <button key={l.id} type="button" className={tier === l.id ? "on" : undefined} onClick={() => setTier(l.id)} style={tier === l.id ? undefined : { color: l.color }}>{l.name}</button>
+        ))}
+      </div>
+      <section className="tp-card tp-traders" aria-label="Overall" data-testid="lb-overall">
+        {me && <YourRank face={m ?? { wallet: meLc! }} rank={m?.rank ?? null} label={m ? leagueBy(m.league).name : LEADERBOARD_COPY.sp} value={sp(m?.pts ?? 0)} />}
+        <div className="tp-trows">
+          {rows.map((r: OverallRow) => <PointRow key={r.wallet} p={r} chip={leagueBy(r.league).name} chipColor={leagueBy(r.league).color} prev={prevOf(r)} value={sp(r.pts)} self={r.wallet === meLc} />)}
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -371,7 +390,7 @@ export default function LeaderboardView() {
       if (!alive) return;
       if (!d) d = sort === "positions" ? { window: win, sort: "positions", rows: [], coins: {} }
         : sort === "pnl" ? { window: win, sort: "pnl", rows: [], coins: {}, counts: { day: 0, week: 0, month: 0, all: 0 }, me: null, bestCall: null }
-        : sort === "overall" ? { sort: "overall", season: { n: 1, endsAt: Date.now() }, rows: [], total: 0, me: null }
+        : sort === "overall" ? { sort: "overall", season: { n: 1, endsAt: Date.now() }, rows: [], total: 0, me: null, tiers: {} }
         : sort === "royale" || sort === "climb" ? { sort, season: { n: 1, endsAt: Date.now() }, rows: [] } : null;
       if (!d) return;
       if (d.sort === "crews") setCrews(d);
@@ -417,7 +436,7 @@ export default function LeaderboardView() {
   if (loading) body = <div className="tp-loading" aria-busy="true" />;
   else if (mode === "duel") body = DUEL_RANKED_LIVE && duel && duel.rows.length ? <>{season && <SeasonLadder d={season} />}<DuelTable d={duel} meLc={me?.toLowerCase()} /></> : <RealOnly mode="duel" />;
   else if (mode === "royale" || mode === "climb") body = boards[mode]?.rows.length ? <ModeBoard d={boards[mode]!} me={me} /> : <RealOnly mode={mode} />;
-  else if (mode === "overall") body = overall && (overall.rows.length || overall.me) ? <Overall d={overall} me={me} /> : emptyBoard;
+  else if (mode === "overall") body = overall && (overall.rows.length || overall.me) ? <Overall d={overall} me={me} seasonN={overall.season.n} /> : emptyBoard;
   else if (mode === "crews") body = crews && crews.crews.length ? <CrewTable d={crews} /> : (
     <section className="tp-card tp-empty" data-testid="lb-empty">
       <b className="r2-g">No crews yet</b>
