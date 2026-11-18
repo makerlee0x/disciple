@@ -1,5 +1,5 @@
 /**
- * Real Lighter orders for a Turbo match (Trading Duel first; Climb and Royale next). The match's own book stays the
+ * Real Lighter orders for a Turbo match (Trading Duel and Climb; Royale next). The match's own book stays the
  * scoreboard (same server price for both pilots); this mirrors each press onto the pilot's own Lighter account through
  * pre-signed orders (LighterTaps), sent over Lighter's WebSocket, so a press reaches Lighter in ~350 ms.
  *
@@ -55,7 +55,7 @@ export class LighterMatch {
   static async ready(f: ReturnType<typeof lighterFetcher>) {
     try { return (await lighterStatus(f)).step === "ready"; } catch { return false; }
   }
-  private sized(fuel: number) { return this.sizesFor(fuel).map((u) => Math.max(1, Math.floor(u * 100) / 100)); }
+  private sized(fuel: number) { return this.sizesFor(fuel).map((u) => Math.max(0, Math.floor(u * 100) / 100)); }
 
   /** tells the server this match is on Lighter, so its buzzer closes what's open even if this tab is gone
    *  (duel: when the room settles; climb / royale: after `ms`). Royale arms again on each new coin. */

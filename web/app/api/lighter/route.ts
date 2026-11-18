@@ -116,7 +116,7 @@ function closeGuarded(cfg: Cfg, pid: string, b: { market?: unknown }) {
 }
 function presignGuarded(cfg: Cfg, pid: string, b: { market?: unknown; usd?: unknown; sizes?: unknown; used?: unknown; floor?: unknown }) {
   const sizes = (Array.isArray(b.sizes) ? b.sizes : [b.usd]).map(Number);
-  if (!isLighterMarket(b.market) || !sizes.length || sizes.length > MAX_SIZES || !sizes.every((u) => u >= 1 && u <= 10_000)) throw new LighterError(400, "Bad order.");
+  if (!isLighterMarket(b.market) || !sizes.length || sizes.length > MAX_SIZES || !sizes.every((u) => u >= 0 && u <= 10_000) || !sizes.some((u) => u > 0)) throw new LighterError(400, "Bad order.");
   const u = b.used as Partial<Used> | undefined;
   const ok = u && Number.isSafeInteger(u.nonce) && (u.nonce as number) >= 0 && (u.kind === "long" || u.kind === "short" || u.kind === "close")
     && (u.i === undefined || (Number.isSafeInteger(u.i) && (u.i as number) >= 0 && (u.i as number) < MAX_SIZES));

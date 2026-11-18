@@ -298,7 +298,7 @@ export async function presign(cfg: LighterConfig, pid: string, m: LighterMarket,
   const mid = midOf(b);
   if (!mid) throw new LighterError(409, "Lighter's book is empty right now.");
   const minBase = Math.round(Number(mk.min_base_amount) * 10 ** mk.size_decimals);
-  const bases = sizes.map((usd) => { const b0 = baseAmountFor(usd * lev, mid, mk.size_decimals); return b0 >= minBase ? b0 : 0; });
+  const bases = sizes.map((usd) => { const b0 = baseAmountFor(usd * lev, mid, mk.size_decimals); return b0 > 0 && b0 >= minBase ? b0 : 0; });
   if (!bases.some((x) => x > 0)) throw new LighterError(400, "That trade is under Lighter's minimum size.");
   const fee = p.approvedFee && cfg.partnerFee ? cfg.partnerFee : 0;
   const exp = Date.now() + TICKET_TTL_MS;

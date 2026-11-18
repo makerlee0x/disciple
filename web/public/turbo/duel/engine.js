@@ -262,15 +262,20 @@ function mount(root,host){
       // no flips (maker 2026-11-17, Nova fills are slow): the other side waits for a cash out
       if(me.pos&&me.pos.side!==side){ fuelOut(me.pos.side); return; }
       const amt=stake===0?me.fuel:stakeUsd();
+      clx(kind==="b"?"boost":"dump",Math.max(0,me.fuel-amt));
       fillLater(()=>{ if(!(me.pos&&me.pos.side!==side)) open(me,side,stake===0?me.fuel:amt); });
     } else if(kind==="x"){
       if(!me.pos){toast("Nothing open.");return;}
+      clx("close",me.fuel+me.pos.coll);
       fillLater(()=>close(me));
     }
   }
   // practice fills land FILL_MS after the tap, at the price then (like a Lighter taker order)
   let filling=false;
-  function fillLater(fn){ filling=true; setTimeout(()=>{ filling=false; if(!G||!G.started||G.over) return; fn(); ui(); },FILL_MS); }
+  function fillLater(fn){ filling=true; setTimeout(()=>{ filling=false; if(!G||!G.started||G.over) return; fn(); ui(); if(CLR&&CL.lighter) CL.lighter.fuel(G.me.fuel); },FILL_MS); }
+  // Climb on Lighter (host.climb.lighter, hidden flag): the press goes out as a real order at the tap
+  function clx(action,fuelAfter){ if(!CLR||!CL||!CL.lighter) return;
+    CL.lighter.press(action,SIZES.indexOf(stake),fuelAfter).then(r=>{ if(r&&r.error) toast(r.error); }); }
 
   /* ---------- live duel: server events ---------- */
   function setBook(pl,b){ pl.fuel=b.fuel; pl.pos=b.pos?Object.assign({},b.pos):null; pl.fees=b.fees; pl.trades=b.trades; pl.green=b.green; pl.best=b.best; }
@@ -1184,7 +1189,7 @@ function mount(root,host){
   let cFree={fuel:LVS.length?LVS[LVS.length-1].fuel:100,gear:MAXG};
   function climbChip(){ const u=CL.state().unlocked, l=lvl(u);
     $("lRat").textContent=u>=FREE?"FREE":"LVL "+u; $("lRec").textContent=l?`${m2(l.fuel)} · ${gx(l.gear)}`:`${gx(MAXG)} MAX`; }
-  function climbHome(){ M=null; CLR=null; show("climb"); climbChip();
+  function climbHome(){ if(CLR&&CL.lighter) CL.lighter.end(); M=null; CLR=null; show("climb"); climbChip();
     const u=CL.state().unlocked, rows=[];
     const fr=u>=FREE;
     rows.push(`<button class="choice${fr?" main":" lock"}" type="button" data-cl="free">${`<i class="ci">${fr?ICO.bolt:ICO.lock}</i>`}<span class="ct"><b>FREE MODE</b><small>any fuel · up to ${gx(MAXG)} · no clock</small></span>${fr?ICO.go:""}</button>`);
@@ -1214,7 +1219,8 @@ function mount(root,host){
   function climbPlay(n,test){ const l=lvl(n), free=n>=FREE;
     CLR=free?{level:FREE,free:true,fuel:cFree.fuel,gear:cFree.gear,goal:null,len:Infinity}:{level:n,test:!!test,fuel:l.fuel,gear:l.gear,goal:l.goal,len:CL.runMs};
     M={net:false,ranked:false,solo:true}; OFF=0; show("launch"); $("lH").textContent=free?"FREE MODE":"LEVEL "+n; $("lSub").textContent="";
-    waitForPrice(()=>{ if(!M||!M.solo) return; M.startAt=Date.now()+3500; start(); }); }
+    if(CL.lighter) CL.lighter.begin({fuel:CLR.fuel,gear:CLR.gear});
+    waitForPrice(()=>{ if(!M||!M.solo) return; M.startAt=Date.now()+3500; if(CL.lighter) CL.lighter.arm(M.startAt+(isFinite(CLR.len)?CLR.len:270000)); start(); }); }
   function climbLaunch(){ root.classList.add("climb"); $("lCancel").hidden=false;
     $("lH").textContent=CLR.free?"FREE MODE":(CLR.test?"TEST OUT · ":"")+"LEVEL "+CLR.level;
     $("lSub").textContent=`${m2(CLR.fuel)} · ${gx(CLR.gear)}`+(CLR.goal!=null?` · make +${m2(CLR.goal)}`:" · no clock")+(CL.real?"":" · play money");
@@ -1300,7 +1306,7 @@ function mount(root,host){
       const x1=soloRight(ly,hh)-tw; sx.font="800 14px "+GF+",sans-serif";
       sx.fillStyle=`rgba(${l.col},.95)`; rr(x1,ly,tw,hh,7); sx.fill(); sx.fillStyle=l.ink||"#121327"; sx.textAlign="left"; sx.textBaseline="middle"; sx.fillText(txt,x1+8,ly+hh/2+1);
       if(sw){ const x2=x1-4-sw; sx.font="700 12px "+GF+",sans-serif"; sx.fillStyle="rgba(11,10,22,.86)"; rr(x2,ly+2,sw,hh-4,6); sx.fill(); sx.fillStyle=`rgba(${l.col},1)`; sx.fillText(l.sub,x2+6,ly+hh/2+1); } } }
-  function climbEnd(){ G.over=true; if(G.me.pos) close(G.me); music(false); ui();
+  function climbEnd(){ G.over=true; if(G.me.pos) close(G.me); if(CL.lighter) CL.lighter.end(); music(false); ui();
     const pnl=profitOf(G.me), run=CLR, before=CL.state().unlocked;
     const res=run.free?{unlocked:before}:CL.finish({level:run.level,pnl,test:run.test});
     const up=res.unlocked>before, n=res.unlocked, nl=lvl(n);
@@ -1353,7 +1359,7 @@ function mount(root,host){
     toLobby:()=>{ M=null; show("intro"); },
     firstCrate:(d)=>firstCrate(d),
     _state:()=>G,
-    destroy:()=>{ dead=true; offs.forEach(f=>f()); removeEventListener("storage",onStore); removeEventListener("disciple:audio",onLvl); try{ if(ac) ac.close(); }catch(e){} root.innerHTML=""; root.classList.remove("duel-root"); },
+    destroy:()=>{ dead=true; if(CL&&CL.lighter) CL.lighter.end(); offs.forEach(f=>f()); removeEventListener("storage",onStore); removeEventListener("disciple:audio",onLvl); try{ if(ac) ac.close(); }catch(e){} root.innerHTML=""; root.classList.remove("duel-root"); },
   };
 }
 window.DuelEngine={mount};
