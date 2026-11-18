@@ -25,8 +25,8 @@ async function call<T>(method: "GET" | "POST" | "DELETE", path: string, body?: u
 export const duelApi = {
   guest: () => call<{ pid: string; name: string }>("POST", "/api/duel/guest", {}, false),
   me: () => call<{ pid: string; name: string; rating: { r: number; w: number; l: number; streak: number }; active: DuelRoom | null }>("GET", "/api/duel/me"),
-  poll: (tier: TierId, len: LengthMs) => call<{ room?: DuelRoom; waitedMs?: number; window?: number; botOfferMs: number }>("POST", "/api/duel/queue", { tier, len }),
-  cancel: (tier: TierId, len: LengthMs) => call<object>("DELETE", "/api/duel/queue", { tier, len }),
+  poll: (tier: TierId, len: LengthMs, casual = false) => call<{ room?: DuelRoom; waitedMs?: number; window?: number; botOfferMs: number }>("POST", "/api/duel/queue", { tier, len, ...(casual ? { mode: "casual" } : {}) }),
+  cancel: (tier: TierId, len: LengthMs, casual = false) => call<object>("DELETE", "/api/duel/queue", { tier, len, ...(casual ? { mode: "casual" } : {}) }),
   invite: (tier: TierId, len: LengthMs, fuel?: number) => call<{ room: DuelRoom; code: string; path: string; share?: string | null }>("POST", "/api/duel/invite", fuel ? { tier, len, fuel } : { tier, len }),
   join: (code: string) => call<{ room: DuelRoom }>("POST", "/api/duel/join", { code }),
   /** ping a pilot to join your open friend room (lib/server/duel/challenge, the /vs/<pilot> rematch request) */

@@ -1,5 +1,5 @@
 /**
- * Ranked quick match. POST { tier, len } = one poll (call every ~1.5 s while searching) → { ok, room } once paired,
+ * Quick match. POST { tier, len, mode? } = one poll (mode "casual" = the unranked queue: no rating or season points) (call every ~1.5 s while searching) → { ok, room } once paired,
  * else { ok, waitedMs, window, botOfferMs }. DELETE { tier, len } leaves the queue. Signed-in pilots only.
  */
 import { BOT_OFFER_MS, toLength, isTier } from "@/lib/duel/rules";
@@ -11,21 +11,22 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   try {
     const me = await pilotOf(req, { guestOk: false });
-    const b = await body<{ tier?: unknown; len?: unknown }>(req);
+    const b = await body<{ tier?: unknown; len?: unknown; mode?: unknown }>(req);
     const len = toLength(b.len);
     if (!isTier(b.tier) || !len) throw new DuelError(400, "Pick a tier and a length.");
+    const casual = b.mode === "casual";
     const busy = await activeRoomOf(me.pid);
     if (busy && busy.status === "live") return out(200, { ok: true, room: busy });
-    const r = await pollQueue(me, b.tier, len);
+    const r = await pollQueue(me, b.tier, len, undefined, casual);
     return out(200, { ok: true, ...r, botOfferMs: BOT_OFFER_MS });
   } catch (e) { return fail(e); }
 }
 export async function DELETE(req: Request) {
   try {
     const me = await pilotOf(req);
-    const b = await body<{ tier?: unknown; len?: unknown }>(req);
+    const b = await body<{ tier?: unknown; len?: unknown; mode?: unknown }>(req);
     const len = toLength(b.len);
-    if (isTier(b.tier) && len) await leaveQueue(me.pid, b.tier, len);
+    if (isTier(b.tier) && len) await leaveQueue(me.pid, b.tier, len, undefined, b.mode === "casual");
     return out(200, { ok: true });
   } catch (e) { return fail(e); }
 }

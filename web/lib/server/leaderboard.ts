@@ -10,7 +10,8 @@ import { pfpUrl } from "@/lib/profileMeta";
 import { getHomeData, getPilotBoard, getPositionBoard, getRocketSeasonSp } from "./home";
 import { metaOf } from "./profileMeta";
 import { climbBoard, modeSp } from "./seasonModes";
-import { leagueOf, seasonAt } from "@/lib/duel/season";
+import { LEAGUES, leagueOf, seasonAt } from "@/lib/duel/season";
+import { kv } from "./kv";
 import { RANK_MODES, totalSp, type ModeSp } from "@/lib/season/points";
 import { guildTagsOf } from "./guilds";
 import { usernameOf } from "./usernames";
@@ -128,9 +129,19 @@ export async function getPositions(window: BoardWindow): Promise<PositionsRespon
 /* ── Overall + mode ranks (maker 2026-11-18): one season ladder, SP from every mode (lib/season/points) ─────────────── */
 
 type Face = Named & { wallet: string; username: string | null; level: number | null };
-export type OverallRow = Face & { rank: number; pts: number; league: string; by: ModeSp };
-export type OverallResponse = { sort: "overall"; season: { n: number; endsAt: number }; rows: OverallRow[]; total: number; me: OverallRow | null };
-const go = globalThis as unknown as { __dscOverall?: { at: number; ranked: { wallet: string; pts: number; by: ModeSp }[]; named: OverallRow[] } };
+/** prev: the tier this pilot finished last season on (Bronze and up), kept as a badge after the reset (maker 2026-11-18). */
+export type OverallRow = Face & { rank: number; pts: number; league: string; by: ModeSp; prev?: string };
+/** tiers: how many ranked pilots sit in each tier this season, for the tier filter (LoL-style). */
+export type OverallResponse = { sort: "overall"; season: { n: number; endsAt: number }; rows: OverallRow[]; total: number; me: OverallRow | null; tiers: Record<string, number> };
+const go = globalThis as unknown as { __dscOverall?: { at: number; ranked: { wallet: string; pts: number; by: ModeSp }[]; named: OverallRow[]; tiers: Record<string, number>; prev: Record<string, string> } };
+
+/* Season standings snapshot: each refresh rewrites this season's { wallet: tier } (Bronze and up), so the last write before
+   the season ends is the final standing. The next season reads it back for the last-season badge. */
+const FINAL = (seasonId: string) => `season:final:${seasonId}`;
+async function lastSeasonTiers(n: number): Promise<Record<string, string>> {
+  if (n <= 1) return {};
+  try { const v = await kv().get(FINAL(`s${n - 1}`)); return v ? (JSON.parse(v) as Record<string, string>) : {}; } catch { return {}; }
+}
 
 export async function getOverall(me: string | null): Promise<OverallResponse> {
   const now = Date.now(), season = seasonAt(now);
@@ -141,17 +152,22 @@ export async function getOverall(me: string | null): Promise<OverallResponse> {
     const m = new Map<string, ModeSp>();
     for (const k of RANK_MODES) for (const [w, v] of Object.entries(per[k])) if (v > 0) { const r = m.get(w) ?? {}; r[k] = v; m.set(w, r); }
     const ranked = [...m.entries()].map(([wallet, by]) => ({ wallet, by, pts: totalSp(by) })).sort((a, b) => b.pts - a.pts || a.wallet.localeCompare(b.wallet));
-    const named = (await name(ranked.slice(0, BOARD_TOP))).map((r, i) => ({ ...r, rank: i + 1, league: leagueOf(r.pts).id }));
-    c = { at: now, ranked, named };
+    const prev = await lastSeasonTiers(season.n);
+    const named = (await name(ranked.slice(0, BOARD_TOP))).map((r, i) => ({ ...r, rank: i + 1, league: leagueOf(r.pts).id, ...(prev[r.wallet] ? { prev: prev[r.wallet] } : {}) }));
+    const tiers: Record<string, number> = Object.fromEntries(LEAGUES.map((l) => [l.id, 0]));
+    const final: Record<string, string> = {};
+    for (const x of ranked) { const id = leagueOf(x.pts).id; tiers[id]++; if (id !== LEAGUES[0].id) final[x.wallet] = id; }
+    void kv().set(FINAL(season.id), JSON.stringify(final)).catch(() => {});
+    c = { at: now, ranked, named, tiers, prev };
     go.__dscOverall = c;
   }
   let mine: OverallRow | null = null;
   const lc = me?.toLowerCase();
   if (lc) {
     const i = c.ranked.findIndex((r) => r.wallet === lc);
-    if (i >= 0) mine = i < BOARD_TOP ? c.named[i] : { ...(await name([c.ranked[i]]))[0], rank: i + 1, league: leagueOf(c.ranked[i].pts).id };
+    if (i >= 0) mine = i < BOARD_TOP ? c.named[i] : { ...(await name([c.ranked[i]]))[0], rank: i + 1, league: leagueOf(c.ranked[i].pts).id, ...(c.prev[lc] ? { prev: c.prev[lc] } : {}) };
   }
-  return { sort: "overall", season: { n: season.n, endsAt: season.endsAt }, rows: c.named, total: c.ranked.length, me: mine };
+  return { sort: "overall", season: { n: season.n, endsAt: season.endsAt }, rows: c.named, total: c.ranked.length, me: mine, tiers: c.tiers };
 }
 
 /** Royale (SP by place) and Climb (best level, then fastest clear) boards, this season. Empty until real money. */

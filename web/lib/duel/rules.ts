@@ -22,11 +22,12 @@ export const COUNTDOWN_MS = 3_500;
 
 export type TierId = "rookie" | "pro" | "shark";
 export interface Tier { id: TierId; label: string; fuel: number; sizes: number[] }
-/** sizes: trade size buttons; 0 = ALL (everything left). maker, 2026-11-14: rookie $20, pro $50, shark $150. */
+/** sizes: trade size buttons; 0 = ALL (everything left). maker, 2026-11-14: rookie $20, pro $50, shark $150.
+ *  Shown as NORMIE / DEGEN / WHALE (maker 2026-11-18); the ids stay so queues and saved settings keep working. */
 export const TIERS: Record<TierId, Tier> = {
-  rookie: { id: "rookie", label: "ROOKIE", fuel: 20, sizes: [1, 2, 5, 10, 0] },
-  pro: { id: "pro", label: "PRO", fuel: 50, sizes: [2, 5, 10, 25, 0] },
-  shark: { id: "shark", label: "SHARK", fuel: 150, sizes: [5, 10, 25, 50, 0] },
+  rookie: { id: "rookie", label: "NORMIE", fuel: 20, sizes: [1, 2, 5, 10, 0] },
+  pro: { id: "pro", label: "DEGEN", fuel: 50, sizes: [2, 5, 10, 25, 0] },
+  shark: { id: "shark", label: "WHALE", fuel: 150, sizes: [5, 10, 25, 50, 0] },
 };
 /** One length: 1 minute (maker, 2026-11-16: "3 minutes is way too long"). The old 3-minute option is gone. */
 export const DUEL_LEN_MS = 60_000;
@@ -146,8 +147,18 @@ export const overtimeGap = (fuel0: number) => 0.25 * (fuel0 / 20);
 export const needsOvertime = (diff: number, fuel0: number, alreadyOt: boolean) => !alreadyOt && Math.abs(diff) < overtimeGap(fuel0);
 
 /* ---------- rating (Elo, hidden number; tiers are the visible part) ---------- */
-export interface Rating { r: number; w: number; l: number; games: number; streak: number; peak: number }
+/** s: the season (lib/duel/season n) this rating was last carried into; older ratings get the soft reset on read. */
+export interface Rating { r: number; w: number; l: number; games: number; streak: number; peak: number; s?: number }
 export const newRating = (): Rating => ({ r: 1200, w: 0, l: 0, games: 0, streak: 0, peak: 1200 });
+/** Season soft reset (maker 2026-11-18, the LoL / Clash Royale way): each new season pulls the hidden rating halfway back to
+ *  1,200 (1,800 → 1,500, 900 → 1,050), so good pilots keep fair matches and climb fast. Record, streak and peak stay. */
+export const RESET_PULL = 0.5;
+export function carryRating(x: Rating, season: number): Rating {
+  if (x.s == null) return { ...x, s: season };
+  if (x.s >= season) return x;
+  const keep = Math.pow(1 - RESET_PULL, season - x.s);
+  return { ...x, r: Math.round(1200 + (x.r - 1200) * keep), s: season };
+}
 /** K is bigger for the first 10 games (placement), so new pilots find their level fast. */
 export const kOf = (games: number) => (games < 10 ? 48 : 24);
 /** score: 1 win, 0 loss, 0.5 draw. Returns the new ratings and the deltas. */

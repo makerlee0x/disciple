@@ -2,19 +2,21 @@
 /**
  * iPhone app home, concept C "Play feed" (maker picked 2026-11-16, mockup https://claude.ai/artifact/Re98NdbGd8G75ika5gFf3U).
  * The app only: the website lobby is unchanged (AppSwitch picks one before paint from the app's user agent).
- *   Daily missions bar → /achievements
- *   Featured: today's daily flight (Free play) with the time left until 00:00 UTC
- *   Trading duel card → the duel lobby
+ *   Orders bar (daily XP missions) → /achievements
+ *   Featured: Daily mission (today's daily flight) with the time left until 00:00 UTC
+ *   Duel card → the duel lobby
  *   Flying now: a shelf of real rockets (Live window cards); the last card and See all open Live rockets (search + sort)
- *   Host a launch
- *   Practice: Turbo royale (held for launch, ROYALE_ENABLED) + Free play
+ *   Launch (your own coin)
+ *   Practice: Climb + Royale (held for launch, ROYALE_ENABLED)
+ * Mode names and pills match the website lobby row (maker 2026-11-18): Launch · Your own coin, Duel · 1v1, Climb · Solo,
+ * Daily mission · Solo. No Real coins / Fly entry: Flying now is the live list.
  * The Play tab in the app tab bar is this screen; tapping it again here opens Quick play (QUICK_PLAY_EVENT).
  * Every number is live (HomeData + the pilot's XP). Nothing here pays cash or tokens.
  */
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { withBase } from "@/lib/base-path";
-import { BOT_DUEL_HREF, DUEL_HREF, ROYALE_ENABLED } from "@/lib/features";
+import { BOT_DUEL_HREF, CLIMB_HREF, DUEL_HREF, ROYALE_ENABLED } from "@/lib/features";
 import type { HomeData } from "@/lib/home/trending";
 import { flyingNow } from "@/lib/home/appHome";
 import { dailyEndsAt, dailyToday } from "@/lib/sim/daily";
@@ -29,6 +31,7 @@ import AnimClip from "@/components/ui/AnimClip";
 
 const POLL_MS = 30_000;
 const FREE_HREF = "/flight/sim";
+const DAILY_HREF = "/flight/sim?daily=1";
 const ROYALE_HREF = "/turbo/royale";
 
 function useLiveHome(init: HomeData) {
@@ -92,7 +95,7 @@ export default function AppHome({ initial }: { initial: HomeData }) {
     <div className={s.home} data-testid="app-home">
       {missions && (
         <Link href="/achievements" className={s.mbar} data-testid="app-missions">
-          <b>Daily missions</b>
+          <b>Orders</b>
           <span className={s.mbarTrack} aria-hidden><i style={{ width: `${(done / Math.max(1, missions.length)) * 100}%` }} /></span>
           <span className={s.mbarN}>{done}/{missions.length}{left ? ` · +${left.toLocaleString("en-US")} XP` : ""}</span>
         </Link>
@@ -102,11 +105,11 @@ export default function AppHome({ initial }: { initial: HomeData }) {
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={withBase("/art/modes/free.webp")} alt="" loading="lazy" decoding="async" />
         <AnimClip id="B6-daily-16x9" ratio="none" loop poster whenVisible className={s.clip} />
-        <span className={s.featTag}>Today</span>
+        <span className={s.featTag}>Solo</span>
         {ends && <span className={s.featTime} suppressHydrationWarning>Ends in {ends}</span>}
         <span className={s.featBody}>
           <span>
-            <b>The daily flight</b>
+            <b>Daily mission</b>
             {flown && <span data-testid="app-featured-score"><i style={{ fontStyle: "normal", fontWeight: 700, color: flown.pnl >= 0 ? "#5FF0A0" : "#FF7FB2" }}>{signedUsd(flown.pnl)}</i> · #{flown.rank} of {flown.count.toLocaleString("en-US")}</span>}
           </span>
           <em>{flown ? "Result" : "Fly"}</em>
@@ -114,13 +117,13 @@ export default function AppHome({ initial }: { initial: HomeData }) {
       </Link>
 
       <section className={s.sec} aria-labelledby="app-duel">
-        <h2 id="app-duel" className={s.secT}>Trading duel</h2>
+        <h2 id="app-duel" className={s.secT}>Duel</h2>
         <Link href={DUEL_HREF} className={s.duel} data-testid="app-duel">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={withBase("/art/modes/duel.webp")} alt="" loading="lazy" decoding="async" />
           <AnimClip id="A3-mode-duel" ratio="none" loop poster whenVisible className={s.clip} />
           <span className={s.duelTx}>
-            <b>1v1 duel</b>
+            <b>1v1</b>
           </span>
           <em>Fight</em>
         </Link>
@@ -146,7 +149,7 @@ export default function AppHome({ initial }: { initial: HomeData }) {
           </Link>
         )}
         <Link href="/create" className={s.host} data-testid="app-host">
-          <span><b>Host a launch</b></span>
+          <span><b>Launch</b><span>Your own coin</span></span>
           <Icon name="chevron-right" size={20} />
         </Link>
       </section>
@@ -154,18 +157,18 @@ export default function AppHome({ initial }: { initial: HomeData }) {
       <section className={s.sec} aria-labelledby="app-practice">
         <h2 id="app-practice" className={s.secT}>Practice</h2>
         <div className={ROYALE_ENABLED ? s.prac : `${s.prac} ${s.prac1}`}>
+          <Link href={CLIMB_HREF} className={s.tile} data-testid="app-climb">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={withBase("/art/modes/live.webp")} alt="" loading="lazy" decoding="async" />
+            <span className={s.tileTag} style={{ color: "#5FF0A0" }}>Solo</span>
+            <span className={s.tileTx}><b>Climb</b></span>
+          </Link>
           {ROYALE_ENABLED && <Link href={ROYALE_HREF} className={s.tile} data-testid="app-royale">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={withBase("/art/modes/last-pilot.webp")} alt="" loading="lazy" decoding="async" />
             <span className={s.tileTag} style={{ color: "#F2C14E" }}>Practice</span>
-            <span className={s.tileTx}><b>Turbo royale</b></span>
+            <span className={s.tileTx}><b>Royale</b></span>
           </Link>}
-          <Link href={FREE_HREF} className={s.tile} data-testid="app-free">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={withBase("/art/modes/free.webp")} alt="" loading="lazy" decoding="async" />
-            <span className={s.tileTag} style={{ color: "#8FE3FF" }}>Free</span>
-            <span className={s.tileTx}><b>Free play</b></span>
-          </Link>
         </div>
       </section>
 
@@ -177,10 +180,11 @@ export default function AppHome({ initial }: { initial: HomeData }) {
               <button type="button" className={s.x} onClick={close} aria-label="Close"><Icon name="close" size={20} /></button>
             </header>
             <div className={s.opts}>
-              <Link href={DUEL_HREF} className={`${s.opt} ${s.optHot}`} onClick={close} data-testid="quick-duel"><Thumb src="/art/modes/duel.webp" /><span><b>Trading duel</b><span>Practice</span></span><Icon name="chevron-right" size={20} /></Link>
-              {ROYALE_ENABLED && <Link href={ROYALE_HREF} className={s.opt} onClick={close} data-testid="quick-royale"><Thumb src="/art/modes/last-pilot.webp" /><span><b>Turbo royale</b><span>Practice</span></span><Icon name="chevron-right" size={20} /></Link>}
-              <Link href={FREE_HREF} className={s.opt} onClick={close} data-testid="quick-free"><Thumb src="/art/modes/free.webp" /><span><b>Free play</b><span>Free</span></span><Icon name="chevron-right" size={20} /></Link>
-              <button type="button" className={s.opt} onClick={() => setSheet("rockets")} data-testid="quick-coins"><Thumb src="/art/modes/live.webp" /><span><b>Real coins</b>{flying > 0 && <span><i className={s.dot} aria-hidden />{flying} flying</span>}</span><Icon name="chevron-right" size={20} /></button>
+              <Link href={DUEL_HREF} className={`${s.opt} ${s.optHot}`} onClick={close} data-testid="quick-duel"><Thumb src="/art/modes/duel.webp" /><span><b>Duel</b><span>1v1</span></span><Icon name="chevron-right" size={20} /></Link>
+              <Link href={CLIMB_HREF} className={s.opt} onClick={close} data-testid="quick-climb"><Thumb src="/art/modes/live.webp" /><span><b>Climb</b><span>Solo</span></span><Icon name="chevron-right" size={20} /></Link>
+              <Link href={DAILY_HREF} className={s.opt} onClick={close} data-testid="quick-daily"><Thumb src="/art/modes/free.webp" /><span><b>Daily mission</b><span>Solo</span></span><Icon name="chevron-right" size={20} /></Link>
+              {ROYALE_ENABLED && <Link href={ROYALE_HREF} className={s.opt} onClick={close} data-testid="quick-royale"><Thumb src="/art/modes/last-pilot.webp" /><span><b>Royale</b><span>Practice</span></span><Icon name="chevron-right" size={20} /></Link>}
+              <Link href="/create" className={s.opt} onClick={close} data-testid="quick-launch"><Thumb src="/art/modes/launch.webp" /><span><b>Launch</b><span>Your own coin</span></span><Icon name="chevron-right" size={20} /></Link>
             </div>
           </div>
         </div>

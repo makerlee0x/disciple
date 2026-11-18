@@ -66,7 +66,7 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
   useEffect(() => {
     let dead = false, api: EngineApi | null = null, me: string | null = null, roomId: string | null = null;
     let rematchT: ReturnType<typeof setTimeout> | null = null;
-    let fol: Follow | null = null, qTimer: ReturnType<typeof setTimeout> | null = null, queued: { tier: TierId; len: LengthMs } | null = null;
+    let fol: Follow | null = null, qTimer: ReturnType<typeof setTimeout> | null = null, queued: { tier: TierId; len: LengthMs; casual: boolean } | null = null;
     let pendingCode = parseCode(new URLSearchParams(location.search).get("c"));
     // /turbo/duel?request=<pilot> (from /vs/<pilot> when they're not waiting): open a friend room and ping them to join it
     let pendingRequest = (() => { const v = new URLSearchParams(location.search).get("request"); return v && /^[a-z0-9_]{1,42}$/i.test(v) ? v.toLowerCase() : null; })();
@@ -143,7 +143,7 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
     const stopQueue = () => { if (qTimer) clearTimeout(qTimer); qTimer = null; const q = queued; queued = null; return q; };
     const pollQueue = async () => {
       if (!queued || dead) return;
-      const r = await duelApi.poll(queued.tier, queued.len);
+      const r = await duelApi.poll(queued.tier, queued.len, queued.casual);
       if (!queued || dead) return;
       if (!r.ok) { stopQueue(); api?.error(r.reason); return; }
       if (r.room) { stopQueue(); follow(r.room.id); return; }
@@ -223,8 +223,8 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
       guest,
       embed,
       signIn: () => { if (guest) { guestReady = false; void refreshMe(); return; } try { privyLogin(); } catch (e) { api?.error((e as Error).message); } },
-      quickMatch: (tier: TierId, len: LengthMs) => { stopQueue(); queued = { tier, len }; void pollQueue(); },
-      cancelSearch: () => { const q = stopQueue(); if (q) void duelApi.cancel(q.tier, q.len); },
+      quickMatch: (tier: TierId, len: LengthMs, casual?: boolean) => { stopQueue(); queued = { tier, len, casual: !!casual }; void pollQueue(); },
+      cancelSearch: () => { const q = stopQueue(); if (q) void duelApi.cancel(q.tier, q.len, q.casual); },
       createLink: async (tier: TierId, len: LengthMs, fuel?: number) => {
         if (!(await ensureGuest())) return;
         if (guest && !me) await refreshMe();

@@ -318,3 +318,22 @@ test("guest pilots (/duel demo page): signed cookie, forged or wrong ids refused
   const room = await S.createInvite({ pid: id, name: G.guestName(id) }, "rookie", 60_000);
   const j = await S.joinInvite({ pid: G.newGuestId(), name: "@friend" }, room.code!); assert.equal(j.players.length, 2);
 });
+
+test("server: unranked (casual) queue pairs separately and never moves rating or season points", async () => {
+  const a = { pid: "0x" + "4".repeat(40), name: "@four" }, b = { pid: "0x" + "4b".repeat(20), name: "@fourb" };
+  const before = await S.ratingOf(a.pid);
+  // a ranked searcher and a casual searcher never pair
+  await S.pollQueue(a, "pro", 60_000);
+  const x = await S.pollQueue(b, "pro", 60_000, undefined, true); assert.ok("waitedMs" in x);
+  await S.leaveQueue(a.pid, "pro", 60_000);
+  const m = await S.pollQueue(a, "pro", 60_000, undefined, true) as { room: { id: string; mode: string } };
+  assert.equal(m.room.mode, "casual");
+  await S.setReady(m.room.id, a.pid); await S.setReady(m.room.id, b.pid);
+  const { kv } = await import("../lib/server/kv");
+  const r = JSON.parse(JSON.stringify(await S.getRoom(m.room.id))); r.startAt = Date.now() - 200_000; r.endAt = Date.now() - 5; r.ot = true; r.mark = { p: 68000, at: Date.now() - 50 }; await kv().set(S._keys.room(m.room.id), JSON.stringify(r));
+  const end = await S.tick(m.room.id, 68000); assert.equal(end!.room.status, "done");
+  const ra = await S.ratingOf(a.pid);
+  assert.equal(ra.games, before.games + 1); assert.equal(ra.r, before.r);
+  assert.equal(end!.room.result!.season, undefined);
+  assert.equal(end!.room.result!.delta[a.pid], 0);
+});

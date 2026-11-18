@@ -1,7 +1,9 @@
 /** Trading Duel wire shapes (server ⇄ match screen). */
 import type { Book, BookStep, LengthMs, TierId, TradeAction } from "./rules";
 
-export type DuelMode = "ranked" | "friend";
+/** ranked: rating + season points; casual: the same online queue with no rating or SP (maker 2026-11-18: "an unranked duel…
+ *  real money still, just not ranked"), record + streak still count; friend: invite codes. */
+export type DuelMode = "ranked" | "casual" | "friend";
 export type RoomStatus = "lobby" | "live" | "done" | "cancelled";
 
 export interface DuelPlayer {

@@ -343,7 +343,7 @@ export function Crates({ col, wallet }: { col: Col | null; wallet: string | null
           ))}
         </ul>
       ) : (
-        <div className="hg-empty"><b>No crates yet</b><p>Win a ranked duel or finish your weekly missions to get one.</p></div>
+        <div className="hg-empty"><b>No crates yet</b><p>Win a ranked duel or finish your weekly orders to get one.</p></div>
       )}
       {crates.length > 6 && <p className="hg-sub">+{crates.length - 6} more to open</p>}
       {cur && (

@@ -1,11 +1,11 @@
 ---
-title: Missions and XP
+title: Orders and XP
 slug: /docs/game/achievements
 section: Game
 ---
-# Missions and XP
+# Orders and XP
 
-XP is how you level up. Missions pay it and milestones pay it. Levels, prestige and trophies unlock new looks for your rocket. XP is off-chain, has no cash value and is never a token.
+XP is how you level up. Orders pay it and milestones pay it. Levels, prestige and trophies unlock new looks for your rocket. XP is off-chain, has no cash value and is never a token.
 
 ## Rocket looks
 
@@ -23,14 +23,14 @@ Your rocket's hull and engine flare are earned, never bought. Pick them in the H
 
 A level unlock stays unlocked after you prestige.
 
-## Missions
+## Orders
 
-Everyone gets the same missions, so you can compare notes in chat.
+Everyone gets the same orders, so you can compare notes in chat.
 
-- **Daily:** 3 missions, new every day at 00:00 UTC.
-- **Weekly:** 3 missions, new every Monday at 00:00 UTC.
+- **Daily:** 3 orders, new every day at 00:00 UTC.
+- **Weekly:** 3 orders, new every Monday at 00:00 UTC.
 
-| Daily mission | XP |
+| Daily order | XP |
 |---|---|
 | Ride a rocket up one tier | 100 |
 | Boost an Easy, a Hard and an Expert rocket | 200 |
@@ -38,7 +38,7 @@ Everyone gets the same missions, so you can compare notes in chat.
 | Be in a rocket's first crew | 100 |
 | Stay aboard one rocket for an hour | 100 |
 
-| Weekly mission | XP |
+| Weekly order | XP |
 |---|---|
 | Stay aboard one rocket for 24 hours | 500 |
 | Launch a rocket | 750 |
@@ -46,9 +46,9 @@ Everyone gets the same missions, so you can compare notes in chat.
 | Hold through a bomb | 150 |
 | Cash out higher | 300 |
 
-Missions never pay for how much or how often you trade. They pay for being early, staying aboard and riding a rocket up.
+Orders never pay for how much or how often you trade. They pay for being early, staying aboard and riding a rocket up.
 
-Missions are checked from on-chain trades, so there's nothing to claim. XP shows up a minute or two after the trade that finished it.
+Orders are checked from on-chain trades, so there's nothing to claim. XP shows up a minute or two after the trade that finished it.
 
 ## Milestones
 
@@ -72,13 +72,13 @@ At level 50 you can **prestige**. Your level goes back to 1, and your prestige b
 
 ## Fair play
 
-XP is for real play. The cheapest way to finish a mission is to play it.
+XP is for real play. The cheapest way to finish a order is to play it.
 
 - A boost counts only at **$5 or more**.
-- Boosts on rockets you launched don't count toward boost missions.
+- Boosts on rockets you launched don't count toward boost orders.
 - A boost you sell again within 2 minutes doesn't count.
 - Staying aboard needs **$25 or more** held. Any dump restarts the clock.
 - Bombs count only on rockets you've held for at least 10 minutes.
-- Each mission pays once per day or week.
+- Each order pays once per day or week.
 
 Wash trading and self-trades earn nothing, and XP earned that way can be removed.

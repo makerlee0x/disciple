@@ -80,21 +80,25 @@
 		<dict>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>gamecontroller.fill</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>Solo</string>
 			<key>UIApplicationShortcutItemTitle</key>
-			<string>Free play</string>
+			<string>Daily mission</string>
 			<key>UIApplicationShortcutItemType</key>
 			<string>vip.disciple.freeplay</string>
 			<key>UIApplicationShortcutItemUserInfo</key>
 			<dict>
 				<key>path</key>
-				<string>/flight/sim</string>
+				<string>/flight/sim?daily=1</string>
 			</dict>
 		</dict>
 		<dict>
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>paperplane.fill</string>
+			<key>UIApplicationShortcutItemSubtitle</key>
+			<string>Your own coin</string>
 			<key>UIApplicationShortcutItemTitle</key>
-			<string>Launch a coin</string>
+			<string>Launch</string>
 			<key>UIApplicationShortcutItemType</key>
 			<string>vip.disciple.launch</string>
 			<key>UIApplicationShortcutItemUserInfo</key>
@@ -107,9 +111,9 @@
 			<key>UIApplicationShortcutItemIconSymbolName</key>
 			<string>bolt.fill</string>
 			<key>UIApplicationShortcutItemSubtitle</key>
-			<string>Practice</string>
+			<string>1v1</string>
 			<key>UIApplicationShortcutItemTitle</key>
-			<string>Trading Duel</string>
+			<string>Duel</string>
 			<key>UIApplicationShortcutItemType</key>
 			<string>vip.disciple.duel</string>
 			<key>UIApplicationShortcutItemUserInfo</key>

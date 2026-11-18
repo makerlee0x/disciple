@@ -96,7 +96,7 @@ export default function Lobby({ initial: init, hero }: { initial: HomeData; hero
         <MissionsPanel
           xp={missions}
           className={s.missions}
-          footer={<Link href="/achievements" className={s.more}>{xp ? "All missions and trophies" : "This week's missions"} <Icon name="chevron-right" size={14} /></Link>}
+          footer={<Link href="/achievements" className={s.more}>{xp ? "All orders and trophies" : "This week's orders"} <Icon name="chevron-right" size={14} /></Link>}
         />
       </div>
 

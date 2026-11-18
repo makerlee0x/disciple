@@ -1,6 +1,6 @@
 /**
  * Overall rank (maker 2026-11-18: "top ranked in duel, royale, climb, top ranked overall"). Every mode pays season points
- * (SP) into one monthly ladder, the same seasons and leagues as the duel ladder (lib/duel/season). Overall = SP from every
+ * (SP) into one 12-week ladder, the same seasons and leagues as the duel ladder (lib/duel/season). Overall = SP from every
  * mode added up. The weights are this table; it's a starting point for maker to tune. Ranked is real money only, so
  * Duel / Royale / Climb pay SP only once their real-money runs are live. Pure, shared by server, client and tests.
  */
@@ -14,8 +14,9 @@ export const MODE_SP = {
   duel: SP,
   /** a ranked royale by final place */
   royale: { first: 50, top3: 25, top10: 10 },
-  /** a climb level, the first time it's cleared this season: perLevel × the level */
-  climb: { perLevel: 20 },
+  /** a climb level, the first time it's cleared this season: perLevel × the level (maker 2026-11-18: raised from 20, so
+   *  clearing all 5 levels is 1,500 SP a season, about a third of what Rockets can pay in 12 weeks) */
+  climb: { perLevel: 100 },
   /** rockets: per $ banked, capped a day (UTC) so one big bag can't buy the ladder */
   rockets: { perUsd: 10, dayCap: 50 },
 } as const;
