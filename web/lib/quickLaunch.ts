@@ -14,12 +14,32 @@ export const QUICK_LAUNCH_MODE_COPY = {
   footer: "You choose this when you launch, and you can't change it later. The caps end when the rocket moves to the open market.",
 } as const;
 
-/** The launch builder's difficulty cards (canvas board "Launch: build your rocket"). Same caps as above, in game words. */
+/** The launch builder's difficulty cards. `bag` = max wallet (grows with market cap to orbit), `ticket` = Creator Ticket max. */
 export const QUICK_LAUNCH_MODE_CARD = {
-  Easy: { label: "Easy", nick: "", blurb: "Max bag 1%, rises to 3.33%", color: "#5FF0A0", meter: 1 },
-  Hard: { label: "Hard", nick: "", blurb: "Max bag 3.33%, rises to 7.77%", color: "#FF7A3D", meter: 2 },
-  Trench: { label: "Expert", nick: "aka the Trench", blurb: "No bag cap", color: "#F0307F", meter: 3 },
-  footer: "The caps switch off once the rocket reaches orbit.",
+  Easy: { label: "Easy", bag: "Max bag 1% → 3.33%", ticket: "Ticket 1.2% · locked", color: "#5FF0A0", meter: 1 },
+  Hard: { label: "Hard", bag: "Max bag 3.33% → 7.77%", ticket: "Ticket 3.33%", color: "#FF7A3D", meter: 2 },
+  Trench: { label: "Expert", bag: "No max bag", ticket: "Ticket 7.77%", color: "#F0307F", meter: 3 },
+  footer: "Locked at launch. Caps switch off at orbit.",
+} as const;
+
+/** Difficulty ⓘ: what the two numbers on each card mean. */
+export const DIFFICULTY_TIP = {
+  rows: [
+    { label: "Max bag", text: "The most one wallet can hold. 1% → 3.33% means it starts at 1% and grows as the market cap climbs to orbit ($33K). A buy over it fills to the cap and refunds the rest." },
+    { label: "Ticket", text: "The most you can buy at launch. Easy locks it until orbit. Hard and Expert don't." },
+    { label: "Expert", text: "No max bag. Any wallet can hold any amount." },
+  ],
+  foot: "Every cap switches off at orbit.",
+} as const;
+
+/** Creator Ticket ⓘ, per difficulty (on-chain: Launchpad.firstBoostMaxBps + Easy Token.lockCreator). */
+export const CREATOR_TICKET_TIP = {
+  lead: "First dibs: your buy goes in with the launch, before anyone else. No sniper tax.",
+  byMode: {
+    Easy: "Up to 1.2% of supply. Locked in your wallet until orbit.",
+    Hard: "Up to 3.33% of supply. Not locked.",
+    Expert: "Up to 7.77% of supply. Not locked.",
+  } as Record<string, string>,
 } as const;
 
 /** "$20" for the seat the host takes at launch ("$0" with no First BOOST). */
@@ -34,7 +54,7 @@ export const QUICK_LAUNCH_COPY = {
   pickMode: "Pick your mode",
   name: "Name",
   ticker: "Ticker",
-  icon: "Badge",
+  icon: "Token image",
   useOwnImage: "Use your own image",
   uploadImage: "Upload image",
   changeImage: "Change image",
@@ -57,10 +77,11 @@ export const QUICK_LAUNCH_COPY = {
   linkTelegram: "Telegram",
   rewards: "Send your creator fees to a different account",
   rewardsPlaceholder: "You",
-  rewardsHelp: "Your creator fees go to this account instead of you. You'll confirm this one extra time.",
+  rewardsHelp: "One extra confirmation.",
   creatorTax: "Creator tax",
-  creatorTaxHelp: "You already get 33% of every trading fee. Creator tax is an extra cut on top of that. Higher tax can scare off players.",
-  creatorTaxHelpIncluded: "Permanent. A small cut of every trade is included in the creator fees chosen above. Higher tax can scare off players.",
+  creatorTaxHelp: "An extra cut of every trade, on top of the 0.33%. Up to 7%. Locked at launch. High tax scares off traders.",
+  pairCoinHelp: "Your rocket trades against this coin. The list is always 12 coins and rotates over time with interest and activity.",
+  creatorTicket: "Creator Ticket",
   howLaunching: "How launching works",
   howLaunchingSteps: [
     "Give your rocket a name, a ticker, and a picture.",
@@ -70,15 +91,19 @@ export const QUICK_LAUNCH_COPY = {
   ready: (name: string) => `${name || "Your rocket"} · READY FOR LAUNCH`,
   liftoff: "3 · 2 · 1 · LIFTOFF",
   signInLine: "Sign in with email, Google or X",
+  anonLaunch: "Anon launch",
   anon: "Anon",
   pseudo: "Pseudo",
   beta: "beta",
-  anonHelp: "Your name won't be shown as the creator. The account that pays can still be seen on the public record.",
-  anonEasyBoostHelp: "Your name won't be shown as the creator. The account that pays can still be seen on the public record.",
-  pseudoHelp: "Your name won't be shown as the creator. The account that pays, and the first buy, can still be seen on the public record.",
+  anonHelp: "Your name stays off the rocket. Your wallet still shows on-chain.",
+  pseudoHelp: "Your name stays off the rocket. Your wallet and ticket buy still show on-chain.",
   creatorFees: "Creator fees",
-  creatorFeeSplit: "You earn 33% of every trading fee, forever.",
-  creatorFeesPerm: "You pick this when you launch, and you can't change it later.",
+  creatorFeeSplit: "You earn 0.33% of every trade, forever.",
+  /** Big creator-fee number in More options: 33% of the 1% trade fee. */
+  creatorFeeBig: "0.33%",
+  creatorFeeOfWhat: "33% of the 1% trade fee",
+  creatorFeeTip: "Every trade pays a 1% fee. 33% of that fee is the creator's cut, so 0.33% of every trade. Creator tax adds on top.",
+  creatorFeesPerm: "You can't change this after launch.",
   /** Under the fee cards when pool / burn can't be picked (private launch before PRIVATE_FEE_ROUTING_LIVE, or no harvest on this chain). */
   creatorFeesPrivateLater: "Private launches keep the creator fees for now.",
   creatorFeesNotHere: "Pool and burn aren't switched on here yet.",
