@@ -3,11 +3,11 @@
  * /turbo/royale: Turbo Royale, practice (fake money, 11 labelled bots) on live HYPE / SOL / ETH / BTC charts. Hidden with
  * the rest of Turbo (/turbo?turbo=1 on this device). The game is the signed-off prototype, shipped as
  * public/turbo/royale/play.html (built by tools/royale/build.mjs from the Trading Duel's own CSS) and shown full screen.
- * This page feeds it live mids (lib/turbo/royalePrices) and, behind the hidden Lighter switch, turns your presses into
+ * This page feeds it live Lighter prices (Hyperliquid as the fallback, lib/turbo/royalePrices) and, behind the hidden Lighter switch, turns your presses into
  * real Lighter orders (lib/lighter/royale).
  */
 import { useEffect, useRef, useState } from "react";
-import { streamRoyaleMids } from "@/lib/turbo/royalePrices";
+import { streamRoyalePrices } from "@/lib/turbo/royalePrices";
 import { lighterWanted } from "@/lib/lighter/duel";
 import { RoyaleLighter } from "@/lib/lighter/royale";
 import { onWallet } from "@/lib/walletState";
@@ -29,7 +29,7 @@ export default function RoyalePage() {
   useEffect(() => {
     if (!on) return;
     const post = (d: unknown) => { try { frame.current?.contentWindow?.postMessage(d, location.origin); } catch { /* gone */ } };
-    const stop = streamRoyaleMids((px) => post({ type: "disciple:px", px }));
+    const stop = streamRoyalePrices((px) => post({ type: "disciple:px", px }));
     let wallet: string | null = null;
     const offW = onWallet((a) => { wallet = a; });
     const lx = lighterWanted() ? new RoyaleLighter(() => wallet, (t) => post({ type: "disciple:toast", t })) : null;
