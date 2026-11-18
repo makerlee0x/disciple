@@ -112,9 +112,9 @@ export default function LighterTest() {
           {MARKETS.map((m) => <option key={m}>{m}</option>)}
         </select>
         <input className="w-20 rounded-lg border border-white/25 bg-black px-2 py-2" type="number" min={1} value={usd} onChange={(e) => setUsd(Number(e.target.value))} />
-        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("long")}>Long</button>
-        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("short")}>Short</button>
-        <button className={btn} disabled={step !== "ready" || !ticket?.close} onClick={() => void tap("close")}>Close</button>
+        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("long", "ws")}>Long</button>
+        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("short", "ws")}>Short</button>
+        <button className={btn} disabled={step !== "ready" || !ticket?.close} onClick={() => void tap("close", "ws")}>Close</button>
       </div>
       {step === "ready" && (
         <div className="mb-4 text-xs opacity-70">
@@ -122,10 +122,10 @@ export default function LighterTest() {
         </div>
       )}
       <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
-        <span className="opacity-60">via websocket:</span>
-        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("long", "ws")}>Long</button>
-        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("short", "ws")}>Short</button>
-        <button className={btn} disabled={step !== "ready" || !ticket?.close} onClick={() => void tap("close", "ws")}>Close</button>
+        <span className="opacity-60">direct http:</span>
+        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("long")}>Long</button>
+        <button className={btn} disabled={step !== "ready" || !ticket} onClick={() => void tap("short")}>Short</button>
+        <button className={btn} disabled={step !== "ready" || !ticket?.close} onClick={() => void tap("close")}>Close</button>
       </div>
       <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
         <span className="opacity-60">via server:</span>
