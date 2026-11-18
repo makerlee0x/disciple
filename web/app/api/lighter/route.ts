@@ -7,14 +7,17 @@
  *   tier                                → { ok }        moves the account to Plus
  *   open { market, side: long|short, usd } → { hash, base, price, lev }
  *   close { market }                    → { hash }
+ *   warm                                → loads key, signer, market and nonce into this instance before a duel
+ *   open / close / warm answer with ms: { auth, read, send, server, total } (server-side timings)
  */
 import { kv } from "@/lib/server/kv";
-import { hitLimit } from "@/lib/server/limits";
-import { body, out, pilotOf } from "@/lib/server/duel/http";
+import { clientIp, hitLimit } from "@/lib/server/limits";
+import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
+import { body, out, pilotOf, requirePass } from "@/lib/server/duel/http";
 import { DuelError } from "@/lib/server/duel/store";
 import { lighterConfig, isLighterMarket } from "@/lib/server/lighter/config";
 import { LighterError } from "@/lib/server/lighter/rest";
-import { closeMarket, finishSigned, openMarket, setTier, startApprove, startKey, status } from "@/lib/server/lighter/player";
+import { closeMarket, finishSigned, openMarket, setTier, startApprove, startKey, status, warm } from "@/lib/server/lighter/player";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -36,12 +39,36 @@ export async function GET(req: Request) {
   } catch (e) { return lfail(e); }
 }
 
+/** Trades are the hot path: token check is local (Privy user cached), the rate limit runs alongside it, no username read. */
+async function fastPilot(req: Request): Promise<string> {
+  requirePass(req);
+  const [auth, rl] = await Promise.all([authenticate(bearer(req.headers), privyEnv()), hitLimit(kv(), `lighter:ip:${clientIp(req.headers)}`, 60, 10)]);
+  if (!rl.ok) throw new LighterError(429, "Too many at once.");
+  if (!auth.ok) throw new LighterError(auth.status, "Sign in first.");
+  const wallets = auth.user.wallets.map((w) => w.toLowerCase());
+  const want = req.headers.get("x-wallet")?.toLowerCase();
+  const pid = want && wallets.includes(want) ? want : wallets[0];
+  if (!pid) throw new LighterError(403, "Your account needs a wallet.");
+  return pid;
+}
+
 export async function POST(req: Request) {
+  const t0 = performance.now();
   try {
-    const cfg = on(); const me = await pilotOf(req, { guestOk: false });
+    const cfg = on();
+    const b = await body<{ op?: unknown; sig?: unknown; market?: unknown; side?: unknown; usd?: unknown }>(req);
+    if (b.op === "open" || b.op === "close" || b.op === "warm") {
+      const pid = await fastPilot(req);
+      const authMs = Math.round(performance.now() - t0);
+      const r = b.op === "warm" ? (await warm(cfg, pid), {}) : b.op === "open" ? await openGuarded(cfg, pid, b) : await closeGuarded(cfg, pid, b);
+      const total = Math.round(performance.now() - t0);
+      const res = out(200, { ok: true, ...r, ms: { auth: authMs, ...("ms" in r ? (r.ms as object) : {}), total } });
+      res.headers.set("server-timing", `auth;dur=${authMs}, total;dur=${total}`);
+      return res;
+    }
+    const me = await pilotOf(req, { guestOk: false });
     const rl = await hitLimit(kv(), `lighter:${me.pid}`, 40, 10);
     if (!rl.ok) throw new LighterError(429, "Too many at once.");
-    const b = await body<{ op?: unknown; sig?: unknown; market?: unknown; side?: unknown; usd?: unknown }>(req);
     switch (b.op) {
       case "key-start": return out(200, { ok: true, ...(await startKey(cfg, me.pid)) });
       case "approve-start": return out(200, { ok: true, ...(await startApprove(cfg, me.pid)) });
@@ -50,16 +77,18 @@ export async function POST(req: Request) {
         return out(200, { ok: true, ...(await finishSigned(cfg, me.pid, b.op === "key-finish" ? "key" : "approve", b.sig)) });
       }
       case "tier": await setTier(cfg, me.pid); return out(200, { ok: true });
-      case "open": {
-        const usd = Number(b.usd);
-        if (!isLighterMarket(b.market) || (b.side !== "long" && b.side !== "short") || !(usd >= 1 && usd <= 10_000)) throw new LighterError(400, "Bad order.");
-        return out(200, { ok: true, ...(await openMarket(cfg, me.pid, b.market, b.side, usd)) });
-      }
-      case "close": {
-        if (!isLighterMarket(b.market)) throw new LighterError(400, "Bad market.");
-        return out(200, { ok: true, ...(await closeMarket(cfg, me.pid, b.market)) });
-      }
       default: throw new LighterError(400, "Unknown op.");
     }
   } catch (e) { return lfail(e); }
+}
+
+type Cfg = ReturnType<typeof lighterConfig>;
+function openGuarded(cfg: Cfg, pid: string, b: { market?: unknown; side?: unknown; usd?: unknown }) {
+  const usd = Number(b.usd);
+  if (!isLighterMarket(b.market) || (b.side !== "long" && b.side !== "short") || !(usd >= 1 && usd <= 10_000)) throw new LighterError(400, "Bad order.");
+  return openMarket(cfg, pid, b.market, b.side, usd);
+}
+function closeGuarded(cfg: Cfg, pid: string, b: { market?: unknown }) {
+  if (!isLighterMarket(b.market)) throw new LighterError(400, "Bad market.");
+  return closeMarket(cfg, pid, b.market);
 }

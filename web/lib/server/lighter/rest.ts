@@ -32,7 +32,7 @@ export interface LighterAccount { index: number; account_type: number; collatera
 
 let marketsCache: { at: number; net: string; rows: MarketDetail[] } | null = null;
 export async function markets(cfg: LighterConfig): Promise<MarketDetail[]> {
-  if (marketsCache && marketsCache.net === cfg.network && Date.now() - marketsCache.at < 30_000) return marketsCache.rows;
+  if (marketsCache && marketsCache.net === cfg.network && Date.now() - marketsCache.at < 10 * 60_000) return marketsCache.rows;
   const r = await get<Resp & { order_book_details: MarketDetail[] }>(cfg, "/api/v1/orderBookDetails", { filter: "perp" });
   marketsCache = { at: Date.now(), net: cfg.network, rows: r.order_book_details ?? [] };
   return marketsCache.rows;
@@ -89,13 +89,19 @@ export async function nextNonce(cfg: LighterConfig, accountIndex: number, apiKey
 }
 /** The price a market order of `base` (size units) would reach walking the book, or null if the book can't fill it.
  *  Market orders cap at this + slippage: capping off the mark price gets "price too low for IoC" on a thin book. */
-export async function fillPrice(cfg: LighterConfig, marketId: number, isAsk: boolean, base: number, sizeDecimals: number): Promise<number | null> {
-  const r = await get<Resp & { asks?: { price: string; remaining_base_amount: string }[]; bids?: { price: string; remaining_base_amount: string }[] }>(
-    cfg, "/api/v1/orderBookOrders", { market_id: marketId, limit: 50 });
-  const side = (isAsk ? r.bids : r.asks) ?? [];
+export type Book = { asks: { price: string; remaining_base_amount: string }[]; bids: { price: string; remaining_base_amount: string }[] };
+export async function book(cfg: LighterConfig, marketId: number): Promise<Book> {
+  const r = await get<Resp & Partial<Book>>(cfg, "/api/v1/orderBookOrders", { market_id: marketId, limit: 50 });
+  return { asks: r.asks ?? [], bids: r.bids ?? [] };
+}
+export function fillFrom(b: Book, isAsk: boolean, base: number, sizeDecimals: number): number | null {
   let left = base / 10 ** sizeDecimals;
-  for (const o of side) { left -= Number(o.remaining_base_amount); if (left <= 1e-12) return Number(o.price); }
+  for (const o of isAsk ? b.bids : b.asks) { left -= Number(o.remaining_base_amount); if (left <= 1e-12) return Number(o.price); }
   return null;
+}
+export const midOf = (b: Book) => (b.asks[0] && b.bids[0] ? (Number(b.asks[0].price) + Number(b.bids[0].price)) / 2 : Number(b.asks[0]?.price ?? b.bids[0]?.price ?? 0));
+export async function fillPrice(cfg: LighterConfig, marketId: number, isAsk: boolean, base: number, sizeDecimals: number): Promise<number | null> {
+  return fillFrom(await book(cfg, marketId), isAsk, base, sizeDecimals);
 }
 /** What Lighter did with a sent tx, ~1.5 s later (for the test page). Raw and trimmed; never throws. */
 export async function txStatus(cfg: LighterConfig, hash: string): Promise<string> {

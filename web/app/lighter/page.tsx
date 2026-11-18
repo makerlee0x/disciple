@@ -40,11 +40,18 @@ export default function LighterTest() {
     try { setSt((await lighterStatus(f)) as Status); } catch (e) { say(`status: ${(e as Error).message}`); }
   }, [f]);
   useEffect(() => { if (wallet) void refresh(); }, [wallet, refresh]);
+  // load the player's key, signer and market into the server before the first tap (a duel does this in its lobby)
+  useEffect(() => { if (st?.step === "ready") void f("/api/lighter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op: "warm" }) }).catch(() => {}); }, [st?.step, f]);
 
   const run = async (label: string, fn: () => Promise<unknown>) => {
     setBusy(true);
     const t0 = performance.now();
-    try { const r = await fn(); say(`${label} ✓ ${Math.round(performance.now() - t0)} ms ${r ? JSON.stringify(r) : ""}`); }
+    try {
+      const r = (await fn()) as { hash?: string; ms?: Record<string, number>; fill?: number; price?: number } | undefined;
+      const tap = Math.round(performance.now() - t0);
+      const ms = r?.ms ? Object.entries(r.ms).map(([k, v]) => `${k} ${v}`).join(" · ") : "";
+      say(r?.ms ? `${label} ✓ tap ${tap} ms  [server: ${ms}]  fill ${r.fill ?? r.price ?? ""}  ${r.hash?.slice(0, 10) ?? ""}…` : `${label} ✓ ${tap} ms ${r ? JSON.stringify(r) : ""}`);
+    }
     catch (e) { say(`${label} ✗ ${(e as Error).message}`); }
     finally { setBusy(false); void refresh(); }
   };
