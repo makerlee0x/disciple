@@ -1226,19 +1226,23 @@ function mount(root,host){
     const t=soloYOf(profitOf(G.me)), was=G.me.sY; G.me.sY=was==null?t:was+(t-was)*.12; G.me.sVy=was==null?0:G.me.sY-was;
     return G.me.sY+(G.me.syo||0)*.2; }
   // height: $ marks up the sky between START and the GOAL, and the duel's gap ruler from START up to your rocket
-  function soloHeight(){ if(CLR.goal==null) return; const g=CLR.goal, top=LAY.under, p=profitOf(G.me);
+  // the right edge for labels at height y, moved left past the mute button when they'd sit under it
+  function soloRight(y,hh){ const m=$("mute"), c=sky.getBoundingClientRect(); if(!m||m.hidden) return SW-12; const r=m.getBoundingClientRect(), t=r.top-c.top, b=r.bottom-c.top;
+    return y+hh>t-4&&y<b+4?r.left-c.left-10:SW-12; }
+  function soloHeight(){ if(CLR.goal==null) return; const g=CLR.goal, top=LAY.under, p=profitOf(G.me), yS=soloYOf(0), yG=soloYOf(g);
     sx.font="700 11px "+GF+",sans-serif"; sx.textAlign="right"; sx.textBaseline="bottom";
-    for(let i=-8;i<=6;i++){ if(i===0||i===4) continue; const v=g*i/4, y=soloYOf(v); if(y<top||y>SH) continue;
+    let lastY=-1e9; for(let i=6;i>=-8;i--){ if(i===0||i===4) continue; const v=g*i/4, y=soloYOf(v); if(y<top||y>SH||y-lastY<30||Math.abs(y-yS)<26||Math.abs(y-yG)<26) continue; lastY=y;
       sx.strokeStyle=v>0?"rgba(95,240,160,.16)":"rgba(255,143,189,.16)"; sx.lineWidth=1; sx.setLineDash([3,7]); sx.beginPath(); sx.moveTo(0,y); sx.lineTo(SW,y); sx.stroke(); sx.setLineDash([]);
-      sx.fillStyle=v>0?"rgba(95,240,160,.75)":"rgba(255,143,189,.75)"; sx.fillText((v>0?"+$":"\u2212$")+Math.abs(v).toFixed(2),SW-12,y-3); }
+      sx.fillStyle=v>0?"rgba(95,240,160,.75)":"rgba(255,143,189,.75)"; sx.fillText((v>0?"+$":"\u2212$")+Math.abs(v).toFixed(2),soloRight(y-14,14),y-3); }
     if(Math.abs(p)<.005) return;
-    const a=G.me, x=Math.min(SW-40,lane(a)+Math.max(46,RH()*.55)), y0=Math.max(top,Math.min(SH,soloYOf(0))), y1=a.y; if(Math.abs(y1-y0)<24) return;
+    // a tether from START to the rocket's tail, so the climb reads as height gained
+    const a=G.me, x=lane(a)+(a.dx||0), y0=Math.max(top,Math.min(SH,soloYOf(0))), y1=a.y+(p>0?RH()*.62:-RH()*.55); if(Math.abs(y1-y0)<24) return;
     const t0=Math.min(y0,y1), t1=Math.max(y0,y1), col=p>0?"95,240,160":"255,143,189";
     sx.strokeStyle=`rgba(${col},.6)`; sx.lineWidth=2; sx.setLineDash([4,5]); sx.beginPath(); sx.moveTo(x,t0); sx.lineTo(x,t1); sx.stroke(); sx.setLineDash([]);
     sx.beginPath(); sx.moveTo(x-6,t0); sx.lineTo(x+6,t0); sx.moveTo(x-6,t1); sx.lineTo(x+6,t1); sx.stroke();
     const t=(p>0?"+":"\u2212")+"$"+Math.abs(p).toFixed(2); sx.font="800 16px "+GF+",sans-serif";
-    const w=sx.measureText(t).width+12, my=(t0+t1)/2; sx.fillStyle=`rgba(${col},.95)`; rr(x-w/2,my-11,w,22,8); sx.fill();
-    sx.fillStyle="#121327"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(t,x,my+1); }
+    const w=sx.measureText(t).width+12, my=Math.max(t0+40,Math.min(t1-40,Math.min((t0+t1)/2,LAY.barTop-30))); if(t1-t0>90){ sx.fillStyle=`rgba(${col},.95)`; rr(x-w/2,my-11,w,22,8); sx.fill();
+    sx.fillStyle="#121327"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(t,x,my+1); } }
   function soloLines(){ soloHeight(); const me=G.me, pos=me.pos, p=profitOf(me), top=LAY.under+6, bot=LAY.barTop+10, f=n=>Math.round(n).toLocaleString("en-US");
     const L=[{v:0,label:"START",plain:1,col:"242,243,247"}];
     const priceAt=v=>pos?pos.entry*(1+pos.side*(v-(p-pnlOf(pos,G.price)))/pos.size):null;   // the price at which your profit reads v
@@ -1247,14 +1251,14 @@ function mount(root,host){
       L.push({v:nv,label:"NUKE",pin:"NUKE "+f(np)+" · "+usd(-LIQ*pos.coll),sub:f(np),col:"240,48,127",ink:"#fff",band:60}); }
     for(const l of L){ let y=soloYOf(l.v), pin=0; if(CLR.goal!=null&&(y<top-30||y>bot+30)) continue; if(y<top){y=top;pin=-1;} if(y>bot){y=bot;pin=1;}
       if(l.plain){ if(pin) continue; sx.strokeStyle="rgba(255,255,255,.45)"; sx.lineWidth=1.5; sx.setLineDash([6,5]); sx.beginPath(); sx.moveTo(0,y); sx.lineTo(SW,y); sx.stroke(); sx.setLineDash([]);
-        sx.font="700 11px "+GF+",sans-serif"; sx.textAlign="right"; sx.textBaseline="bottom"; sx.fillStyle="rgba(242,243,247,.85)"; sx.fillText(l.label,SW-12,y-3); continue; }
+        sx.font="700 11px "+GF+",sans-serif"; sx.textAlign="right"; sx.textBaseline="bottom"; sx.fillStyle="rgba(242,243,247,.85)"; sx.fillText(l.label,soloRight(y-14,14),y-3); continue; }
       if(!pin){ if(l.band){ const g=sx.createLinearGradient(0,y,0,y+l.band); g.addColorStop(0,`rgba(${l.col},.28)`); g.addColorStop(1,`rgba(${l.col},0)`); sx.fillStyle=g; sx.fillRect(0,y,SW,l.band); }
         if(l.gate){ const g=sx.createLinearGradient(0,y-26,0,y+26); g.addColorStop(0,`rgba(${l.col},0)`); g.addColorStop(.5,`rgba(${l.col},.22)`); g.addColorStop(1,`rgba(${l.col},0)`); sx.fillStyle=g; sx.fillRect(0,y-26,SW,52); }
         sx.strokeStyle=`rgba(${l.col},.9)`; sx.lineWidth=l.w||2; sx.beginPath(); sx.moveTo(0,y); sx.lineTo(SW,y); sx.stroke(); }
       const txt=(pin<0?"▲ ":pin>0?"▼ ":"")+(pin&&l.pin?l.pin:l.label); sx.font="800 14px "+GF+",sans-serif"; const tw=sx.measureText(txt).width+16, hh=22, ly=pin<0?y:pin>0?y-hh:y-hh/2;
       // right-aligned: the trade feed lives top left
       let sw=0; if(l.sub&&!pin){ sx.font="700 12px "+GF+",sans-serif"; sw=sx.measureText(l.sub).width+12; }
-      const x1=SW-12-tw; sx.font="800 14px "+GF+",sans-serif";
+      const x1=soloRight(ly,hh)-tw; sx.font="800 14px "+GF+",sans-serif";
       sx.fillStyle=`rgba(${l.col},.95)`; rr(x1,ly,tw,hh,7); sx.fill(); sx.fillStyle=l.ink||"#121327"; sx.textAlign="left"; sx.textBaseline="middle"; sx.fillText(txt,x1+8,ly+hh/2+1);
       if(sw){ const x2=x1-4-sw; sx.font="700 12px "+GF+",sans-serif"; sx.fillStyle="rgba(11,10,22,.86)"; rr(x2,ly+2,sw,hh-4,6); sx.fill(); sx.fillStyle=`rgba(${l.col},1)`; sx.fillText(l.sub,x2+6,ly+hh/2+1); } } }
   function climbEnd(){ G.over=true; if(G.me.pos) close(G.me); music(false); ui();
