@@ -14,7 +14,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ code
   // link preview crawlers get the invite card; the code itself is never drawn on it
   if (isPreviewBot(req.headers.get("user-agent"))) {
     const o = SITE_ORIGIN;
-    return previewPage({ title: "You're invited to DISCIPLE", description: "Take your seat and boost your first rocket.", image: `${o}/api/og/invite`, url: `${o}/i/${code ?? ""}`, to: `${o}/invite${code ? `?code=${code}` : ""}` });
+    return previewPage({ title: "You're invited to DISCIPLE", description: "Multiplayer memecoins. 1v1 trading duels.", image: `${o}/api/og/invite`, url: `${o}/i/${code ?? ""}`, to: `${o}/invite${code ? `?code=${code}` : ""}` });
   }
   const res = NextResponse.redirect(to, 307);
   res.headers.set("cache-control", "private, no-store"); res.headers.set("vary", "User-Agent");

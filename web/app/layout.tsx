@@ -36,10 +36,10 @@ const APP_JS = `(function(){try{if(navigator.userAgent.indexOf("DiscipleApp/")>-
 // through CSS vars, so cash, name, level and picture show before any script has loaded
 const YOU_JS = `(function(){try{var d=document.documentElement,L=localStorage,s=JSON.parse(L.getItem("disciple.aa.session.v2")||"null");if(!(s&&s.owner&&(!s.expiresAt||s.expiresAt>Date.now())))return;d.setAttribute("data-you","");var w=(L.getItem("disciple.lastWallet")||"").toLowerCase(),p=JSON.parse(L.getItem("disciple.lastPill")||"null");if(!p||!w||String(p.address||"").toLowerCase()!==w)return;var q=function(v){return JSON.stringify(String(v).slice(0,40))},S=function(k,v){d.style.setProperty(k,v)};if(p.cash)S("--pp-cash",q(p.cash));if(p.label)S("--pp-name",q(p.label));if(p.level){S("--pp-lv",q(p.level));d.setAttribute("data-pp-lv","")}var i=p.img;if(typeof i=="string"&&(i.charAt(0)=="/"||i.indexOf("https://")===0)&&!/["'()<>]|[\\s\\\\]/.test(i)){S("--pp-img","url("+JSON.stringify(i)+")");d.setAttribute("data-pp-img","");if(p.nft)d.setAttribute("data-pp-nft","")}}catch(e){}})()`;
 
-const SITE_TITLE = "DISCIPLE · Ride it to orbit";
-const SITE_LINE = "Every rocket is a live match. The crew boosts it up, and anyone can bomb it down.";
+const SITE_TITLE = "DISCIPLE · Multiplayer memecoins";
+const SITE_LINE = "Multiplayer memecoins and 1v1 trading duels. Launch your own coin with a crew, or take on another trader for one minute.";
 /** Site card (step 7): drawn by /api/og/site (lib/server/og/card.ts). Rocket, pilot and invite pages carry their own. */
-const SITE_CARD = { url: "/api/og/site", width: 1200, height: 630, alt: "DISCIPLE: Ride it to orbit" };
+const SITE_CARD = { url: "/api/og/site", width: 1200, height: 630, alt: "DISCIPLE: Multiplayer memecoins. 1v1 trading duels." };
 
 export const metadata: Metadata = {
   title: SITE_TITLE,
@@ -58,6 +58,16 @@ export const metadata: Metadata = {
   openGraph: { title: SITE_TITLE, description: SITE_LINE, url: "/", siteName: "DISCIPLE", type: "website", images: [SITE_CARD] },
   twitter: { card: "summary_large_image", site: "@disciplevip", title: SITE_TITLE, description: SITE_LINE, images: [SITE_CARD.url] },
 };
+
+/** Structured data (SEO/AEO pass, maker 2026-11-18): tells search and AI answers what DISCIPLE is and links the X account. */
+const SITE_LD = JSON.stringify({
+  "@context": "https://schema.org",
+  "@graph": [
+    { "@type": "Organization", "@id": "https://disciple.vip/#org", name: "DISCIPLE", url: "https://disciple.vip", logo: "https://disciple.vip/icon-512.png", sameAs: ["https://x.com/disciplevip"] },
+    { "@type": "WebSite", "@id": "https://disciple.vip/#site", name: "DISCIPLE", url: "https://disciple.vip", description: SITE_LINE, publisher: { "@id": "https://disciple.vip/#org" } },
+    { "@type": "VideoGame", name: "DISCIPLE", url: "https://disciple.vip", description: SITE_LINE, genre: ["Trading", "Multiplayer"], gamePlatform: ["Web browser", "iOS"], playMode: ["MultiPlayer", "SinglePlayer"], publisher: { "@id": "https://disciple.vip/#org" } },
+  ],
+});
 
 export const viewport: Viewport = {
   themeColor: "#0B0C0E",
@@ -83,6 +93,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: YOU_JS }} />
         {/* Privy's session check and wallet iframe live on auth.privy.io: open the connection while the page loads */}
         <link rel="preconnect" href="https://auth.privy.io" />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: SITE_LD }} />
         <script id={SPONSORSHIP_CONFIG_ID} type="application/json" dangerouslySetInnerHTML={{ __html: JSON.stringify(sponsorshipConfig()) }} />
         <IconSprite />
         <IosZoomLock />

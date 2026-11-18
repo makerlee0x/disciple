@@ -60,13 +60,13 @@ export async function renderDailyCard(d: DailyCardData): Promise<Buffer> {
   g.fillStyle = gr; g.fillRect(0, 0, W, H);
   g.textBaseline = "alphabetic";
 
-  // header: DISCIPLE | DAILY FLIGHT #N [HARD]
+  // header: DISCIPLE | DAILY MISSION #N [HARD]
   let x = 72; const hy = 64 + 30;
   const wm = await word();
   if (wm) { const h = 30, w = h * (wm.width / wm.height); g.drawImage(wm, x, hy - 27, w, h); x += w + 14; }
   else { g.fillStyle = TXT; g.font = `30px ${F.b800}`; g.letterSpacing = "4px"; g.fillText("DISCIPLE", x, hy); x += g.measureText("DISCIPLE").width + 14; }
   g.fillStyle = "#2E323A"; g.fillRect(x, hy - 24, 1, 24); x += 15;
-  g.fillStyle = "#F3DFA8"; g.font = `24px ${F.b700}`; g.letterSpacing = "2px"; const t = `DAILY FLIGHT #${d.id}`; g.fillText(t, x, hy - 2); x += g.measureText(t).width + 14;
+  g.fillStyle = "#F3DFA8"; g.font = `24px ${F.b700}`; g.letterSpacing = "2px"; const t = `DAILY MISSION #${d.id}`; g.fillText(t, x, hy - 2); x += g.measureText(t).width + 14;
   g.letterSpacing = "0px"; g.font = `20px ${F.b700}`; const dw = g.measureText(d.difficulty).width + 20;
   rr(g, x, hy - 25, dw, 28, 6); g.strokeStyle = "#FF7A3D"; g.lineWidth = 1; g.stroke(); g.fillStyle = "#FFB48F"; g.fillText(d.difficulty, x + 10, hy - 4);
 

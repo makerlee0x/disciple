@@ -24,10 +24,10 @@ async function load({ params, searchParams }: P) {
 }
 
 export async function generateMetadata(p: P): Promise<Metadata> {
-  const d = await load(p); if (!d) return { title: "Daily flight · DISCIPLE" };
-  const title = d.run ? `${d.pilot?.name ?? d.run.name} cashed out at ${fmtMultiple(d.run.score.multiple)}. Beat it.` : `Daily flight #${d.id} · DISCIPLE`;
+  const d = await load(p); if (!d) return { title: "Daily mission · DISCIPLE" };
+  const title = d.run ? `${d.pilot?.name ?? d.run.name} cashed out at ${fmtMultiple(d.run.score.multiple)}. Beat it.` : `Daily mission #${d.id} · DISCIPLE`;
   const img = `/api/daily/card?id=${d.id}${d.run ? `&run=${d.run.runId}` : ""}`;
-  const description = "Free play. Same market for everyone, one scored run. Sign in to post your score.";
+  const description = "Daily mission. Same run for everyone, one scored shot. Sign in to post your score.";
   return { title, description, openGraph: { title, description, images: [{ url: img, width: 1200, height: 630 }] }, twitter: { card: "summary_large_image", title, description, images: [img] } };
 }
 
@@ -61,7 +61,7 @@ export default async function DailyChallenge(p: P) {
             <span style={{ display: "flex", flexDirection: "column" }}><span style={{ fontSize: 15, fontWeight: 600 }}>{name}</span><span style={{ fontSize: 12, color: "#D7D9E4" }}>challenged you</span></span>
           </div>}
           <span data-testid="daily-challenge-head" style={{ ...game, fontWeight: 800, fontSize: 50, lineHeight: 0.92 }}>
-            {run ? <>Beat <span style={{ color: "#F2C14E" }}>{fmtMultiple(run.score.multiple)}</span> on this exact flight.</> : <>Daily flight <span style={{ color: "#F2C14E" }}>#{id}</span>. Cash out at 2×.</>}
+            {run ? <>Beat <span style={{ color: "#F2C14E" }}>{fmtMultiple(run.score.multiple)}</span> on this exact flight.</> : <>Daily mission <span style={{ color: "#F2C14E" }}>#{id}</span>. Cash out at 2×.</>}
           </span>
           <span style={{ fontSize: 15, color: "#D7D9E4", lineHeight: 1.45 }}>Same market, same crew. Their ghost flies next to you, so you&apos;ll see when they cashed out.</span>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

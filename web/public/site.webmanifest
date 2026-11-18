@@ -2,7 +2,7 @@
   "id": "/",
   "name": "DISCIPLE",
   "short_name": "DISCIPLE",
-  "description": "Every rocket is a live match. The crew boosts it up, and anyone can bomb it down.",
+  "description": "Multiplayer memecoins and 1v1 trading duels. Launch your own coin with a crew, or take on another trader for one minute.",
   "start_url": "/?source=homescreen",
   "scope": "/",
   "display": "standalone",
