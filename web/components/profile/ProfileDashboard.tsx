@@ -34,6 +34,7 @@ import type { ActivityItem } from "@/lib/stats";
 import type { LifetimeRow } from "@/lib/server/leaderboard";
 import PointsShare from "@/components/points/PointsShare";
 import HangarBay from "@/components/hangar/HangarBay";
+import { fetchXLink, X_CHANGED_EVENT } from "@/lib/xLinkClient";
 import HangarSignedOut from "@/components/hangar/HangarSignedOut";
 import { RocketCard } from "@/components/hangar/Collection";
 import { useCollection } from "@/lib/collectionClient";
@@ -203,6 +204,17 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
     return () => { alive = false; window.removeEventListener(PROFILE_CHANGED_EVENT, read); };
   }, [wallet]);
 
+  // the linked X handle, shown on the banner when X is connected (maker 2026-11-18); re-read when Connect X changes it
+  const [xHandle, setXHandle] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const read = () => { fetchXLink(wallet).then((s) => { if (alive) setXHandle(s.link?.username ?? null); }); };
+    if (!wallet) { setXHandle(null); return; }
+    read();
+    window.addEventListener(X_CHANGED_EVENT, read);
+    return () => { alive = false; window.removeEventListener(X_CHANGED_EVENT, read); };
+  }, [wallet]);
+
   const [settingsOpen, setSettingsOpen] = useState(false);
   // closing clears #settings in place (no navigation or scroll), so the next gear click opens it again
   const closeSettings = useCallback(() => {
@@ -322,7 +334,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       {toast && <div className="pf-toast" role="status">{toast}</div>}
       {points?.username && <PointsShare handle={points.username} pts={points.pts} rank={points.rank} open={pointsCard} onClose={() => setPointsCard(false)} />}
 
-      <HangarBay handle={title} at={at} bio={bio} avatar={avatar} xp={xp} actions={actions} spend={false} stats={dash}
+      <HangarBay handle={title} at={at} x={xHandle} bio={bio} avatar={avatar} xp={xp} actions={actions} spend={false} stats={dash}
         nftAvatar={!!img && !!meta.nft} tags={wallet ? <HolderTags wallet={wallet} /> : null} />
 
       {/* iPhone app only (html.app): the desktop Hangar is one long page on a phone, so a sticky row jumps to each part */}
