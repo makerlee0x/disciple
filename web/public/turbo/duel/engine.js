@@ -387,7 +387,7 @@ function mount(root,host){
     if(pos){
       const pnl=pnlOf(pos,G.price), pct=pnl/pos.coll*100, back=Math.max(0,pos.coll+pnl-pos.size*FEE);
       $("posLab").textContent=`${pos.side>0?"BOOST \u25b2":"DUMP \u25bc"} ${LEV}\u00d7 \u00b7 $${pos.coll.toFixed(0)} IN`;
-      $("posV").textContent=usd(pnl,true); const e=$("pnlP"); e.hidden=false; e.textContent=(pct>=0?"+":"\u2212")+Math.abs(pct).toFixed(1)+"%";
+      $("posV").textContent=usd(pnl,true); const e=$("pnlP"); e.hidden=false; e.textContent=(Math.abs(pct)<.05?"":pct>0?"+":"\u2212")+Math.abs(pct).toFixed(1)+"%";   // no "\u22120.0%"
       $("bOutS").textContent=`CASH OUT ${usd(back)}`;
       el.classList.toggle("up",pnl>=0); el.classList.toggle("dn",pnl<0); el.disabled=false;
     } else {
