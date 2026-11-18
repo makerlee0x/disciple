@@ -156,8 +156,9 @@
   position: fixed; top: 0; left: 0; right: 0; z-index: 50;
   height: calc(var(--lb-bar-h) + var(--ap-safe-top, 0px)); padding: var(--ap-safe-top, 0px) 24px 0; box-sizing: border-box;
   display: flex; align-items: center; gap: 40px;
-  /* the wallet pill (fixed, top-right) sits over this space */
-  padding-right: calc(24px + 380px);
+  /* the wallet strip (fixed, 16px from the right) sits over this space; --wb-w is its measured width (WalletButton), so Play now
+     keeps the same 12px gap to the "?" that the strip keeps between its own chips */
+  padding-right: calc(16px + var(--ap-safe-right, 0px) + var(--wb-w, 380px) + 12px);
   background: linear-gradient(180deg, rgba(11,12,14,0.96), rgba(11,12,14,0.80));
   border-bottom: 1px solid rgba(232,234,238,0.10); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
 }

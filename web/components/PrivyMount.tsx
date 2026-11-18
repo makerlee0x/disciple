@@ -22,6 +22,8 @@ import { needsEmbeddedWallet, ownerWalletAddress, type LinkedLike } from "@/lib/
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { PRIVY_APP_ID, aaSession, registerPrivy, type PrivyAccountInfo, type PrivySecurity } from "@/lib/aa/session";
 import { connectPrivyOwner, disconnect } from "@/lib/wallet";
+import { lastWallet } from "@/lib/walletState";
+import { forgetSavedSession } from "@/lib/aa/sessionState";
 import { withPrivyTxType } from "@/lib/aa/privyTx";
 import { linkXpAccount, syncLocalIdentity } from "@/lib/profile";
 import { clearPendingJoin, isPendingJoin, joinLine, joinLoginOptions, pendingJoin, savePendingJoin } from "@/lib/joinLogins";
@@ -97,6 +99,7 @@ function PrivyBridge() {
     if (!ready || !walletsReady) return;
     if (!authenticated) {
       if (linked.current) { linked.current = null; if (aaSession()?.kind === "privy") disconnect().catch(() => {}); }
+      else forgetSavedSession();   // a session Privy no longer honours: next refresh shows Sign in, not the old pill
       return;
     }
     // a user with NO embedded wallet (external-wallet-only login) gets exactly one; nobody gets a second
@@ -113,20 +116,30 @@ function PrivyBridge() {
     linked.current = w.address.toLowerCase();
     // one account per person (lib/joinLogins): a second login with the same email signs out before its wallet is used,
     // then signs in to the first account and links this method onto it
-    linkXpAccount(w.address)
+    const dupCheck = linkXpAccount(w.address)
       .then((d) => {
         const dup = d.duplicate;
         if (!dup) return;
         linked.current = null;
         const p = isPendingJoin(dup) ? dup : null;
         if (p) savePendingJoin(p);
+        if (aaSession()?.kind === "privy") void disconnect().catch(() => undefined);
         void logout().catch(() => undefined).then(() => { if (p?.method === "email") login(joinLoginOptions(p)); });   // email: straight into the code screen
         dispatchEvent(new CustomEvent(SIGN_IN_FAILED_EVENT, { detail: { message: p ? joinLine(p) : "This email already has a DISCIPLE account. Sign in the way you did first." } }));
         throw Object.assign(new Error("duplicate login"), { duplicate: true });
-      })
+      });
+    // Page refresh (sign-in speed, 2026-11-18): the wallet this browser last signed in with already passed that check, so
+    // don't hold the pill for the /api/xp/account round trip; the check still runs and signs out if it ever says duplicate.
+    const known = lastWallet()?.toLowerCase() === w.address.toLowerCase();
+    if (known) dupCheck.catch(() => undefined);
+    (known ? Promise.resolve() : dupCheck)
       .then(() => toViemAccount({ wallet: w }))
-      // Privy's wallet RPC needs the numeric tx type (2), not viem's "eip1559" (lib/aa/privyTx)
-      .then((owner) => connectPrivyOwner(withPrivyTxType(owner)))
+      // Privy's wallet RPC needs the numeric tx type (2), not viem's "eip1559" (lib/aa/privyTx). A duplicate answer that
+      // landed meanwhile (known wallet) has already reset linked: don't sign in on top of the sign-out.
+      .then((owner) => {
+        if (linked.current !== w.address.toLowerCase()) throw Object.assign(new Error("duplicate login"), { duplicate: true });
+        return connectPrivyOwner(withPrivyTxType(owner));
+      })
       // the cached @name belongs to the account that claimed it: a different sign-in must not keep showing it
       .then((acct) => {
         void syncLocalIdentity(acct).catch(() => undefined);
