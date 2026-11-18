@@ -328,6 +328,9 @@ contract Launchpad is ILaunchpad, Owned2Step {
         FeeRouter(feeRouter).registerTokenLaunch(address(t), quote, creator);
 
         isLaunched[address(t)] = true;
+        // Audit 2026-11-18 M-01: register the curve BEFORE the First BOOST buy below. A referred creator's boost
+        // settles fees through CurveFeeVault, which requires msg.sender == curveOf(token). Locked by
+        // DiscipleAudit.test_M01_referredCreator_launchWithFirstBoost.
         curveOf[address(t)] = address(curve);
         metaOf[address(t)] = LaunchMeta({
             name: params.name,

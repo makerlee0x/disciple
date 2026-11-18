@@ -175,6 +175,7 @@ contract DiscipleAuditTest is IntegrationBase {
         // the volume's fees moved the price; let the flush reference tick catch up (REF_TICKS_PER_MIN)
         vm.warp(vm.getBlockTimestamp() + 600);
         vm.roll(vm.getBlockNumber() + 1);
+        _syncFlushRef(address(tok));
         uint128 l0 = _liq(tok);
         assertGt(_flush(address(tok)), 0);
         assertEq(_flush(address(tok)), 0, "<= one add per block");
@@ -291,5 +292,55 @@ contract DiscipleAuditTest is IntegrationBase {
             uint256 less = used - used / 1e11 - 1;
             assertLt(c.quoteBuy(less).tokensOut, remaining, "no material overcharge");
         }
+    }
+
+    /// @dev Audit 2026-11-18 M-02: calling flush every second (and several times per second) must not slow the
+    ///      reference catch-up below REF_TICKS_PER_MIN. After a held pump, flush works again within the time the rate
+    ///      allows, whatever the call pattern.
+    function test_M02_flushSpam_cannotSlowRefCatchUp() public {
+        Token tok = _gradReady();
+        address v = makeAddr("volume");
+        for (uint256 i; i < 6; i++) {
+            _swapExactInQuoteForToken(tok, v, 5_000 ether);
+            _swapExactInTokenForQuote(tok, v, tok.balanceOf(v));
+        }
+        vm.warp(vm.getBlockTimestamp() + 600);
+        vm.roll(vm.getBlockNumber() + 1);
+        _flush(address(tok)); // anchor the reference at the current price
+        // held pump well outside the band
+        _swapExactInQuoteForToken(tok, makeAddr("pumper"), 250 ether);
+        (int24 rt,) = lockedLP.flushRef(address(tok));
+        PoolKey memory key = lockedLP.getPoolKey(address(tok));
+        (, int24 cur,,) = manager.getSlot0(key.toId());
+        int256 d = int256(cur) - int256(rt);
+        if (d < 0) d = -d;
+        assertGt(d, 400, "pump moved past the band");
+        vm.roll(vm.getBlockNumber() + 1);
+        assertEq(_flush(address(tok)), 0, "out of band right after the pump");
+        // seconds the 100 ticks/min rate needs to bring the band within reach, plus 1 s rounding
+        uint256 need = (uint256(d) - 200) * 60 / 100 + 2;
+        bool added;
+        for (uint256 s_; s_ < need && !added; ++s_) {
+            vm.warp(vm.getBlockTimestamp() + 1);
+            for (uint256 k; k < 3 && !added; ++k) {
+                vm.roll(vm.getBlockNumber() + 1);
+                added = _flush(address(tok)) > 0;
+            }
+        }
+        assertTrue(added, "spammed flushes still caught up at the full rate");
+    }
+
+    /// @dev Audit 2026-11-18 M-01 (regression lock): a creator who already has a referrer launches with a First
+    ///      BOOST. The boost buy settles curve fees through CurveFeeVault, which checks launchpad.curveOf(token), so
+    ///      Launchpad must register the curve before the external buy. This launch must not revert, and the launch
+    ///      KOL must be recorded.
+    function test_M01_referredCreator_launchWithFirstBoost() public {
+        address kol = makeAddr("kol");
+        _bindReferral(creator, kol, 0);
+        assertEq(referrals.referrerOf(creator), kol);
+        (BondingCurve curve, Token tok) = _launch(0, 10 ether);
+        assertEq(launchpad.curveOf(address(tok)), address(curve), "curve registered");
+        assertGt(tok.balanceOf(creator), 0, "First BOOST filled");
+        assertEq(feeRouter.tokenLaunchKol(address(tok)), kol, "launch KOL recorded");
     }
 }

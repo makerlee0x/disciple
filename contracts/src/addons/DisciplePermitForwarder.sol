@@ -257,6 +257,11 @@ contract DisciplePermitForwarder is ReentrancyGuard {
                     sel == IERC20.transfer.selector || sel == IERC20.transferFrom.selector
                         || sel == IERC20.approve.selector || sel == 0x39509351 || sel == IERC20Permit.permit.selector
                         || sel == 0xa22cb465
+                    // Audit 2026-11-18 D-2 / R4-3: non-standard move/approve selectors (ERC-677/1363, ERC-777,
+                    // ERC-721/1155 transfers, legacy increaseApproval). The forwarder has no owner, so close them now.
+                    || sel == 0x4000aea0 || sel == 0x1296ee62 || sel == 0xcae9ca51 || sel == 0x9bd9bbc6
+                    || sel == 0x62ad1b83 || sel == 0x959b8c3f || sel == 0x42842e0e || sel == 0xb88d4fde
+                    || sel == 0xf242432a || sel == 0x2eb2c2d6 || sel == 0xd73dd623
                 ) revert ForbiddenTarget(t);
             }
             (bool ok, bytes memory ret) = t.call(data);

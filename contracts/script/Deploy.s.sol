@@ -67,7 +67,7 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       (+ a mock STRATEGY w/ STRATEGY/USDG pool at $0.00245 when DEFAULT_QUOTE is unset too)
 ///   USDG_DECIMALS       decimals of the mock USDG deployed when USDG is unset (default 6)
 ///   EXPECT_USDG_DECIMALS  revert unless USDG.decimals() equals this (default 6; set 18 only for a legacy mUSDG)
-///   REFERRAL_SINK       FeeRouter.referralSink. Default: TREASURY on 4663 (maker 2026-11-16: the referral 1% goes
+///   REFERRAL_SINK       FeeRouter.referralSink. Forced to TREASURY on 4663 (env ignored) (maker 2026-11-16: the referral 1% goes
 ///                       to treasury, referrers are paid by hand), address(0) elsewhere (referrer / launch KOL get
 ///                       the 1%). Non-zero redirects the WHOLE referral 1% incl. the launch-KOL 1% (lee, 2026-10-24).
 ///                       Fixed for good on 4663 by lockSettings().
@@ -75,11 +75,11 @@ contract DevToken is ERC20, ERC20Permit {
 ///   DEFAULT_QUOTE_POOL_FEE / DEFAULT_QUOTE_POOL_TICK_SPACING / DEFAULT_QUOTE_POOL_HOOKS
 ///                       reference DEFAULT_QUOTE/USDG v4 pool for the QuotePricer
 ///                       (RH STRATEGY/USDG deepest pool: 36900 / 369 / 0x0 → id 0x816b…245b)
-///   MIN_LIQUIDITY       QuotePricer minimum in-range liquidity (default 0)
+///   MIN_LIQUIDITY       QuotePricer minimum in-range liquidity (default: the constructor floor)
 ///   RENOUNCE_HARVEST    renounce CreatorFeeHarvest ownership at the end of deploy (always on mainnet 4663)
 ///   RENOUNCE_HOOK_ADMIN drop the DiscipleHook admin once wired (always on 4663)
 ///   RENOUNCE_LOCKED_LP  renounce LockedLP ownership (treasury + compound caps fixed) at the end (always on 4663)
-///   KOL_CREATOR_SHARE_BPS launch-KOL slice of the creator share, bps (default 0 on 4663, maker 2026-11-17: KOLs
+///   KOL_CREATOR_SHARE_BPS launch-KOL slice of the creator share, bps (forced 0 on 4663, env ignored; maker 2026-11-17: KOLs
 ///                       are paid by hand; elsewhere the FeeRouter default 200). Fixed for good on 4663 by lockSettings().
 ///   LOCK_FEE_SETTINGS   FeeRouter.lockSettings(): KOL share, referral sink and claim routers fixed (always on 4663)
 ///   SAFE                protocol Safe (optional). Set: every contract that keeps an owner is NOMINATED to it
@@ -242,6 +242,7 @@ contract Deploy is NetworkConfig {
         // listed coins go through script/whitelist. The poke-pricer cron (relayer EOA) is the only TWAP writer (HK-02).
         if (o.defaultQuote != o.usdg) pricer.setAllowedQuote(o.defaultQuote, true);
         address poker = vm.envOr("PRICER_POKER", address(0));
+        require(!mainnet || poker != address(0), "Deploy: PRICER_POKER required on mainnet"); // audit 2026-11-18 R461b-05
         if (poker != address(0)) pricer.setPoker(poker, true);
         // USDG-in/out routing (buyWithUsdg / sellToUsdg): USDG + curve registry, and the USDG/defaultQuote hop pool.
         router.setUsdgRouting(o.usdg, address(launchpad));
@@ -297,11 +298,12 @@ contract Deploy is NetworkConfig {
         {
             // maker 2026-11-16: the referral 1% goes to treasury on mainnet (team pays referrers by hand). It must be
             // set before lockSettings() below, so mainnet defaults the sink to the treasury.
-            address sink = vm.envOr("REFERRAL_SINK", mainnet ? treasury : address(0));
+            // audit 2026-11-18 R461b-04: on 4663 the env is ignored (sink = treasury, KOL = 0 are forced, then locked).
+            address sink = mainnet ? treasury : vm.envOr("REFERRAL_SINK", address(0));
             if (sink != address(0)) feeRouter.setReferralSink(sink);
             // maker 2026-11-17: no automatic KOL cut either ("pay it by hand"). Mainnet sets the launch-KOL slice of
             // the creator share to 0 before lockSettings(), so creators keep their full 33% and KOLs are paid by hand.
-            uint256 kolBps = vm.envOr("KOL_CREATOR_SHARE_BPS", mainnet ? uint256(0) : uint256(feeRouter.kolCreatorShareBps()));
+            uint256 kolBps = mainnet ? 0 : vm.envOr("KOL_CREATOR_SHARE_BPS", uint256(feeRouter.kolCreatorShareBps()));
             if (kolBps != feeRouter.kolCreatorShareBps()) feeRouter.setKolCreatorShareBps(kolBps);
         }
         if (mainnet || vm.envOr("LOCK_FEE_SETTINGS", false)) feeRouter.lockSettings();
@@ -383,7 +385,14 @@ contract Deploy is NetworkConfig {
         require(address(harvest.anon()) == address(anon) && address(harvest.feeVault()) != address(0), "verify: harvest");
         require(launchpad.curveRouter() == address(router), "verify: curveRouter");
         require(address(launchpad.curveDeployer()) != address(0), "verify: curve deployer");
+        // audit 2026-11-18 C-N3 / C-R2: write-once wiring pointers read back
+        require(feeRouter.launchpad() == address(launchpad), "verify: feeRouter.launchpad");
+        require(address(feeRouter.lockedLP()) == address(lockedLP), "verify: feeRouter.lockedLP");
+        require(router.launchpad() == address(launchpad), "verify: router.launchpad");
         if (mainnet) {
+            // audit 2026-11-18 E-L3: the locked values, not just the lock (env overrides could lock wrong values)
+            require(feeRouter.kolCreatorShareBps() == 0, "verify: KOL share 0");
+            require(feeRouter.referralSink() == feeRouter.treasury(), "verify: referral sink = treasury");
             require(harvest.owner() == address(0), "verify: harvest renounced");
             require(lockedLP.owner() == address(0), "verify: lockedLP renounced");
             require(hook.admin() == address(0), "verify: hook admin");

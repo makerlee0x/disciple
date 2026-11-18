@@ -224,7 +224,9 @@ contract JitTwapTest is IntegrationBase {
     }
 
     function test_pricer_flash_manipulation_poke_and_launch_unchanged() public {
+        // a densely poked window (audit 2026-11-18 E-L1: launches need keeper observations across the whole window)
         _next(3600);
+        _warmStrategy();
         pricer.poke(address(strategy));
         uint256 p0 = pricer.quotePriceUsd(address(strategy));
         // flash: pump STRATEGY 4x+ in the reference pool, poke, read, launch, all in one block

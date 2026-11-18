@@ -24,6 +24,7 @@ contract CurveDeployer {
     error CurveDeployFailed();
 
     constructor(address feeVault_) {
+        require(feeVault_.code.length != 0, "CurveDeployer: feeVault"); // audit 2026-11-18 B-L3
         feeVault = feeVault_;
         bytes memory code = type(BondingCurve).creationCode;
         uint256 l0 = code.length / 2;

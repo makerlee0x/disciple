@@ -73,8 +73,10 @@ contract LB01_ListedQuoteSpotAtLaunch is IntegrationBase {
 
     function test_LB01_pumpedRouteAtLaunch_isNotBaked() public {
         _whitelistStrategy();
-        _next(1800);
-        pricer.poke(address(strategy)); // keeper
+        for (uint256 i; i < 6; ++i) {
+            _next(300);
+            pricer.poke(address(strategy)); // keeper (the cron pokes every minute)
+        }
         uint256 fair = pricer.quotePriceUsd(address(strategy));
         assertApproxEqRel(fair, 1e18, 0.0001e18, "STRATEGY = $1");
 

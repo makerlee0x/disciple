@@ -324,7 +324,8 @@ contract QuotePricer is IQuotePricer, Owned2Step {
     ///         `allowAnyQuote`) can be launch quotes (maker 2026-11-14, external review F-M1).
     ///         Fail-closed freshness (audit 2026-11-17 M-02 / R461-03 / L-19 / L-20): every route pool's TWAP must
     ///         cover a full `twapWindow` (no launches off a just-registered route), its newest keeper observation
-    ///         must be under 2 × twapWindow old (a stopped keeper stops launches instead of baking a stale price).
+    ///         must be under 2 × twapWindow old (a stopped keeper stops launches instead of baking a stale price),
+    ///         and no two consecutive observations across the window may be more than twapWindow / 2 apart.
     ///         No spot check: USDG launches buy the pair coin in the same tx, which moves spot on purpose.
     function launchPriceUsd(address quote) external view returns (uint256) {
         if (quote != usdg) {
@@ -344,6 +345,9 @@ contract QuotePricer is IQuotePricer, Owned2Step {
         TwapOracle.Observation memory l = TwapOracle.last(o);
         (, uint32 covered) = TwapOracle.consult(o, w, l.tick);
         if (covered < w || block.timestamp - l.ts > 2 * uint256(w)) revert StalePrice(quote);
+        // Audit 2026-11-18 E-L1: no gap over half a window between keeper observations across the whole window,
+        // so one poke after a long pause can't pass a stale tick off as a full window.
+        if (TwapOracle.maxGapSince(o, uint32(block.timestamp) - w) > w / 2) revert StalePrice(quote);
     }
 
     /// @notice Spot price (display only; flash-manipulable — never use for safety checks).

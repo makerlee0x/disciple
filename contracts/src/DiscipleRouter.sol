@@ -224,10 +224,12 @@ contract DiscipleRouter is IUnlockCallback {
         emit MaxImpactSet(bps);
     }
 
-    /// @notice Configure USDG routing (owner). `launchpad` is the curve registry used before graduation.
+    /// @notice Configure USDG routing (owner), once. `launchpad` is the curve registry used before graduation.
+    /// @dev Audit 2026-11-18 R4-1: write-once. The router sends user funds to the registry's curve and trusts its
+    ///      reported amount out, so re-pointing the registry later would let the owner take router trades.
     function setUsdgRouting(address usdg_, address launchpad_) external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (usdg_ == address(0) || launchpad_ == address(0)) revert BadParam();
+        if (usdg_ == address(0) || launchpad_ == address(0) || launchpad != address(0)) revert BadParam();
         usdg = usdg_;
         launchpad = launchpad_;
         emit UsdgRoutingSet(usdg_, launchpad_);

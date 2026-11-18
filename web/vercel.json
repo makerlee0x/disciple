@@ -8,6 +8,6 @@
     { "path": "/api/cron/live-activity", "schedule": "* * * * *" },
     { "path": "/api/cron/route-creator-fees", "schedule": "17 * * * *" },
     { "path": "/api/cron/release-boosts", "schedule": "37 * * * *" },
-    { "path": "/api/cron/lp-flush", "schedule": "*/10 * * * *" }
+    { "path": "/api/cron/lp-flush", "schedule": "*/2 * * * *" }
   ]
 }

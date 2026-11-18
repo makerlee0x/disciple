@@ -123,7 +123,9 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     ///         Fixed rules: no keeper, no caller input, no owner setting.
     int256 public constant REF_BAND_TICKS = 200;
     uint256 public constant REF_TICKS_PER_MIN = 100;
-    uint256 public constant REF_MAX_CATCHUP = 600;
+    /// @dev Audit 2026-11-18 R4-2: 120 s (was 600 s), so one call (e.g. inside a flash pump) can move the reference
+    ///      at most 200 ticks. The lp-flush cron runs every 2 minutes so honest catch-up keeps the full 100 ticks/min.
+    uint256 public constant REF_MAX_CATCHUP = 120;
 
     struct Ref {
         int24 tick;
@@ -521,21 +523,26 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         emit LiquidityCompounded(token, liq, tokenUsed, quoteUsed, tCarry, qCarry);
     }
 
-    /// @dev Moves the coin's reference tick toward `tick` by the time-based allowance, stores it, and reports whether
-    ///      `tick` is inside the band around the moved reference.
+    /// @dev Moves the coin's reference tick toward `tick` by the time-based allowance and reports whether `tick` is
+    ///      inside the band around the moved reference. Audit 2026-11-18 M-02: the reference is a pure function of
+    ///      the stored anchor and elapsed time, so call frequency can't slow it. The anchor is rewritten only when the
+    ///      reference reaches `tick` or a full REF_MAX_CATCHUP of credit is used (credit beyond that is dropped, as
+    ///      before); otherwise nothing is stored and the credit keeps accruing from the old anchor.
     function _nearRef(address token, int24 tick) internal returns (bool) {
         Ref memory r = _refs[token];
         uint256 dt = block.timestamp - r.at;
-        if (dt > REF_MAX_CATCHUP) dt = REF_MAX_CATCHUP;
+        bool capped = dt >= REF_MAX_CATCHUP;
+        if (capped) dt = REF_MAX_CATCHUP;
         int256 step = int256(dt * REF_TICKS_PER_MIN / 60);
         int256 d = int256(tick) - r.tick;
         int256 ref = r.tick + (d > step ? step : (d < -step ? -step : d));
-        _refs[token] = Ref({tick: int24(ref), at: uint64(block.timestamp)});
+        if (ref == tick || capped) _refs[token] = Ref({tick: int24(ref), at: uint64(block.timestamp)});
         d = int256(tick) - ref;
         return d <= REF_BAND_TICKS && d >= -REF_BAND_TICKS;
     }
 
-    /// @notice Flush reference tick and its last update time (see REF_BAND_TICKS).
+    /// @notice Flush reference anchor: tick and time it was set (see REF_BAND_TICKS). The live reference is this tick
+    ///         moved toward the pool tick by REF_TICKS_PER_MIN per minute since `at` (at most REF_MAX_CATCHUP of credit).
     function flushRef(address token) external view returns (int24 tick, uint64 at) {
         Ref memory r = _refs[token];
         return (r.tick, r.at);
