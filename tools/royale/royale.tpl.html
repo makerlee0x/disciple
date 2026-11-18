@@ -398,7 +398,7 @@ html,body{margin:0;height:100%;background:#07080c}
 <div class="redv" id="redv" aria-hidden="true"></div>
 <div class="toast" id="toast" role="status"></div>
 <div class="swapc" id="swapC" hidden><div class="sw-card" role="dialog" aria-label="Swap weapon">
-  <small class="sw-k" id="swK">LOOT</small><b id="swN">MINIGUN</b><span id="swL">$1 × 100×</span>
+  <small class="sw-k" id="swK">LOOT</small><b id="swN">MINIGUN</b><span id="swL">$1 × 20×</span>
   <small class="sw-q">SWAP IT FOR</small><div class="sw-row" id="swR"></div>
   <button type="button" class="sw-x" id="swX">LEAVE IT</button><i class="sw-t"><i id="swT"></i></i>
 </div></div>
@@ -524,17 +524,22 @@ const MKD={
   SOL:{p:182.40,vol:.00046,dr:.32,dec:2,loot:[3,4,2,.6],drop:.8,best:"EPIC",tag:"FAST",pro:"Busiest map · most dogfights",con:"Closes second",sky:A.skySol?"skySol":"sky2"},
   ETH:{p:3412.5,vol:.0003,dr:.48,dec:1,loot:[4,3,1.2,.2],drop:1,best:"RARE",tag:"STEADY",pro:"Trends hold longer",con:"Mostly common loot",sky:"skyEth"},
   BTC:{p:97214,vol:.0002,dr:.36,dec:0,loot:[6,2,.4,0],drop:1.4,best:"UNCOMMON",tag:"DEFENSIVE",pro:"Calm chart",con:"Weak loot · cuts take the lowest PnL",sky:"skyBtc"}};
-/* weapons = trade size × leverage. You start with the spot pistol; everything else is loot. */
+/* weapons = trade size × leverage. You start with the spot pistol; everything else is loot.
+   Leverage is a share of the map coin's max on Lighter (maker 2026-11-18), so every gun is an upgrade on every map:
+   BTC / ETH 50x → 10/20/30/40/50x, SOL 25x → 5/10/15/20/25x, HYPE 20x → 4/8/12/16/20x. */
+const MAXLEV={BTC:50,ETH:50,SOL:25,HYPE:20};
 const WPN={
-  "PISTOL":{usd:10,lev:1,ammo:Infinity,r:0},
-  "SHOTGUN":{usd:10,lev:10,ammo:8,r:1},
-  "MACHINE GUN":{usd:3,lev:33,ammo:15,r:2},
-  "MINIGUN":{usd:1,lev:100,ammo:30,r:2},
-  "SNIPER":{usd:5,lev:50,ammo:5,r:3},
-  "ROCKET LAUNCHER":{usd:10,lev:50,ammo:3,r:3},
-  "RAILGUN":{usd:20,lev:100,ammo:2,r:4}};
+  "PISTOL":{usd:10,share:0,ammo:Infinity,r:0},
+  "SHOTGUN":{usd:10,share:.2,ammo:8,r:1},
+  "MACHINE GUN":{usd:3,share:.4,ammo:15,r:2},
+  "MINIGUN":{usd:1,share:1,ammo:30,r:2},
+  "SNIPER":{usd:5,share:.6,ammo:5,r:3},
+  "ROCKET LAUNCHER":{usd:10,share:.8,ammo:3,r:3},
+  "RAILGUN":{usd:20,share:1,ammo:2,r:4}};
+const levOf=(k,mk)=>{ const sh=WPN[k].share; return sh?Math.max(1,Math.round(sh*(MAXLEV[mk]||50))):1; };
 const RAR=[{n:"COMMON",c:"#A7AFBE",rgb:"167,175,190"},{n:"UNCOMMON",c:"#5FF0A0",rgb:"95,240,160"},{n:"RARE",c:"#4F8BFF",rgb:"79,139,255"},{n:"EPIC",c:"#A066FF",rgb:"160,102,255"},{n:"LEGENDARY",c:"#FF9A3C",rgb:"255,154,60"}];
-const wOf=pl=>pl.inv[pl.sel]||pl.inv[0], W=w=>WPN[w.k], rarOf=w=>RAR[W(w).r];
+/* W(w, mk): the gun's numbers on map mk (default: the map you're on) */
+const wOf=pl=>pl.inv[pl.sel]||pl.inv[0], W=(w,mk)=>({...WPN[w.k],lev:levOf(w.k,mk||(G&&G.me?G.me.mk:dropMk))}), rarOf=w=>RAR[W(w).r];
 const wLine=w=>`$${W(w).usd} × ${W(w).lev}×`;
 function rollLoot(k){ const wt=MKD[k].loot, tot=wt.reduce((a,b)=>a+b,0); let x=Math.random()*tot, r=1; for(let i=0;i<wt.length;i++){ x-=wt[i]; if(x<=0){ r=i+1; break; } }
   const opts=Object.keys(WPN).filter(n=>WPN[n].r===r); const n=pick(opts); return {k:n,ammo:WPN[n].ammo}; }
@@ -601,7 +606,7 @@ const openMks=()=>ORDER.filter(k=>!G.M[k].closed);
 /* ---------- trading ---------- */
 function open(pl,side){
   if(!pl.alive) return;
-  const w=wOf(pl), ww=W(w);
+  const w=wOf(pl), ww=W(w,pl.mk);
   if(pl.pos&&pl.pos.side!==side) close(pl,"flip");
   let st=Math.min(ww.usd,Math.floor(pl.fuel*100)/100); if(st<.5){ if(pl.me) toast("Out of fuel. Cash out first."); return; }
   const p=price(pl), size=st*ww.lev, fee=size*FEE; pl.fuel-=st+fee; w.ammo--; pl.trades=(pl.trades||0)+1;
@@ -1303,7 +1308,7 @@ function drawRocket(pl,now){
   (G._tagQ=G._tagQ||[]).push(()=>{
   const nb=(G._shown||[]).filter(o=>o!==pl&&o.y!=null).sort((u,v)=>Math.hypot(xOf(u)-x,u.y-y)-Math.hypot(xOf(v)-x,v.y-y))[0];
   const pr=alt(pl), side=nb?(xOf(nb)>x?-1:1):(x<SW/2?-1:1);
-  const txt=(pl.me?"YOU ":pl.name+" ")+usd(pr,true), t2=wOf(pl).k, t2c=rarOf(wOf(pl)).c, lq=liqPct(pl), t3=pl.pos?(lq>=.7?`NUKE ${Math.min(99,Math.floor(lq*100))}%`:`${pl.pos.side>0?"BOOST ▲":"DUMP ▼"} ${pl.pos.w?W(pl.pos.w).lev:1}×`):"";
+  const txt=(pl.me?"YOU ":pl.name+" ")+usd(pr,true), t2=wOf(pl).k, t2c=rarOf(wOf(pl)).c, lq=liqPct(pl), t3=pl.pos?(lq>=.7?`NUKE ${Math.min(99,Math.floor(lq*100))}%`:`${pl.pos.side>0?"BOOST ▲":"DUMP ▼"} ${pl.pos.w?W(pl.pos.w,pl.mk).lev:1}×`):"";
   sx.font=`800 ${pl.me?15:13}px ${GF},sans-serif`; const tw=sx.measureText(txt).width+14;
   const bw=Math.max(tw,90), lock=fight&&!pl.me;
   let full=true, blockH=(lock?20:0)+22+20+(t3?20:0);
