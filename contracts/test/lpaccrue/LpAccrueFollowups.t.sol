@@ -9,7 +9,7 @@ import {BondingCurve} from "../../src/BondingCurve.sol";
 import {CurveFeeVault} from "../../src/CurveFeeVault.sol";
 import {CurveDeployer} from "../../src/CurveDeployer.sol";
 import {FeeRouter} from "../../src/FeeRouter.sol";
-import {LoginGate} from "../../src/LoginGate.sol";
+import {LegacyLoginGate} from "./legacy/LegacyLoginGate.sol";
 import {AnonLauncher} from "../../src/addons/AnonLauncher.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
@@ -27,13 +27,13 @@ contract LpAccrueFollowupsTest is IntegrationBase {
 
     function setUp() public override {
         super.setUp();
-        LoginGate g = new LoginGate(owner, makeAddr("attester"));
-        anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), 0);
+        LegacyLoginGate g = new LegacyLoginGate();
+        anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), address(0));
         // the vault is built with the AnonLauncher (H1); swap it in exactly as DeployLpAccrue does
         feeVault = new CurveFeeVault(address(feeRouter), address(anon));
         address d = address(new CurveDeployer(address(feeVault)));
         vm.startPrank(owner);
-        launchpad.setLoginGate(address(g));
+        vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
         launchpad.setCurveDeployer(d);
         vm.stopPrank();
         stealth = vm.addr(stealthPk);
@@ -228,14 +228,14 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         address to = makeAddr("smartAccount");
         address relayer = makeAddr("relayer");
         uint256 dl = block.timestamp + 30 minutes;
-        bytes memory sig = _sig(toks, to, 100, dl);
-        CurveFeeVault.ClaimReq memory req = CurveFeeVault.ClaimReq(stealth, toks, to, 100, dl, sig);
-        uint256 rf1 = (e1 * 100) / 10_000;
-        uint256 rf2 = (e2 * 100) / 10_000;
+        bytes memory sig = _sig(toks, to, 0, dl);
+        CurveFeeVault.ClaimReq memory req = CurveFeeVault.ClaimReq(stealth, toks, to, 0, dl, sig);
+        uint256 rf1 = (e1 * 0) / 10_000;
+        uint256 rf2 = (e2 * 0) / 10_000;
         vm.prank(relayer);
         feeVault.claimManyAsStealthBySig(req);
         assertEq(quote.balanceOf(to), e1 - rf1 + e2 - rf2, "paid to `to` net of the relayer fee");
-        assertEq(quote.balanceOf(relayer), rf1 + rf2, "relayer fee <= 5% to msg.sender");
+        assertEq(quote.balanceOf(relayer), rf1 + rf2, "no relayer cut");
         assertEq(feeVault.sigNonces(stealth), 1);
         // replay: nonce moved, signature no longer valid
         vm.expectRevert(CurveFeeVault.BadSignature.selector);
@@ -248,10 +248,10 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         _b(c, _w(), 100 ether);
         address[] memory toks = _one(address(t));
         uint256 dl = block.timestamp + 1;
-        // relayer fee above AnonLauncher's 5% cap
-        bytes memory hi = _sig(toks, stealth, 501, dl);
+        // any relayer cut is refused (cap 0, maker 2026-11-17)
+        bytes memory hi = _sig(toks, stealth, 1, dl);
         vm.expectRevert(CurveFeeVault.FeeTooHigh.selector);
-        feeVault.claimManyAsStealthBySig(CurveFeeVault.ClaimReq(stealth, toks, stealth, 501, dl, hi));
+        feeVault.claimManyAsStealthBySig(CurveFeeVault.ClaimReq(stealth, toks, stealth, 1, dl, hi));
         // expired
         bytes memory sig = _sig(toks, stealth, 0, dl);
         vm.warp(dl + 1);
@@ -482,8 +482,8 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         _b(c, _w(), 10 ether);
         _warpPastSnipe();
         _b(c, _w(), 150 ether);
-        vm.prank(owner);
-        feeRouter.setRewardsVault(address(0));
+        // test-only: setRewardsVault refuses 0 now (audit L-10); model a never-set vault
+        vm.store(address(feeRouter), bytes32(uint256(12)), bytes32(0));
         vm.warp(c.launchTime() + c.snipeEscrowTimeout() + 1 days);
         uint256 sn = c.sniperTaxEscrow();
         vm.recordLogs();

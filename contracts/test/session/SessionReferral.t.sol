@@ -41,7 +41,7 @@ contract SessionReferralTest is DiscipleSessionPolicyTest {
         cs[2] = _buy(10 * U, address(acct));
         vm.prank(key);
         acct.executeBatch(cs);
-        assertEq(registry.pendingReferrer(address(acct)), ref);
+        assertEq(registry.referrerOf(address(acct)), ref);
         assertEq(rocket.balanceOf(address(acct)), 1010 * U);
         assertEq(policy.sessionOf(address(acct), E).spent0, 10 * U);
     }
@@ -74,10 +74,9 @@ contract SessionReferralTest is DiscipleSessionPolicyTest {
 
     function test_revert_otherRegistrySelectors() public {
         _reinstall(_refCfg());
-        bytes[] memory ds = new bytes[](3);
-        ds[0] = abi.encodeCall(ReferralRegistry.setDepositHook, (attacker));
+        bytes[] memory ds = new bytes[](2);
+        ds[0] = abi.encodeCall(ReferralRegistry.setAttestor, (attacker, true));
         ds[1] = abi.encodeCall(ReferralRegistry.transferOwnership, (attacker));
-        ds[2] = abi.encodeCall(IReferralRegistry.onUsdgDeposit, (address(acct), 1e30));
         for (uint256 i; i < ds.length; ++i) {
             vm.prank(key);
             vm.expectRevert(abi.encodeWithSelector(P.NotAllowed.selector, address(registry), bytes4(ds[i])));

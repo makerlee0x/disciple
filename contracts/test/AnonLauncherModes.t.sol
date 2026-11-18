@@ -16,10 +16,11 @@ contract AnonLauncherModesTest is IntegrationBase {
 
     function setUp() public override {
         super.setUp();
-        anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), 0);
+        anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), address(0));
         feeVault = new CurveFeeVault(address(feeRouter), address(anon));
         address d = address(new CurveDeployer(address(feeVault)));
         vm.prank(owner);
+        vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
         launchpad.setCurveDeployer(d);
         quote.mint(payer, 10_000_000 ether);
         vm.prank(payer);

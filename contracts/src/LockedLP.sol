@@ -22,21 +22,14 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Constants} from "./libraries/Constants.sol";
 import {FloorBands} from "./libraries/FloorBands.sol";
 
-/// @dev Hook-side view used by flush() to refuse adds in a tx that already swapped this pool (atomic sandwich).
-interface ISwapInTx {
-    function swappedInTx(PoolId id) external view returns (bool);
-    function compoundRefs(PoolId id) external view returns (uint160 refBlock, uint160 refEma);
-}
-
 /// @title Permanently locked v4 LP owner (§3 / LOCKED #16–#17)
 /// @notice Owns the full-range v4 position forever. removeLiquidity always reverts.
 /// @dev Pool LP fee is 0; trade fees taken by DiscipleHook. collectFees is a no-op residual for #16.
 ///      LP auto-compound: after graduation the 33% LP share of the 1% hook fee lands in two per-coin buckets
-///      (token side from buys, quote side from sells). On every swap DiscipleHook calls compoundFromHook (the
-///      PoolManager is already unlocked by the swapper); once the matched liquidity passes minCompoundPpm of the
-///      position it is added to the SAME locked full-range position (same ticks + salt), each currency settled
-///      immediately (sync → transfer → settle), and the unmatched remainder carries forward. flush() does the
-///      same outside swaps via unlock. No rebalancing swaps are ever made.
+///      (token side from buys, quote side from sells). Anyone (the keeper cron in practice) calls flush(token) outside swaps; once
+///      the matched liquidity passes minCompoundPpm of the position it is added to the SAME locked full-range
+///      position (same ticks + salt), each currency settled immediately (sync → transfer → settle), and the
+///      unmatched remainder carries forward. The hook never calls this contract. No rebalancing swaps are made.
 contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     using SafeERC20 for IERC20;
     using PoolIdLibrary for PoolKey;
@@ -109,23 +102,37 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         uint256 tokenAmount; // tokens it has bought (USDG converts to tokens as price falls through it)
     }
 
-    /// @notice DiscipleHook (only caller of compoundFromHook; also the swappedInTx oracle for flush).
-    address public hook;
     /// @notice Minimum liquidity per add, in ppm of the position's current liquidity (gas saver). Default 0.1%
     ///         (audit G-5: was 0.005%, which compounded ~every other buy at ~44k gas; fees still bucket every trade).
     uint32 public minCompoundPpm = 1_000;
     /// @notice Per-add cap, in ppm of the position's current liquidity (0 = uncapped). Default 0.5% (audit High-1:
     ///         bounds the value any residual reference manipulation could extract per add).
     uint32 public maxCompoundPpm = 5_000;
-    /// @notice Skip if spot is more than this away from ANY reference (swap pre-price, block-start price,
-    ///         multi-block EMA). Default 3%.
-    uint16 public maxCompoundDeviationBps = 300;
 
     uint160 internal immutable SQRT_LOWER;
     uint160 internal immutable SQRT_UPPER;
 
     /// @notice Compound budget window (seconds): <= maxCompoundPpm of liquidity per window, <= 1 add per block.
     uint256 public constant COMPOUND_WINDOW = 60;
+
+    /// @notice Flush price guard (audit 2026-11-17 A-1: a pump HELD across windows with one flush per window was
+    ///         profitable). A flush adds only while the pool tick is within REF_BAND_TICKS (~2%) of a per-coin
+    ///         reference tick. The reference starts at the graduation price and follows the pool by at most
+    ///         REF_TICKS_PER_MIN per minute (credit capped at REF_MAX_CATCHUP per call), so after a big move the
+    ///         buckets simply wait (a 2x move: about an hour) and are never spent at a held, dislocated price.
+    ///         Fixed rules: no keeper, no caller input, no owner setting.
+    int256 public constant REF_BAND_TICKS = 200;
+    uint256 public constant REF_TICKS_PER_MIN = 100;
+    /// @dev Audit 2026-11-18 R4-2: 120 s (was 600 s), so one call (e.g. inside a flash pump) can move the reference
+    ///      at most 200 ticks. The lp-flush cron runs every 2 minutes so honest catch-up keeps the full 100 ticks/min.
+    uint256 public constant REF_MAX_CATCHUP = 120;
+
+    struct Ref {
+        int24 tick;
+        uint64 at;
+    }
+
+    mapping(address => Ref) internal _refs;
 
     uint8 internal constant CB_SEED = 0;
     uint8 internal constant CB_FLUSH = 1;
@@ -135,11 +142,10 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     error OnlyPoolManager();
     error RemoveLiquidityDisabled();
     error AlreadyWired();
+    error NotWired();
     error NotGraduated();
     error ZeroLiquidity();
-    error OnlyHook();
     error BadParams();
-    error SwappedInTx();
     error CompoundOverspend();
     error QuoteMismatch();
     error FloorNotSingleSided();
@@ -171,8 +177,8 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         uint256 tokenCarry,
         uint256 quoteCarry
     );
-    event CompoundParamsSet(uint32 minPpm, uint32 maxPpm, uint16 maxDeviationBps);
-    event HookSet(address indexed hook);
+    event CompoundParamsSet(uint32 minPpm, uint32 maxPpm);
+    event OwnershipRenounced();
 
     /// @param creatorFeeHarvest_ Later-send contract allowed to call `addLockedLiquidity`. address(0) allows nobody extra.
     ///        No new external function, so the trade-path dispatcher stays as it was.
@@ -185,25 +191,14 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
 
     /// @dev The four wiring setters below are write-once (pre-mainnet review 2026-11-17): set at deploy, then fixed, so no
     ///      owner can later point LockedLP at a fake PoolManager / migration / router and pull the tokens it holds.
-    function setHook(address h) external {
-        if (msg.sender != owner) revert OnlyOwner();
-        if (hook != address(0) || h == address(0)) revert AlreadyWired();
-        hook = h;
-        emit HookSet(h);
-    }
-
     /// @param minPpm  minimum add as ppm of position liquidity (<= 1e6)
     /// @param maxPpm  per-add cap as ppm of position liquidity (0 = uncapped; else >= minPpm)
-    /// @param maxDevBps max |post/pre - 1| price move (1..5000)
-    function setCompoundParams(uint32 minPpm, uint32 maxPpm, uint16 maxDevBps) external {
+    function setCompoundParams(uint32 minPpm, uint32 maxPpm) external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (minPpm > 1e6 || (maxPpm != 0 && maxPpm < minPpm) || maxDevBps == 0 || maxDevBps > 5000) {
-            revert BadParams();
-        }
+        if (minPpm > 1e6 || (maxPpm != 0 && maxPpm < minPpm)) revert BadParams();
         minCompoundPpm = minPpm;
         maxCompoundPpm = maxPpm;
-        maxCompoundDeviationBps = maxDevBps;
-        emit CompoundParamsSet(minPpm, maxPpm, maxDevBps);
+        emit CompoundParamsSet(minPpm, maxPpm);
     }
 
     function setTreasury(address t) external {
@@ -211,21 +206,33 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         treasury = t;
     }
 
+    /// @notice maker 2026-11-17: once wired, the owner gives up LockedLP for good, so the treasury and the compound
+    ///         caps can never change. Refuses until every pointer is set, so nothing is left unwired.
+    function renounceOwnership() external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (feeRouter == address(0) || migration == address(0) || address(poolManager) == address(0) || treasury == address(0)) {
+            revert NotWired();
+        }
+        owner = address(0);
+        pendingOwner = address(0);
+        emit OwnershipRenounced();
+    }
+
     function setFeeRouter(address r) external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (feeRouter != address(0) || r == address(0)) revert AlreadyWired();
+        if (feeRouter != address(0) || r.code.length == 0) revert AlreadyWired(); // audit L-31: contracts only
         feeRouter = r;
     }
 
     function setMigration(address m) external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (migration != address(0) || m == address(0)) revert AlreadyWired();
+        if (migration != address(0) || m.code.length == 0) revert AlreadyWired();
         migration = m;
     }
 
     function setPoolManager(address pm) external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (address(poolManager) != address(0) || pm == address(0)) revert AlreadyWired();
+        if (address(poolManager) != address(0) || pm.code.length == 0) revert AlreadyWired();
         poolManager = IPoolManager(pm);
     }
 
@@ -274,7 +281,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
 
     /// @notice Gas path for the per-trade LP share: FeeRouter has ALREADY transferred the amounts here.
     /// @dev FeeRouter-only (it transfers exactly these amounts immediately before this call, same tx).
-    /// @return compoundReady post-graduation and both buckets hold >= 2 wei (the hook may try to compound).
+    /// @return compoundReady post-graduation and both buckets hold >= 2 wei (informational; the keeper flushes).
     function creditLockedLiquidity(address token, address quote, uint256 tokenAmount, uint256 quoteAmount)
         external
         returns (bool compoundReady)
@@ -365,7 +372,8 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
 
         // Initialize pool at curve-end price (no jump). Audit #2: no try/catch — DiscipleHook.beforeInitialize
         // only lets this contract initialize, so a pre-initialized (mispriced) pool cannot exist.
-        poolManager.initialize(key, sqrtPriceX96);
+        int24 tick0 = poolManager.initialize(key, sqrtPriceX96);
+        _refs[token] = Ref({tick: tick0, at: uint64(block.timestamp)});
 
         SeedParams memory sp = SeedParams({
             token: token,
@@ -413,33 +421,14 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
 
     // ── LP auto-compound ─────────────────────────────────────────────────────
 
-    /// @notice Called by DiscipleHook.afterSwap (PoolManager already unlocked by the swapper). The hook wraps this
-    ///         in try/catch with a gas cap, so any revert here only skips the add — never the user's swap.
-    /// @param refSwap  this swap's pre-swap sqrtPriceX96
-    /// @param refBlock the pool's block-start sqrtPriceX96
-    /// @param refEma   the hook's multi-block EMA reference (sqrtPriceX96)
-    function compoundFromHook(address token, uint160 refSwap, uint160 refBlock, uint160 refEma)
-        external
-        returns (uint128)
-    {
-        if (msg.sender != hook) revert OnlyHook();
-        if (refEma == 0) return 0;
-        return _compound(token, refSwap, refBlock, refEma);
-    }
-
-    /// @notice Permissionless top-up outside swaps (uses unlock). Same min / cap guards; refuses if the pool was
-    ///         already swapped earlier in this tx (atomic sandwich). Returns liquidity added (0 = skipped).
+    /// @notice Permissionless top-up outside swaps (uses unlock): adds the coin's matched fee buckets to its locked
+    ///         position at the current price. Robinhood Chain has a first-come sequencer (no third-party sandwich); a
+    ///         self-sandwich around this call is bounded by one add per block and maxCompoundPpm (0.5%) of liquidity
+    ///         per 60 s window, and costs the 1% fee each way. A held pump is stopped by the reference-tick band
+    ///         (REF_BAND_TICKS). Returns liquidity added (0 = skipped).
     function flush(address token) external returns (uint128 liquidity) {
-        Position storage p = _positions[token];
-        if (!p.graduated) revert NotGraduated();
-        address h = hook;
-        if (h != address(0) && ISwapInTx(h).swappedInTx(p.poolKey.toId())) revert SwappedInTx();
-        // DISCIPLE audit High-1: always check against the hook's multi-block EMA reference (and the block-start
-        // price when the pool traded this block). No hook / reference not ready → skip.
-        if (h == address(0)) return 0;
-        (uint160 refBlock, uint160 refEma) = ISwapInTx(h).compoundRefs(p.poolId);
-        if (refEma == 0) return 0;
-        bytes memory r = poolManager.unlock(abi.encode(CB_FLUSH, abi.encode(token, refBlock, refEma)));
+        if (!_positions[token].graduated) revert NotGraduated();
+        bytes memory r = poolManager.unlock(abi.encode(CB_FLUSH, abi.encode(token)));
         liquidity = abi.decode(r, (uint128));
     }
 
@@ -461,8 +450,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     }
 
     /// @dev Must run while the PoolManager is unlocked. Returns 0 (no state change) when skipped.
-    ///      Each nonzero reference must be within maxCompoundDeviationBps of spot (callers always pass the EMA).
-    function _compound(address token, uint160 r0, uint160 r1, uint160 r2) internal returns (uint128 liq) {
+    function _compound(address token) internal returns (uint128 liq) {
         Bucket memory b = _buckets[token];
         // Cheapest exit first: one-sided accumulation (the common case) costs one SLOAD.
         if (b.token < 2 || b.quote < 2) return 0;
@@ -477,11 +465,8 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         else if (p.cBlock == uint16(block.number)) return 0;
         uint256 maxPpm = maxCompoundPpm;
         if (maxPpm != 0 && used >= maxPpm) return 0;
-        (uint160 sqrtP,,,) = poolManager.getSlot0(p.poolId);
-        uint256 maxDev = maxCompoundDeviationBps;
-        if (r0 != 0 && _deviationBps(r0, sqrtP) > maxDev) return 0;
-        if (r1 != 0 && _deviationBps(r1, sqrtP) > maxDev) return 0;
-        if (r2 != 0 && _deviationBps(r2, sqrtP) > maxDev) return 0;
+        (uint160 sqrtP, int24 tick,,) = poolManager.getSlot0(p.poolId);
+        if (!_nearRef(token, tick)) return 0;
 
         bool tokenIsC0 = p.tokenIsC0;
         // 1 wei margin per side: amounts owed for L round up by at most 1, so owed <= bucket always.
@@ -501,8 +486,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         if (!poolManager.getSyncedCurrency().isAddressZero()) return 0;
 
         PoolKey memory key = p.poolKey;
-        // Adds to the SAME locked position (owner = this, same ticks + salt). beforeAddLiquidity on our hook only
-        // checks the LockedLP allowlist — no fee logic re-entry.
+        // Adds to the SAME locked position (owner = this, same ticks + salt). The hook has no liquidity callbacks.
         (BalanceDelta delta,) = poolManager.modifyLiquidity(
             key,
             IPoolManager.ModifyLiquidityParams({
@@ -539,18 +523,35 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         emit LiquidityCompounded(token, liq, tokenUsed, quoteUsed, tCarry, qCarry);
     }
 
+    /// @dev Moves the coin's reference tick toward `tick` by the time-based allowance and reports whether `tick` is
+    ///      inside the band around the moved reference. Audit 2026-11-18 M-02: the reference is a pure function of
+    ///      the stored anchor and elapsed time, so call frequency can't slow it. The anchor is rewritten only when the
+    ///      reference reaches `tick` or a full REF_MAX_CATCHUP of credit is used (credit beyond that is dropped, as
+    ///      before); otherwise nothing is stored and the credit keeps accruing from the old anchor.
+    function _nearRef(address token, int24 tick) internal returns (bool) {
+        Ref memory r = _refs[token];
+        uint256 dt = block.timestamp - r.at;
+        bool capped = dt >= REF_MAX_CATCHUP;
+        if (capped) dt = REF_MAX_CATCHUP;
+        int256 step = int256(dt * REF_TICKS_PER_MIN / 60);
+        int256 d = int256(tick) - r.tick;
+        int256 ref = r.tick + (d > step ? step : (d < -step ? -step : d));
+        if (ref == tick || capped) _refs[token] = Ref({tick: int24(ref), at: uint64(block.timestamp)});
+        d = int256(tick) - ref;
+        return d <= REF_BAND_TICKS && d >= -REF_BAND_TICKS;
+    }
+
+    /// @notice Flush reference anchor: tick and time it was set (see REF_BAND_TICKS). The live reference is this tick
+    ///         moved toward the pool tick by REF_TICKS_PER_MIN per minute since `at` (at most REF_MAX_CATCHUP of credit).
+    function flushRef(address token) external view returns (int24 tick, uint64 at) {
+        Ref memory r = _refs[token];
+        return (r.tick, r.at);
+    }
+
     /// @dev Splits a caller delta into (owed to the pool, credited to us).
     function _split(int128 d) internal pure returns (uint256 pay, uint256 get) {
         if (d < 0) pay = uint256(int256(-d));
         else get = uint256(int256(d));
-    }
-
-    /// @dev |(hi/lo)^2 - 1| in bps from two sqrt prices (direction-agnostic, slightly conservative).
-    function _deviationBps(uint160 a, uint160 b) internal pure returns (uint256) {
-        if (a == b) return 0;
-        if (a == 0 || b == 0) return type(uint256).max;
-        (uint256 hi, uint256 lo) = a > b ? (uint256(a), uint256(b)) : (uint256(b), uint256(a));
-        return Math.mulDiv(Math.mulDiv(hi, 10_000, lo), hi, lo) - 10_000;
     }
 
     /// @inheritdoc IUnlockCallback
@@ -558,8 +559,7 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
         (uint8 kind, bytes memory inner) = abi.decode(rawData, (uint8, bytes));
         if (kind == CB_FLUSH) {
-            (address tk, uint160 rb, uint160 re) = abi.decode(inner, (address, uint160, uint160));
-            return abi.encode(_compound(tk, rb, re, 0));
+            return abi.encode(_compound(abi.decode(inner, (address))));
         }
         SeedParams memory sp = abi.decode(inner, (SeedParams));
         Position storage p = _positions[sp.token];

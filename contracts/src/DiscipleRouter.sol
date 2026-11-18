@@ -120,6 +120,7 @@ contract DiscipleRouter is IUnlockCallback {
     uint256 public constant MIN_MAX_IMPACT_BPS = 100; // 1%
     uint256 public constant MAX_MAX_IMPACT_BPS = 100_000; // 10x price move (buys measure Δp/p, can exceed 100%)
     address public owner;
+    address public pendingOwner;
 
     error OnlyPoolManager();
     error Expired();
@@ -171,6 +172,11 @@ contract DiscipleRouter is IUnlockCallback {
     event UsdgTrade(
         address indexed trader, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut, bool viaCurve
     );
+    /// @notice Post-graduation buyExactIn / sellExactIn on the coin's own pool (pair coin in or out). The hook emits
+    ///         nothing; together with UsdgTrade this names the trader behind a PoolManager Swap from this router.
+    event PoolTrade(
+        address indexed trader, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut, address recipient
+    );
     /// @notice swapUsdgToQuote (`toQuote`) / swapQuoteToUsdg on the registered USDG/`quote` pool.
     event UsdgQuoteSwap(
         address indexed trader, address indexed quote, bool toQuote, uint256 amountIn, uint256 amountOut, address recipient
@@ -179,7 +185,7 @@ contract DiscipleRouter is IUnlockCallback {
     struct Hop {
         PoolKey key;
         bool zeroForOne;
-        bool disciple; // DISCIPLE (hooked) pool: impact via hook meta + trader hookData
+        bool disciple; // DISCIPLE (hooked) pool: impact via hook meta
     }
 
     /// @dev Multi-hop exact-in through one unlock. Intermediate deltas net out inside the PoolManager.
@@ -218,10 +224,12 @@ contract DiscipleRouter is IUnlockCallback {
         emit MaxImpactSet(bps);
     }
 
-    /// @notice Configure USDG routing (owner). `launchpad` is the curve registry used before graduation.
+    /// @notice Configure USDG routing (owner), once. `launchpad` is the curve registry used before graduation.
+    /// @dev Audit 2026-11-18 R4-1: write-once. The router sends user funds to the registry's curve and trusts its
+    ///      reported amount out, so re-pointing the registry later would let the owner take router trades.
     function setUsdgRouting(address usdg_, address launchpad_) external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (usdg_ == address(0) || launchpad_ == address(0)) revert BadParam();
+        if (usdg_ == address(0) || launchpad_ == address(0) || launchpad != address(0)) revert BadParam();
         usdg = usdg_;
         launchpad = launchpad_;
         emit UsdgRoutingSet(usdg_, launchpad_);
@@ -275,11 +283,17 @@ contract DiscipleRouter is IUnlockCallback {
         return _usdgRoute[quote];
     }
 
+    /// @notice Two-step (audit 2026-11-17 L-27): nominates `o`, who must call acceptOwnership.
     function transferOwnership(address o) external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (o == address(0)) revert ZeroRecipient();
-        owner = o;
-        emit OwnerTransferred(o);
+        pendingOwner = o;
+    }
+
+    function acceptOwnership() external {
+        if (msg.sender != pendingOwner || msg.sender == address(0)) revert OnlyOwner();
+        owner = msg.sender;
+        delete pendingOwner;
+        emit OwnerTransferred(msg.sender);
     }
 
     /// @notice The graduated v4 pool key for `token` (reverts if not graduated).
@@ -297,6 +311,7 @@ contract DiscipleRouter is IUnlockCallback {
         bool tokenIsC0 = Currency.unwrap(key.currency0) == token;
         // buying token: quote → token
         tokensOut = _swap(key, !tokenIsC0, quoteIn, minTokensOut, recipient, deadline);
+        emit PoolTrade(msg.sender, token, true, quoteIn, tokensOut, recipient);
     }
 
     /// @notice Exact-in sell: sell `tokensIn` of `token` for the quote asset, sent to `recipient`.
@@ -307,6 +322,7 @@ contract DiscipleRouter is IUnlockCallback {
         PoolKey memory key = poolKeyOf(token);
         bool tokenIsC0 = Currency.unwrap(key.currency0) == token;
         quoteOut = _swap(key, tokenIsC0, tokensIn, minQuoteOut, recipient, deadline);
+        emit PoolTrade(msg.sender, token, false, tokensIn, quoteOut, recipient);
     }
 
     /// @notice buyExactIn with an EIP-2612 permit on the quote asset (try/catch: front-run safe).
@@ -347,7 +363,7 @@ contract DiscipleRouter is IUnlockCallback {
     /// @return amountOut   net output to the trader
     /// @return impactBps   unsigned |Δprice|/price in bps (direction = isBuy), same semantics as Trade.impactBps
     /// @return mcapAfterUsd USD WAD. Curve: same as Trade.mcapAfterUsd. v4: hook.mcapUsdFromSqrt(sqrtPriceAfter) at the
-    ///         live hook.quoteUsdOf price (the hook's Trade event carries sqrtPriceAfter, no USD mcap; G-1)
+    ///         live hook.quoteUsdOf price
     function quoteExactIn(address token, bool isBuy, uint256 amountIn)
         external
         returns (uint256 amountOut, uint256 impactBps, uint256 mcapAfterUsd)
@@ -400,7 +416,7 @@ contract DiscipleRouter is IUnlockCallback {
             tokensOut = _route(msg.sender, msg.sender, hops, usdgIn);
         } else {
             // Pre-grad: deliver quote STRAIGHT to the curve (v4 take → curve, or USDG transferFrom user → curve) and
-            // let the curve trade for the real trader (caps, login, cost basis, attribution). No router custody,
+            // let the curve trade for the real trader (caps, cost basis, attribution). No router custody,
             // no approvals; the curve enforces the router impact cap on its exact quote; refunds go to the trader.
             uint256 quoteAmt = usdgIn;
             if (q != u) {
@@ -457,7 +473,7 @@ contract DiscipleRouter is IUnlockCallback {
     /// @notice Launch a coin AS msg.sender, paying the First BOOST in USDG: pulls `usdgIn` USDG, swaps it to the
     ///         coin's pair coin on the registered USDG reference pool (skipped for USDG-paired coins; same leg as
     ///         buyWithUsdg), and calls Launchpad.launchFor(msg.sender, …) with that as `creatorBuyQuoteIn`. The
-    ///         CALLER is the creator (Token.creator, fees, Easy login + creator lock, sniper exemption); this router
+    ///         CALLER is the creator (Token.creator, fees, Easy creator lock, sniper exemption); this router
     ///         only pays. Any First BOOST partial-fill refund (above the mode's max) is swapped back and returned in
     ///         USDG. `p.creatorBuyQuoteIn` is ignored; `p.creatorBuyMinTokensOut` / `p.deadline` apply.
     ///         Session keys: DiscipleSessionPolicy 1.4.x may sign this (dollar First BOOST), capped like buyWithUsdg.
@@ -606,7 +622,7 @@ contract DiscipleRouter is IUnlockCallback {
         return quoteUsdgRouteFor(msg.sender, token, isBuy, amountIn);
     }
 
-    /// @notice quoteUsdgRoute for an explicit `trader` (DISCIPLE audit Medium-2): curve mode rules, PVE login and
+    /// @notice quoteUsdgRoute for an explicit `trader` (DISCIPLE audit Medium-2): curve mode rules and
     ///         the PVE profit tax are evaluated for `trader` (e.g. the smart account, when a session policy asks).
     function quoteUsdgRouteFor(address trader, address token, bool isBuy, uint256 amountIn)
         public
@@ -619,7 +635,7 @@ contract DiscipleRouter is IUnlockCallback {
             Hop[] memory hops = isBuy ? _buyHops(u, q, token, dkey) : _sellHops(u, q, token, dkey);
             return _simulate(trader, hops, amountIn, address(0));
         }
-        // Curve quotes are for `trader`: mode caps, PVE login and the PVE profit tax apply.
+        // Curve quotes are for `trader`: mode caps and the PVE profit tax apply.
         if (isBuy) {
             if (q == u) return _curveBuyQuote(curve, trader, amountIn);
             Hop[] memory h = _quoteHops(u, q, true);
@@ -1049,7 +1065,6 @@ contract DiscipleRouter is IUnlockCallback {
         uint256 amt = d.amountIn;
         uint256 maxImp;
         uint256 cap = maxImpactBps;
-        uint256 firstPaid;
         uint256 n = d.hops.length;
         for (uint256 i; i < n; ++i) {
             Hop memory h = d.hops[i];
@@ -1061,13 +1076,13 @@ contract DiscipleRouter is IUnlockCallback {
                     amountSpecified: -int256(amt),
                     sqrtPriceLimitX96: h.zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
                 }),
-                h.disciple ? abi.encode(d.payer == address(this) ? d.recipient : d.payer) : bytes("")
+                ""
             );
             int128 dIn = h.zeroForOne ? delta.amount0() : delta.amount1();
             int128 dOut = h.zeroForOne ? delta.amount1() : delta.amount0();
-            uint256 paid = uint256(uint128(-dIn));
-            if (i == 0) firstPaid = paid;
-            else if (paid != amt) revert BadPool(); // partial fill of an intermediate hop: never strand deltas
+            // Audit 2026-11-17 M-01 / L-24: every hop, the first included, must consume exactly its input. A partial
+            // fill would strand router-held input; an input-side hook fee would take more than the payer authorized.
+            if (dIn >= 0 || uint256(uint128(-dIn)) != amt) revert BadPool();
             amt = uint256(uint128(dOut));
             if (amt == 0) revert ZeroMinOut();
             uint256 imp = _hopImpact(h, sb);
@@ -1086,7 +1101,7 @@ contract DiscipleRouter is IUnlockCallback {
         Hop memory last = d.hops[n - 1];
         Currency cin = first.zeroForOne ? first.key.currency0 : first.key.currency1;
         Currency cout = last.zeroForOne ? last.key.currency1 : last.key.currency0;
-        cin.settle(poolManager, d.payer, firstPaid, false);
+        cin.settle(poolManager, d.payer, d.amountIn, false);
         cout.take(poolManager, d.recipient, amt, false);
         return abi.encode(amt);
     }
@@ -1173,7 +1188,7 @@ contract DiscipleRouter is IUnlockCallback {
                 amountSpecified: -int256(d.amountIn),
                 sqrtPriceLimitX96: d.zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
             }),
-            abi.encode(d.payer) // hook attributes trade/referral to the real trader
+            ""
         );
 
         (Currency cin, Currency cout) =

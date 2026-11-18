@@ -57,7 +57,6 @@ contract CurveDeployerV1 {
         CurveMath.Params calldata params,
         uint256 walletCapBps,
         uint8 mode,
-        address loginGate,
         address trustedRouter,
         uint256 crewTipThresholdBps,
         uint256 snipeEscrowTimeout
@@ -73,7 +72,7 @@ contract CurveDeployerV1 {
             params,
             walletCapBps,
             mode,
-            loginGate,
+            address(0), // loginGate: the live Launchpad no longer passes one (LoginGate deleted 2026-11-17)
             trustedRouter,
             crewTipThresholdBps,
             snipeEscrowTimeout

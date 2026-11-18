@@ -33,7 +33,7 @@ export interface LaunchCoinParams {
   /** Slippage on the creator buy's minTokensOut (default 1%). */
   slippageBps?: number;
   /**
-   * 1 = creator fees go into the locked pool, 2 = they buy and burn the pair coin. The launch then goes through
+   * 1 = creator fees go into the locked pool, 2 = they are burned (pair coin, and the rocket coin after orbit). The launch then goes through
    * CreatorFeeHarvest (lib/creatorFeeHarvest), which records the choice for good. Unset = the creator keeps them.
    */
   creatorFeeDestination?: 1 | 2;

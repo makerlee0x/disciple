@@ -69,8 +69,8 @@ contract CurveFeeVault is EIP712 {
     bytes32 internal constant CLAIM_TYPEHASH = keccak256(
         "Claim(address owner,address[] tokens,address to,uint256 relayerFeeBps,uint256 nonce,uint256 deadline)"
     );
-    /// @notice Same cap as AnonLauncher.MAX_RELAYER_FEE_BPS (5%).
-    uint256 internal constant MAX_RELAYER_FEE_BPS = 500;
+    /// @notice Same cap as AnonLauncher.MAX_RELAYER_FEE_BPS: 0, no relayer cut (maker 2026-11-17).
+    uint256 internal constant MAX_RELAYER_FEE_BPS = 0;
 
     /// @notice Stealth owner => next by-sig claim nonce (this vault's own; AnonLauncher.nonces are separate).
     /// @dev settleCurveFee() (selector 0x038b09d3) runs inside referred trades; it is named so its selector sorts

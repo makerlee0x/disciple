@@ -39,14 +39,17 @@ abstract contract NetworkConfig is Script {
         _requiredContract("V4_QUOTER");
         address usdg = _requiredContract("USDG");
         address quote = _requiredContract("DEFAULT_QUOTE");
-        _requiredAddress("PVE_ATTESTER");
+        // SAFE is optional at deploy time (maker 2026-11-17: the Safe address comes after mainnet). Set → it must be a
+        // contract and Deploy nominates it; unset → the deployer keeps the owner roles until script/HandoverToSafe.s.sol.
+        address safe = vm.envOr("SAFE", address(0));
+        require(safe == address(0) || safe.code.length != 0, "Network: SAFE has no code");
+        _requiredAddress("PRICER_POKER"); // launches fail closed (StalePrice) without keeper pokes
         require(!vm.envOr("DEPLOY_TEST_STRATEGY", false), "Network: no mock assets on mainnet");
         // Required, not defaults. Their actual values are OWNER DECISION; constructor checks still apply.
         vm.envUint("EXPECT_USDG_DECIMALS");
         uint256 liquidity = vm.envUint("MIN_LIQUIDITY");
         require(liquidity > 0 && liquidity <= type(uint128).max, "Network: invalid MIN_LIQUIDITY");
         require(vm.envUint("PROBE_USDG") > 0, "Network: invalid PROBE_USDG");
-        vm.envUint("ANON_LAUNCH_FEE");
         vm.envAddress("ERC5564_ANNOUNCER"); // explicit zero is allowed to disable announcements
         if (quote != usdg) {
             uint256 fee = vm.envUint("DEFAULT_QUOTE_POOL_FEE");

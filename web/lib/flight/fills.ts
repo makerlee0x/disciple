@@ -6,7 +6,8 @@
  * amountOut = USDG received (net). A graduating buy's `UsdgRefund(trader, token, quoteRefund, usdgRefund)` is subtracted.
  * Fallback (native-quote path, no router) = the venue `Trade` event (BondingCurve: last field mcapAfterUsd; DiscipleHook:
  * last field sqrtPriceAfter ⇒ different topic0): tokenAmt exact, $ from quoteAmt × the quote's USD price.
- * Fee ($) = Trade.fee (quote raw) converted at the same quote→$ rate.
+ * Fee ($) = Trade.fee (quote raw) converted at the same quote→$ rate. Slim hook (no hook Trade): a router fill whose
+ * receipt holds a PoolManager Swap books the hook's flat 1% (of the output: usd/100 on a buy, usd/99 on a sell).
  */
 export interface LogLike { address: string; topics: readonly string[]; data: string }
 export interface DecodedFill {
@@ -29,6 +30,8 @@ export const TOPIC = {
   curveTrade: "0xc9d4f93ded9b42fa24561e02b2a40f720f71601eb1b3f7b3fd4eff20877639ee",
   /** DiscipleHook.Trade(…, uint160 sqrtPriceAfter) */
   hookTrade: "0x429d1e9e19c899db3fe448c2651841c2beb6846fdff9c61e31123b4262c94ef2",
+  /** PoolManager.Swap(bytes32 id, address sender, int128, int128, uint160, uint128, int24, uint24) */
+  v4Swap: "0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f",
 } as const;
 
 const lc = (s: string) => String(s || "").toLowerCase();
@@ -120,6 +123,7 @@ export function decodeTradeFill(logs: readonly LogLike[], o: DecodeOpts): Decode
     // fee: venue fee scaled by this trade's own $/quote ratio (exact for USDG-quoted coins: quote = USDG)
     let feeUsd = 0;
     if (venue && venue.isBuy === isBuy && venue.quoteAmt > BigInt(0)) feeUsd = usd * (Number(venue.fee) / Number(venue.quoteAmt));
+    else if (!venue && logs.some((x) => lc(x.topics[0]) === TOPIC.v4Swap)) feeUsd = isBuy ? usd / 100 : usd / 99;
     return { side: isBuy ? "buy" : "sell", usd, tokens, feeUsd, source: "usdg", ...(refundRaw > BigInt(0) ? { refundUsd: units(refundRaw, dec) } : {}) };
   }
   if (!venue || venue.tokenAmt <= BigInt(0)) return null;

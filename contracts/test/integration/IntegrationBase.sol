@@ -57,19 +57,6 @@ contract MockUSDGDec is MockUSDG {
     }
 }
 
-/// @dev Minimal deposit notifier for ReferralRegistry USDG gate.
-contract DepositHookMock {
-    ReferralRegistry public immutable registry;
-
-    constructor(ReferralRegistry r) {
-        registry = r;
-    }
-
-    function notifyDeposit(address wallet, uint256 amount) external {
-        registry.onUsdgDeposit(wallet, amount);
-    }
-}
-
 /// @notice Shared actors + v4 stack for end-to-end integration tests.
 abstract contract IntegrationBase is Test {
     using PoolIdLibrary for PoolKey;
@@ -87,7 +74,6 @@ abstract contract IntegrationBase is Test {
     MockUSDG internal quote;
     RewardsVault internal rewardsVault;
     ReferralRegistry internal referrals;
-    DepositHookMock internal depositHook;
     LockedLP internal lockedLP;
     FeeRouter internal feeRouter;
     Migration internal migration;
@@ -137,7 +123,7 @@ abstract contract IntegrationBase is Test {
     function setUp() public virtual {
         quote = new MockUSDGDec(_usdgDecimals());
         U = 10 ** uint256(_usdgDecimals());
-        referrals = new ReferralRegistry(owner, address(quote));
+        referrals = new ReferralRegistry(owner);
         // The harvest address is known before it is deployed so this create does not shift the nonce of
         // LockedLP or anything after it. The gas bench compares those addresses with main.
         bytes32 harvestSalt = keccak256("disciple.creator-fee-harvest");
@@ -155,9 +141,6 @@ abstract contract IntegrationBase is Test {
         lockedLP.setMigration(address(migration));
         lockedLP.setFeeRouter(address(feeRouter));
         lockedLP.setPoolManager(address(manager));
-        lockedLP.setHook(address(hook));
-        depositHook = new DepositHookMock(referrals);
-        referrals.setDepositHook(address(depositHook));
         vm.stopPrank();
 
         // redeploy pack item 8: no legacy AntiSnipe (v2 curves compute the sniper tax inline), as in Deploy.s.sol
@@ -229,10 +212,56 @@ abstract contract IntegrationBase is Test {
 
     function _bindReferral(address wallet, address referrer, uint256 usdgDeposit) internal {
         vm.prank(wallet); // audit #3: only the wallet (or an attestor) may attribute itself
-        referrals.tryAttribute(wallet, referrer);
-        if (usdgDeposit > 0) {
-            depositHook.notifyDeposit(wallet, usdgDeposit);
+        referrals.tryAttribute(wallet, referrer); // first touch counts right away (no deposit gate since 2026-11-17)
+        usdgDeposit; // kept so existing callers compile
+    }
+
+    /// @dev Launch prices fail closed until the pair's TWAP covers a full window with fresh keeper pokes (audit
+    ///      2026-11-17 M-02). If `q` can't price a launch yet, play the keeper: poke every 60 s for one window.
+    function _warmQuote(address q) internal {
+        if (q == address(quote)) return;
+        try pricer.launchPriceUsd(q) returns (uint256) {
+            return;
+        } catch {}
+        uint256 t = vm.getBlockTimestamp();
+        uint256 end = t + pricer.twapWindow() + 60;
+        uint256 bn = vm.getBlockNumber();
+        while (t < end) {
+            t += 60;
+            vm.warp(t);
+            vm.roll(++bn);
+            pricer.poke(q);
         }
+    }
+
+    uint256 internal strategyWarmAt;
+
+    /// @dev Test-only: move LockedLP's flush reference tick (audit 2026-11-17 A-1 guard) to the pool's current tick,
+    ///      as if the price had sat there for a while. Unit tests that trade then flush at once use it.
+    function _syncFlushRef(address token) internal {
+        (int24 rt, uint64 at) = lockedLP.flushRef(token);
+        bytes32 packed = bytes32((uint256(at) << 24) | uint256(uint24(rt)));
+        PoolKey memory key = lockedLP.getPoolKey(token);
+        (, int24 cur,,) = manager.getSlot0(key.toId());
+        bytes32 next = bytes32((uint256(uint64(vm.getBlockTimestamp())) << 24) | uint256(uint24(cur)));
+        for (uint256 i; i < 80; ++i) {
+            bytes32 slot = keccak256(abi.encode(token, i));
+            if (vm.load(address(lockedLP), slot) == packed) {
+                vm.store(address(lockedLP), slot, next);
+                return;
+            }
+        }
+        revert("flush ref slot not found");
+    }
+
+    /// @dev Keeps the STRATEGY TWAP launch-ready without an external call when it already is (so a pending
+    ///      vm.expectRevert still targets the launch). Re-warms after 14 minutes (the newest keeper poke must be
+    ///      under half a window old, audit 2026-11-18 E-L1 follow-up).
+    function _warmStrategy() internal {
+        uint256 t = vm.getBlockTimestamp();
+        if (strategyWarmAt != 0 && t < strategyWarmAt + 840) return;
+        _warmQuote(address(strategy));
+        strategyWarmAt = vm.getBlockTimestamp();
     }
 
     function _launch(uint256 taxBps, uint256 creatorBuyQuote) internal returns (BondingCurve curve, Token tok) {
@@ -243,8 +272,9 @@ abstract contract IntegrationBase is Test {
         internal
         returns (BondingCurve curve, Token tok)
     {
-        uint256 ts = vm.getBlockTimestamp();
         address pay = quoteToken == address(0) ? address(strategy) : quoteToken;
+        if (pay == address(strategy)) _warmStrategy();
+        uint256 ts = vm.getBlockTimestamp();
         vm.startPrank(creator);
         if (creatorBuyQuote > 0) {
             IERC20(pay).approve(address(launchpad), creatorBuyQuote);
@@ -366,6 +396,25 @@ abstract contract IntegrationBase is Test {
             }),
             ""
         );
+    }
+
+    /// @dev LockedLP.flush (permissionless; the site's cron calls it on a schedule).
+    function _flush(address t) internal returns (uint128) {
+        return lockedLP.flush(t);
+    }
+
+    /// @dev Flush as if the current price had held long enough for the reference tick to follow it.
+    function _flushSynced(address t) internal returns (uint128) {
+        _syncFlushRef(t);
+        return lockedLP.flush(t);
+    }
+
+    function _routeAtSpot(address t) internal returns (uint256, uint256, uint256) {
+        return harvest.route(t);
+    }
+
+    function _spotOf(address t) internal view returns (uint160 sp) {
+        (sp,,,) = manager.getSlot0(lockedLP.getPoolKey(t).toId());
     }
 
     function _poolKey(Token tok) internal view returns (PoolKey memory) {

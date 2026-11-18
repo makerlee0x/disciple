@@ -11,7 +11,7 @@ import {PackedUserOperation} from "../../src/session/IERC6900.sol";
 import {MockMAv2} from "../session/DiscipleSessionPolicy.t.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {LoginGate} from "../../src/LoginGate.sol";
+import {LegacyLoginGate} from "../lpaccrue/legacy/LegacyLoginGate.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
 
@@ -369,9 +369,7 @@ contract UsdgRouterTest is IntegrationBase {
     /// contract itself is not logged in) and the sell floor includes the account's profit tax.
     function test_sessionPveBuyQuotedForAccount() public {
         uint256 pk = 0xA77E57;
-        LoginGate gate = new LoginGate(owner, vm.addr(pk));
-        vm.prank(owner);
-        launchpad.setLoginGate(address(gate));
+        LegacyLoginGate gate = new LegacyLoginGate();
         vm.prank(creator);
         ILaunchpad.LaunchResult memory r = launchpad.launchWithMode(
             ILaunchpad.LaunchParams({
@@ -392,8 +390,7 @@ contract UsdgRouterTest is IntegrationBase {
         vm.roll(block.number + 1);
         _installSession(uint128(150 * U));
         uint64 exp = uint64(vm.getBlockTimestamp() + 12 hours);
-        (uint8 v, bytes32 rr, bytes32 ss) = vm.sign(pk, gate.digest(address(acct), exp));
-        gate.attest(address(acct), exp, abi.encodePacked(rr, ss, v));
+        gate.verify(address(acct), uint64(exp));
 
         // lp-accrue curves have no on-chain login check (app-level gating), so the msg.sender quote path no longer
         // reverts NotVerified for the unverified policy; the account-specific quote below is still the one used.

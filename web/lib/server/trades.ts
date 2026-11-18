@@ -2,9 +2,10 @@ import "server-only";
 /**
  * Trade indexer → Upstash (lib/server/kv). Vercel-friendly: no watcher; `indexTrades()` scans
  * [cursor+1, latest] in chunks under a time budget, called by /api/chat/cron and on demand by /api/trades.
- * Source (from deployment().fromBlock): every Trade log emitted by the DiscipleHook (post-grad) or a Launchpad BondingCurve
- *   (pre-grad; verified via launchpad.curveOf(token)). v4 has TWO Trade signatures (different topic0): the curve's ends
- *   in `uint256 mcapAfterUsd`, the hook's in `uint160 sqrtPriceAfter` (gas G-1) — both are fetched and decoded.
+ * Source (from deployment().fromBlock): every Trade log emitted by a Launchpad BondingCurve (pre-grad; verified via
+ *   launchpad.curveOf(token)), and post-grad the PoolManager Swap of each DISCIPLE pool (slim hook, lib/v4Swap; pools
+ *   learned from LockedLP V4PositionSeeded into trades:pools:<launchpad>). Stacks on the old hook still emit its own
+ *   Trade (`uint160 sqrtPriceAfter`, LEGACY_HOOK_TRADE); a tx with one never also books its Swap.
  * Keys:
  *   trades:<coin>              zset score=ms member=Fill JSON
  *   trades:w:<addr>:<coin>     zset score=ms member=Fill JSON
@@ -20,7 +21,8 @@ import "server-only";
  * path, never on the relay / admission path. See referralLedger.ts for keys and FeeMath reuse.
  */
 import { decodeEventLog, getAbiItem, type Address, type Hex, type Log, type PublicClient } from "viem";
-import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, feeRouterAbi, launchpadAbi } from "@/lib/abi";
+import { bondingCurveAbi, discipleRouterAbi, feeRouterAbi, launchpadAbi, lockedLPAbi } from "@/lib/abi";
+import { hookTradeFromSwap, LEGACY_HOOK_TRADE, POOL_TRADE_EVENT, SWAP_EVENT, traderIndex, type SwapArgs } from "@/lib/v4Swap";
 import { deployment, ZERO, usdgRouters } from "@/lib/chains";
 export { usdgRouters };
 import { serverPc } from "./chat/identity";
@@ -35,7 +37,9 @@ import { usdgDecimals } from "@/lib/usdg";
 
 const CHUNK = BigInt(Math.max(100, Number(process.env.TRADES_CHUNK_BLOCKS) || 5000));
 const CURVE_TRADE = getAbiItem({ abi: bondingCurveAbi, name: "Trade" });
-const HOOK_TRADE = getAbiItem({ abi: discipleHookAbi, name: "Trade" });
+const HOOK_TRADE = LEGACY_HOOK_TRADE;
+const POOL_SEEDED = getAbiItem({ abi: lockedLPAbi, name: "V4PositionSeeded" });
+const poolsKey = (launchpad: string) => `trades:pools:${launchpad.toLowerCase()}`;
 const TRADE_EVENTS = [CURVE_TRADE, HOOK_TRADE] as const;
 const USDG_TRADE = getAbiItem({ abi: discipleRouterAbi, name: "UsdgTrade" });
 const USDG_REFUND = getAbiItem({ abi: discipleRouterAbi, name: "UsdgRefund" });
@@ -166,6 +170,16 @@ export async function indexTrades(budgetMs = 20_000): Promise<{ indexed: number;
         if (!(await s.setNX(`trades:seen:${tx}:${li}`, "1"))) continue;
         fills.push(toFill({ transactionHash: tx, logIndex: li, blockNumber: l.blockNumber ?? BigInt(0) }, venue, a, await tsOf(l.blockNumber ?? BigInt(0)), usdg.get(usdgKey(tx, a.token, a.isBuy))?.shift()));
       }
+      // Slim hook: post-grad trades come from the PoolManager Swap of each DISCIPLE pool (none on old-hook txs).
+      const legacyTx = new Set(logs.filter((l) => l.address.toLowerCase() === hook).map((l) => String(l.transactionHash).toLowerCase()));
+      for (const sw of await swapTrades(pc, d, from, to, usdgLogs, routers, legacyTx)) {
+        const a = sw.a;
+        const venue = await prepareTrade(pc, a, hook, hook);
+        if (!venue) continue;
+        const tx = sw.l.transactionHash ?? "", li = sw.l.logIndex ?? 0;
+        if (!(await s.setNX(`trades:seen:${tx}:${li}`, "1"))) continue;
+        fills.push(toFill({ transactionHash: tx, logIndex: li, blockNumber: sw.l.blockNumber ?? BigInt(0) }, venue, a, await tsOf(sw.l.blockNumber ?? BigInt(0)), usdg.get(usdgKey(tx, a.token, a.isBuy))?.shift()));
+      }
       await storeFills(fills);
       // After-the-fact only. A ledger failure must not fail the trade index; dirty fills are drained by the CSV/cron path.
       if (fills.length) await recordReferralSlices(fills, fees).catch((e) => console.warn("[referral-ledger]", (e as Error).message));
@@ -177,6 +191,45 @@ export async function indexTrades(budgetMs = 20_000): Promise<{ indexed: number;
   } finally {
     await s.del("trades:lock").catch(() => {});
   }
+}
+
+/**
+ * PoolManager Swaps of the stack's DISCIPLE pools in [from, to], as hook-Trade args (lib/v4Swap). Pools are learned from
+ * LockedLP V4PositionSeeded (graduation) into trades:pools:<launchpad>. The trader is our router's PoolTrade / UsdgTrade
+ * in the same tx, else the tx sender. Throws on an RPC range error so the caller shrinks the chunk.
+ */
+async function swapTrades(
+  pc: ReturnType<typeof serverPc>, d: ReturnType<typeof deployment>, from: bigint, to: bigint,
+  usdgLogs: { transactionHash: string; args: UsdgTradeArgs }[], routers: Address[], legacyTx: Set<string>,
+): Promise<{ l: Log; a: TradeArgs }[]> {
+  if (d.poolManager === ZERO || d.lockedLP === ZERO || d.hook === ZERO) return [];
+  const s = kv(), pk = poolsKey(d.launchpad);
+  const seeded = (await pc.getLogs({ address: d.lockedLP, event: POOL_SEEDED, fromBlock: from, toBlock: to })) as unknown as { args: { token: string; poolId: string } }[];
+  if (seeded.length) await s.sadd(pk, ...seeded.map((x) => `${x.args.poolId.toLowerCase()}|${x.args.token.toLowerCase()}`));
+  const tokOf = new Map<string, string>();
+  for (const m of await s.smembers(pk)) { const [id, t] = m.split("|"); if (id && t) tokOf.set(id, t); }
+  if (!tokOf.size) return [];
+  const ids = Array.from(tokOf.keys()) as Hex[];
+  const swaps: (Log & { args: SwapArgs })[] = [];
+  for (let i = 0; i < ids.length; i += 100)
+    swaps.push(...((await pc.getLogs({ address: d.poolManager, event: SWAP_EVENT, args: { id: ids.slice(i, i + 100) }, fromBlock: from, toBlock: to })) as unknown as (Log & { args: SwapArgs })[]));
+  if (!swaps.length) return [];
+  const pt = routers.length === 0 ? [] : ((await pc.getLogs({ address: routers, event: POOL_TRADE_EVENT, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as { transactionHash: string; args: { trader: string; token: string; isBuy: boolean } }[]);
+  const who = traderIndex([...pt, ...usdgLogs].map((x) => ({ tx: x.transactionHash, trader: String(x.args.trader), token: String(x.args.token), isBuy: Boolean(x.args.isBuy) })));
+  const out: { l: Log; a: TradeArgs }[] = [];
+  for (const sw of swaps) {
+    const tx = String(sw.transactionHash ?? "");
+    if (legacyTx.has(tx.toLowerCase())) continue;
+    const token = tokOf.get(String(sw.args.id).toLowerCase()); if (!token) continue;
+    const curve = await curveOf(token as Address);
+    const quote = curve === ZERO.toLowerCase() ? undefined : await quoteOf(curve);
+    if (!quote) continue;
+    const pre = hookTradeFromSwap(sw.args, token, quote, ZERO);
+    let trader = who(tx, token, pre.isBuy);
+    if (!trader && tx) trader = await pc.getTransaction({ hash: tx as Hex }).then((t) => t.from, () => undefined);
+    out.push({ l: sw, a: { ...pre, trader: (trader ?? sw.args.sender ?? ZERO).toLowerCase() } });
+  }
+  return out;
 }
 
 export async function storeFills(fills: Fill[]) {
@@ -320,9 +373,19 @@ export async function reindexFills(scope: { coin: string } | "all", o: { dryRun?
         const r = await receipt(f.tx);
         const l = r?.logs.find((x) => Number(x.logIndex) === f.logIndex);
         if (!l) { out.missing++; continue; }
-        const src = l.address.toLowerCase();
+        let src = l.address.toLowerCase();
         let a: TradeArgs;
-        try { a = (decodeEventLog({ abi: [src === hook ? HOOK_TRADE : CURVE_TRADE], data: l.data, topics: l.topics as [Hex, ...Hex[]] }) as unknown as { args: TradeArgs }).args; }
+        try {
+          if (src === d.poolManager.toLowerCase()) {
+            // slim-hook fill: rebuilt from its PoolManager Swap (trader kept from the stored fill)
+            const sw = (decodeEventLog({ abi: [SWAP_EVENT], data: l.data, topics: l.topics as [Hex, ...Hex[]] }) as unknown as { args: SwapArgs }).args;
+            const curve = await curveOf(coin as Address);
+            const quote = curve === ZERO.toLowerCase() ? undefined : await quoteOf(curve);
+            if (!quote) throw new Error("no quote");
+            a = hookTradeFromSwap(sw, coin, quote, f.trader);
+            src = hook;
+          } else a = (decodeEventLog({ abi: [src === hook ? HOOK_TRADE : CURVE_TRADE], data: l.data, topics: l.topics as [Hex, ...Hex[]] }) as unknown as { args: TradeArgs }).args;
+        }
         catch { out.missing++; continue; }
         const venue = await prepareTrade(pc, a, src, hook);
         if (!venue) { out.missing++; continue; }

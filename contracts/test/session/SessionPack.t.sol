@@ -83,7 +83,7 @@ contract SessionPackTest is Test {
         usdg = new TKN("USDG");
         strat = new TKN("STRAT");
         rogue = new TKN("ROGUE");
-        ReferralRegistry registry = new ReferralRegistry(address(this), address(usdg));
+        ReferralRegistry registry = new ReferralRegistry(address(this));
         policy = new P(address(registry), address(0));
         router = new MockPackRouter(usdg);
         lp = new MockLaunchpad();

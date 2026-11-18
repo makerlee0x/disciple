@@ -6,7 +6,7 @@ import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {Launchpad} from "../../src/Launchpad.sol";
-import {LoginGate} from "../../src/LoginGate.sol";
+import {LegacyLoginGate} from "../lpaccrue/legacy/LegacyLoginGate.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
 import {FeeMath} from "../../src/libraries/FeeMath.sol";
@@ -17,7 +17,7 @@ import {CurveDeployerV1} from "../lpaccrue/legacy/CurveDeployerV1.sol";
 /// @notice Bonding-curve game modes (contracts/docs/bonding-modes.md): PVE / PVP / TRENCH WARFARE.
 contract BondingModesTest is IntegrationBase {
     using stdStorage for StdStorage;
-    LoginGate gate;
+    LegacyLoginGate gate;
     uint256 attesterPk = 0xA77E57;
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
@@ -36,14 +36,13 @@ contract BondingModesTest is IntegrationBase {
     function _useLegacyCurves() internal {
         address d = address(new CurveDeployerV1());
         vm.prank(owner);
+        vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
         launchpad.setCurveDeployer(d);
     }
 
     function setUp() public override {
         super.setUp();
-        gate = new LoginGate(owner, vm.addr(attesterPk));
-        vm.prank(owner);
-        launchpad.setLoginGate(address(gate));
+        gate = new LegacyLoginGate();
         // mode rules v2: the reward-accumulator tests below use the MIN crew-tip threshold (0.1% of mcap) so a
         // 2x pump makes their sells tip; the default 0.5% threshold edges are covered in ModeRulesV2.t.sol
         vm.prank(owner);
@@ -78,8 +77,7 @@ contract BondingModesTest is IntegrationBase {
 
     function _verify(address w) internal {
         uint64 exp = uint64(block.timestamp + 12 hours);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterPk, gate.digest(w, exp));
-        gate.attest(w, exp, abi.encodePacked(r, s, v));
+        gate.verify(w, uint64(exp));
     }
 
     function _open(uint256 dt) internal {
@@ -136,8 +134,6 @@ contract BondingModesTest is IntegrationBase {
         vm.prank(creator);
         vm.expectRevert(Launchpad.BadMode.selector);
         launchpad.launchWithMode(_params(0), 3);
-        vm.prank(owner);
-        launchpad.setLoginGate(address(0));
         vm.prank(creator);
         launchpad.launchWithMode(_params(0), Constants.MODE_PVE);
     }
@@ -151,42 +147,6 @@ contract BondingModesTest is IntegrationBase {
     }
 
     // ── PVE ──
-
-    function test_pve_loginRequired() public {
-        _useLegacyCurves(); // on-chain login check: pre-lp-accrue curve
-        (BondingCurve c,) = _launchMode(Constants.MODE_PVE);
-        _open(10 minutes);
-        vm.startPrank(alice);
-        quote.approve(address(c), 1 ether);
-        vm.expectRevert(BondingCurve.NotVerified.selector);
-        c.buy(1 ether, 0, vm.getBlockTimestamp() + 1 hours);
-        vm.stopPrank();
-        // bad signer
-        uint64 exp = uint64(block.timestamp + 1 days);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xBAD, gate.digest(alice, exp));
-        vm.expectRevert(LoginGate.BadSignature.selector);
-        gate.attest(alice, exp, abi.encodePacked(r, s, v));
-        // expired
-        (v, r, s) = vm.sign(attesterPk, gate.digest(alice, uint64(block.timestamp)));
-        vm.expectRevert(LoginGate.Expired.selector);
-        gate.attest(alice, uint64(block.timestamp), abi.encodePacked(r, s, v));
-        // ok + cached
-        _verify(alice);
-        _buyQ(c, alice, 1 ether);
-        assertGt(c.verifiedUntilOf(alice), block.timestamp, "cached");
-    }
-
-    function test_pve_globalLoginCoversEveryCurve() public {
-        _useLegacyCurves(); // on-chain login check: pre-lp-accrue curve
-        (BondingCurve c,) = _launchMode(Constants.MODE_PVE);
-        (BondingCurve c2,) = _launchMode(Constants.MODE_PVE);
-        _open(10 minutes);
-        _verify(alice);
-        _buyQ(c, alice, 1 ether);
-        _buyQ(c2, alice, 1 ether);
-        assertGt(c.verifiedUntilOf(alice), block.timestamp);
-        assertGt(c2.verifiedUntilOf(alice), block.timestamp);
-    }
 
     /// mode rules v2: no launch-block rule — anyone may buy in the launch block (paying the 99% sniper tax).
     function test_pve_noLaunchBlock_firstBoostCountsNet() public {
@@ -415,35 +375,6 @@ contract BondingModesTest is IntegrationBase {
 
     // ── router pass-through ──
 
-    function test_router_passThroughPve() public {
-        _useLegacyCurves(); // on-chain login check: pre-lp-accrue curve
-        (BondingCurve c, Token t) = _launchMode(Constants.MODE_PVE);
-        _open(8 minutes);
-        _verify(alice);
-        vm.startPrank(alice);
-        quote.approve(address(router), type(uint256).max);
-        t.approve(address(router), type(uint256).max);
-        (uint256 qb,) = router.quoteBuyWithUsdg(address(t), 20 ether);
-        uint256 out = router.buyWithUsdg(address(t), 20 ether, qb, vm.getBlockTimestamp() + 1 hours);
-        vm.stopPrank();
-        assertEq(out, qb, "quote == executed");
-        assertEq(c.balanceOnCurve(alice), out, "NET booked to trader");
-        assertEq(c.balanceOnCurve(address(router)), 0, "never the router");
-        assertGt(c.costBasisOf(alice), 0, "cost basis to trader");
-        vm.startPrank(alice);
-        (uint256 qs,) = router.quoteSellToUsdg(address(t), out / 2);
-        uint256 us = router.sellToUsdg(address(t), out / 2, qs, vm.getBlockTimestamp() + 1 hours);
-        vm.stopPrank();
-        assertEq(us, qs);
-        assertEq(c.balanceOnCurve(alice), out - out / 2, "router sell debits trader");
-        // unverified trader can't buy through the router either
-        vm.startPrank(bob);
-        quote.approve(address(router), type(uint256).max);
-        vm.expectRevert(BondingCurve.NotVerified.selector);
-        router.buyWithUsdg(address(t), 1 ether, 1, vm.getBlockTimestamp() + 1 hours);
-        vm.stopPrank();
-    }
-
     function test_router_capsApplyToTrader() public {
         (BondingCurve c, Token t) = _launchMode(Constants.MODE_PVP);
         _warpPastSnipe();
@@ -542,7 +473,6 @@ contract BondingModesTest is IntegrationBase {
         _open(10 minutes);
         _buyQ(c, alice, 1 ether);
         assertGt(c.balanceOnCurve(alice), 0);
-        assertEq(c.verifiedUntilOf(alice), 0, "never written");
     }
 
     function test_pve_transferReceiverNetCap() public {
@@ -569,34 +499,6 @@ contract BondingModesTest is IntegrationBase {
         t.endPveHooks();
         vm.expectRevert(BondingCurve.OnlyToken.selector);
         c.onTokenTransfer(alice, bob, 1);
-    }
-
-    // ── audit L1 / L2: login cache TTL + max attestation TTL ──
-
-    function test_pve_revokeBitesAfterCacheTtl() public {
-        _useLegacyCurves(); // on-chain login check: pre-lp-accrue curve
-        (BondingCurve c,) = _pveSetup();
-        _buyQ(c, alice, 1 ether);
-        assertEq(c.verifiedUntilOf(alice), vm.getBlockTimestamp() + Constants.PVE_LOGIN_CACHE_TTL, "capped cache");
-        vm.prank(owner);
-        gate.revoke(alice);
-        _buyQ(c, alice, 1 ether); // still cached
-        vm.warp(vm.getBlockTimestamp() + Constants.PVE_LOGIN_CACHE_TTL);
-        vm.startPrank(alice);
-        quote.approve(address(c), 1 ether);
-        vm.expectRevert(BondingCurve.NotVerified.selector);
-        c.buy(1 ether, 0, vm.getBlockTimestamp() + 1 hours);
-        vm.stopPrank();
-    }
-
-    function test_loginGate_maxTtl() public {
-        uint64 exp = uint64(vm.getBlockTimestamp() + 24 hours + 1);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(attesterPk, gate.digest(alice, exp));
-        vm.expectRevert(LoginGate.TtlTooLong.selector);
-        gate.attest(alice, exp, abi.encodePacked(r, s, v));
-        exp = uint64(vm.getBlockTimestamp() + 24 hours);
-        (v, r, s) = vm.sign(attesterPk, gate.digest(alice, exp));
-        gate.attest(alice, exp, abi.encodePacked(r, s, v));
     }
 
     // ── audit L3: router prepaid amounts are balance-checked ──

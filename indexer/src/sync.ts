@@ -5,6 +5,7 @@ import { decodeEventLog } from "viem";
 import { EVENTS } from "./abi.js";
 import { applyLogs, type RawLog } from "./ingest.js";
 import { fillQuoteDecimals } from "./decimals.js";
+import { disciplePoolId, SWAP_EVENT } from "./v4Swap.js";
 
 /** Coins launched by this stack's Launchpad within a batch of core logs. */
 export function launchedIn(core: RawLog[], stack: Stack): { token: Address; curve: Address }[] {
@@ -18,6 +19,18 @@ export function launchedIn(core: RawLog[], stack: Stack): { token: Address; curv
   }
   return out;
 }
+/** Coins (token + quote) launched by this stack's Launchpad within a batch of core logs. */
+export function launchedQuotes(core: RawLog[], stack: Stack): { token: string; quote: string }[] {
+  const out: { token: string; quote: string }[] = [];
+  for (const l of core) {
+    if (l.address.toLowerCase() !== stack.launchpad.toLowerCase()) continue;
+    try {
+      const ev: any = decodeEventLog({ abi: EVENTS, data: l.data, topics: l.topics as any, strict: true });
+      if (ev.eventName === "Launched") out.push({ token: ev.args.token, quote: ev.args.quote });
+    } catch {}
+  }
+  return out;
+}
 import { RateLimiter, getLogsAdaptive, isRangeError, withRetry } from "./rpc.js";
 
 export function makeClient(cfg: Config): PublicClient {
@@ -26,7 +39,7 @@ export function makeClient(cfg: Config): PublicClient {
 }
 
 export const coreAddrs = (s: Stack) =>
-  [s.launchpad, s.feeRouter, s.hook, s.migration, s.trampWallManager, s.anonLauncher, s.anonLauncherLegacy, s.rewardsVault, s.referralRegistry, s.lockedLP, s.usdgDepositNotifier, s.curveFeeVault].filter(Boolean) as Address[];
+  [s.launchpad, s.feeRouter, s.hook, s.migration, s.trampWallManager, s.anonLauncher, s.anonLauncherLegacy, s.rewardsVault, s.referralRegistry, s.lockedLP, s.usdgDepositNotifier, s.curveFeeVault, s.router].filter(Boolean) as Address[];
 
 export class Syncer {
   private limiter: RateLimiter;
@@ -86,6 +99,19 @@ export class Syncer {
       const addrs = [...known.flatMap((c) => [c.curve, c.token]), ...launchedIn(core, stack).flatMap((c) => [c.curve, c.token])];
       const sub: RawLog[] = [];
       for (let i = 0; i < addrs.length; i += 200) sub.push(...(await this.logs(addrs.slice(i, i + 200), from, to)));
+      // slim hook: post-grad trades are the PoolManager Swaps of this stack's DISCIPLE pools (every coin's pool id;
+      // a coin that never graduated simply has none)
+      if (stack.poolManager) {
+        const quoteOf = new Map((this.db.prepare("SELECT token, quote FROM coins WHERE stack=?").all(stack.id) as { token: string; quote: string }[]).map((c) => [c.token, c.quote]));
+        for (const c of launchedQuotes(core, stack)) quoteOf.set(c.token.toLowerCase(), c.quote.toLowerCase());
+        const ids = [...quoteOf].map(([t, q]) => disciplePoolId(t, q, stack.hook));
+        for (let i = 0; i < ids.length; i += 100) {
+          const slice = ids.slice(i, i + 100);
+          sub.push(...(await getLogsAdaptive<RawLog>(
+            (a, b) => this.client.getLogs({ address: stack.poolManager!, event: SWAP_EVENT, args: { id: slice }, fromBlock: a, toBlock: b }) as unknown as Promise<RawLog[]>,
+            from, to, this.cfg.minChunk, this.retry)));
+        }
+      }
       const all = core.concat(sub).sort((x, y) => Number(x.blockNumber! - y.blockNumber!) || Number(x.logIndex! - y.logIndex!));
       await this.fillTs(all);
       const toBlk = await this.retry(() => this.client.getBlock({ blockNumber: to }));

@@ -18,6 +18,10 @@ export const EVENTS = parseAbi([
   "event CreatorTransferred(address indexed token, address indexed previousCreator, address indexed newCreator)",
   TRADE,
   HOOK_TRADE,
+  // slim hook (2026-11-17): post-grad trades = PoolManager Swap of a DISCIPLE pool; the router names the trader
+  "event Swap(bytes32 indexed id, address indexed sender, int128 amount0, int128 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick, uint24 fee)",
+  "event PoolTrade(address indexed trader, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut, address recipient)",
+  "event UsdgTrade(address indexed trader, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut, bool viaCurve)",
   // v4 bonding modes (Launchpad, emitted just BEFORE Launched in the same tx): 0 TRENCH, 1 PVE, 2 PVP
   "event LaunchMode(address indexed token, address indexed curve, uint8 mode)",
   // v4 PVE curves: profit tax on sells above the trigger, distributed to holders; holders claim from the curve

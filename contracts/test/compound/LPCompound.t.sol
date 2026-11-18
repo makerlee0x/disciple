@@ -6,7 +6,6 @@ import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {LockedLP} from "../../src/LockedLP.sol";
-import {DiscipleHook} from "../../src/DiscipleHook.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
@@ -16,7 +15,7 @@ import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Vm} from "forge-std/Vm.sol";
 
-/// @dev Atomic sandwich: swap, try flush, swap back — all in one tx.
+/// @dev Atomic sandwich: swap, flush, swap back — all in one tx.
 contract Sandwicher {
     function run(PoolSwapTest r, PoolKey memory key, LockedLP lp, address token, IERC20 quote, IERC20 tok, bool zfoBuy)
         external
@@ -50,7 +49,6 @@ contract LPCompoundTest is IntegrationBase {
     using StateLibrary for IPoolManager;
 
     bytes32 constant COMPOUNDED = keccak256("LiquidityCompounded(address,uint128,uint256,uint256,uint256,uint256)");
-    bytes32 constant FAILED = keccak256("CompoundFailed(address)");
 
     Token tok;
     Token tokB;
@@ -61,9 +59,9 @@ contract LPCompoundTest is IntegrationBase {
         t = t_;
     }
 
-    function _params(uint32 minPpm, uint32 maxPpm, uint16 dev) internal {
+    function _params(uint32 minPpm, uint32 maxPpm, uint16) internal {
         vm.prank(owner);
-        lockedLP.setCompoundParams(minPpm, maxPpm, dev);
+        lockedLP.setCompoundParams(minPpm, maxPpm);
     }
 
     function _bucket(Token t) internal view returns (uint256 b0, uint256 b1) {
@@ -114,22 +112,18 @@ contract LPCompoundTest is IntegrationBase {
     function setUp() public override {
         super.setUp();
         tok = _grad();
-        _refReady(tok);
     }
 
     function test_defaults_and_wiring() public view {
-        assertEq(lockedLP.hook(), address(hook));
-        assertEq(address(hook.compounder()), address(lockedLP));
         assertEq(lockedLP.minCompoundPpm(), 1_000);
         assertEq(lockedLP.maxCompoundPpm(), 5_000);
-        assertEq(lockedLP.maxCompoundDeviationBps(), 300);
         _assertInvariant(_one(tok));
     }
 
     /// @dev Decision 2026-10-16: unpaired graduation quote seeds the coin's compound quote bucket.
     function test_graduation_leftover_goes_to_quote_bucket() public view {
         (uint256 bt, uint256 bq) = _bucket(tok);
-        assertLt(bt, 1e16, "token side: only the reference observers' dust fees");
+        assertEq(bt, 0, "no token fees yet");
         assertGt(bq, 0, "leftover quote in bucket");
         assertEq(quote.balanceOf(address(lockedLP)), bq);
         // phase 3a: the ~$1.2K curve leftover seeds the 16-band floor; the bucket keeps only the curve-phase fee
@@ -139,25 +133,19 @@ contract LPCompoundTest is IntegrationBase {
         assertLt(bq, 100 ether, "bucket = escrows + dust only");
     }
 
-    /// @dev The leftover quote pairs over time with incoming buy-side token fees, at default params.
+    /// @dev The leftover quote pairs over time with incoming buy-side token fees, at default params (keeper flushes
+    ///      once a minute).
     function test_leftover_pairs_over_time_with_token_fees_defaults() public {
         (, uint256 bq0) = _bucket(tok);
         uint128 l0 = _liq(tok);
-        vm.recordLogs();
         uint256 adds;
-        // small buys (each moves price < the 3% deviation guard at graduation depth). Audit G-5: the 0.1% minimum
-        // add batches fees, so it takes more buys than the old 0.005% before the first add.
         for (uint256 i; i < 100; i++) {
-            // "over time": a minute apart, with a dust trade in between (two EMA observations per minute, so the
-            // speed-limited reference keeps up with the steady rise)
             vm.roll(vm.getBlockNumber() + 1);
-            vm.warp(vm.getBlockTimestamp() + 31);
-            _swapExactInQuoteForToken(tok, makeAddr("obs"), 1e12);
-            vm.roll(vm.getBlockNumber() + 1);
-            vm.warp(vm.getBlockTimestamp() + 30);
-            _buy(tok, 25 ether); // steep curve: shallower pool (~$5.25K quote) → smaller steps so the EMA keeps up, more of them
-            adds += _count(COMPOUNDED);
+            vm.warp(vm.getBlockTimestamp() + 60);
+            _buy(tok, 25 ether);
             vm.recordLogs();
+            _flushSynced(address(tok));
+            adds += _count(COMPOUNDED);
             _assertInvariant(_one(tok));
         }
         assertGt(adds, 0, "token fees compounded against leftover quote");
@@ -167,36 +155,50 @@ contract LPCompoundTest is IntegrationBase {
         assertLt(bt, 50_000_000 ether, "token side not piling up");
     }
 
-    function test_buy_then_sell_pairing() public {
-        // accumulate a buy's token fee without adding, then a sell (quote fee) triggers the add
-        _params(1_000_000, 0, 5000);
-        _buy(tok, 200 ether);
-        (uint256 bt,) = _bucket(tok);
-        assertGt(bt, 1);
+    function test_swaps_only_bucket() public {
         _params(1, 0, 5000);
         uint128 l0 = _liq(tok);
         vm.recordLogs();
+        _buy(tok, 200 ether);
         _sellFrac(tok, 2);
+        assertEq(_count(COMPOUNDED), 0, "no add inside a swap");
+        assertEq(_liq(tok), l0);
+        (uint256 bt, uint256 bq) = _bucket(tok);
+        assertGt(bt, 1);
+        assertGt(bq, 1);
+        _assertInvariant(_one(tok));
+    }
+
+    function test_buy_then_sell_pairing() public {
+        _buy(tok, 200 ether);
+        (uint256 bt,) = _bucket(tok);
+        assertGt(bt, 1);
+        _sellFrac(tok, 2);
+        _params(1, 0, 5000);
+        uint128 l0 = _liq(tok);
+        vm.recordLogs();
+        _flushSynced(address(tok));
         assertEq(_count(COMPOUNDED), 1, "paired: add");
         assertGt(_liq(tok), l0);
-        (uint256 bt2,) = _bucket(tok);
-        assertLt(bt2, bt / 1e9, "token (scarce side) used up to < 1 liquidity unit, quote carries");
         _assertInvariant(_one(tok));
     }
 
     function test_one_sided_accumulation_then_pairing() public {
         _params(1, 0, 5000);
-        _buy(tok, 50 ether); // pairs against the leftover → token side exhausted (dust < 1 liquidity unit)
+        _buy(tok, 50 ether);
+        _flushSynced(address(tok)); // pairs against the leftover → token side exhausted (dust < 1 liquidity unit)
         (uint256 bt,) = _bucket(tok);
         assertLt(bt, 1e6);
+        for (uint256 i; i < 4; i++) _sellFrac(tok, 10); // quote-only fees
+        vm.roll(vm.getBlockNumber() + 1);
         vm.recordLogs();
-        for (uint256 i; i < 4; i++) _sellFrac(tok, 10); // quote-only fees: one-sided, no add
-        assertEq(_count(COMPOUNDED), 0);
+        _flushSynced(address(tok));
+        assertEq(_count(COMPOUNDED), 0, "one-sided: nothing to pair");
         (, uint256 bq) = _bucket(tok);
         uint128 l0 = _liq(tok);
-        vm.roll(vm.getBlockNumber() + 1); // audit round 3: at most one add per block
-        vm.recordLogs();
         _buy(tok, 50 ether);
+        vm.recordLogs();
+        _flushSynced(address(tok));
         assertEq(_count(COMPOUNDED), 1);
         (uint256 bt2, uint256 bq2) = _bucket(tok);
         assertLt(bt2, 1e6);
@@ -208,10 +210,9 @@ contract LPCompoundTest is IntegrationBase {
     function test_threshold_skip() public {
         _params(1_000_000, 0, 5000); // need L >= 100% of position: never in normal trading
         uint128 l0 = _liq(tok);
-        vm.recordLogs();
         _buy(tok, 200 ether);
         _sellFrac(tok, 2);
-        assertEq(_count(COMPOUNDED), 0);
+        assertEq(_flushSynced(address(tok)), 0);
         assertEq(_liq(tok), l0);
         (uint256 bt, uint256 bq) = _bucket(tok);
         assertGt(bt, 0);
@@ -220,12 +221,11 @@ contract LPCompoundTest is IntegrationBase {
     }
 
     function test_cap_limits_each_add() public {
-        _params(1_000_000, 0, 5000);
-        _buy(tok, 500 ether); // accumulate token side
+        _buy(tok, 500 ether);
+        _sellFrac(tok, 2);
         _params(1, 2, 5000); // cap = 2 ppm of position liquidity
         uint128 l0 = _liq(tok);
-        _sellFrac(tok, 2);
-        uint128 added = _liq(tok) - l0;
+        uint128 added = _flushSynced(address(tok));
         assertEq(added, uint128(uint256(l0) * 2 / 1e6), "added == cap");
         (uint256 bt, uint256 bq) = _bucket(tok);
         assertGt(bt, 1);
@@ -233,102 +233,37 @@ contract LPCompoundTest is IntegrationBase {
         _assertInvariant(_one(tok));
     }
 
-    function test_deviation_skip_and_sandwich() public {
-        _params(1_000_000, 0, 100);
-        _buy(tok, 200 ether); // build token bucket without adding
-        _params(1, 0, 100); // 1% max deviation
-        // big sell moves the price >1% → afterSwap must skip even though buckets now pair
+    /// An atomic sandwich around flush adds at most the per-window cap (0.5% of liquidity).
+    function test_sandwiched_flush_is_capped() public {
+        _buy(tok, 2_000 ether);
+        _sellFrac(tok, 2);
+        _params(1, 5_000, 0);
         uint128 l0 = _liq(tok);
-        vm.recordLogs();
-        _sellFrac(tok, 1);
-        assertEq(_count(COMPOUNDED), 0, "price moved > maxDeviation: skipped");
-        assertEq(_liq(tok), l0);
-        (uint256 bt, uint256 bq) = _bucket(tok);
-        assertGt(bt, 0);
-        assertGt(bq, 0);
-        // a small trade right after (price barely moves) does compound → the skip was the deviation guard
-        vm.recordLogs();
-        _buy(tok, 1 ether);
-        assertEq(_count(COMPOUNDED), 1);
-        l0 = _liq(tok);
-        _params(1_000_000, 0, 100);
-        _buy(tok, 200 ether); // refill token side for the flush attempt
-
-        // atomic sandwich around flush: flush refuses in a tx that already swapped this pool
-        _params(1, 0, 5000);
         Sandwicher sw = new Sandwicher();
         quote.mint(address(sw), 5_000 ether);
         bool tokenIsC0 = uint160(address(tok)) < uint160(address(quote));
-        // disable in-swap compounding so only flush could add during the sandwich
-        hook.setCompounder(address(0), 250_000);
+        vm.roll(vm.getBlockNumber() + 1);
         bool reverted =
             sw.run(swapRouter, _poolKey(tok), lockedLP, address(tok), quote, IERC20(address(tok)), !tokenIsC0);
-        assertTrue(reverted, "flush reverted (SwappedInTx)");
-        assertEq(_liq(tok), l0);
-        hook.setCompounder(address(lockedLP), 250_000);
+        assertFalse(reverted);
+        assertLe(uint256(_liq(tok) - l0) * 1e6, uint256(l0) * 5_000 + l0, "<= 0.5% of L");
         _assertInvariant(_one(tok));
-    }
-
-    function test_add_failure_never_reverts_swap() public {
-        _params(1_000_000, 0, 5000);
-        _buy(tok, 200 ether);
-        _params(1, 0, 5000);
-        // make the add revert: LockedLP no longer allowlisted → beforeAddLiquidity reverts inside modifyLiquidity
-        hook.setLiquidityManager(address(lockedLP), false);
-        uint128 l0 = _liq(tok);
-        (uint256 bt0,) = _bucket(tok);
-        uint256 qBefore = quote.balanceOf(trader1);
-        vm.recordLogs();
-        _sellFrac(tok, 2); // must succeed
-        assertEq(_count(FAILED), 1, "CompoundFailed emitted");
-        assertGt(quote.balanceOf(trader1), qBefore, "swap went through");
-        assertEq(_liq(tok), l0);
-        (uint256 bt1, uint256 bq1) = _bucket(tok);
-        assertEq(bt1, bt0, "token bucket untouched");
-        assertGt(bq1, 0, "quote fee still bucketed");
-        _assertInvariant(_one(tok));
-
-        // re-enable: next trade compounds the carried buckets
-        hook.setLiquidityManager(address(lockedLP), true);
-        vm.recordLogs();
-        _buy(tok, 10 ether);
-        assertEq(_count(COMPOUNDED), 1);
-        _assertInvariant(_one(tok));
-    }
-
-    function test_reverting_compounder_never_reverts_swap() public {
-        RevertingCompounder rc = new RevertingCompounder();
-        hook.setCompounder(address(rc), 250_000);
-        vm.recordLogs();
-        _buy(tok, 10 ether);
-        assertEq(_count(FAILED), 1);
-        GasBurner gb = new GasBurner();
-        hook.setCompounder(address(gb), 1_000_000); // burns all forwarded gas
-        _buy(tok, 10 ether);
-    }
-
-    function test_only_hook_can_compound_in_swap() public {
-        vm.expectRevert(LockedLP.OnlyHook.selector);
-        lockedLP.compoundFromHook(address(tok), 1, 1, 1);
     }
 
     function test_flush_permissionless() public {
-        _params(1_000_000, 0, 5000);
         _buy(tok, 200 ether);
         _sellFrac(tok, 2);
+        _params(1, 0, 0);
         uint128 l0 = _liq(tok);
-        // below threshold: flush is a no-op (returns 0)
-        vm.prank(trader2);
-        assertEq(lockedLP.flush(address(tok)), 0);
-        _params(1, 0, 5000);
+        _syncFlushRef(address(tok));
         vm.prank(trader2);
         uint128 added = lockedLP.flush(address(tok));
         assertGt(added, 0);
         assertEq(_liq(tok), l0 + added);
         _assertInvariant(_one(tok));
-        // nothing left to pair → 0
+        vm.roll(vm.getBlockNumber() + 1);
         vm.prank(trader2);
-        assertEq(lockedLP.flush(address(tok)), 0);
+        assertEq(lockedLP.flush(address(tok)), 0, "nothing left to pair");
     }
 
     function test_flush_requires_graduated() public {
@@ -339,22 +274,17 @@ contract LPCompoundTest is IntegrationBase {
 
     function test_multi_coin_isolation() public {
         tokB = _grad();
-        _refReady(tokB);
-        _params(1_000_000, 0, 5000); // accumulate only
         _buy(tok, 200 ether);
         _sellFrac(tok, 2);
+        _swapExactInQuoteForToken(tokB, trader2, 100 ether);
         (uint256 bBt, uint256 bBq) = _bucket(tokB);
         uint128 lB = _liq(tokB);
         Token[] memory both = new Token[](2);
         both[0] = tok;
         both[1] = tokB;
         _assertInvariant(both);
-
-        // trade B too, then compound A only via flush — B untouched
-        _swapExactInQuoteForToken(tokB, trader2, 100 ether);
-        (bBt, bBq) = _bucket(tokB);
         _params(1, 0, 5000);
-        lockedLP.flush(address(tok));
+        _flushSynced(address(tok));
         (uint256 bBt2, uint256 bBq2) = _bucket(tokB);
         assertEq(bBt2, bBt);
         assertEq(bBq2, bBq);
@@ -364,12 +294,12 @@ contract LPCompoundTest is IntegrationBase {
 
     function test_params_guarded() public {
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
-        lockedLP.setCompoundParams(1, 0, 100);
+        lockedLP.setCompoundParams(1, 0);
         vm.startPrank(owner);
         vm.expectRevert(LockedLP.BadParams.selector);
-        lockedLP.setCompoundParams(10, 5, 100);
+        lockedLP.setCompoundParams(10, 5);
         vm.expectRevert(LockedLP.BadParams.selector);
-        lockedLP.setCompoundParams(1, 0, 0);
+        lockedLP.setCompoundParams(1e6 + 1, 0);
         vm.stopPrank();
     }
 
@@ -379,20 +309,11 @@ contract LPCompoundTest is IntegrationBase {
             seed = uint256(keccak256(abi.encode(seed)));
             if (seed % 2 == 0 || tok.balanceOf(trader1) < 1e18) _buy(tok, 1 ether + seed % 300 ether);
             else _sellFrac(tok, 2 + seed % 10);
+            if (seed % 3 == 0) {
+                vm.roll(vm.getBlockNumber() + 1);
+                _flushSynced(address(tok));
+            }
             _assertInvariant(_one(tok));
         }
-    }
-}
-
-contract RevertingCompounder {
-    function compoundFromHook(address, uint160, uint160, uint160) external pure returns (uint128) {
-        revert("nope");
-    }
-}
-
-contract GasBurner {
-    function compoundFromHook(address, uint160, uint160, uint160) external pure returns (uint128) {
-        while (true) {}
-        return 0;
     }
 }

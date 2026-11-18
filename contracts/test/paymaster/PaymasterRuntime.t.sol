@@ -4,7 +4,7 @@ import {PaymasterBootstrapFixture, BootstrapBuy} from "./PaymasterBootstrap.t.so
 import {MockUSDG, MiniAccount} from "./PaymasterTestBase.sol";
 import {IntegrationBase} from "../integration/IntegrationBase.sol";
 import {AnonLauncher} from "../../src/addons/AnonLauncher.sol";
-import {LoginGate} from "../../src/LoginGate.sol";
+import {LegacyLoginGate} from "../lpaccrue/legacy/LegacyLoginGate.sol";
 import {DiscipleRouter} from "../../src/DiscipleRouter.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {Token} from "../../src/Token.sol";
@@ -32,9 +32,9 @@ contract RuntimeMarket is IntegrationBase {
     function launchpadAddress() external view returns (address) { return address(launchpad); }
     function strategyAddress() external view returns (address) { return address(strategy); }
     function prepareLaunches(address announcer) external returns (address anon, address gate) {
-        gate = address(new LoginGate(owner, vm.addr(0xA77E57)));
-        vm.prank(owner); launchpad.setLoginGate(gate);
-        anon = address(new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, announcer, 0.5 ether));
+        gate = address(new LegacyLoginGate());
+        
+        anon = address(new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), announcer));
     }
     function usdgAddress() external view returns (address) { return address(quote); }
     function routerAddress() external view returns (address) { return address(router); }

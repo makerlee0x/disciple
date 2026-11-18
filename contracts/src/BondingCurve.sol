@@ -81,8 +81,6 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
 
     /// @notice Game mode chosen by the creator at launch (Constants.MODE_*), immutable. Curve-only.
     uint8 public immutable mode;
-    /// @notice PVE login gate (EIP-712 attestations); address(0) for non-PVE coins.
-    address public immutable loginGate;
     uint256 public immutable launchTime;
     uint256 public immutable launchBlock;
     /// @notice Primary trusted router snapshotted at launch (gas: no Launchpad call on its trades). Other routers
@@ -139,7 +137,6 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     // ── PVE state (unused / zero for PVP + TRENCH) ──
     struct Acct {
         uint128 cost; // quote paid for the current NET curve position (avg cost = cost / balanceOnCurve)
-        uint64 verifiedUntil; // cached LoginGate expiry
     }
 
     mapping(address => Acct) internal _acct;
@@ -148,6 +145,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     /// @notice Settled but unclaimed holder rewards (quote raw).
     mapping(address => uint256) public rewardsAccrued;
     uint256 internal constant ACC_SCALE = 1e36;
+    address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;
     /// @notice Profit-tax reward per NET curve token, scaled 1e36 (ACC_SCALE).
     uint256 public accRewardPerToken;
     /// @notice Sum of all NET curve positions (PVE only) — the accumulator denominator.
@@ -223,7 +221,6 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         CurveMath.Params memory params_, // CurveMath.makeParams(quotePriceUsd), computed by the Launchpad (size)
         uint256 walletCapBps_,
         uint8 mode_,
-        address loginGate_,
         address trustedRouter_,
         uint256 crewTipThresholdBps_,
         uint256 snipeEscrowTimeout_,
@@ -243,7 +240,6 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         quotePriceUsd = params_.quotePriceUsd;
         walletCapBps = walletCapBps_;
         mode = mode_;
-        loginGate = loginGate_;
         launchTime = block.timestamp;
         launchBlock = block.number;
         trustedRouter = trustedRouter_;
@@ -460,12 +456,6 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         return _acct[wallet].cost;
     }
 
-    /// @notice PVE: cached login expiry for `wallet` (0 = not cached; the gate is consulted on the next buy).
-    /// @dev lp-accrue curves never write it (no on-chain login check): always 0. Kept for ABI compatibility.
-    function verifiedUntilOf(address wallet) external view returns (uint64) {
-        return _acct[wallet].verifiedUntil;
-    }
-
     /// @notice Claimable holder rewards (PVE crew-tip pool), quote raw. Works after graduation.
     function pendingRewards(address holder) public view returns (uint256) {
         return rewardsAccrued[holder] + Math.mulDiv(balanceOnCurve[holder], accRewardPerToken, ACC_SCALE)
@@ -529,8 +519,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     /// @notice First BOOST: same-tx creator buy from Launchpad (payer = Launchpad, tokens to `buyer` = creator).
     ///         Exempt from the sniper tax and from the holding cap for this buy only (it counts in NET afterwards);
     ///         limited to `maxTokens` (the mode's First BOOST max) by PARTIAL FILL — the unused input is refunded
-    ///         to the Launchpad (returned as `refund`), which forwards it to the payer. Easy: still needs login, and
-    ///         the bought amount is locked on the creator until graduation (Token.lockCreator).
+    ///         to the Launchpad (returned as `refund`), which forwards it to the payer. Easy: the bought
+    ///         amount is locked on the creator until graduation (Token.lockCreator).
     function buyFor(address buyer, uint256 quoteIn, uint256 minTokensOut, uint256 deadline, uint256 maxTokens)
         external
         returns (uint256 tokensOut, uint256 refund)
@@ -542,7 +532,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     }
 
     /// @notice Trusted-router buy for `trader`. The router has ALREADY transferred `quoteIn` to this curve (prepaid:
-    ///         no approve / transferFrom). Caps, login, cost basis and Trade attribution use `trader`; a graduation
+    ///         no approve / transferFrom). Caps, cost basis and Trade attribution use `trader`; a graduation
     ///         refund / partial-fill refund goes back to the router (returned as `refund`). `maxImpactBps` is the router's impact cap (checked on the exact quote).
     function routerBuy(address trader, uint256 quoteIn, uint256 minTokensOut, uint256 deadline, uint256 maxImpactBps)
         external
@@ -652,12 +642,11 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         if (room == 0) revert WalletCap();
     }
 
-    /// @dev PVE buy bookkeeping: login check (cached), reward settlement at the CURRENT accumulator (so a new
+    /// @dev PVE buy bookkeeping: reward settlement at the CURRENT accumulator (so a new
     ///      buyer's rewardDebt starts at acc and earns nothing from earlier taxed sells), cost basis, totalNet.
     function _pveOnBuy(address trader, uint256 oldBal, uint256 newBal, uint256 quoteSpent) internal {
-        // lp-accrue curves (lee 2026-11-09 "why do we have to record onchain that theyre verified? ... get rid of it"):
-        // no LoginGate read / cache here. App-level gating as pump.fun / FOMO do it: login is enforced off-chain at the
-        // app + relay (relay admission checks the session); the curve is permissionless. Older curves keep the check.
+        // No on-chain login (maker 2026-11-14): Easy login is enforced off-chain by the app + relay; the curve is
+        // permissionless.
         Acct memory a = _acct[trader];
         uint256 acc = accRewardPerToken;
         if (acc != 0) {
@@ -881,25 +870,31 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         uint256 fb = balanceOnCurve[from];
         uint256 moved = amount < fb ? amount : fb;
         if (moved == 0) return; // tokens beyond the NET position carry no NET / basis
-        uint256 tb = balanceOnCurve[to];
+        // Audit 2026-11-17 A-5: a transfer to 0x…dEaD is a burn, not a wallet. The NET leaves circulation (no cap,
+        // no rewards or cost basis parked on dEaD), so a burn-mode route can never hit the wallet cap.
+        bool burn = to == DEAD;
+        uint256 tb = burn ? 0 : balanceOnCurve[to];
         uint256 newFrom = fb - moved;
         uint256 newTo = tb + moved;
-        if (newTo > netCapNow()) revert WalletCap();
+        if (!burn && newTo > netCapNow()) revert WalletCap();
         uint256 acc = accRewardPerToken;
         if (acc != 0) {
             rewardsAccrued[from] += Math.mulDiv(fb, acc, ACC_SCALE) - rewardDebt[from];
-            if (tb != 0) rewardsAccrued[to] += Math.mulDiv(tb, acc, ACC_SCALE) - rewardDebt[to];
             rewardDebt[from] = Math.mulDiv(newFrom, acc, ACC_SCALE);
-            rewardDebt[to] = Math.mulDiv(newTo, acc, ACC_SCALE);
+            if (!burn) {
+                if (tb != 0) rewardsAccrued[to] += Math.mulDiv(tb, acc, ACC_SCALE) - rewardDebt[to];
+                rewardDebt[to] = Math.mulDiv(newTo, acc, ACC_SCALE);
+            }
         }
         uint128 cf = _acct[from].cost;
         uint128 cm = moved == fb ? cf : uint128(Math.mulDiv(cf, moved, fb));
         if (cm != 0) {
             _acct[from].cost = cf - cm;
-            _acct[to].cost += cm;
+            if (!burn) _acct[to].cost += cm;
         }
         balanceOnCurve[from] = newFrom;
-        balanceOnCurve[to] = newTo;
+        if (burn) totalNet -= moved;
+        else balanceOnCurve[to] = newTo;
     }
 
     // ── PVE holder rewards ──

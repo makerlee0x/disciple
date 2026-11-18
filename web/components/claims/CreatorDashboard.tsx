@@ -64,7 +64,7 @@ export const HOST_COPY = {
   from: (who: string) => `From ${who}`,
   legacy: "Part of this rocket's share sits on the older private launcher and can't be claimed.",
   /** coins launched with pool / burn: nothing to claim, the fees go there instead */
-  routed: { 1: "Your creator fees go into this rocket's locked pool.", 2: "Your creator fees buy and burn the pair coin." } as Record<1 | 2, string>,
+  routed: { 1: "Your creator fees go into this rocket's locked pool.", 2: "Your creator fees are burned." } as Record<1 | 2, string>,
   sheetAll: "Claim host earnings",
   sheetOne: (name: string) => `Claim ${name}`,
   signInTitle: "Sign in to see your host earnings",

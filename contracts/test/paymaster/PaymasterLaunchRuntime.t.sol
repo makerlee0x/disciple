@@ -12,7 +12,7 @@ import {DiscipleRouter} from "../../src/DiscipleRouter.sol";
 import {Launchpad} from "../../src/Launchpad.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 import {AnonLauncher} from "../../src/addons/AnonLauncher.sol";
-import {LoginGate} from "../../src/LoginGate.sol";
+import {LegacyLoginGate} from "../lpaccrue/legacy/LegacyLoginGate.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {Vm} from "forge-std/Vm.sol";
@@ -118,17 +118,14 @@ contract PaymasterLaunchRuntimeTest is PaymasterBootstrapFixture {
         if (install) calls[i++] = MiniAccount.Call(smart, 0, _install());
         if (mode == 1 && install) {
             uint64 expiry = uint64(block.timestamp + 1 hours);
-            (uint8 v, bytes32 r, bytes32 s) = vm.sign(0xA77E57, LoginGate(gate).digest(smart, expiry));
-            calls[i++] = MiniAccount.Call(
-                gate, 0, abi.encodeCall(LoginGate.attest, (smart, expiry, abi.encodePacked(r, s, v)))
-            );
+            calls[i++] = MiniAccount.Call(gate, 0, abi.encodeCall(LegacyLoginGate.verify, (smart, expiry)));
         }
         address spender = kind == 0 ? lp : kind == 1 ? address(trade) : anon;
         if (kind == 2) {
             calls[i++] = MiniAccount.Call(
                 address(usdg),
                 0,
-                abi.encodeCall(ERC20.approve, (anon, 0.5 ether + (quoteAsset == address(usdg) ? boost : 0)))
+                abi.encodeCall(ERC20.approve, (anon, quoteAsset == address(usdg) ? boost : 0))
             );
         }
         if (boost > 0 && !(kind == 2 && quoteAsset == address(usdg))) {
@@ -151,7 +148,7 @@ contract PaymasterLaunchRuntimeTest is PaymasterBootstrapFixture {
         bytes memory data;
         if (kind == 0) data = abi.encodeCall(Launchpad.launchWithMode, (p, mode));
         else if (kind == 1) data = abi.encodeCall(DiscipleRouter.launchWithUsdg, (p, mode, boost, minQuoteIn));
-        else data = abi.encodeCall(AnonLauncher.launchAnon, (p, smart, smart, new bytes(64), bytes1(0), 0.5 ether));
+        else data = abi.encodeCall(AnonLauncher.launchAnon, (p, smart, smart, new bytes(64), bytes1(0), 0));
         calls[i++] = MiniAccount.Call(spender, 0, data);
         assembly ("memory-safe") { mstore(calls, i) }
         return abi.encodeCall(MiniAccount.executeBatch, (calls));

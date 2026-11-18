@@ -165,8 +165,8 @@ export const CREATOR_FEE_COPY: Record<CreatorFeeDestination, { sentence: string;
     chip: "Fees stay in the pool",
   },
   2: {
-    sentence: "Fees buy and burn the pair coin.",
-    chip: "Fees buy and burn the pair coin",
+    sentence: "Fees are burned.",
+    chip: "Fees are burned",
   },
 };
 

@@ -6,8 +6,8 @@ import {Deploy} from "../../script/Deploy.s.sol";
 import {DeployPaymaster} from "../../script/DeployPaymaster.s.sol";
 import {DisciplePaymaster} from "../../src/paymaster/DisciplePaymaster.sol";
 import {ReferralRegistry} from "../../src/ReferralRegistry.sol";
-import {UsdgDepositNotifier} from "../../src/UsdgDepositNotifier.sol";
 import {DiscipleHook} from "../../src/DiscipleHook.sol";
+import {LockedLP} from "../../src/LockedLP.sol";
 import {Migration} from "../../src/Migration.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {NetworkConfig} from "../../script/config/NetworkConfig.sol";
@@ -50,20 +50,16 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         vm.setEnv("V4_QUOTER", zero);
         vm.setEnv("DEFAULT_QUOTE", zero);
         vm.setEnv("TREASURY", zero);
-        vm.setEnv("PVE_ATTESTER", zero);
+        vm.setEnv("SAFE", zero);
+        vm.setEnv("PRICER_POKER", zero);
         vm.setEnv("REFERRAL_SINK", zero);
         vm.setEnv("DEPLOY_TEST_STRATEGY", "false");
         Deploy d = new Deploy();
         Deploy.Out memory o = d.run();
 
-        // #5 deposit notifier wired → onUsdgDeposit reachable
-        assertEq(ReferralRegistry(o.referrals).depositHook(), o.depositNotifier);
-        assertEq(address(UsdgDepositNotifier(o.depositNotifier).registry()), o.referrals);
-        assertEq(address(UsdgDepositNotifier(o.depositNotifier).usdg()), o.usdg);
+        // referrals count on first touch (no deposit gate since 2026-11-17)
+        assertTrue(ReferralRegistry(o.referrals).owner() != address(0));
 
-        // #10 only DiscipleRouter is trusted for hookData attribution
-        assertTrue(DiscipleHook(o.hook).isTrustedRouter(o.router));
-        assertFalse(DiscipleHook(o.hook).isTrustedRouter(ur));
 
         // #1 migrate gated by Launchpad registry; #12 hook wired to Migration
         assertEq(Migration(o.migration).launchpad(), o.launchpad);
@@ -71,7 +67,9 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
 
         // #2 hook address carries the beforeInitialize flag
         assertTrue(uint160(o.hook) & Hooks.BEFORE_INITIALIZE_FLAG != 0);
-        assertTrue(uint160(o.hook) & Hooks.BEFORE_ADD_LIQUIDITY_FLAG != 0);
+        assertTrue(uint160(o.hook) & Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG != 0);
+        assertTrue(uint160(o.hook) & Hooks.BEFORE_ADD_LIQUIDITY_FLAG == 0);
+        assertTrue(uint160(o.hook) & Hooks.BEFORE_SWAP_FLAG == 0);
 
         // Creator-fee harvest is the claim router for destinations 1 and 2, and it pulls the curve vault.
         assertTrue(o.creatorFeeHarvest != address(0));
@@ -134,11 +132,11 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         guardKeys.push("V4_QUOTER");
         guardKeys.push("USDG");
         guardKeys.push("DEFAULT_QUOTE");
-        guardKeys.push("PVE_ATTESTER");
+        guardKeys.push("SAFE");
+        guardKeys.push("PRICER_POKER");
         guardKeys.push("EXPECT_USDG_DECIMALS");
         guardKeys.push("MIN_LIQUIDITY");
         guardKeys.push("PROBE_USDG");
-        guardKeys.push("ANON_LAUNCH_FEE");
         guardKeys.push("ERC5564_ANNOUNCER");
         guardKeys.push("DEPLOY_TEST_STRATEGY");
         for (uint256 i; i < guardKeys.length; ++i) {
@@ -217,11 +215,11 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         vm.setEnv("V4_QUOTER", a);
         vm.setEnv("USDG", a);
         vm.setEnv("DEFAULT_QUOTE", a);
-        vm.setEnv("PVE_ATTESTER", a);
+        vm.setEnv("SAFE", a);
+        vm.setEnv("PRICER_POKER", a);
         vm.setEnv("EXPECT_USDG_DECIMALS", "6");
         vm.setEnv("MIN_LIQUIDITY", "1");
         vm.setEnv("PROBE_USDG", "1");
-        vm.setEnv("ANON_LAUNCH_FEE", "0");
         vm.setEnv("ERC5564_ANNOUNCER", vm.toString(address(0)));
         vm.setEnv("DEPLOY_TEST_STRATEGY", "false");
     }

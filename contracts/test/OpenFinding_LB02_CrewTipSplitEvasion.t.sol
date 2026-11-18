@@ -11,7 +11,7 @@ pragma solidity ^0.8.24;
 import {IntegrationBase} from "./integration/IntegrationBase.sol";
 import {BondingCurve} from "../src/BondingCurve.sol";
 import {Token} from "../src/Token.sol";
-import {LoginGate} from "../src/LoginGate.sol";
+import {LegacyLoginGate} from "./lpaccrue/legacy/LegacyLoginGate.sol";
 import {ILaunchpad} from "../src/interfaces/ILaunchpad.sol";
 import {Constants} from "../src/libraries/Constants.sol";
 
@@ -21,9 +21,7 @@ contract LB02_CrewTipSplitEvasion is IntegrationBase {
 
     function setUp() public override {
         super.setUp();
-        LoginGate gate = new LoginGate(owner, vm.addr(0xA77E57));
-        vm.prank(owner);
-        launchpad.setLoginGate(address(gate)); // required to launch PVE; lp-accrue curves never read it
+        LegacyLoginGate gate = new LegacyLoginGate();
         quote.mint(alice, 10_000_000 ether);
         quote.mint(bob, 10_000_000 ether);
     }

@@ -37,6 +37,12 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     mapping(address => mapping(address => uint256)) public override referrerAccrued;
 
     mapping(address => bool) public authorizedCallers; // curves / migration
+    /// @notice maker 2026-11-17: the owner authorizes exactly one caller (the hook) at deploy, then never again.
+    ///         Curves are authorized by the Launchpad as they launch.
+    bool public ownerAuthorizationUsed;
+    /// @notice One-way (audit 2026-11-17 R461-01b / R461-04): once set, the KOL share, referral sink and claim-router
+    ///         list can never change, so no later key can take creator fees or re-split existing coins' fees.
+    bool public settingsLocked;
 
     /// @notice Treasury share (33% + unrouted 1% [+ 30% of a legacy routeSnipeFee call; v2 curves never make one]) accrued per asset; anyone may push it to
     ///         `treasury` with claimTreasury(asset). Replaces the per-trade treasury transfer (gas).
@@ -61,6 +67,8 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     error LaunchpadAlreadySet();
     error QuoteAlreadySet();
     error NotAContract();
+    error AlreadyWired();
+    error SettingsLocked();
     /// @notice Destination 1 or 2. The later-send contract pulls these fees. The launcher cannot claim them.
     error CreatorFeesRouted();
 
@@ -104,6 +112,7 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     mapping(address => bool) public isClaimRouter;
 
     event ClaimRouterSet(address indexed router, bool allowed);
+    event FeeSettingsLocked();
 
     constructor(address owner_, address treasury_, address referrals_) Owned2Step(owner_) {
         if (owner_ == address(0) || treasury_ == address(0) || referrals_ == address(0)) {
@@ -125,8 +134,11 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         launchpad = launchpad_;
     }
 
+    /// @notice Write-once (maker 2026-11-17): the 33% LP share can never be pointed elsewhere.
     function setLockedLP(address lockedLP_) external {
         if (msg.sender != owner) revert OnlyOwner();
+        if (address(lockedLP) != address(0)) revert AlreadyWired();
+        if (lockedLP_.code.length == 0) revert NotAContract();
         lockedLP = ILockedLP(lockedLP_);
     }
 
@@ -146,14 +158,14 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     }
 
     function setReferralSink(address sink) external {
-        if (msg.sender != owner) revert OnlyOwner();
+        _onlyOwnerUnlocked();
         emit ReferralSinkSet(referralSink, sink);
         referralSink = sink;
     }
 
     /// @notice Set the launch KOL's cut of the creator share (bps of that share, 0–500). Future trades only.
     function setKolCreatorShareBps(uint256 bps) external {
-        if (msg.sender != owner) revert OnlyOwner();
+        _onlyOwnerUnlocked();
         if (bps > MAX_KOL_CREATOR_SHARE_BPS) revert KolShareTooHigh();
         emit KolCreatorShareSet(kolCreatorShareBps, bps);
         kolCreatorShareBps = uint16(bps);
@@ -161,14 +173,31 @@ contract FeeRouter is IFeeRouter, Owned2Step {
 
     /// @notice Allow / revoke a router for claimCreatorFeesFor (owner only).
     function setClaimRouter(address router, bool allowed) external {
-        if (msg.sender != owner) revert OnlyOwner();
+        _onlyOwnerUnlocked();
         if (router == address(0)) revert ZeroAddress();
         isClaimRouter[router] = allowed;
         emit ClaimRouterSet(router, allowed);
     }
 
+    /// @notice Freeze the KOL share, referral sink and claim routers forever (Deploy calls it on mainnet).
+    function lockSettings() external {
+        _onlyOwnerUnlocked();
+        settingsLocked = true;
+        emit FeeSettingsLocked();
+    }
+
+    function _onlyOwnerUnlocked() internal view {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (settingsLocked) revert SettingsLocked();
+    }
+
     function setAuthorized(address caller, bool ok) external {
-        if (msg.sender != owner && msg.sender != launchpad) revert OnlyOwner();
+        if (msg.sender != launchpad) {
+            if (msg.sender != owner) revert OnlyOwner();
+            // maker 2026-11-17: one owner grant (the hook), so no key can later add a caller that books fee credit.
+            if (ownerAuthorizationUsed || !ok || caller.code.length == 0) revert AlreadyWired();
+            ownerAuthorizationUsed = true;
+        }
         authorizedCallers[caller] = ok;
     }
 
@@ -317,9 +346,9 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     }
 
     /// @notice Owner sets the community rewards vault (target of releaseSnipeEscrow; 70% of a legacy routeSnipeFee).
-    ///         address(0): releaseSnipeEscrow reverts ZeroRecipient; a legacy routeSnipeFee sends all to treasury.
     function setRewardsVault(address vault) external {
         if (msg.sender != owner) revert OnlyOwner();
+        if (vault.code.length == 0) revert NotAContract(); // audit L-10: never unset or an EOA
         rewardsVault = vault;
         emit RewardsVaultUpdated(vault);
     }
@@ -443,13 +472,15 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         emit CreatorTokenFeesClaimed(token, creator, amount);
     }
 
-    /// @notice Owner sets the later-send contract self-claims read. Address 0 restores today's claim.
+    /// @notice Owner sets the later-send contract self-claims read, once (maker 2026-11-17: write-once, so the creator
+    ///         fees of lock/burn coins can never be redirected).
     ///         The `_51` suffix keeps this selector after every function that already existed, so a trade does not
     ///         walk an extra dispatcher comparison.
     function setCreatorFeeHarvest_51(address harvest) external {
         if (msg.sender != owner) revert OnlyOwner();
         // Audit FR-02: self-claims call into this address; an EOA would brick every creator self-claim.
-        if (harvest != address(0) && harvest.code.length == 0) revert NotAContract();
+        if (creatorFeeHarvest != address(0)) revert AlreadyWired();
+        if (harvest.code.length == 0) revert NotAContract();
         creatorFeeHarvest = harvest;
     }
 

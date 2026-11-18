@@ -37,7 +37,7 @@ contract AuditFixes202611Test is IntegrationBase {
         super.setUp();
         vm.startPrank(owner);
         harvest.wire(
-            address(launchpad), address(feeRouter), address(lockedLP), address(router), address(hook), address(manager)
+            address(launchpad), address(feeRouter), address(lockedLP), address(router), address(manager)
         );
         launchpad.setTrustedRouter(address(harvest), true);
         launchpad.setTrustedRouter(address(router), true);
@@ -45,7 +45,7 @@ contract AuditFixes202611Test is IntegrationBase {
         feeRouter.setCreatorFeeHarvest_51(address(harvest));
         harvest.setFeeVault(address(feeVault));
         vm.stopPrank();
-        anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), 0);
+        anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), address(0));
         vm.startPrank(owner);
         harvest.setAnonLauncher(address(anon));
         anon.setCreatorFeeHarvest(address(harvest));
@@ -90,12 +90,10 @@ contract AuditFixes202611Test is IntegrationBase {
         assertEq(quote.balanceOf(address(harvest)), 0, "nothing left on the harvest");
     }
 
-    /// CH-03: launch fee and First BOOST in the same token need one combined approval.
+    /// CH-03: the First BOOST goes through the harvest with one approval (hidden launches have no fee since 2026-11-17).
     function test_CH03_launchAnon_feeAndBoostSameToken_works() public {
-        uint256 fee = 1 ether;
+        uint256 fee = 0;
         uint256 boost = 10 ether;
-        vm.prank(owner);
-        anon.setLaunchFee(fee);
         vm.startPrank(creator);
         quote.approve(address(harvest), fee + boost);
         ILaunchpad.LaunchResult memory r =
@@ -141,22 +139,15 @@ contract AuditFixes202611Test is IntegrationBase {
         vm.stopPrank();
     }
 
-    /// CH-01: the burn sell is chunked to <= MAX_SELL_IMPACT_BPS; the rest stays parked for later routes.
-    function test_CH01_burnSell_isChunked() public {
+    /// CH-01 (superseded 2026-11-17): burn mode no longer sells. Any lump of rocket-token fees goes straight to the
+    /// dead address in one route, and the pool price does not move.
+    function test_CH01_burnRockets_noSell_anySize() public {
         (BondingCurve curve, Token tok) = _launchDest(2, 0);
         _warpPastSnipe();
         _buy(curve, creator, 200 ether, 0);
         _graduate(curve);
-        _refReady(tok);
 
         uint256 amt = tok.balanceOf(creator);
-        (, uint256 imp,) = router.quoteExactIn(address(tok), false, amt);
-        while (imp > 4500 && amt > 1) {
-            amt /= 2;
-            (, imp,) = router.quoteExactIn(address(tok), false, amt);
-        }
-        assertGt(imp, 3 * harvest.MAX_DEV_BPS(), "lump is far larger than one allowed chunk");
-
         vm.startPrank(creator);
         tok.approve(address(harvest), amt);
         harvest.depositRocketTokens(address(tok), amt);
@@ -165,16 +156,14 @@ contract AuditFixes202611Test is IntegrationBase {
         vm.roll(block.number + 1);
         PoolId id = _poolKey(tok).toId();
         (uint160 sp0,,,) = manager.getSlot0(id);
-        (, uint256 sold, uint256 bought) = harvest.route(address(tok));
+        uint256 dead0 = tok.balanceOf(0x000000000000000000000000000000000000dEaD);
+        (, uint256 burned, uint256 bought) = harvest.route(address(tok));
         (uint160 sp1,,,) = manager.getSlot0(id);
-        assertGt(sold, 0, "a chunk sold");
-        assertGt(bought, 0);
-        assertLt(sold, amt, "not the whole lump");
-        assertGt(harvest.rocketDeposited(address(tok)), 0, "the rest stays parked");
-        uint256 hi = sp0 > sp1 ? sp0 : sp1;
-        uint256 lo = sp0 > sp1 ? sp1 : sp0;
-        uint256 devBps = (hi * 10_000 / lo) * hi / lo - 10_000;
-        assertLe(devBps, 2 * harvest.MAX_SELL_IMPACT_BPS(), "one route moves the price by about one chunk only");
+        assertEq(burned, amt, "the whole lump burned");
+        assertEq(bought, 0);
+        assertEq(tok.balanceOf(0x000000000000000000000000000000000000dEaD) - dead0, amt);
+        assertEq(harvest.rocketDeposited(address(tok)), 0);
+        assertEq(sp1, sp0, "price unchanged");
     }
 
     // ───────────────────────── LockedLP ─────────────────────────
@@ -212,8 +201,9 @@ contract AuditFixes202611Test is IntegrationBase {
             _swapExactInQuoteForToken(tok, makeAddr("obs"), dust);
             vm.roll(vm.getBlockNumber() + 1);
             vm.warp(vm.getBlockTimestamp() + 30);
-            vm.recordLogs();
             _swapExactInQuoteForToken(tok, trader1, 25 * U);
+            vm.recordLogs();
+            _flush(address(tok)); // the keeper compounds outside swaps
             Vm.Log[] memory logs = vm.getRecordedLogs();
             for (uint256 j; j < logs.length; j++) {
                 if (logs[j].topics.length != 0 && logs[j].topics[0] == COMPOUNDED) adds++;
@@ -267,14 +257,42 @@ contract AuditFixes202611Test is IntegrationBase {
         assertEq(feeRouter.tokenQuote(address(tok)), address(quote));
     }
 
-    /// FR-02: the creator-fee harvest pointer must be a contract (or 0).
-    function test_FR02_setCreatorFeeHarvest_rejectsEoa() public {
+    /// FR-02: the creator-fee harvest pointer must be a contract; maker 2026-11-17: and it is write-once.
+    function test_FR02_setCreatorFeeHarvest_rejectsEoa_andIsWriteOnce() public {
+        FeeRouter fresh = new FeeRouter(owner, treasury, address(referrals));
         vm.startPrank(owner);
         vm.expectRevert(FeeRouter.NotAContract.selector);
-        feeRouter.setCreatorFeeHarvest_51(makeAddr("eoa"));
-        feeRouter.setCreatorFeeHarvest_51(address(0));
+        fresh.setCreatorFeeHarvest_51(makeAddr("eoa"));
+        vm.expectRevert(FeeRouter.NotAContract.selector);
+        fresh.setCreatorFeeHarvest_51(address(0));
+        fresh.setCreatorFeeHarvest_51(address(harvest));
+        vm.expectRevert(FeeRouter.AlreadyWired.selector);
+        fresh.setCreatorFeeHarvest_51(address(lockedLP));
+        vm.expectRevert(FeeRouter.AlreadyWired.selector);
         feeRouter.setCreatorFeeHarvest_51(address(harvest));
         vm.stopPrank();
+    }
+
+    /// maker 2026-11-17: the LP-share pointer is write-once, and the owner gets exactly one caller grant (the hook).
+    function test_feeRouter_lpPointer_andAuthorization_locked() public {
+        vm.startPrank(owner);
+        vm.expectRevert(FeeRouter.AlreadyWired.selector);
+        feeRouter.setLockedLP(address(harvest));
+        vm.expectRevert(FeeRouter.AlreadyWired.selector);
+        feeRouter.setAuthorized(address(harvest), true);
+        vm.expectRevert(FeeRouter.AlreadyWired.selector);
+        feeRouter.setAuthorized(address(hook), false);
+        vm.stopPrank();
+        assertTrue(feeRouter.authorizedCallers(address(hook)));
+    }
+
+    /// maker 2026-11-17: the hook admin can be dropped for good once Migration is wired.
+    function test_hook_renounceAdmin() public {
+        vm.prank(hook.admin());
+        hook.renounceAdmin();
+        assertEq(hook.admin(), address(0));
+        vm.expectRevert();
+        hook.setPricer(address(1));
     }
 
     // ───────────────────────── DiscipleRouter ─────────────────────────

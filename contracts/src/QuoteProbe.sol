@@ -114,7 +114,9 @@ contract QuoteProbe is IQuoteProbe, IUnlockCallback, Owned2Step {
             address c0 = Currency.unwrap(key.currency0);
             bool zfo = c0 == cur;
             if (!zfo && Currency.unwrap(key.currency1) != cur) revert ProbeOutcome(HONEYPOT);
-            BalanceDelta d = poolManager.swap(
+            // Audit L-23: a swap revert (e.g. a route-pool hook reverting with a forged ProbeOutcome(0)) is a fail.
+            BalanceDelta d;
+            try poolManager.swap(
                 key,
                 IPoolManager.SwapParams({
                     zeroForOne: zfo,
@@ -122,7 +124,11 @@ contract QuoteProbe is IQuoteProbe, IUnlockCallback, Owned2Step {
                     sqrtPriceLimitX96: zfo ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
                 }),
                 ""
-            );
+            ) returns (BalanceDelta r) {
+                d = r;
+            } catch {
+                revert ProbeOutcome(HONEYPOT);
+            }
             int128 out = zfo ? d.amount1() : d.amount0();
             if (out <= 0) revert ProbeOutcome(HONEYPOT);
             amt = uint256(uint128(out));
@@ -137,13 +143,19 @@ contract QuoteProbe is IQuoteProbe, IUnlockCallback, Owned2Step {
         }
         uint256 got = _bal(base) - b0;
         if (got < amt) revert ProbeOutcome(got == 0 ? HONEYPOT : FOT);
-        // 3. sell-side transfer: this → PoolManager, measured by the PM's own balance delta
+        // 3. sell side via approve + transferFrom (audit 2026-11-17 M-4: curves, Launchpad and Migration all pull
+        //    quote with transferFrom), this → PoolManager, measured by the PM's own balance delta
         poolManager.sync(Currency.wrap(base));
-        (bool s, bytes memory ret) = base.call(abi.encodeCall(IERC20.transfer, (address(poolManager), got)));
-        if (!s || (ret.length != 0 && (ret.length < 32 || !abi.decode(ret, (bool))))) revert ProbeOutcome(HONEYPOT);
+        _call(base, abi.encodeCall(IERC20.approve, (address(this), got)));
+        _call(base, abi.encodeCall(IERC20.transferFrom, (address(this), address(poolManager), got)));
         uint256 paid = poolManager.settle();
         if (paid < got) revert ProbeOutcome(paid == 0 ? HONEYPOT : FOT);
         revert ProbeOutcome(OK);
+    }
+
+    function _call(address token, bytes memory data) internal {
+        (bool s, bytes memory ret) = token.call(data);
+        if (!s || (ret.length != 0 && (ret.length < 32 || !abi.decode(ret, (bool))))) revert ProbeOutcome(HONEYPOT);
     }
 
     function _bal(address token) internal view returns (uint256 b) {

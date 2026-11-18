@@ -2,16 +2,18 @@
  * DISCIPLE FLOW event listener → normalized ProtocolEvents.
  *  Launchpad: Launched, LaunchTierContext, CreatorTransferred
  *  BondingCurve (per coin): Trade (pre-grad), GraduatedToV4 (→ "Graduate")
- *  DiscipleHook (all coins, filtered by indexed token): Trade (post-grad v4 swaps, any router)
+ *  Post-grad v4 swaps (any router): PoolManager Swap of the coin's DISCIPLE pool (slim hook, lib/v4Swap), or the old
+ *  DiscipleHook Trade on stacks deployed before it
  * Trade.impactBps / mcapAfterUsd come straight from chain and drive bomb tiers + the chart.
  * Feeds: flight engine (window "disciple:event" → DiscipleSource in engine.js) and launchpad cards.
  */
 import { decodeEventLog, type Log, type PublicClient } from "viem";
-import { bondingCurveAbi, discipleHookAbi, discipleRouterAbi, launchpadAbi } from "./abi";
+import { bondingCurveAbi, discipleRouterAbi, launchpadAbi } from "./abi";
+import { disciplePoolId, hookTradeFromSwap, LEGACY_HOOK_TRADE, POOL_TRADE_EVENT, SWAP_EVENT, traderIndex, type SwapArgs, type TraderHint } from "./v4Swap";
 import { attachRefunds, playerUsd, usdgAmounts, usdgIndex, usdgKey, type UsdgRefundArgs, type UsdgTradeArgs } from "./trades";
 import { usdgDecimals } from "./usdg";
 import { publishTraderName } from "./nameLookup";
-import { deployment } from "./chains";
+import { deployment, usdgRouters } from "./chains";
 import { curveOf, publicClient, quoteRawToUsd, readMarket } from "./protocol-viem";
 import { coinBasis, hookMcapUsd as hookSqrtMcapUsd, readCoinMcap } from "./mcap";
 import { blockOf, txBlock, type BlockLike } from "./fillBook";
@@ -87,6 +89,44 @@ export function tradeFromLog(l: L, quotePriceUsd: bigint, venue: "curve" | "hook
       : wad(a.mcapAfterUsd as bigint),
     txHash: l.transactionHash ?? "", block: l.blockNumber ?? BigInt(0), logIndex: l.logIndex ?? 0,
   };
+}
+
+const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+/**
+ * Post-grad trades of `token` in [from, to] as hook-Trade-shaped logs (eventName "Trade", args as the old hook event):
+ * the old hook's own Trade where it exists, else the PoolManager Swap of the coin's pool with the trader from our
+ * router's PoolTrade / UsdgTrade in the same tx (else the tx sender). Sorted in chain order.
+ */
+export async function poolTradeLogs(pc: PublicClient, token: Address, quote: Address | undefined, from: bigint, to: bigint | "latest"): Promise<L[]> {
+  const d = deployment();
+  if (d.hook === ZERO_ADDR) return [];
+  const legacy = (await pc.getLogs({ address: d.hook, event: LEGACY_HOOK_TRADE, args: { token }, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as L[];
+  for (const l of legacy) l.eventName = "Trade";
+  if (!quote || d.poolManager === ZERO_ADDR) return legacy;
+  const id = disciplePoolId(token, quote, d.hook);
+  const swaps = (await pc.getLogs({ address: d.poolManager, event: SWAP_EVENT, args: { id }, fromBlock: from, toBlock: to }).catch(() => [])) as unknown as (Log & { args: SwapArgs })[];
+  if (!swaps.length) return legacy;
+  const hookTx = new Set(legacy.map((l) => String(l.transactionHash).toLowerCase()));
+  const routers = usdgRouters(d);
+  const [pt, ut] = routers.length === 0 ? [[], []] : await Promise.all([
+    pc.getLogs({ address: routers, event: POOL_TRADE_EVENT, args: { token }, fromBlock: from, toBlock: to }).catch(() => []),
+    pc.getContractEvents({ address: routers, abi: discipleRouterAbi, eventName: "UsdgTrade", args: { token }, fromBlock: from, toBlock: to }).catch(() => []),
+  ]);
+  const hints: TraderHint[] = ([...(pt as unknown as L[]), ...(ut as unknown as L[])]).map((l) => ({
+    tx: String(l.transactionHash), trader: String(l.args.trader), token: String(l.args.token), isBuy: Boolean(l.args.isBuy),
+  }));
+  const who = traderIndex(hints);
+  const out: L[] = [...legacy];
+  for (const sw of swaps) {
+    const tx = String(sw.transactionHash ?? "");
+    if (hookTx.has(tx.toLowerCase())) continue;
+    const pre = hookTradeFromSwap(sw.args, token, quote, ZERO_ADDR);
+    let trader = who(tx, token, pre.isBuy);
+    if (!trader && tx) trader = await pc.getTransaction({ hash: tx as `0x${string}` }).then((t) => t.from, () => undefined);
+    out.push({ ...sw, eventName: "Trade", args: { ...pre, trader: (trader ?? sw.args.sender ?? ZERO_ADDR) as Address } } as unknown as L);
+  }
+  const k = (l: L) => (l.blockNumber ?? BigInt(0)) * BigInt(100000) + BigInt(l.logIndex ?? 0);
+  return out.sort((a, b) => (k(a) < k(b) ? -1 : k(a) > k(b) ? 1 : 0));
 }
 
 /** Chain-order key of a Trade (block, logIndex). */
@@ -360,7 +400,7 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
   if (hook !== "0x0000000000000000000000000000000000000000") {
     const h = pollLogs({
       pc, fromBlock: start,
-      fetch: (from, to) => withUsdg(from, to, pc.getContractEvents({ address: hook, abi: discipleHookAbi, eventName: "Trade", args: { token }, fromBlock: from, toBlock: to }) as unknown as Promise<L[]>),
+      fetch: (from, to) => withUsdg(from, to, hookCtx.then((k) => poolTradeLogs(pc, token, (k.quote ?? quote) as Address | undefined, from, to))),
       onLogs: (logs) => inOrder(async () => { const k = await hookCtx; for (const l of logs) order.trade(tradeFromLog(l, qp, "hook", k, usdgOf(l))); }),
     });
     stops.push(h.stop); kicks.push(h.kick); pollers.push(h);
@@ -454,7 +494,7 @@ export async function tradeHistory(token: Address, curve: Address, pc: PublicCli
   const router = deployment().router;
   const [curveLogs, hookLogs, routerLogs, refundLogs] = await Promise.all([
     pc.getContractEvents({ address: curve, abi: bondingCurveAbi, fromBlock, toBlock: "latest" }),
-    pc.getContractEvents({ address: deployment().hook, abi: discipleHookAbi, eventName: "Trade", args: { token }, fromBlock, toBlock: "latest" }),
+    poolTradeLogs(pc, token, quote as Address | undefined, fromBlock, "latest"),
     router === "0x0000000000000000000000000000000000000000" ? Promise.resolve([])
       : pc.getContractEvents({ address: router, abi: discipleRouterAbi, eventName: "UsdgTrade", args: { token }, fromBlock, toBlock: "latest" }).catch(() => []),
     router === "0x0000000000000000000000000000000000000000" ? Promise.resolve([])

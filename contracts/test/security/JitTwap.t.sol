@@ -11,7 +11,6 @@ import {DiscipleHook} from "../../src/DiscipleHook.sol";
 import {QuotePricer} from "../../src/QuotePricer.sol";
 import {Launchpad} from "../../src/Launchpad.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
-import {IHookTradeEvents} from "../../src/interfaces/ITradeEvents.sol";
 import {IAltitudeEvents} from "../../src/interfaces/IAltitudeEvents.sol";
 import {Altitude} from "../../src/libraries/Altitude.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
@@ -19,12 +18,14 @@ import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolSwapTest} from "@uniswap/v4-core/src/test/PoolSwapTest.sol";
 import {PoolModifyLiquidityTest} from "@uniswap/v4-core/src/test/PoolModifyLiquidityTest.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @notice SEC-02 (LP-add gate, no LP yield), SEC-03 (QuotePricer TWAP), limit-order auto-close, altitude on spot.
 contract JitTwapTest is IntegrationBase {
     using PoolIdLibrary for PoolKey;
+    using StateLibrary for IPoolManager;
 
     TrampWallManager twm;
     BondingCurve curve;
@@ -40,7 +41,6 @@ contract JitTwapTest is IntegrationBase {
         vm.prank(router.owner());
         router.setMaxImpactBps(router.MAX_MAX_IMPACT_BPS());
         twm = new TrampWallManager(manager, lockedLP, address(hook));
-        hook.setLiquidityManager(address(twm), true);
         (curve, tok) = _launch(0, 0);
         _graduate(curve);
         pid = _poolKey(tok).toId();
@@ -124,21 +124,28 @@ contract JitTwapTest is IntegrationBase {
 
     // ───────────── SEC-02: JIT ─────────────
 
-    function test_jit_raw_v4_add_blocked_by_hook() public {
+    /// Slim hook (2026-11-17): no liquidity gate. A raw v4 add is allowed, and it earns nothing: the pool's LP fee is
+    /// 0 and the hook's 1% goes to FeeRouter, so fee growth never moves.
+    function test_raw_v4_add_allowed_but_pool_pays_lps_nothing() public {
         PoolModifyLiquidityTest lp = new PoolModifyLiquidityTest(manager);
         PoolKey memory key = _poolKey(tok);
+        quote.mint(jit, 1_000_000 * U);
         vm.startPrank(jit);
         quote.approve(address(lp), type(uint256).max);
         tok.approve(address(lp), type(uint256).max);
-        vm.expectRevert();
+        vm.stopPrank();
+        deal(address(tok), jit, 1_000_000 ether);
+        vm.prank(jit);
         lp.modifyLiquidity(
             key,
-            IPoolManager.ModifyLiquidityParams({tickLower: -887220, tickUpper: 887220, liquidityDelta: 1e18, salt: 0}),
+            IPoolManager.ModifyLiquidityParams({tickLower: -887220, tickUpper: 887220, liquidityDelta: 1e15, salt: 0}),
             ""
         );
-        vm.stopPrank();
-        assertFalse(hook.isLiquidityManager(jit));
-        assertTrue(hook.isLiquidityManager(address(lockedLP)));
+        _buy(whale, 1_000 * U);
+        _sell(whale, tok.balanceOf(whale) / 2);
+        (uint256 g0, uint256 g1) = manager.getFeeGrowthGlobals(key.toId());
+        assertEq(g0, 0);
+        assertEq(g1, 0);
     }
 
     /// @notice No yield: an in-range position around swaps, cancelled in the same block, gets back only the
@@ -195,9 +202,6 @@ contract JitTwapTest is IntegrationBase {
         twm.setKeeperTipBps(101);
         twm.setKeeperTipBps(100);
         assertEq(twm.keeperTipBps(), 100);
-        vm.prank(alice);
-        vm.expectRevert(DiscipleHook.OnlyAdmin.selector);
-        hook.setLiquidityManager(alice, true);
     }
 
     // ───────────── SEC-03: TWAP manipulation ─────────────
@@ -220,7 +224,9 @@ contract JitTwapTest is IntegrationBase {
     }
 
     function test_pricer_flash_manipulation_poke_and_launch_unchanged() public {
+        // a densely poked window (audit 2026-11-18 E-L1: launches need keeper observations across the whole window)
         _next(3600);
+        _warmStrategy();
         pricer.poke(address(strategy));
         uint256 p0 = pricer.quotePriceUsd(address(strategy));
         // flash: pump STRATEGY 4x+ in the reference pool, poke, read, launch, all in one block
@@ -235,6 +241,23 @@ contract JitTwapTest is IntegrationBase {
         else assertApproxEqRel(p1, p0, 1e14, "TWAP moved in-block (> 1 tick)");
         (BondingCurve c2,) = _launchWithQuote(address(0), 0, 0); // default quote = STRATEGY; Launchpad pokes too
         assertEq(c2.quotePriceUsd(), p1, "curve baked manipulated price");
+    }
+
+    /// Audit 2026-11-18 follow-up: a densely poked history that stopped long ago is stale; the gap from the newest
+    /// keeper observation to now counts against the half-window bound (2x window freshness alone allowed 50 min).
+    function test_pricer_dense_history_then_keeper_stops_is_stale() public {
+        _next(3600);
+        _warmQuote(address(strategy));
+        pricer.launchPriceUsd(address(strategy)); // fresh
+        uint32 w = pricer.twapWindow();
+        _next(w / 2 - 60);
+        pricer.launchPriceUsd(address(strategy)); // newest poke 14 min old: ok
+        _next(120);
+        vm.expectRevert(abi.encodeWithSelector(QuotePricer.StalePrice.selector, address(strategy)));
+        pricer.launchPriceUsd(address(strategy)); // 16 min since the last poke
+        _next(3000 - w / 2 - 60);
+        vm.expectRevert(abi.encodeWithSelector(QuotePricer.StalePrice.selector, address(strategy)));
+        pricer.launchPriceUsd(address(strategy)); // the auditor's 50 min case
     }
 
     function test_pricer_sustained_move_is_rate_limited_then_tracks() public {
@@ -358,51 +381,6 @@ contract JitTwapTest is IntegrationBase {
     }
 
     // ───────────── Altitude = SPOT ─────────────
-
-    function test_altitude_hook_tier_follows_spot_each_trade() public {
-        uint8 tier0 = hook.altitudeTierOf(pid);
-        vm.recordLogs();
-        _buy(whale, 10_000 * U); // steep curve #1: shallower pool ($5.25K + 15.76%), 20K would exceed the 1000% cap
-        uint8 up = Altitude.tierOf(_mcapSpot());
-        assertGt(up, tier0);
-        (uint256 n, uint8 lastTo) = _countTierBreaks(vm.getRecordedLogs(), address(hook));
-        assertEq(n, 1, "break on the same trade");
-        assertEq(lastTo, up);
-        assertEq(hook.altitudeTierOf(pid), up);
-        vm.recordLogs();
-        _sell(whale, tok.balanceOf(whale) / 2);
-        uint8 down = Altitude.tierOf(_mcapSpot());
-        (n, lastTo) = _countTierBreaks(vm.getRecordedLogs(), address(hook));
-        assertLt(down, up);
-        assertEq(n, 1);
-        assertEq(lastTo, down);
-        assertEq(hook.altitudeTierOf(pid), down);
-    }
-
-    /// @dev G-1: hook Trade carries sqrtPriceAfter; AltitudeUpdate.mcapUsd = that spot at the launch-time quote price.
-    function test_altitude_update_equals_trade_mcap() public {
-        vm.recordLogs();
-        _buy(alice, 100 * U);
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        uint256 tradeMcap;
-        uint256 altMcap;
-        (,,,, uint256 launchQUsd) = hook.metaOf(pid);
-        bool tIs0 = _tIs0();
-        for (uint256 i; i < logs.length; i++) {
-            if (logs[i].emitter != address(hook)) continue;
-            if (logs[i].topics[0] == IAltitudeEvents.AltitudeUpdate.selector) {
-                (altMcap,) = abi.decode(logs[i].data, (uint256, uint8));
-            }
-            if (logs[i].topics[0] == IHookTradeEvents.Trade.selector) {
-                (,,,,,,,, uint160 sqrtAfter) = abi.decode(
-                    logs[i].data, (bool, uint256, uint256, uint256, uint256, uint256, uint256, uint256, uint160)
-                );
-                tradeMcap = hook.mcapUsdFromSqrt(sqrtAfter, tIs0, launchQUsd);
-            }
-        }
-        assertGt(altMcap, 0);
-        assertEq(altMcap, tradeMcap);
-    }
 
     function test_altitude_curve_spot_break() public {
         (BondingCurve c,) = _launch(0, 0);

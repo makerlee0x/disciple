@@ -244,16 +244,40 @@ contract DisciplePermitForwarder is ReentrancyGuard {
         for (uint256 j; j < sweep.length; ++j) {
             held[j] = IERC20(sweep[j]).balanceOf(address(this));
         }
+        uint256 heldFee = IERC20(token).balanceOf(address(this));
         for (uint256 i; i < calls.length; ++i) {
             address t = calls[i].target;
             if (t == PERMIT2 || t == address(this) || t == token || t.code.length == 0) revert ForbiddenTarget(t);
-            (bool ok, bytes memory ret) = t.call(calls[i].data);
+            // Audit 2026-11-17 A-6: this contract is one shared identity, so a relayed call may never move or approve
+            // its own balances (ERC-20 transfer/transferFrom/approve/increaseAllowance/permit, ERC-721/1155 approvals).
+            bytes calldata data = calls[i].data;
+            if (data.length >= 4) {
+                bytes4 sel = bytes4(data[:4]);
+                if (
+                    sel == IERC20.transfer.selector || sel == IERC20.transferFrom.selector
+                        || sel == IERC20.approve.selector || sel == 0x39509351 || sel == IERC20Permit.permit.selector
+                        || sel == 0xa22cb465
+                    // Audit 2026-11-18 D-2 / R4-3: non-standard move/approve selectors (ERC-677/1363, ERC-777,
+                    // ERC-721/1155 transfers, legacy increaseApproval). The forwarder has no owner, so close them now.
+                    || sel == 0x4000aea0 || sel == 0x1296ee62 || sel == 0xcae9ca51 || sel == 0x9bd9bbc6
+                    || sel == 0x62ad1b83 || sel == 0x959b8c3f || sel == 0x42842e0e || sel == 0xb88d4fde
+                    || sel == 0xf242432a || sel == 0x2eb2c2d6 || sel == 0xd73dd623
+                    // round 5 (L3-I1): other-arity variants (1363 from-forms, 4-arg 677, 2-arg approveAndCall,
+                    // ERC-223 transfer, approve-with-data, ERC-777 burn)
+                    || sel == 0xc1d34b89 || sel == 0xd8fbe994 || sel == 0x257591c5 || sel == 0x3177029f
+                    || sel == 0xbe45fd62 || sel == 0x5c17f9f4 || sel == 0xfe9d9303
+                ) revert ForbiddenTarget(t);
+            }
+            (bool ok, bytes memory ret) = t.call(data);
             if (!ok) revert CallFailed(i, ret);
         }
         for (uint256 j; j < sweep.length; ++j) {
             uint256 got = IERC20(sweep[j]).balanceOf(address(this)) - held[j];
             if (got > 0) IERC20(sweep[j]).safeTransfer(a.feeTo, got);
         }
+        // The fee token's gains always go to the signed fee recipient, even with an empty sweep list (audit L-11).
+        uint256 gotFee = IERC20(token).balanceOf(address(this)) - heldFee;
+        if (gotFee > 0) IERC20(token).safeTransfer(a.feeTo, gotFee);
         emit ActionRelayed(owner, token, a.feeTo, permit.permitted.amount, a.callsHash);
     }
 

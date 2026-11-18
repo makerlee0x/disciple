@@ -46,17 +46,19 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
     address internal stealthA;
     uint256 internal skB;
     address internal stealthB;
-    uint256 constant FEE = 0.5 ether;
+    uint256 constant FEE = 0; // hidden launches are free (maker 2026-11-17)
 
     function setUp() public override {
         super.setUp();
+        _warmQuote(address(strategy)); // pair-coin launches need a warm, fresh TWAP
         anon =
-            new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), treasury, address(0), FEE);
+            new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), address(0));
         // lp-accrue: the CurveFeeVault is built with this AnonLauncher (as DeployLpAccrue / Deploy do), so private
         // coins' curve-phase creator fees are claimable by the coin's owner there
         feeVault = new CurveFeeVault(address(feeRouter), address(anon));
         address d = address(new CurveDeployer(address(feeVault)));
         vm.prank(owner);
+        vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
         launchpad.setCurveDeployer(d);
         (stealthA, skA) = makeAddrAndKey("stealthA");
         (stealthB, skB) = makeAddrAndKey("stealthB");
@@ -208,7 +210,7 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
     function test_reentrancy_guard() public {
         ReenteringFeeToken fee = new ReenteringFeeToken();
         AnonLauncher victim =
-            new AnonLauncher(owner, address(launchpad), address(feeRouter), address(fee), treasury, address(0), FEE);
+            new AnonLauncher(owner, address(launchpad), address(feeRouter), address(fee), address(0));
         fee.mint(payer, 100 ether);
         vm.prank(payer);
         fee.approve(address(victim), type(uint256).max);
@@ -216,8 +218,8 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
         vm.prank(payer);
         vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
         victim.launchAnonWithUsdg(
-            _paramsQ(address(quote), 0, block.timestamp + 1 hours), stealthA, stealthA, "", 0x00, FEE, 0, 0, address(0)
-        );
+            _paramsQ(address(quote), 0, block.timestamp + 1 hours), stealthA, stealthA, "", 0x00, FEE, 1 ether, 0, address(0)
+        ); // no launch fee any more: the First BOOST pull is the token call that re-enters
     }
 
     function test_stealth_owner_claims_first_buy_tokens_and_fees() public {
@@ -469,12 +471,12 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
         address[] memory toks = new address[](1);
         toks[0] = r.token;
         uint256 dl = block.timestamp + 30 minutes;
-        bytes memory sig = _vaultSig(skA, stealthA, toks, player, 100, dl);
+        bytes memory sig = _vaultSig(skA, stealthA, toks, player, 0, dl);
         address relayer = makeAddr("relayer");
         uint256 p0 = quote.balanceOf(player);
         vm.prank(relayer);
-        feeVault.claimManyAsStealthBySig(CurveFeeVault.ClaimReq(stealthA, toks, player, 100, dl, sig));
-        uint256 rf = (owed * 100) / 10_000;
+        feeVault.claimManyAsStealthBySig(CurveFeeVault.ClaimReq(stealthA, toks, player, 0, dl, sig));
+        uint256 rf = (owed * 0) / 10_000;
         assertEq(quote.balanceOf(player) - p0, owed - rf);
         assertEq(quote.balanceOf(relayer), rf);
         // a signature by the wrong key (stealthB) is refused

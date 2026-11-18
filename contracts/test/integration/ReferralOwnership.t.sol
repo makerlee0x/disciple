@@ -10,9 +10,9 @@ import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 
 /// @notice Referral / KOL / ownership / claim integration coverage.
 contract ReferralOwnershipIntegrationTest is IntegrationBase {
-    function test_referral_firstTouch_usdgGate_and_lifetime_1pct() public {
-        // Attribute pending then deposit ≥ $10
-        _bindReferral(referred, kol, 10 * U);
+    function test_referral_firstTouch_and_lifetime_1pct() public {
+        // First touch counts right away (no deposit gate since 2026-11-17)
+        _bindReferral(referred, kol, 0);
         assertEq(referrals.referrerOf(referred), kol);
 
         (BondingCurve curve, Token tok) = _launch(0, 0);
@@ -39,15 +39,9 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
         referrals.tryAttribute(kol, kol);
     }
 
-    function test_referral_notFinal_without_usdgGate() public {
+    function test_referral_countsImmediately_noDeposit() public {
         vm.prank(trader1);
-        referrals.tryAttribute(trader1, kol);
-        assertEq(referrals.referrerOf(trader1), address(0));
-        assertEq(referrals.pendingReferrer(trader1), kol);
-        // Deposit $9.99 — still under gate
-        depositHook.notifyDeposit(trader1, 9 * U);
-        assertEq(referrals.referrerOf(trader1), address(0));
-        depositHook.notifyDeposit(trader1, 1 * U);
+        assertTrue(referrals.tryAttribute(trader1, kol));
         assertEq(referrals.referrerOf(trader1), kol);
     }
 

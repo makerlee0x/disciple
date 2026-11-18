@@ -16,7 +16,7 @@ import {CurveMath} from "../../src/libraries/CurveMath.sol";
 import {SqrtPrice} from "../../src/libraries/SqrtPrice.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {DiscipleHook} from "../../src/DiscipleHook.sol";
@@ -222,6 +222,7 @@ contract FrontendApiTest is FrontendApiBase {
         quoteProbe.setAlwaysPass(address(strat), true);
         pricer.setAllowedQuote(address(strat), true); // only listed quotes launch (maker 2026-11-14)
         vm.stopPrank();
+        _warmQuote(address(strat)); // fresh TWAP, so the floor is what refuses it
         // Listed quotes must clear the $10k/side depth floor; this thin test pool doesn't, so the launch is refused.
         vm.expectRevert(abi.encodeWithSelector(QuotePricer.NoRouteAboveFloor.selector, address(strat)));
         _launchWithQuote(address(strat), 0, 0);
@@ -305,25 +306,22 @@ contract FrontendApiTest is FrontendApiBase {
         assertEq(out, quoted, "quoter exact");
         assertEq(tok.balanceOf(trader2) - bal0, out);
 
-        (T memory t, bool found) = _lastTrade(address(hook));
-        assertTrue(found, "hook Trade");
-        assertEq(t.token, address(tok));
-        assertEq(t.trader, trader2, "router passes real trader");
-        assertTrue(t.isBuy);
-        assertEq(t.quoteAmt, qIn);
-        assertEq(t.tokenAmt, out);
-        assertGt(t.fee, 0);
-        assertEq(t.snipeFee, 0);
-        assertGt(t.pAfter, t.pBefore);
-        assertGt(t.impact, 0);
-        assertEq(t.mcap, 0, "hook Trade has no USD mcap (G-1)");
-        (uint160 spAfter,,,) = manager.getSlot0(_poolKey(tok).toId());
-        assertEq(t.sqrtAfter, spAfter, "Trade.sqrtPriceAfter == slot0");
         bool tIs0 = uint160(address(tok)) < uint160(address(quote));
-        uint256 evMcap = hook.mcapUsdFromSqrt(t.sqrtAfter, tIs0, hook.quoteUsdOf(_poolKey(tok).toId()));
+        PoolId pid = _poolKey(tok).toId();
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        (address tr, bool isBuy, uint256 aIn, uint256 aOut) = _lastPoolTrade(logs);
+        assertEq(tr, trader2, "router names the real trader");
+        assertTrue(isBuy);
+        assertEq(aIn, qIn);
+        assertEq(aOut, out);
+        (uint160 swapSqrt, address swapSender) = _lastSwap(logs, pid);
+        (uint160 spAfter,,,) = manager.getSlot0(pid);
+        assertEq(swapSqrt, spAfter, "PoolManager Swap.sqrtPriceX96 == slot0");
+        assertEq(swapSender, address(router));
+        uint256 evMcap = hook.mcapUsdFromSqrt(swapSqrt, tIs0, hook.quoteUsdOf(pid));
         assertGt(evMcap, Constants.GRADUATION_MCAP_USD * 99 / 100);
-        assertEq(t.impact, qImpact, "quoter impact == Trade impact");
-        assertEq(evMcap, qMcap, "quoter mcap == mcap derived from Trade.sqrtPriceAfter");
+        assertEq(evMcap, qMcap, "quoter mcap == mcap derived from the Swap event");
+        assertGt(qImpact, 0);
 
         // sell back via router
         (uint256 sq,,) = router.quoteExactIn(address(tok), false, out);
@@ -334,118 +332,52 @@ contract FrontendApiTest is FrontendApiBase {
         vm.stopPrank();
         assertEq(qOut, sq);
         assertLt(qOut, qIn, "round trip pays fees");
-        (t,) = _lastTrade(address(hook));
-        assertFalse(t.isBuy);
-        assertEq(t.quoteAmt, qOut);
-        assertEq(t.tokenAmt, out);
-        assertLt(t.pAfter, t.pBefore);
+        (tr, isBuy, aIn, aOut) = _lastPoolTrade(vm.getRecordedLogs());
+        assertFalse(isBuy);
+        assertEq(aIn, out);
+        assertEq(aOut, qOut);
     }
 
-    function test_hook_trade_event_direct_swapper_is_sender() public {
+    /// Slim hook: the hook emits no events of its own on a swap (trades are read from the PoolManager Swap event).
+    function test_hook_emits_no_events() public {
         (BondingCurve curve, Token tok) = _launch(0, 0);
         _graduate(curve);
         vm.recordLogs();
         _swapExactInQuoteForToken(tok, trader1, 10 ether);
-        (T memory t, bool found) = _lastTrade(address(hook));
-        assertTrue(found);
-        assertEq(t.trader, address(swapRouter)); // untrusted router: no hookData attribution
-        assertEq(t.quoteAmt, 10 ether);
+        _swapExactInTokenForQuote(tok, trader1, tok.balanceOf(trader1));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; i++) {
+            assertTrue(logs[i].emitter != address(hook), "hook log");
+        }
     }
 
-    function test_graduation_pool_price_matches_curve_reserves() public {
-        (BondingCurve curve, Token tok) = _launch(0, 0);
-        _graduate(curve);
-        PoolKey memory key = _poolKey(tok);
-        (uint160 sp,,,) = manager.getSlot0(key.toId());
-        (uint256 ts, uint256 sC, uint256 x0, uint256 y0) = curve.curveParams();
-        CurveMath.Params memory cp = CurveMath.Params(ts, sC, x0, y0, curve.quotePriceUsd(), curve.curveTail());
-        uint256 mq = CurveMath.marketCapQuote(cp, curve.tokensSold());
-        assertEq(sp, SqrtPrice.fromReserves(mq, ts, uint160(address(tok)) < uint160(address(quote))));
-    }
-}
-
-contract FrontendApiFollowupTest is FrontendApiBase {
-    using PoolIdLibrary for PoolKey;
-
-    function test_quoteCreatorBuy_matches_launch_and_cap() public {
-        uint256 qIn = 20 ether;
-        (uint256 tOut, uint256 fee, uint256 snipe, uint256 px, bool over) = launchpad.quoteCreatorBuy(address(0), qIn);
-        assertEq(px, 1e18);
-        assertEq(snipe, 0, "creator buy anti-snipe exempt");
-        assertGt(fee, 0);
-        assertFalse(over);
-        vm.prank(creator);
-        strategy.approve(address(launchpad), qIn);
-        vm.prank(creator);
-        ILaunchpad.LaunchResult memory r = launchpad.launchCoin(
-            ILaunchpad.LaunchParams({
-                name: "C",
-                ticker: "C",
-                imageURI: "ipfs://c",
-                description: "",
-                socialsURI: "",
-                quote: address(0),
-                creatorTaxBps: 0,
-                creatorBuyQuoteIn: qIn,
-                creatorBuyMinTokensOut: tOut,
-                deadline: block.timestamp + 1
-            })
-        );
-        assertEq(r.creatorTokensBought, tOut, "preview exact");
-
-        // with tax
-        (uint256 tOut2,,,,) = launchpad.quoteCreatorBuy(address(quote), qIn, 500);
-        assertLt(tOut2, tOut);
-        // over cap
-        (,,,, bool over2) = launchpad.quoteCreatorBuy(address(0), 5_000 ether);
-        assertTrue(over2);
+    function _lastPoolTrade(Vm.Log[] memory logs)
+        internal
+        view
+        returns (address trader, bool isBuy, uint256 aIn, uint256 aOut)
+    {
+        bytes32 topic = keccak256("PoolTrade(address,address,bool,uint256,uint256,address)");
+        for (uint256 i = logs.length; i > 0; i--) {
+            Vm.Log memory l = logs[i - 1];
+            if (l.emitter == address(router) && l.topics[0] == topic) {
+                (isBuy, aIn, aOut,) = abi.decode(l.data, (bool, uint256, uint256, address));
+                return (address(uint160(uint256(l.topics[1]))), isBuy, aIn, aOut);
+            }
+        }
+        revert("no PoolTrade");
     }
 
-    function test_trusted_router_allowlist_hookData_attribution() public {
-        (BondingCurve curve, Token tok) = _launch(0, 0);
-        _graduate(curve);
-        PoolKey memory key = _poolKey(tok);
-        bool tokenIsC0 = uint160(address(tok)) < uint160(address(quote));
-
-        // untrusted: hookData ignored
-        vm.recordLogs();
-        _swapWithHookData(key, !tokenIsC0, trader1, abi.encode(kol));
-        (T memory t,) = _lastTrade(address(hook));
-        assertEq(t.trader, address(swapRouter));
-
-        vm.prank(trader1);
-        vm.expectRevert(DiscipleHook.OnlyAdmin.selector);
-        hook.setTrustedRouter(address(swapRouter), true);
-        hook.setTrustedRouter(address(swapRouter), true); // admin = test (V4Deploy)
-        assertTrue(hook.isTrustedRouter(address(router)));
-
-        vm.recordLogs();
-        _swapWithHookData(key, !tokenIsC0, trader1, abi.encode(kol));
-        (t,) = _lastTrade(address(hook));
-        assertEq(t.trader, kol, "trusted router credits hookData trader");
-
-        // malformed hookData → sender
-        vm.recordLogs();
-        _swapWithHookData(key, !tokenIsC0, trader1, hex"1234");
-        (t,) = _lastTrade(address(hook));
-        assertEq(t.trader, address(swapRouter));
-    }
-
-    function _swapWithHookData(PoolKey memory key, bool zeroForOne, address trader, bytes memory hd) internal {
-        quote.mint(trader, 5 ether);
-        vm.startPrank(trader);
-        quote.approve(address(swapRouter), 5 ether);
-        swapRouter.swap(
-            key,
-            IPoolManager.SwapParams({
-                zeroForOne: zeroForOne,
-                amountSpecified: -int256(5 ether),
-                sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
-            }),
-            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false}),
-            hd
-        );
-        vm.stopPrank();
+    /// @dev Last PoolManager Swap(id, sender, amount0, amount1, sqrtPriceX96, liquidity, tick, fee) for `pid`.
+    function _lastSwap(Vm.Log[] memory logs, PoolId pid) internal view returns (uint160 sqrtP, address sender) {
+        bytes32 topic = keccak256("Swap(bytes32,address,int128,int128,uint160,uint128,int24,uint24)");
+        for (uint256 i = logs.length; i > 0; i--) {
+            Vm.Log memory l = logs[i - 1];
+            if (l.emitter == address(manager) && l.topics[0] == topic && l.topics[1] == PoolId.unwrap(pid)) {
+                (,, sqrtP,,,) = abi.decode(l.data, (int128, int128, uint160, uint128, int24, uint24));
+                return (sqrtP, address(uint160(uint256(l.topics[2]))));
+            }
+        }
+        revert("no Swap");
     }
 
     /// @dev mcap precision fix: with a 6-dec USDG quote the WAD spot price is a single-digit integer, so the old

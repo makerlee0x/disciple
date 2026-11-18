@@ -5,7 +5,7 @@ import {IntegrationBase} from "../integration/IntegrationBase.sol";
 import {console2} from "forge-std/console2.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
-import {LoginGate} from "../../src/LoginGate.sol";
+import {LegacyLoginGate} from "./legacy/LegacyLoginGate.sol";
 import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
 import {CurveDeployerV1} from "./legacy/CurveDeployerV1.sol";
@@ -17,9 +17,7 @@ contract LpAccrueFollowupGasTest is IntegrationBase {
 
     function setUp() public override {
         super.setUp();
-        LoginGate g = new LoginGate(owner, makeAddr("attester"));
-        vm.prank(owner);
-        launchpad.setLoginGate(address(g));
+        LegacyLoginGate g = new LegacyLoginGate();
     }
 
     function _launch(uint8 mode) internal returns (BondingCurve c, Token t) {
@@ -203,6 +201,7 @@ contract LpAccrueFollowupGasTest is IntegrationBase {
         router.setUsdgRouting(address(quote), address(launchpad)); // V4Deploy: router owner = this test
         address v1 = address(new CurveDeployerV1());
         vm.prank(owner);
+        vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
         launchpad.setCurveDeployer(v1);
         (BondingCurve c, Token t) = _launch(Constants.MODE_TRENCH);
         _warpPastSnipe();

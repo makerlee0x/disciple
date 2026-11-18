@@ -78,8 +78,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
     ///         trade). Set by setTrustedRouter(r, true); cleared when that router is untrusted. Existing curves keep
     ///         trusting their snapshot (documented; prepaid amounts are balance-checked by the curve).
     address public curveRouter;
-    /// @notice PVE LoginGate (EIP-712 Privy-login attestations). Required to launch PVE coins; snapshotted per coin.
-    address public loginGate;
     /// @notice Game mode per coin (Constants.MODE_*: 0 TRENCH WARFARE, 1 PVE, 2 PVP), immutable.
     mapping(address => uint8) public modeOf;
     /// @notice Easy crew-tip threshold for FUTURE launches, bps of the coin's mcap at the time of sale (default 0.5%;
@@ -89,10 +87,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
     ///         bounds [1 day, 365 days]). Snapshotted into
     ///         each curve: after it, a not-yet-graduated curve's escrow can be sent to RewardsVault by anyone.
     uint256 public snipeEscrowTimeout = Constants.SNIPE_ESCROW_TIMEOUT;
-
-    /// @notice Highest launch mode accepted (default Hard). Owner can open a future mode (<= 15) once a CurveDeployer
-    ///         that understands it is set; the current BondingCurve still rejects mode > Hard (BadParams).
-    uint8 public maxMode = Constants.MODE_PVP;
 
     error InvalidMetadata();
     error TaxTooHigh();
@@ -105,8 +99,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
     error CreatorBuyMaxTooHigh();
     error WalletCapTooHigh();
     error BadMode();
-    error MaxModeOutOfBounds();
-    error LoginGateUnset();
     error CrewTipThresholdOutOfBounds();
     error SnipeEscrowTimeoutOutOfBounds();
     error NotRouter();
@@ -129,10 +121,8 @@ contract Launchpad is ILaunchpad, Owned2Step {
     event WalletCapSet(uint256 bps);
     event TrustedRouterSet(address indexed router, bool trusted);
     event CurveRouterKilled(address indexed curve, bool killed);
-    event LoginGateSet(address indexed gate);
     event CrewTipThresholdSet(uint256 bps);
     event SnipeEscrowTimeoutSet(uint256 secs);
-    event MaxModeSet(uint8 mode);
     /// @notice Bonding-curve game mode chosen by the creator (0 TRENCH WARFARE, 1 PVE, 2 PVP).
     event LaunchMode(address indexed token, address indexed curve, uint8 mode);
     /// @notice Quote/USD price baked into the curve at launch (USD WAD per 1e18 raw quote units).
@@ -156,8 +146,11 @@ contract Launchpad is ILaunchpad, Owned2Step {
         emit DefaultQuoteUpdated(quote_);
     }
 
+    /// @notice Write-once (audit 2026-11-17 R461-01): Launchpad authorizes whatever the deployer returns to book fee
+    ///         credit in FeeRouter, so a swappable deployer would let the owner mint fee credit. New curve logic = new stack.
     function setCurveDeployer(address d) external {
         if (msg.sender != owner) revert OnlyOwner();
+        if (address(curveDeployer) != address(0) || d.code.length == 0) revert CurveDeployerUnset();
         curveDeployer = CurveDeployer(d);
     }
 
@@ -208,14 +201,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
         emit CrewTipThresholdSet(bps);
     }
 
-    /// @notice Protocol owner sets the highest launch mode for FUTURE launches (bounds [Hard, 15]).
-    function setMaxMode(uint8 m) external {
-        if (msg.sender != owner) revert OnlyOwner();
-        if (m < Constants.MODE_PVP || m > 15) revert MaxModeOutOfBounds();
-        maxMode = m;
-        emit MaxModeSet(m);
-    }
-
     /// @notice Protocol owner sets the sniper-escrow timeout for FUTURE launches (seconds, bounded).
     function setSnipeEscrowTimeout(uint256 secs) external {
         if (msg.sender != owner) revert OnlyOwner();
@@ -232,12 +217,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
         if (mode == Constants.MODE_PVE) return Constants.FIRST_BOOST_MAX_BPS_PVE;
         if (mode == Constants.MODE_PVP) return Constants.FIRST_BOOST_MAX_BPS_PVP;
         return creatorBuyMaxBps;
-    }
-
-    function setLoginGate(address g) external {
-        if (msg.sender != owner) revert OnlyOwner();
-        loginGate = g;
-        emit LoginGateSet(g);
     }
 
     /// @notice Claim PVE holder rewards (profit-tax pool) of `token`'s curve. Works after graduation.
@@ -276,7 +255,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
 
     /// @notice Launch on behalf of `creator` — trusted routers only (DiscipleRouter.launchWithUsdg, which passes its
     ///         own msg.sender). `creator` is the coin's creator everywhere (Token.creator, fees, metadata, First
-    ///         BOOST recipient + Easy creator lock + sniper exemption + Easy login); the ROUTER pays the First BOOST
+    ///         BOOST recipient + Easy creator lock + sniper exemption); the ROUTER pays the First BOOST
     ///         (pulled from it) and receives any partial-fill refund.
     function launchFor(address creator, LaunchParams calldata params, uint8 mode)
         external
@@ -292,9 +271,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
         internal
         returns (LaunchResult memory result)
     {
-        if (mode > maxMode) revert BadMode();
-        // Easy login is app-only (maker 2026-11-14): new curves never read the gate, so it is no longer required.
-        address gate = mode == Constants.MODE_PVE ? loginGate : address(0);
+        if (mode > Constants.MODE_PVP) revert BadMode();
         if (bytes(params.name).length == 0 || bytes(params.ticker).length == 0 || bytes(params.imageURI).length == 0) {
             revert InvalidMetadata();
         }
@@ -338,7 +315,6 @@ contract Launchpad is ILaunchpad, Owned2Step {
                 CurveMath.makeParams(quotePriceUsd),
                 wcap,
                 mode,
-                gate,
                 curveRouter,
                 crewTipThresholdBps,
                 snipeEscrowTimeout
@@ -352,6 +328,9 @@ contract Launchpad is ILaunchpad, Owned2Step {
         FeeRouter(feeRouter).registerTokenLaunch(address(t), quote, creator);
 
         isLaunched[address(t)] = true;
+        // Audit 2026-11-18 M-01: register the curve BEFORE the First BOOST buy below. A referred creator's boost
+        // settles fees through CurveFeeVault, which requires msg.sender == curveOf(token). Locked by
+        // DiscipleAudit.test_M01_referredCreator_launchWithFirstBoost.
         curveOf[address(t)] = address(curve);
         metaOf[address(t)] = LaunchMeta({
             name: params.name,

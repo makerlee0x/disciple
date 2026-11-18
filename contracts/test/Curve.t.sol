@@ -70,7 +70,7 @@ contract CurveTest is Test {
 
     function setUp() public {
         quote = new MockQuote();
-        referrals = new ReferralRegistry(owner, address(quote));
+        referrals = new ReferralRegistry(owner);
         lockedLP = new LockedLP(owner, treasury, address(0));
         feeRouter = new FeeRouter(owner, treasury, address(referrals));
 
