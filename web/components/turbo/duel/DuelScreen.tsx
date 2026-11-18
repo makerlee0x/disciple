@@ -20,6 +20,7 @@ import { getGameRadio } from "@/lib/game/radio";
 import { EARN, RARITY_COLOR, RARITY_NAME, TRAILS, crateArt, frozenOf, itemById, trailId, type Opened } from "@/lib/collection";
 import { COLLECTION_CHANGED_EVENT } from "@/lib/collectionClient";
 import { withBase } from "@/lib/base-path";
+import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "./engineLoader";
 
 const trailRgb = (id?: string) => TRAILS.find((t) => trailId(t.id) === id)?.rgb;
 import { useTurboMusic } from "@/lib/game/turboMusic";
@@ -48,18 +49,8 @@ const fwGet = () => { try { return localStorage.getItem(FIRST_WIN_KEY); } catch 
 const fwSet = (v: string) => { try { localStorage.setItem(FIRST_WIN_KEY, v); } catch { /* private mode */ } };
 const KIND: Record<string, string> = { skin: "Skin", trail: "Trail", tag: "Name tag", flourish: "Win flourish" };
 
-const SKIES = ["sky0", "sky1", "sky2", "sky3", "sky4"];
-/** extra plates for the random sky each duel (engine SKY_THEMES) */
-const EXTRA_SKIES = { skyEth: "/turbo/sky-eth.webp", skyBtc: "/turbo/sky-btc.webp", skyPad: "/home/pad/sky-1280.webp" };
-const ENGINE_SRC = "/turbo/duel/engine.js?v=47";
-
-function loadEngine(): Promise<void> {
-  if (window.DuelEngine) return Promise.resolve();
-  return new Promise((res, rej) => {
-    const el = document.createElement("script"); el.src = ENGINE_SRC; el.async = true;
-    el.onload = () => res(); el.onerror = () => rej(new Error("engine")); document.head.appendChild(el);
-  });
-}
+const SKIES = DUEL_SKIES;
+const loadEngine = loadDuelEngine;
 
 /** REMATCH with no answer for this long: the rival gets a duel request push instead (they probably left). */
 const REMATCH_PUSH_MS = 20_000;
