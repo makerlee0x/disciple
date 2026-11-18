@@ -10,10 +10,16 @@
  *   warm                                → loads key, signer, market and nonce into this instance before a duel
  *   presign { market, sizes: [usd…] (or usd), used?: { nonce, kind, i }, floor? } → ticket: the next long, short and close, signed at one
  *                                         nonce with a short expiry; the browser sends the one it taps straight to Lighter
+ *   arm { kind: duel|climb|royale, id, markets?, ms? } → the buzzer closes this match's Lighter positions server-side
+ *                                         (duel: when the room settles; climb / royale: a server timer of ms, at most 4.5 min)
  *   relay { txType, txInfo }            → { hash }   fallback when the browser can't reach Lighter: sends a pre-signed order
  *   open / close / warm answer with ms: { auth, read, send, server, total } (server-side timings)
  */
 import { kv } from "@/lib/server/kv";
+import { after } from "next/server";
+import { getRoom } from "@/lib/server/duel/store";
+import { OT_MS } from "@/lib/duel/rules";
+import { armMatch, buzzer, sleep } from "@/lib/server/lighter/match";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
 import { body, out, pilotOf, requirePass } from "@/lib/server/duel/http";
@@ -23,6 +29,8 @@ import { LighterError } from "@/lib/server/lighter/rest";
 import { closeMarket, finishSigned, openMarket, MAX_SIZES, presign, relay, setTier, startApprove, startKey, status, warm, type Used } from "@/lib/server/lighter/player";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** arm's timer for Climb / Royale runs in after() for the match length */
+export const maxDuration = 300;
 
 function lfail(e: unknown) {
   if (e instanceof LighterError || e instanceof DuelError) return out(e.status >= 400 && e.status < 600 ? e.status : 502, { ok: false, reason: e.message });
@@ -59,7 +67,11 @@ export async function POST(req: Request) {
   const t0 = performance.now();
   try {
     const cfg = on();
-    const b = await body<{ op?: unknown; sig?: unknown; market?: unknown; side?: unknown; usd?: unknown; sizes?: unknown; used?: unknown; floor?: unknown; txType?: unknown; txInfo?: unknown }>(req);
+    const b = await body<{ op?: unknown; sig?: unknown; market?: unknown; side?: unknown; usd?: unknown; sizes?: unknown; used?: unknown; floor?: unknown; txType?: unknown; txInfo?: unknown; kind?: unknown; id?: unknown; markets?: unknown; ms?: unknown }>(req);
+    if (b.op === "arm") {
+      const pid = await fastPilot(req);
+      return out(200, { ok: true, ...(await armGuarded(pid, b)) });
+    }
     if (b.op === "open" || b.op === "close" || b.op === "warm" || b.op === "presign" || b.op === "relay") {
       const pid = await fastPilot(req);
       const authMs = Math.round(performance.now() - t0);
@@ -109,4 +121,26 @@ function presignGuarded(cfg: Cfg, pid: string, b: { market?: unknown; usd?: unkn
 function relayGuarded(cfg: Cfg, pid: string, b: { txType?: unknown; txInfo?: unknown }) {
   if (!Number.isSafeInteger(b.txType) || typeof b.txInfo !== "string" || b.txInfo.length > 4000) throw new LighterError(400, "Bad order.");
   return relay(cfg, pid, b.txType as number, b.txInfo);
+}
+const SOLO_MAX_MS = 270_000;
+async function armGuarded(pid: string, b: { kind?: unknown; id?: unknown; markets?: unknown; ms?: unknown }) {
+  const id = typeof b.id === "string" && /^[A-Za-z0-9_-]{4,64}$/.test(b.id) ? b.id : null;
+  if (!id) throw new LighterError(400, "Bad match.");
+  if (b.kind === "duel") {
+    const r = await getRoom(id);
+    if (!r || !r.players.some((p) => p.pid === pid) || (r.status !== "lobby" && r.status !== "live")) throw new LighterError(409, "That duel isn't running.");
+    // the duel settles itself (overtime included) and its store fires the buzzer; endAt only sets how long we remember
+    const endAt = (r.endAt ?? Date.now() + 5 * 60_000) + OT_MS;
+    await armMatch(pid, "duel", id, ["BTC"], endAt);
+    return { endAt };
+  }
+  if (b.kind !== "climb" && b.kind !== "royale") throw new LighterError(400, "Bad match.");
+  const ms = Number(b.ms);
+  const markets = (Array.isArray(b.markets) ? b.markets : ["BTC"]).filter(isLighterMarket);
+  if (!(ms > 0 && ms <= SOLO_MAX_MS) || !markets.length) throw new LighterError(400, "Bad match.");
+  const a = await armMatch(pid, b.kind, id, markets, Date.now() + ms);
+  if (!a) throw new LighterError(404, "Lighter isn't on.");
+  // a re-arm (Royale on a new coin) adds its market and keeps the first timer; a first arm starts it
+  if (a.fresh) after(async () => { await sleep(a.endAt - Date.now() + 1500); await buzzer(pid, id); });
+  return { endAt: a.endAt };
 }

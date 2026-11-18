@@ -57,6 +57,12 @@ export class LighterMatch {
   }
   private sized(fuel: number) { return this.sizesFor(fuel).map((u) => Math.max(1, Math.floor(u * 100) / 100)); }
 
+  /** tells the server this match is on Lighter, so its buzzer closes what's open even if this tab is gone
+   *  (duel: when the room settles; climb / royale: after `ms`). Royale arms again on each new coin. */
+  arm(kind: "duel" | "climb" | "royale", id: string, opts: { ms?: number; markets?: string[] } = {}) {
+    return this.f("/api/lighter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op: "arm", kind, id, ...opts }) })
+      .then((r) => r.ok).catch(() => false);
+  }
   /** signs ahead and keeps the connection to Lighter open (call from the lobby / ready check) */
   start() { if (this.live) return; this.live = true; this.taps.start(); }
   stop() { this.live = false; this.taps.stop(); }

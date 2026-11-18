@@ -118,6 +118,7 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
         if (!(await LighterMatch.ready(f))) { if (lxStatus !== "no") { lxStatus = "no"; api?.error("Lighter isn't set up for this wallet. Finish set-up on /lighter."); } return; }
         if (lxFor !== room.id || dead) return;
         lx = new LighterMatch(f, "BTC", sizesFor, book?.fuel ?? fuelOf(room)); lx.start(); lxStatus = "on";
+        void lx.arm("duel", room.id); // the duel's own buzzer closes the real position server-side
       }
       if (lx && book) lx.fuel(book.fuel);
       if (lx && (room.status === "done" || room.status === "cancelled")) { const x = lx; lx = null; lxFor = null; await x.closeAll(); x.stop(); }
