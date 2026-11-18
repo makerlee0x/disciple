@@ -15,7 +15,7 @@ import { recoverMessageAddress, type Hex } from "viem";
 import { clientOrderIndex, baseAmountFor, levFraction, worstPrice } from "@/lib/lighter/math";
 import { LIGHTER_MARKETS, type LighterConfig, type LighterMarket } from "./config";
 import { getPlayer, putPlayer, seal, open, type LighterPlayer } from "./keys";
-import { account, accountIndexOf, txStatus, changeTier, marketBySymbol, marketNow, nextNonce, sendTx, LighterError, type LighterPosition } from "./rest";
+import { account, accountIndexOf, fillPrice, txStatus, changeTier, marketBySymbol, marketNow, nextNonce, sendTx, LighterError, type LighterPosition } from "./rest";
 import { checked, signer, signerFor } from "./signer";
 
 export type Step = "deposit" | "key" | "tier" | "approve" | "ready";
@@ -110,11 +110,13 @@ export async function openMarket(cfg: LighterConfig, pid: string, m: LighterMark
   const base = baseAmountFor(fuelUsd * lev, price, now.size_decimals);
   if (base < Math.round(Number(now.min_base_amount) * 10 ** now.size_decimals)) throw new LighterError(400, "That trade is under Lighter's minimum size.");
   const isAsk = side === "short";
+  const fill = await fillPrice(cfg, mk.market_id, isAsk, base, now.size_decimals);
+  if (fill == null) throw new LighterError(409, "Not enough on Lighter's book for that size.");
   const fee = p.approvedFee && cfg.partnerFee ? cfg.partnerFee : 0;
-  const r = checked(w.SignCreateOrder(mk.market_id, clientOrderIndex(), base, worstPrice(price, isAsk, cfg.slippage, now.price_decimals), isAsk ? 1 : 0,
+  const r = checked(w.SignCreateOrder(mk.market_id, clientOrderIndex(), base, worstPrice(fill, isAsk, cfg.slippage, now.price_decimals), isAsk ? 1 : 0,
     1 /* market */, 0 /* IOC */, 0, 0, 0, fee ? cfg.integratorIndex : 0, fee, 0, 0, 0, 0, n, p.keyIndex, p.account));
   const hash = await sendTx(cfg, r.txType, r.txInfo);
-  return { hash, market: mk.market_id, base, price, lev, tx: await txStatus(cfg, hash) };
+  return { hash, market: mk.market_id, base, price, fill, lev, tx: await txStatus(cfg, hash) };
 }
 
 /** Closes the whole position on a market (reduce-only market order). */
@@ -127,8 +129,9 @@ export async function closeMarket(cfg: LighterConfig, pid: string, m: LighterMar
   const price = Number(now.mark_price || now.last_trade_price);
   const isAsk = pos.sign > 0; // close a long by selling
   const base = Math.round(Math.abs(Number(pos.position)) * 10 ** now.size_decimals);
+  const fill = (await fillPrice(cfg, mk.market_id, isAsk, base, now.size_decimals)) ?? price;
   const fee = p.approvedFee && cfg.partnerFee ? cfg.partnerFee : 0;
-  const r = checked(w.SignCreateOrder(mk.market_id, clientOrderIndex(), base, worstPrice(price, isAsk, cfg.slippage, now.price_decimals), isAsk ? 1 : 0,
+  const r = checked(w.SignCreateOrder(mk.market_id, clientOrderIndex(), base, worstPrice(fill, isAsk, cfg.slippage, now.price_decimals), isAsk ? 1 : 0,
     1, 0, 1 /* reduce only */, 0, 0, fee ? cfg.integratorIndex : 0, fee, 0, 0, 0, 0, await nonce(), p.keyIndex, p.account));
   const hash = await sendTx(cfg, r.txType, r.txInfo);
   return { hash, market: mk.market_id, base, price, tx: await txStatus(cfg, hash) };

@@ -87,6 +87,16 @@ export async function account(cfg: LighterConfig, index: number): Promise<Lighte
 export async function nextNonce(cfg: LighterConfig, accountIndex: number, apiKeyIndex: number): Promise<number> {
   return (await get<Resp & { nonce: number }>(cfg, "/api/v1/nextNonce", { account_index: accountIndex, api_key_index: apiKeyIndex })).nonce;
 }
+/** The price a market order of `base` (size units) would reach walking the book, or null if the book can't fill it.
+ *  Market orders cap at this + slippage: capping off the mark price gets "price too low for IoC" on a thin book. */
+export async function fillPrice(cfg: LighterConfig, marketId: number, isAsk: boolean, base: number, sizeDecimals: number): Promise<number | null> {
+  const r = await get<Resp & { asks?: { price: string; remaining_base_amount: string }[]; bids?: { price: string; remaining_base_amount: string }[] }>(
+    cfg, "/api/v1/orderBookOrders", { market_id: marketId, limit: 50 });
+  const side = (isAsk ? r.bids : r.asks) ?? [];
+  let left = base / 10 ** sizeDecimals;
+  for (const o of side) { left -= Number(o.remaining_base_amount); if (left <= 1e-12) return Number(o.price); }
+  return null;
+}
 /** What Lighter did with a sent tx, ~1.5 s later (for the test page). Raw and trimmed; never throws. */
 export async function txStatus(cfg: LighterConfig, hash: string): Promise<string> {
   await new Promise((ok) => setTimeout(ok, 1500));
