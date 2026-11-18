@@ -21,16 +21,19 @@ import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
 import { isTurboEnabled, turboEnvOn } from "@/lib/turbo/flag";
 
 // Nav rework (maker 2026-11-16, order 2026-11-18): the DISCIPLE mark is the way to the lobby, so there is no Lobby tab.
-// Tabs, same order on desktop and phones: Launch, Turbo (a small menu: Duel, Climb), Market (MARKET_ENABLED), Top pilots,
-// Hangar (phones: signed in only, signed-out phones get How to play there). Live flights is out of the bar (maker 2026-11-18); /live
-// still works. PLAY NOW sits on the right on desktop. How to play is also the "?" (HelpButton).
+// Desktop tabs: Turbo (a small menu: Duel, Climb), Market (MARKET_ENABLED), Top pilots, Hangar. Launch is not a desktop tab
+// (maker 2026-11-18): the gold LAUNCH NOW button on the right opens the launch flow. Signed in on narrow desktops (≤1280px)
+// the button is hidden for room, so the Launch tab comes back there (lb-launch-tab, CSS). Phones keep Launch first in the
+// bottom tab bar, then Turbo, Market, Top pilots, Hangar (signed-out phones get How to play there). Live flights is out of
+// the bar (maker 2026-11-18); /live still works. How to play is also the "?" (HelpButton).
 // Turbo shows for everyone now (lib/turbo/flag.ts, on since 2026-11-16).
 // icons show only in the phone bottom tab bar (≤760px); desktop keeps the text tabs.
 // phone: phone bottom bar only. desk: desktop top bar only. you: signed-in only. out: signed-out only.
-type Tab = { href: string; key: string; label: string; short?: string; icon: IconName; phone?: boolean; desk?: boolean; you?: boolean; out?: boolean; menu?: boolean };
+type Tab = { href: string; key: string; label: string; short?: string; icon: IconName; phone?: boolean; desk?: boolean; you?: boolean; out?: boolean; menu?: boolean; cls?: string };
 
 const TABS: readonly Tab[] = [
-  { href: "/create", key: "launch", label: "Launch", icon: "rocket" },
+  { href: "/create", key: "launch", label: "Launch", icon: "rocket", phone: true },
+  { href: "/create", key: "launch", label: "Launch", icon: "rocket", desk: true, cls: "lb-launch-tab" },
   { href: "/turbo", key: "turbo", label: "Turbo", icon: "bolt", menu: true },
   ...(MARKET_ENABLED ? [{ href: "/market", key: "market", label: "Market", icon: "grid" } as Tab] : []),
   { href: "/leaderboard", key: "leader", label: "Top pilots", short: "Pilots", icon: "leaderboard" },
@@ -59,7 +62,7 @@ export default function LobbyTopBar() {
   const pathname = usePathname() ?? "/";
   const [you, setYou] = useState(false);
   useEffect(() => {
-    // until Privy has loaded, a saved session counts as signed in (no Play now / missing tabs flash for players)
+    // until Privy has loaded, a saved session counts as signed in (no Launch now / missing tabs flash for players)
     // html[data-you] drives the signed-in / signed-out layout in CSS: the root layout's YOU_JS sets it before the first
     // paint from the same saved session, so the bar doesn't paint signed out and then jump (maker 2026-11-18)
     const sync = () => {
@@ -138,7 +141,7 @@ export default function LobbyTopBar() {
           {!dock && <Icon name="chevron-down" size={16} className="lb-caret" />}
         </button>
       ) : (
-        <Link key={t.key} href={t.menu ? TURBO_MODES[0].href : t.href} className={[(t.menu ? turboOn : isOn(t.href)) ? "on" : "", t.you ? "lb-you-only" : "", t.out ? "lb-out-only" : ""].filter(Boolean).join(" ") || undefined} aria-current={at(t.href) ? "page" : undefined}
+        <Link key={t.key} href={t.menu ? TURBO_MODES[0].href : t.href} className={[(t.menu ? turboOn : isOn(t.href)) ? "on" : "", t.you ? "lb-you-only" : "", t.out ? "lb-out-only" : "", t.cls ?? ""].filter(Boolean).join(" ") || undefined} aria-current={at(t.href) ? "page" : undefined}
           onPointerDown={dock ? () => press(t.href) : undefined} data-testid={`nav-${t.key}`}>
           <Icon name={t.icon} size={22} className="lb-ico" />
           <span className="lb-lbl">{dock && t.short ? t.short : t.label}</span>
@@ -155,7 +158,7 @@ export default function LobbyTopBar() {
       </Link>
       {nav(false)}
       {!you && <HelpButton className="lb-help-out" />}
-      <Link href="/play" prefetch={false} className="lb-playnow" data-testid="topbar-play" data-sfx="primary">Play now</Link>
+      <Link href="/create" className="lb-playnow" data-testid="topbar-launch" data-sfx="primary">Launch now</Link>
       <LevelChip toastOnly />
     </header>
     {/* phones: the bottom tab bar lives outside the header, so nothing about the header (scroll, compositing) can move it */}
