@@ -124,7 +124,8 @@ export async function changeTier(cfg: LighterConfig, accountIndex: number, tier:
 }
 
 /** Lighter's assets (USDC on Lighter mainnet, USDG on Lighter on Robinhood Chain), for transfers and withdrawals. */
-export interface AssetDetail { asset_index: number; symbol: string; decimals?: number }
+/** Lighter calls the id `asset_id` (USDG is 3 on Robinhood Chain); asset_index kept for older answers */
+export interface AssetDetail { asset_id?: number; asset_index?: number; symbol: string; decimals?: number }
 export async function assetDetails(cfg: LighterConfig): Promise<AssetDetail[]> {
   const r = await get<Resp & { asset_details?: AssetDetail[] }>(cfg, "/api/v1/assetDetails", {});
   return r.asset_details ?? [];

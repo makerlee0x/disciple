@@ -55,7 +55,8 @@ export async function startWithdraw(cfg: LighterConfig, pid: string, usd: number
   const { p, w, auth } = await keyedPlayer(cfg, pid);
   const [info, assets, a] = await Promise.all([fastWithdrawInfo(cfg, p.account, auth), assetDetails(cfg), account(cfg, p.account)]);
   const asset = assets.find((x) => x.symbol === cfg.collateral) ?? assets.find((x) => /^USD/.test(x.symbol));
-  if (!asset) throw new LighterError(502, "Lighter didn't list its cash asset.");
+  const assetId = asset?.asset_id ?? asset?.asset_index;
+  if (!asset || assetId == null) throw new LighterError(502, "Lighter didn't list its cash asset.");
   const fee = await transferFee(cfg, p.account, info.to_account_index, auth);
   const dec = asset.decimals ?? 6;
   const amount = Math.floor(usd * 10 ** dec);
@@ -64,7 +65,7 @@ export async function startWithdraw(cfg: LighterConfig, pid: string, usd: number
   const cap = Number(info.max_withdrawal_amount ?? NaN);
   if (Number.isFinite(cap) && usd > cap) throw new LighterError(400, `You can move up to $${cap.toFixed(2)} right now.`);
   const nonce = await nextNonce(cfg, p.account, p.keyIndex);
-  const r = checked(w.SignTransfer(info.to_account_index, asset.asset_index, 0, 0, amount, fee, memo, 0, nonce, p.keyIndex, p.account));
+  const r = checked(w.SignTransfer(info.to_account_index, assetId, 0, 0, amount, fee, memo, 0, nonce, p.keyIndex, p.account));
   if (!r.messageToSign) throw new Error("lighter: no transfer message");
   await putPlayer(cfg, pid, { ...p, pending: { kind: "withdraw", txType: r.txType, txInfo: r.txInfo, message: r.messageToSign, at: Date.now(), to, usd } });
   return { message: r.messageToSign, usd: Number(formatUnits(BigInt(amount), dec)), fee: fee / 1e6 };
