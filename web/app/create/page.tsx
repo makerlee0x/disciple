@@ -449,7 +449,7 @@ export default function LaunchRocketPage() {
       <header className={L.moHead}>
         <div className={L.moTitle}>
           <h2>{C.advanced}</h2>
-          <span>All optional. Locked in when you launch.</span>
+          <span className={L.lockTag} title="Locked in when you launch" aria-label="Locked in when you launch"><Icon name="lock" size={14} /></span>
         </div>
         <button type="button" className={L.moClose} aria-label="Close" onClick={() => setAdvanced(false)}><Icon name="close" size={18} /></button>
       </header>
@@ -541,7 +541,6 @@ export default function LaunchRocketPage() {
         <section className={L.panel} aria-labelledby="lc-title">
           <div className={L.panelHead}>
             <h2 id="lc-title">Launch control</h2>
-            <span>4 steps · about a minute</span>
           </div>
 
           <div className={`${L.sec} ${L.aName}`}>
@@ -598,7 +597,7 @@ export default function LaunchRocketPage() {
           </div>
 
           <div className={`${L.sec} ${L.aDiff}`} data-testid="mode-cards">
-            <div className={L.sh}><span className={L.num}>3</span><span className={L.st}>Difficulty</span><span className={L.sub} title={QUICK_LAUNCH_MODE_CARD.footer}><Icon name="lock" size={12} /> Locked at launch</span></div>
+            <div className={L.sh}><span className={L.num}>3</span><span className={L.st}>Difficulty</span><span className={L.lockTag} title={QUICK_LAUNCH_MODE_CARD.footer} aria-label="Locked at launch"><Icon name="lock" size={14} /></span></div>
             <div className={L.diffs} role="radiogroup" aria-label="Difficulty">
               {MODE_ORDER.map((id) => {
                 const label = MODE_LABEL[id];
@@ -620,7 +619,7 @@ export default function LaunchRocketPage() {
           </div>
 
           <div className={`${L.sec} ${L.aSeat}`}>
-            <div className={L.sh}><span className={L.num}>4</span><span className={L.st}>Your seat</span></div>
+            <div className={L.sh}><span className={L.num}>4</span><span className={L.st}>Ticket</span></div>
             <FirstBoostField
               variant="seat"
               pair={quote.address} pairLabel={quote.label} creatorTaxBps={Math.round(tax * 100)}

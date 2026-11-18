@@ -16,6 +16,7 @@ import { addLife, finishedLife, snapSeason } from "./lifetime";
 import { RANK_MODES, totalSp, type ModeSp } from "@/lib/season/points";
 import { guildTagsOf } from "./guilds";
 import { usernameOf } from "./usernames";
+import { equippedOf } from "./collection";
 import { ledgerOf, totals } from "./xp";
 
 export const BOARD_TOP = 50;
@@ -24,7 +25,8 @@ const CACHE_MS = 15_000;
 /** A rocket the rows name: ticker and its moderated image ("" ⇒ initial). */
 export type BoardCoin = { ticker: string; icon: string };
 /** Pilot face on the board: profile picture URL ("" ⇒ initial). */
-export type Named = { pfp?: string };
+/** skin: the pilot's equipped hull skin id (lib/collection skinArt), drawn beside the name on the boards (maker 2026-11-18). */
+export type Named = { pfp?: string; skin?: string };
 
 export type BoardResponse = {
   window: BoardWindow;
@@ -65,12 +67,13 @@ const g = globalThis as unknown as { __dscBoardRanked?: Map<string, Ranked> };
 
 async function name<T extends { wallet: string }>(rows: T[]): Promise<(T & Named & { username: string | null; level: number | null; prestige: number | null; crew: string | null })[]> {
   return Promise.all(rows.map(async (r) => {
-    const [username, l, meta] = await Promise.all([
+    const [username, l, meta, skin] = await Promise.all([
       usernameOf(r.wallet).catch(() => null),
       ledgerOf(r.wallet).then((x) => { const t = totals(x); return levelInfo(t.total, t.prestige); }).catch(() => null),
       metaOf(r.wallet).catch(() => null),
+      equippedOf(r.wallet).then((e) => e.skin).catch(() => ""),
     ]);
-    return { ...r, username, level: l?.level ?? null, prestige: l?.prestige ?? null, pfp: meta ? pfpUrl(meta.pfp) : "" };
+    return { ...r, username, level: l?.level ?? null, prestige: l?.prestige ?? null, pfp: meta ? pfpUrl(meta.pfp) : "", skin };
   })).then(async (named) => {
     const tags = await guildTagsOf(named.map((r) => r.wallet));
     return named.map((r) => ({ ...r, crew: tags[r.wallet]?.tag ?? null }));

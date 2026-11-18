@@ -1,15 +1,13 @@
 /**
- * /how-it-works ("How to play", canvas boards "How to play: Pilot tab" and "How to play: Pro tab"). A Pilot / Pro switch:
- * Pilot teaches a first flight on an annotated flight screen (the HUD is an illustration, not live data), Pro is a spec
- * sheet of the contract numbers. Both panels render on the server; ModeTabs only toggles which one shows (#pro opens Pro).
- * Every string comes from content/how-it-works.ts.
+ * /how-it-works ("How to play"). One tab per game mode (maker 2026-11-18): Launch, Duel, Climb. Each tab is a 3-step strip
+ * drawn in the game's own UI pieces (what you press, what happens, how you win), the keys, and a play button. Show, don't
+ * tell: every step is a picture with a verb and one short line. The Pro spec sheet still opens on #pro.
+ * Both the tabs and the spec sheet render on the server; ModeTabs only picks which one shows. Strings: content/how-it-works.ts.
  */
 import type { Metadata } from "next";
 import Link from "next/link";
-import type { CSSProperties } from "react";
 import { withBase } from "@/lib/base-path";
-import { skySrc } from "@/lib/home/trending";
-import { HIW_FINAL, HIW_META, HIW_PILOT, HIW_PRO, HIW_ROUTES } from "@/content/how-it-works";
+import { HIW_DIFFS, HIW_FINAL, HIW_GAMES, HIW_H1, HIW_HOST, HIW_META, HIW_ORBIT, HIW_PRO, HIW_ROUTES, type HiwGame } from "@/content/how-it-works";
 import { PRO_HUD_ENABLED } from "@/lib/features";
 import ModeTabs from "./ModeTabs";
 import s from "./page.module.css";
@@ -18,75 +16,123 @@ export const metadata: Metadata = { title: HIW_META.title, description: HIW_META
 export const dynamic = "force-static";
 
 const ROCKET = "/assets/rocket-hi.webp";
-const sky = (t: number) => ({ backgroundImage: `url(${withBase(skySrc(t))})` }) as CSSProperties;
-const Co = ({ n, className }: { n: number; className?: string }) => <span className={`${s.co} ${className ?? ""}`} aria-hidden>{n}</span>;
+const Rocket = ({ className }: { className?: string }) => (
+  // eslint-disable-next-line @next/next/no-img-element
+  <img src={withBase(ROCKET)} alt="" className={`${s.rkt} ${className ?? ""}`} width={60} height={160} />
+);
+
+/** The little drawings above each step, built from the game's own pieces (buttons, bag card, clock, level rows). */
+function Art({ kind }: { kind: string }) {
+  switch (kind) {
+    case "board": return (
+      <div className={s.art}>
+        <Rocket className={s.rLow} />
+        <span className={`${s.fire} ${s.fireBoost} ${s.artBtn}`}>▲ Boost $25</span>
+      </div>
+    );
+    case "climb": return (
+      <div className={s.art}>
+        <span className={s.trail} aria-hidden />
+        <Rocket className={s.rHigh} />
+        <span className={s.bagCard}><small>Your bag</small><b>$31.20</b><em>+$6.20</em></span>
+      </div>
+    );
+    case "cash": return (
+      <div className={s.art}>
+        <span className={`${s.fire} ${s.fireDump} ${s.artBtn}`}>▼ Dump all</span>
+        <span className={s.cashPop}><small>Cash</small><b>+$6.20</b></span>
+      </div>
+    );
+    case "versus": return (
+      <div className={s.art}>
+        <div className={s.vs}><Rocket className={s.rVs} /><b>VS</b><Rocket className={`${s.rVs} ${s.rRival}`} /></div>
+        <span className={s.ticker}>BTC <b>$97,420</b></span>
+      </div>
+    );
+    case "call": return (
+      <div className={`${s.art} ${s.artCol}`}>
+        <span className={s.callRow}><span className={`${s.fire} ${s.fireBoost}`}>▲ Boost</span><i className={s.up}>BTC ↑</i></span>
+        <span className={s.callRow}><span className={`${s.fire} ${s.fireDump}`}>▼ Dump</span><i className={s.down}>BTC ↓</i></span>
+      </div>
+    );
+    case "clock": return (
+      <div className={`${s.art} ${s.artCol}`}>
+        <b className={s.clock}>0:00</b>
+        <span className={s.score}><span className={s.me}>You <b>+$4.20</b></span><span>Rival <b>+$1.10</b></span></span>
+      </div>
+    );
+    case "level": return (
+      <div className={`${s.art} ${s.artCol}`}>
+        <span className={s.lvl}><b>Level 1</b><span><i>$12 fuel</i><i>10×</i><i>1 min</i></span></span>
+      </div>
+    );
+    case "target": return (
+      <div className={`${s.art} ${s.artCol}`}>
+        <span className={s.tgt}><small>Target</small><b>+1%</b></span>
+        <span className={s.tbar}><i /></span>
+      </div>
+    );
+    case "ladder": return (
+      <div className={s.art}>
+        <ol className={s.ladder} aria-hidden>
+          {[1, 2, 3, 4, 5].map((n) => <li key={n} className={n <= 2 ? s.done : ""}>{n}</li>)}
+          <li className={s.free}>Free</li>
+        </ol>
+      </div>
+    );
+    default: return <div className={s.art} />;
+  }
+}
+
+function Game({ g }: { g: HiwGame }) {
+  return (
+    <>
+      <ol className={s.steps}>
+        {g.steps.map((st, i) => (
+          <li key={st.title} className={s.step}>
+            <Art kind={st.art} />
+            <div className={s.stepTx}>
+              <span className={s.co} aria-hidden>{i + 1}</span>
+              <div><h3>{st.title}</h3><p>{st.line}</p></div>
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      <div className={s.win}>
+        <span className={s.winOk}><i aria-hidden>✓</i>{g.win.ok}</span>
+        <span className={s.winBad}><i aria-hidden>✕</i>{g.win.bad}</span>
+      </div>
+
+      {g.id === "launch" && (
+        <div className={s.extra}>
+          <div className={s.orbit}><span>{HIW_ORBIT.k}</span><b>{HIW_ORBIT.v}</b><p>{HIW_ORBIT.line}</p></div>
+          <ul className={s.diffs}>
+            {HIW_DIFFS.map((d) => <li key={d.id} className={s[`m_${d.id}`]}><b>{d.badge}</b><span>{d.stat}</span></li>)}
+          </ul>
+        </div>
+      )}
+
+      <div className={s.keys}>
+        {g.keys.map((k) => (
+          <div key={k.k} className={`${s.keyGrp} ${s[`k_${k.tone}`]}`}>
+            <b>{k.k}</b>
+            <span>{k.keys.map((x) => <kbd key={x} className={`${s.kb} ${x.length > 1 ? s.kbWide : ""}`}>{x}</kbd>)}</span>
+          </div>
+        ))}
+        <span className={s.phone}>{g.phone}</span>
+      </div>
+
+      <div className={s.play}>
+        <Link href={g.cta.href} className={`${s.btn} ${s.gold}`} data-testid={`hiw-play-${g.id}`}>{g.cta.label}</Link>
+        {g.id === "launch" && <span className={s.host}>{HIW_HOST.text} <Link href={HIW_ROUTES.launch}>{HIW_HOST.link}</Link></span>}
+      </div>
+    </>
+  );
+}
 
 function Rows({ rows }: { rows: [string, string][] }) {
   return <dl className={s.kvs}>{rows.map(([k, v]) => <div key={k} className={s.kv}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>;
-}
-
-function Pilot() {
-  const P = HIW_PILOT, S = P.screen;
-  return (
-    <>
-      <section className={s.flight}>
-        <figure className={s.screen} style={sky(4)} aria-label={S.alt}>
-          <span className={s.tag}>{S.tag}</span>
-          <div className={`${s.hud} ${s.alt}`}>
-            <span className={s.hk}><Co n={1} className={s.cIn} />{S.altitude.k}</span>
-            <b className={s.hv}>{S.altitude.v}</b>
-            <span className={s.obar}><i style={{ width: `${S.altitude.fill * 100}%` }} /></span>
-            <span className={s.orbit}>{S.altitude.orbit}</span>
-          </div>
-          <div className={`${s.hud} ${s.bag}`}>
-            <span className={s.hk}><Co n={2} className={s.cIn} />{S.bag.k}</span>
-            <b className={s.hv}>{S.bag.v}</b>
-            <span className={s.put}>{S.bag.put} · <em>{S.bag.gain}</em></span>
-          </div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={withBase(ROCKET)} alt="" className={s.rocket} width={110} height={300} />
-          <span className={s.plume} aria-hidden />
-          <span className={`${s.float} ${s.fBoost}`}>{S.boost}</span>
-          <span className={`${s.float} ${s.fBomb}`}><Co n={3} className={s.cIn} />{S.bomb}</span>
-          {/* one grid so both fire buttons line up; each row starts with its own callout */}
-          <div className={`${s.hud} ${s.bar}`}>
-            <Co n={4} className={s.cIn} />
-            <div className={s.side}>
-              {S.buys.map(([k, v], i) => <span key={k} className={`${s.amt} ${i === 1 ? s.amtBuy : ""}`}><kbd>{k}</kbd>{v}</span>)}
-            </div>
-            <span className={`${s.fire} ${s.fireBoost}`}>{S.boostBtn} <kbd>Space</kbd></span>
-            <Co n={5} className={s.cIn} />
-            <div className={s.side}>
-              {S.sells.map(([k, v], i) => <span key={k} className={`${s.amt} ${i === 1 ? s.amtSell : ""}`}><kbd>{k}</kbd>{v}</span>)}
-            </div>
-            <span className={`${s.fire} ${s.fireDump}`}>{S.dumpBtn} <kbd>Shift</kbd></span>
-          </div>
-        </figure>
-        <ol className={s.legend}>
-          {P.legend.map((l, i) => (
-            <li key={l.title}><span className={s.co} aria-hidden>{i + 1}</span><div><b>{l.title}</b><p>{l.body}</p></div></li>
-          ))}
-          <li className={s.phone}>{P.phone}</li>
-        </ol>
-      </section>
-
-      <section className={s.sec} aria-labelledby="hiw-rules">
-        {P.rules.eyebrow && <span className={s.eb}>{P.rules.eyebrow}</span>}
-        <h2 className={s.h2} id="hiw-rules">{P.rules.h2}</h2>
-        <div className={s.res}>
-          {P.rules.cards.map((c) => (
-            <div key={c.id} className={`${s.rc} ${s[`rc_${c.id}`]}`}><span className={s.rk}>{c.k}</span><h3>{c.title}</h3><p>{c.body}</p></div>
-          ))}
-        </div>
-        <ul className={s.modes}>
-          {P.modes.map((m) => (
-            <li key={m.id} className={`${s.mode} ${s[`m_${m.id}`]}`}><b>{m.badge}</b><span><strong>{m.title}</strong>{m.body}</span></li>
-          ))}
-        </ul>
-        <p className={s.host}>{P.host.text} <Link href={HIW_ROUTES.launch}>{P.host.link}</Link></p>
-      </section>
-    </>
-  );
 }
 
 function Pro() {
@@ -130,18 +176,9 @@ export default function HowItWorksPage() {
   return (
     <main className={s.page}>
       <ModeTabs
-        pilot={{ eyebrow: HIW_PILOT.eyebrow, h1: HIW_PILOT.h1, sub: HIW_PILOT.sub, body: <Pilot /> }}
-        pro={{ eyebrow: HIW_PRO.eyebrow, h1: HIW_PRO.h1, sub: HIW_PRO.sub, body: <Pro /> }}
-        finalStyle={{ backgroundImage: `url(${withBase("/art/launch/live.webp")})`, backgroundPosition: "50% 45%" }}
-        final={<>
-          <h2 id="hiw-final">{HIW_FINAL.h2}</h2>
-          <p>{HIW_FINAL.sub}</p>
-          <div className={s.ctas}>
-            <Link href={HIW_ROUTES.sim} className={`${s.btn} ${s.ghost}`}>{HIW_FINAL.sim}</Link>
-            <Link href={HIW_ROUTES.explore} className={`${s.btn} ${s.gold}`}>{HIW_FINAL.explore}</Link>
-            <Link href={HIW_ROUTES.launch} className={`${s.btn} ${s.ghost}`}>{HIW_FINAL.launch}</Link>
-          </div>
-        </>}
+        h1={HIW_H1}
+        games={HIW_GAMES.map((g) => ({ id: g.id, tab: g.tab, tag: g.tag, art: withBase(g.art), tone: g.tone, body: <Game g={g} /> }))}
+        pro={{ h1: HIW_PRO.h1, body: <Pro /> }}
       />
 
       <footer className={s.footer}>

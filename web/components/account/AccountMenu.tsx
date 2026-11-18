@@ -16,9 +16,8 @@ import { usd2 } from "@/components/cash/bits";
 
 export const ACCOUNT_COPY = {
   hangar: "Your Hangar",
-  trophies: "Orders + trophies",
+  trophies: "Trophies",
   topPilots: "Top pilots",
-  missionsLeft: (n: number) => `${n} left today`,
   logbook: "Logbook",
   crew: "Crew",
   cash: "Cash",
@@ -53,7 +52,6 @@ export default function AccountMenu({ wallet, name, initial, onClose, onSignOut 
   const pfp = usePilotPfp(wallet);
   const L = xp?.level ?? levelInfo(0);
   const r = useRewards(true);
-  const left = xp ? xp.daily.missions.filter((m) => !m.done).length : 0;
   const ready = useMemo(() => {
     const k = r.data?.claimableByKind;
     return k ? k.referral + k.creator + k.crew : 0;
@@ -76,7 +74,8 @@ export default function AccountMenu({ wallet, name, initial, onClose, onSignOut 
         </div>
         <span className="am-sep" />
         <a role="menuitem" className="am-i" href="/profile" onClick={onClose}><Ico d={I.hangar} />{ACCOUNT_COPY.hangar}</a>
-        <Link role="menuitem" className={`am-i${left > 0 ? " am-gold" : ""}`} href="/achievements" onClick={onClose} data-testid="account-trophies"><Ico d={I.trophies} />{ACCOUNT_COPY.trophies}{left > 0 && <span className="am-r gold">{ACCOUNT_COPY.missionsLeft(left)}</span>}</Link>
+        {/* plain row, no gold or "n left today" (maker 2026-11-18: "why are we featuring that at all") */}
+        <Link role="menuitem" className="am-i" href="/achievements" onClick={onClose} data-testid="account-trophies"><Ico d={I.trophies} />{ACCOUNT_COPY.trophies}</Link>
         {/* phones: Top pilots left the bottom tab bar for Market (nav rework, maker 2026-11-16), so it lives here */}
         <Link role="menuitem" className="am-i am-phone" href="/leaderboard" onClick={onClose}><Ico d={I.topPilots} />{ACCOUNT_COPY.topPilots}</Link>
         {LOGBOOK_ENABLED && <Link role="menuitem" className="am-i" href="/logbook" onClick={onClose}><Ico d={I.logbook} />{ACCOUNT_COPY.logbook}</Link>}

@@ -24,7 +24,7 @@ import { CASH_ARRIVED_EVENT } from "@/lib/testCash";
 import { OPEN_CASH_EVENT, type CashTab } from "@/lib/cashLink";
 import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
 import { withBase } from "@/lib/base-path";
-import { CashHead, Check, ErrIcon, usd2 } from "./bits";
+import { CashHead, Check, ErrIcon, Warn, usd2 } from "./bits";
 import { FUND_CARD_FEE_EST, FUND_COPY, FUND_DEFAULT_USD, FUND_PICKS, startFunding } from "@/lib/fund";
 import { DEPOSIT_COPY } from "@/lib/deposit";
 import { onTurboCash, refreshTurboCash, setTurboWallet, turboCashDev, type TurboCash } from "@/lib/turbo/turboCash";
@@ -65,12 +65,11 @@ export const CASH_COPY = {
   youHave: (v: string) => `You have ${v}`,
   sendTo: "Send to",
   paste: "Paste",
-  sendHelp: "An exchange deposit address or your own wallet, on Robinhood Chain.",
   receive: "You receive",
   fee: "Network fee",
   cashOut: (v: string) => `Cash out ${v}`,
   sending: "Sending…",
-  fine: "Sent cash can't be pulled back, so check the address.",
+  fine: "Can't be undone",
   sent: (v: string) => `${v} sent`,
   sentTo: (to: string, left: string) => <>To <span className="r2-mono cx-sentaddr">{to}</span>. Your cash is now {left}.</>,
   receipt: "View receipt",
@@ -119,7 +118,6 @@ function CardFund({ addr, empty, onPaid, onClose, onSend }: { addr: string; empt
       <button type="button" className="r2-gold cx-cardbtn" disabled={busy} onClick={go} data-testid="cash-card-btn">
         {busy ? FUND_COPY.opening : FUND_COPY.button}
       </button>
-      <span className="cx-help cx-center">{FUND_COPY.sub}</span>
       {note && <div className={`r2-note ${note.ok ? "ok" : "warn"}`} role="status"><span>{note.text}</span></div>}
       {empty && <a className="cx-freeplay" href={withBase("/flight/sim")} onClick={() => onClose()} data-testid="cash-freeplay"><b>Free play</b></a>}
       <div className="cx-or" aria-hidden><span>{FUND_COPY.or}</span></div>
@@ -453,11 +451,10 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
             <div>
               <label className="r2-lbl" htmlFor="cx-to">{CASH_COPY.sendTo}</label>
               <div className="cx-inrow">
-                <input id="cx-to" className="r2-field r2-mono cx-addr" placeholder="0x…" value={to} autoComplete="off" spellCheck={false} data-testid="cash-to"
+                <input id="cx-to" className="r2-field r2-mono cx-addr" placeholder="0x… on Robinhood Chain" value={to} autoComplete="off" spellCheck={false} data-testid="cash-to"
                   onChange={(e) => { setErr(null); setTo(e.target.value.trim()); }} />
                 <button type="button" className="r2-btn cx-copy" onClick={async () => { try { const t = await navigator.clipboard.readText(); if (t) { setErr(null); setTo(t.trim()); } } catch { /* no clipboard read */ } }}>{CASH_COPY.paste}</button>
               </div>
-              <span className="cx-help cx-d">{CASH_COPY.sendHelp}</span>
             </div>
             <div className="r2-box">
               <div className="r2-r"><div className="t"><b>{CASH_COPY.receive}</b>{gasless && quote && <span className="cx-p">{CASH_COPY.fee} {usd2(feeUsd)}</span>}</div><span className="r2-g cx-recv">{usd2(recvUsd)}</span></div>
@@ -467,7 +464,7 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
             <button type="button" className="r2-gold" disabled={busy || amtNum <= 0} onClick={cashOut} data-testid="cash-out-btn">
               {busy ? CASH_COPY.sending : amtNum > 0 ? CASH_COPY.cashOut(usd2(amtNum)) : CASH_COPY.tabs.out}
             </button>
-            <span className="cx-fine">{CASH_COPY.fine}</span>
+            <span className="cx-fine cx-final"><Warn />{CASH_COPY.fine}</span>
           </>
         )}
       </div>

@@ -18,49 +18,81 @@ export const HIW_META = {
   description: "Multiplayer memecoins and 1v1 trading duels. Launch your own coin with a crew, or take on another trader for one minute.",
 };
 
-export const HIW_TABS = { label: "Mode", pilot: "Pilot", pro: "Pro" } as const;
+/** Mode tabs (maker 2026-11-18: "a tab for each game mode so people can see all the different modes"). #duel / #climb open those. */
+export type HiwMode = "launch" | "duel" | "climb";
+export const HIW_TABS = { label: "Game mode", pilot: "Pilot", pro: "Pro" } as const;
+export const HIW_H1 = "How to play";
 
-export const HIW_PILOT = {
-  eyebrow: "",
-  h1: "Your first flight",
-  sub: "Seats cost real cash.",
-  /** The annotated flight screen: an illustration of the HUD, not live data. */
-  screen: {
-    tag: "Example",
-    altitude: { k: "Altitude · Stratosphere", v: "$18.4K", orbit: "Orbit in $14.9K", fill: 0.45 },
-    bag: { k: "Your bag", v: "$62.40", put: "Put in $50.00", gain: "+$12.40" },
-    boost: "▲ +$25 · ACE",
-    bomb: "● Bunker buster −3%",
-    buys: [["1", "$10"], ["2", "$25"], ["3", "$50"], ["4", "$100"]] as [string, string][],
-    sells: [["Z", "10%"], ["X", "25%"], ["C", "Half"], ["V", "All"]] as [string, string][],
-    boostBtn: "▲ Boost $25",
-    dumpBtn: "▼ Dump ~$15",
-    alt: "The flight screen: altitude top left, your bag top right, a bomb marker, and the boost and dump bar along the bottom.",
-  },
-  legend: [
-    { title: "Altitude", body: "Market cap, and how far to orbit." },
-    { title: "Your bag", body: "What you'd get out now vs. what you put in." },
-    { title: "Bombs", body: "Someone dumped. Bigger dump, bigger blast." },
-    { title: "Boost", body: "1–4 sets the size. Space buys in." },
-    { title: "Dump", body: "Z X C V sets how much. Shift cashes out." },
-  ],
-  phone: "Phone: throttle up to boost, down to dump.",
-  rules: {
-    eyebrow: "",
-    h2: "How you win",
-    cards: [
-      { id: "win", k: "Win", title: "Cash out higher", body: "Dump above your entry. Profit lands as cash." },
-      { id: "lose", k: "Lose", title: "Ride it down", body: "Below your entry, you're down. Only fly what you can lose." },
-      { id: "goal", k: "Crew goal", title: "Reach orbit", body: "$33,333 market cap. Everyone aboard sees it." },
-    ],
-  },
-  modes: [
-    { id: "easy", badge: "Easy", title: "Co-op", body: "Tight caps" },
-    { id: "hard", badge: "Hard", title: "Free for all", body: "Loose caps" },
-    { id: "expert", badge: "Expert", title: "The trenches", body: "No caps" },
-  ],
-  host: { text: "Hosts earn a cut of every trade.", link: "Launch one" },
+/** A step in the 3-step strip. `art` picks the little drawing above it (page.tsx Art). Titles are verbs; lines stay under
+ *  ten words (show, don't tell: the drawing carries the idea). */
+export type HiwStep = { art: string; title: string; line: string };
+export type HiwGame = {
+  id: HiwMode; tab: string; tag: string; art: string; tone: string;
+  steps: HiwStep[];
+  win: { ok: string; bad: string };
+  keys: { k: string; keys: string[]; tone: "up" | "down" | "gold" }[];
+  phone: string;
+  cta: { label: string; href: string };
 };
+
+export const HIW_GAMES: HiwGame[] = [
+  {
+    id: "launch", tab: "Launch", tag: "Your own coin", art: "/art/modes/launch.webp", tone: "#F3DFA8",
+    steps: [
+      { art: "board", title: "Boost", line: "Buy in. The rocket lifts off." },
+      { art: "climb", title: "Climb", line: "Every boost pushes it higher." },
+      { art: "cash", title: "Dump", line: "Sell when you want. Profit is cash." },
+    ],
+    win: { ok: "Sell higher than you bought", bad: "Sell lower and you lose" },
+    keys: [
+      { k: "Boost", keys: ["1", "2", "3", "4", "Space"], tone: "up" },
+      { k: "Dump", keys: ["Z", "X", "C", "V", "Shift"], tone: "down" },
+    ],
+    phone: "Phone: tap an amount, then BOOST or DUMP",
+    cta: { label: "Find a flight", href: "/live" },
+  },
+  {
+    id: "duel", tab: "Duel", tag: "1v1", art: "/art/modes/duel.webp", tone: "#FF9CC4",
+    steps: [
+      { art: "versus", title: "Face off", line: "You and a rival, same live BTC." },
+      { art: "call", title: "Call it", line: "Boost if BTC goes up. Dump if it drops." },
+      { art: "clock", title: "Beat the clock", line: "Most profit at 0:00 wins." },
+    ],
+    win: { ok: "More profit than your rival", bad: "Less profit, or out of fuel" },
+    keys: [
+      { k: "Boost", keys: ["Space"], tone: "up" },
+      { k: "Dump", keys: ["Shift"], tone: "down" },
+      { k: "Cash out", keys: ["Enter"], tone: "gold" },
+    ],
+    phone: "Phone: tap BOOST, DUMP or CASH OUT",
+    cta: { label: "Play a duel", href: "/turbo/duel" },
+  },
+  {
+    id: "climb", tab: "Climb", tag: "Solo", art: "/art/modes/live.webp", tone: "#5FF0A0",
+    steps: [
+      { art: "level", title: "Pick a level", line: "Each level sets your fuel and gear." },
+      { art: "target", title: "Hit the target", line: "Make the % before the minute ends." },
+      { art: "ladder", title: "Level up", line: "Clear 5 levels to unlock free mode." },
+    ],
+    win: { ok: "Hit the target in time", bad: "Miss it and try again" },
+    keys: [
+      { k: "Boost", keys: ["Space"], tone: "up" },
+      { k: "Dump", keys: ["Shift"], tone: "down" },
+      { k: "Cash out", keys: ["Enter"], tone: "gold" },
+    ],
+    phone: "Phone: tap BOOST, DUMP or CASH OUT",
+    cta: { label: "Play Climb", href: "/turbo/climb" },
+  },
+];
+
+/** Launch only: the three difficulties a host picks (caps in contracts/src/libraries/Constants.sol). */
+export const HIW_DIFFS = [
+  { id: "easy", badge: "Easy", stat: "Max bag 1%" },
+  { id: "hard", badge: "Hard", stat: "Max bag 3.33%" },
+  { id: "expert", badge: "Expert", stat: "No cap" },
+];
+export const HIW_ORBIT = { k: "Orbit", v: "$33,333", line: "The crew's goal. The rocket lists for good." };
+export const HIW_HOST = { text: "Hosts earn 33% of every trade fee.", link: "Launch one" };
 
 export const HIW_PRO = {
   eyebrow: "",
@@ -127,7 +159,6 @@ export const HIW_PRO = {
 
 export const HIW_FINAL = {
   h2: "Ready up",
-  sub: "Free play uses practice cash.",
   /** the Pilot / Pro switch again, so a reader at the bottom can flip modes without scrolling back up */
   tog: "Read it as",
   sim: "Try Free play",

@@ -10,17 +10,18 @@ import { isVerified } from "@/lib/verified";
 import { useVerifiedMany } from "@/lib/verifiedClient";
 import type { HomeCoin, HomeData } from "@/lib/home/trending";
 import Icon from "@/components/icons/Icon";
+import DsSelect from "@/components/ui/DsSelect";
 import LiveCard from "./LiveCard";
 import s from "./rocketGrid.module.css";
 
-type Sort = "new" | "climbing" | "busy" | "crew" | "near" | "orbit";
+/** Sort chips (maker 2026-11-18): Newest, Trending (24h climb), Volume (24h), Near orbit, Ascended (graduated). */
+type Sort = "new" | "climbing" | "busy" | "near" | "orbit";
 const SORTS: { k: Sort; label: string }[] = [
   { k: "new", label: "Newest" },
-  { k: "climbing", label: "Climbing" },
-  { k: "busy", label: "Busiest" },
-  { k: "crew", label: "Most crew" },
+  { k: "climbing", label: "Trending" },
+  { k: "busy", label: "Volume" },
   { k: "near", label: "Near orbit" },
-  { k: "orbit", label: "In orbit" },
+  { k: "orbit", label: "Ascended" },
 ];
 type Diff = "all" | "easy" | "hard" | "expert";
 const DIFFS: { k: Diff; label: string; mode?: number }[] = [
@@ -62,7 +63,6 @@ export default function RocketGrid({ initial }: { initial: HomeCoin[] }) {
     if (sort === "new" || sort === "orbit") r.sort((a, b) => b.block - a.block);
     else if (sort === "climbing") r.sort((a, b) => (b.stats?.chg24 ?? -Infinity) - (a.stats?.chg24 ?? -Infinity) || vol(b) - vol(a));
     else if (sort === "busy") r.sort((a, b) => vol(b) - vol(a) || b.block - a.block);
-    else if (sort === "crew") r.sort((a, b) => (b.stats?.crew ?? 0) - (a.stats?.crew ?? 0) || vol(b) - vol(a));
     else if (sort === "near") r.sort((a, b) => (b.progressBps ?? 0) - (a.progressBps ?? 0));
     return r;
   }, [coins, q, diff, verifiedOnly, vset, sort]);
@@ -90,9 +90,8 @@ export default function RocketGrid({ initial }: { initial: HomeCoin[] }) {
             <Icon name="search" size={16} />
             <input type="search" placeholder="Search rockets" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search rockets by name or ticker" />
           </label>
-          <select className={s.select} value={diff} onChange={(e) => setDiff(e.target.value as Diff)} aria-label="Difficulty">
-            {DIFFS.map((d) => <option key={d.k} value={d.k}>{d.label}</option>)}
-          </select>
+          <DsSelect className="pill" value={diff} onChange={(v) => setDiff(v as Diff)} ariaLabel="Difficulty"
+            options={DIFFS.map((d) => ({ value: d.k, label: d.label }))} />
           <button type="button" className="dsc3-chip" aria-pressed={verifiedOnly} onClick={() => setVerifiedOnly((v) => !v)} title="Hand-verified rockets only">
             <Icon name="verified" size={16} /> Verified
           </button>

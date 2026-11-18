@@ -1,7 +1,7 @@
 /**
  * /live: Live flights, the top bar tab and the lobby's Live flights card (maker 2026-11-16: "live flights really should
  * just redirect to the All rockets list (not a random rocket)"). The same All rockets grid as the lobby foot (RocketGrid,
- * sort chips Newest / Climbing / Busiest / …), on its own page. Play now (/play) still drops you straight into the hottest one.
+ * sort chips Newest / Trending / Volume / Near orbit / Ascended), on its own page. Play now (/play) still drops you straight into the hottest one.
  */
 import Link from "next/link";
 import { BOT_DUEL_HREF } from "@/lib/features";

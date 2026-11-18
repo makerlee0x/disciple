@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import Icon, { type IconName } from "@/components/icons/Icon";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import { CREW_ENABLED } from "@/lib/features";
-import { PUSH_KINDS, pushCopy, type PushKind, type PushPrefs } from "@/lib/push";
+import { PUSH_KINDS, type PushKind, type PushPrefs } from "@/lib/push";
 import { isNativeApp, nativeDebugBuild, nativePushRegister, NATIVE_PUSH_TOKEN_KEY } from "@/lib/native";
 
 type State = { configured: boolean; web?: boolean; app?: boolean; publicKey: string | null; prefs: PushPrefs; devices: number };
@@ -116,7 +116,6 @@ export default function PushSettings({ wallet }: { wallet: string | null }) {
             <button type="button" role="switch" aria-checked={st.prefs[x.k]} aria-label={x.label} className={`p5-switch${st.prefs[x.k] ? " on" : ""}`} data-testid={`settings-alert-${x.k}`} onClick={() => void flip(x.k)}><span /></button>
           </div>
         ))}
-        <div className="p5-srow"><div className="tx"><span>{pushCopy.rule}</span></div></div>
       </div>
     </section>
   );

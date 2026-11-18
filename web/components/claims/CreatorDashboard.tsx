@@ -273,7 +273,6 @@ export default function CreatorDashboard() {
       <header className="he-head">
         <div>
           <h1 className="r2-g">{HOST_COPY.title}</h1>
-          <p>{HOST_COPY.sub}</p>
           <SampleTag show={demo} />
         </div>
         <Link href="/profile" className="he-back">{HOST_COPY.back}</Link>
