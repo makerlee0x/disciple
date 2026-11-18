@@ -51,14 +51,8 @@ abstract contract NetworkConfig is Script {
         require(liquidity > 0 && liquidity <= type(uint128).max, "Network: invalid MIN_LIQUIDITY");
         require(vm.envUint("PROBE_USDG") > 0, "Network: invalid PROBE_USDG");
         vm.envAddress("ERC5564_ANNOUNCER"); // explicit zero is allowed to disable announcements
-        if (quote != usdg) {
-            uint256 fee = vm.envUint("DEFAULT_QUOTE_POOL_FEE");
-            uint256 spacing = vm.envUint("DEFAULT_QUOTE_POOL_TICK_SPACING");
-            require(
-                fee <= type(uint24).max && spacing > 0 && spacing <= uint256(uint24(type(int24).max)),
-                "Network: bad pool key"
-            );
-            _requiredContract("DEFAULT_QUOTE_POOL_HOOKS");
-        }
+        // Mainnet prices and routes every pair coin (the default quote included) through the fork-tested
+        // script/whitelist/MainnetRoutes.sol routes, so no DEFAULT_QUOTE_POOL_* key is read on 4663.
+        quote; // Deploy checks it is one of the 12 listed pair coins (or USDG)
     }
 }

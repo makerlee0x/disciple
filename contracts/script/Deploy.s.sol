@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Script, console2} from "forge-std/Script.sol";
 import {NetworkConfig} from "./config/NetworkConfig.sol";
+import {MainnetRoutes} from "./whitelist/MainnetRoutes.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -72,7 +73,8 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       the 1%). Non-zero redirects the WHOLE referral 1% incl. the launch-KOL 1% (lee, 2026-10-24).
 ///                       Fixed for good on 4663 by lockSettings().
 ///   DEFAULT_QUOTE       default launch quote (RH: STRATEGY 0x168661C52E5922288dFb2b3f323b6Cf90eb21e18)
-///   DEFAULT_QUOTE_POOL_FEE / DEFAULT_QUOTE_POOL_TICK_SPACING / DEFAULT_QUOTE_POOL_HOOKS
+///   DEFAULT_QUOTE_POOL_FEE / DEFAULT_QUOTE_POOL_TICK_SPACING / DEFAULT_QUOTE_POOL_HOOKS (not read on 4663: there all
+///                       12 pair coins, the default quote included, get the script/whitelist/MainnetRoutes.sol routes)
 ///                       reference DEFAULT_QUOTE/USDG v4 pool for the QuotePricer
 ///                       (RH STRATEGY/USDG deepest pool: 36900 / 369 / 0x0 → id 0x816b…245b)
 ///   MIN_LIQUIDITY       QuotePricer minimum in-range liquidity (default: the constructor floor)
@@ -225,7 +227,7 @@ contract Deploy is NetworkConfig {
         QuotePricer pricer = new QuotePricer(deployer, manager, o.usdg);
         // Default floor is set by the constructor (1e4 * 10^((18 + usdgDecimals) / 2)); MIN_LIQUIDITY overrides it.
         pricer.setMinLiquidity(uint128(vm.envOr("MIN_LIQUIDITY", uint256(pricer.minLiquidity()))));
-        if (!hasRef && o.defaultQuote != o.usdg) {
+        if (!hasRef && o.defaultQuote != o.usdg && !mainnet) {
             (address c0, address c1) =
                 uint160(o.defaultQuote) < uint160(o.usdg) ? (o.defaultQuote, o.usdg) : (o.usdg, o.defaultQuote);
             refKey = PoolKey({
@@ -261,6 +263,11 @@ contract Deploy is NetworkConfig {
         feeRouter.setCreatorFeeHarvest_51(address(harvest));
         o.creatorFeeHarvest = address(harvest);
         if (hasRef) router.setUsdgPool(o.defaultQuote, refKey);
+        // Mainnet: list and route all 12 pair coins (default quote included) on the fork-tested USDG-first routes.
+        if (mainnet) {
+            require(o.defaultQuote == o.usdg || MainnetRoutes.isListed(o.defaultQuote), "Deploy: default quote not listed");
+            _wireMainnetRoutes(pricer, router);
+        }
         // Sanity: oracle must price the default quote now, else launches would revert.
         require(pricer.quotePriceUsd(o.defaultQuote) > 0, "Deploy: default quote unpriced");
 
@@ -400,6 +407,18 @@ contract Deploy is NetworkConfig {
             require(lockedLP.owner() == address(0), "verify: lockedLP renounced");
             require(hook.admin() == address(0), "verify: hook admin");
             require(feeRouter.settingsLocked(), "verify: fee settings locked");
+        }
+    }
+
+    /// @dev setUsdgRoute + setAllowedQuote + setPriceRoute for each of the 12 pair coins (script/whitelist/MainnetRoutes).
+    function _wireMainnetRoutes(QuotePricer pricer, DiscipleRouter router) internal {
+        address[12] memory q = MainnetRoutes.quotes();
+        for (uint256 i; i < 12; ++i) {
+            (PoolKey[] memory keys,,,) = MainnetRoutes.routeOf(q[i]);
+            router.setUsdgRoute(q[i], keys);
+            pricer.setAllowedQuote(q[i], true);
+            pricer.setPriceRoute(q[i], keys);
+            console2.log("PairRoute", q[i], keys.length);
         }
     }
 
