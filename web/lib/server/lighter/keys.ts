@@ -18,7 +18,7 @@ export interface LighterPlayer {
   approvedFee?: number;   // partner fee units the player approved (0 = none yet)
   approvedExpiry?: number;
   lev?: Record<string, number>; // market id → leverage set on Lighter
-  pending?: { kind: "key" | "approve"; txType: number; txInfo: string; message: string; at: number };
+  pending?: { kind: "key" | "approve" | "withdraw"; txType: number; txInfo: string; message: string; at: number; to?: string; usd?: number };
 }
 
 const k = (cfg: LighterConfig, pid: string) => `lighter:${cfg.network}:player:${pid.toLowerCase()}`;

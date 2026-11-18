@@ -2,7 +2,7 @@ import "server-only";
 /**
  * Lighter settings, from env. Lighter is the backup venue for Turbo while Nova's SDK is pending (maker 2026-11-17).
  *
- *   LIGHTER_NETWORK          testnet (default) | mainnet
+ *   LIGHTER_NETWORK          testnet (default) | mainnet | rh-mainnet | rh-testnet (Lighter on Robinhood Chain)
  *   LIGHTER_INTEGRATOR_INDEX Disciple's own Lighter account index; partner fees land there. Unset = no partner fee.
  *   LIGHTER_PARTNER_FEE_BP   Disciple's fee per side in bp (default 0.05, so 1.1 bp round trip on Plus; maker locked 1.1)
  *   LIGHTER_API_KEY_INDEX    the key slot Disciple uses on each player's account (default 7; 0–3 are Lighter's own apps)
@@ -13,15 +13,20 @@ import "server-only";
  */
 import { bpToFeeUnits } from "@/lib/lighter/math";
 
-export type LighterNetwork = "testnet" | "mainnet";
-const NETS: Record<LighterNetwork, { url: string; chainId: number }> = {
-  mainnet: { url: "https://mainnet.zklighter.elliot.ai", chainId: 304 },
+export type LighterNetwork = "testnet" | "mainnet" | "rh-mainnet" | "rh-testnet";
+/** payoutIsCash: a fast withdrawal pays USDG on Robinhood Chain, so Turbo cash can go straight back to Cash.
+ *  Lighter on Robinhood Chain is a separate exchange (own accounts, keys, nonces); same API and tx format. */
+const NETS: Record<LighterNetwork, { url: string; chainId: number; collateral: string; payoutIsCash: boolean }> = {
+  mainnet: { url: "https://mainnet.zklighter.elliot.ai", chainId: 304, collateral: "USDC", payoutIsCash: false },
+  "rh-mainnet": { url: "https://api.rh.lighter.xyz", chainId: 466324, collateral: "USDG", payoutIsCash: true },
+  "rh-testnet": { url: "https://api.rh-testnet.lighter.xyz", chainId: 300, collateral: "USDG", payoutIsCash: true },
   // the testnet app (testnet.app.lighter.xyz) talks to api.testnet.lighter.xyz; the docs' testnet.zklighter host doesn't know its accounts (2026-11-17)
-  testnet: { url: "https://api.testnet.lighter.xyz", chainId: 300 },
+  testnet: { url: "https://api.testnet.lighter.xyz", chainId: 300, collateral: "USDC", payoutIsCash: false },
 };
 
 export function lighterConfig() {
-  const network: LighterNetwork = process.env.LIGHTER_NETWORK === "mainnet" ? "mainnet" : "testnet";
+  const want = process.env.LIGHTER_NETWORK as LighterNetwork | undefined;
+  const network: LighterNetwork = want && want in NETS ? want : "testnet";
   const integratorRaw = process.env.LIGHTER_INTEGRATOR_INDEX;
   const integratorIndex = integratorRaw && /^\d+$/.test(integratorRaw) ? Number(integratorRaw) : 0;
   const feeBp = Number(process.env.LIGHTER_PARTNER_FEE_BP ?? "0.05");

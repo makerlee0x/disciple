@@ -1035,3 +1035,5 @@ html:not([data-you]) .lb-tabs a.lb-you-only, html[data-you] .lb-tabs a.lb-out-on
   .wb-chevbtn { position: absolute; inset: 0; width: auto; height: auto; margin: 0; border-radius: 999px; }
   .wb-chevbtn:hover { background: none; }
 }
+.r2-chips.cx-dir { margin-top: 0; }
+.r2-chips.cx-dir button { min-height: 36px; line-height: 36px; font-size: 15px; }

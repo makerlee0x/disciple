@@ -15,6 +15,8 @@ export type TurboCash = {
   usd: number;
   /** this browser can move cash into Turbo (Lighter is on here and on the server) */
   canAdd: boolean;
+  /** Turbo cash can go back to Cash (a venue whose withdrawals pay USDG on our chain, set-up finished) */
+  canWithdraw: boolean;
   /** Lighter set-up step, once read ("deposit" = no Lighter account yet) */
   lighterStep: string | null;
   /** Nova fuel and its move-back, when Turbo published one */
@@ -23,7 +25,8 @@ export type TurboCash = {
 
 const subs = new Set<(t: TurboCash) => void>();
 let wallet: string | null = null;
-let lighter: { usd: number; step: string | null; on: boolean } = { usd: 0, step: null, on: false };
+type L = { usd: number; step: string | null; on: boolean; out?: boolean };
+let lighter: L = { usd: 0, step: null, on: false };
 let fuel: CashFuel = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let offFuel: (() => void) | null = null;
@@ -31,7 +34,7 @@ let serverOff = false;
 let dev = false;
 
 function snap(): TurboCash {
-  return { usd: lighter.usd + (fuel?.usd ?? 0), canAdd: lighter.on, lighterStep: lighter.step, fuel };
+  return { usd: lighter.usd + (fuel?.usd ?? 0), canAdd: lighter.on, canWithdraw: !!lighter.out && lighter.step === "ready", lighterStep: lighter.step, fuel };
 }
 const emit = () => { const s = snap(); subs.forEach((cb) => cb(s)); };
 
@@ -43,10 +46,10 @@ export async function refreshTurboCash(): Promise<void> {
   try {
     const r = await lighterFetcher(w)("/api/lighter");
     if (r.status === 404) { serverOff = true; lighter = { usd: 0, step: null, on: false }; emit(); return; }
-    const j = (await r.json().catch(() => ({}))) as { ok?: boolean; step?: string; collateral?: string };
+    const j = (await r.json().catch(() => ({}))) as { ok?: boolean; step?: string; collateral?: string; withdraw?: boolean };
     if (w !== wallet || !r.ok || !j.ok) return;
     const usd = Number(j.collateral ?? 0);
-    lighter = { usd: Number.isFinite(usd) && usd > 0 ? usd : 0, step: j.step ?? null, on: true };
+    lighter = { usd: Number.isFinite(usd) && usd > 0 ? usd : 0, step: j.step ?? null, on: true, out: !!j.withdraw };
     emit();
   } catch { /* keep the last read */ }
 }
@@ -74,8 +77,10 @@ export function onTurboCash(cb: (t: TurboCash) => void): () => void {
 }
 
 export function turboCash(): TurboCash { return snap(); }
+/** dev screenshots only (window.__turboCashDev): Cash shows sample To Cash numbers instead of calling Lighter */
+export const turboCashDev = () => dev;
 
 // dev only (screenshots): window.__turboCashDev(250) shows a Turbo cash balance and the To Turbo tab
 if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
-  (window as unknown as { __turboCashDev?: (usd: number) => void }).__turboCashDev = (usd) => { dev = true; lighter = { usd, step: "ready", on: true }; emit(); };
+  (window as unknown as { __turboCashDev?: (usd: number) => void }).__turboCashDev = (usd) => { dev = true; lighter = { usd, step: "ready", on: true, out: true }; emit(); };
 }
