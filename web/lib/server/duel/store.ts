@@ -14,7 +14,7 @@ import type { SeasonLine } from "@/lib/duel/types";
 import { kv, type Kv } from "@/lib/server/kv";
 import { ulid } from "@/lib/chat/ulid";
 import {
-  COUNTDOWN_MS, OT_MS, applyTrade, bombAt, makeCode, matchWindow, needsOvertime, newBook, newRating, profitOf, rate, settleBook, fuelOf, okStake, isCustomFuel,
+  COUNTDOWN_MS, OT_MS, applyTrade, bombAt, carryRating, makeCode, matchWindow, needsOvertime, newBook, newRating, profitOf, rate, settleBook, fuelOf, okStake, isCustomFuel,
   type LengthMs, type Rating, type TierId, type TradeAction,
   DUEL_LEN_MS,
 } from "@/lib/duel/rules";
@@ -126,7 +126,11 @@ export const seatOf = (r: DuelRoom, pid: string) => r.players.find((p) => p.pid 
 const opponentOf = (r: DuelRoom, pid: string) => r.players.find((p) => p.pid !== pid) ?? null;
 
 /* ---------- ratings ---------- */
-export async function ratingOf(pid: string, s: Kv = kv()): Promise<Rating> { return parse<Rating>(await s.get(K.rating(pid))) ?? newRating(); }
+export async function ratingOf(pid: string, s: Kv = kv()): Promise<Rating> {
+  const n = seasonAt(Date.now()).n;
+  const x = parse<Rating>(await s.get(K.rating(pid)));
+  return x ? carryRating(x, n) : { ...newRating(), s: n };
+}
 
 /* ---------- quick match ---------- */
 /**
@@ -372,6 +376,7 @@ async function rateDuel(r: DuelRoom, scoreA: 0 | 0.5 | 1, s: Kv) {
   return withLockKey(s, k1, () => withLockKey(s, k2, async () => {
     const ra = await ratingOf(a.pid, s), rb = await ratingOf(b.pid, s);
     const out = rate(ra, rb, scoreA);
+    out.a.s = ra.s; out.b.s = rb.s;   // keep the season the rating was carried into (soft reset)
     await s.set(K.rating(a.pid), JSON.stringify(out.a)); await s.set(K.rating(b.pid), JSON.stringify(out.b));
     await onBoard(a, out.a.r, s); await onBoard(b, out.b.r, s);
     // season ladder: never let it break settling

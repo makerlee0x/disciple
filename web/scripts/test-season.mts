@@ -30,11 +30,22 @@ test("season points: wins, streak bonus capped, draws, losses floored at 0", () 
 
 test("leagues and progress", () => {
   assert.equal(leagueOf(0).id, "rookie");
-  assert.equal(leagueOf(99).id, "rookie");
-  assert.equal(leagueOf(100).id, "bronze");
-  assert.equal(leagueOf(5000).id, "champion");
-  const p = leagueProgress(175);
+  assert.equal(leagueOf(299).id, "rookie");
+  assert.equal(leagueOf(300).id, "bronze");
+  assert.equal(leagueOf(5399).id, "diamond");
+  assert.equal(leagueOf(5400).id, "champion");
+  const p = leagueProgress(525);
   assert.equal(p.league.id, "bronze"); assert.equal(p.next?.id, "silver"); assert.equal(p.pct, 0.5);
-  assert.equal(leagueProgress(1800).next, null);
+  assert.equal(leagueProgress(5400).next, null);
   assert.deepEqual([1, 2, 3, 4, 5, 9, 10, 15].filter(isStreakMilestone), [3, 5, 10, 15]);
+});
+
+test("season soft reset pulls the hidden rating halfway to 1,200 per new season", async () => {
+  const { carryRating, newRating } = await import("../lib/duel/rules.ts");
+  const r = { ...newRating(), r: 1800, w: 40, l: 10, games: 50, streak: 3, peak: 1850, s: 1 };
+  assert.equal(carryRating(r, 1), r);
+  const n2 = carryRating(r, 2); assert.equal(n2.r, 1500); assert.equal(n2.s, 2); assert.equal(n2.w, 40); assert.equal(n2.peak, 1850);
+  assert.equal(carryRating(r, 3).r, 1350);
+  assert.equal(carryRating({ ...r, r: 900 }, 2).r, 1050);
+  assert.equal(carryRating({ ...r, s: undefined }, 4).r, 1800); // never carried before: no reset, just stamped
 });

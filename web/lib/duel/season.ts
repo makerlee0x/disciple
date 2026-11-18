@@ -27,12 +27,13 @@ export const SP = { win: 30, streakStep: 5, streakMax: 25, draw: 10, loss: -15 }
 
 export const LEAGUES = [
   { id: "rookie", name: "Rookie", min: 0, color: "#D7D9E4" },
-  { id: "bronze", name: "Bronze", min: 100, color: "#E0A070" },
-  { id: "silver", name: "Silver", min: 250, color: "#C9D1DE" },
-  { id: "gold", name: "Gold", min: 500, color: "#F2C14E" },
-  { id: "platinum", name: "Platinum", min: 800, color: "#8FE3FF" },
-  { id: "diamond", name: "Diamond", min: 1200, color: "#B7A6FF" },
-  { id: "champion", name: "Champion", min: 1800, color: "#FF9CC4" },
+  // sized for 12-week seasons (maker 2026-11-18: 3x the monthly cutoffs)
+  { id: "bronze", name: "Bronze", min: 300, color: "#E0A070" },
+  { id: "silver", name: "Silver", min: 750, color: "#C9D1DE" },
+  { id: "gold", name: "Gold", min: 1500, color: "#F2C14E" },
+  { id: "platinum", name: "Platinum", min: 2400, color: "#8FE3FF" },
+  { id: "diamond", name: "Diamond", min: 3600, color: "#B7A6FF" },
+  { id: "champion", name: "Champion", min: 5400, color: "#FF9CC4" },
 ] as const;
 export type League = (typeof LEAGUES)[number];
 
