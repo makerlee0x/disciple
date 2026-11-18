@@ -8,6 +8,7 @@
 import { formatUnits, parseUnits, type Address } from "viem";
 import { publicClient } from "@/lib/protocol-viem";
 import { gaslessSigner } from "@/lib/wallet";
+import { ACTIVE_CHAIN } from "@/lib/chains";
 import { lighterSetUp, lighterStatus, type LighterStep } from "./client";
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
@@ -25,10 +26,12 @@ export async function lighterAddCash(f: Fetcher, usd: number, signMessage: (msg:
   const owner = gaslessSigner();
   if (!owner) throw new Error("Sign in first.");
   onStep("address");
-  const [{ address, minNew, min }, before] = await Promise.all([
-    post<{ address: Address; minNew: number; min: number }>(f, "deposit-address"),
+  const [{ address, minNew, min, chainId }, before] = await Promise.all([
+    post<{ address: Address; minNew: number; min: number; chainId?: number | null }>(f, "deposit-address"),
     lighterStatus(f) as Promise<{ step: LighterStep; collateral?: string }>,
   ]);
+  // 2026-11-18: a testnet build sent test USDG to a real Lighter main deposit address. Never send across chains.
+  if (!chainId || chainId !== ACTIVE_CHAIN.id) throw new Error(`Turbo cash can't be added from this build (${ACTIVE_CHAIN.name}).`);
   const floor = before.step === "deposit" ? minNew : min;
   if (!(usd >= floor)) throw new Error(`Add at least $${floor}.`);
 

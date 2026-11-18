@@ -19,6 +19,9 @@ const BRIDGE = "https://bridge.lighter.xyz";
 export const DEPOSIT_MIN_NEW = 5, DEPOSIT_MIN = 3;
 /** Lighter on Robinhood Chain takes USDG straight in: 1 USDG minimum per deposit (docs, Robinhood Chain section). */
 export const depositMins = (cfg: LighterConfig) => (cfg.payoutIsCash ? { minNew: 1, min: 1 } : { minNew: DEPOSIT_MIN_NEW, min: DEPOSIT_MIN });
+/** The chain whose USDG the deposit address takes: Robinhood Chain mainnet for Lighter main's bridge (4663). The browser
+ *  refuses to send from any other chain, so test USDG on a testnet build never goes to a real deposit address. */
+export const depositChain = (cfg: LighterConfig) => cfg.depositChainId ?? (cfg.network === "mainnet" ? 4663 : null);
 
 /**
  * Lighter main -> Cash (maker 2026-11-18 moved Turbo to Lighter main for its 0.5 bp Plus fee). Cash in needs nothing
