@@ -50,9 +50,9 @@ export const CASH_COPY = {
   backFine: (min: number) => `Lands in a few minutes. Min $${min}.`,
   backDone: (v: string) => `${v} on its way to Cash.`,
   toTurbo: (v: string) => `Move ${v} to Turbo`,
+  turboMin: (v: string) => `${v} minimum deposit`,
   lands: "Lands in Turbo cash",
   turboSteps: { address: "Sending…", sending: "Sending…", arriving: "Landing in Turbo…", setup: "Setting up Turbo…", done: "Done" },
-  turboFine: (min: number) => `Lands in a few minutes. Min $${min}.`,
   turboDone: (v: string) => `${v} moved to Turbo cash.`,
   addTitle: "Send USDG to your cash address",
   addBody: "From an exchange or another wallet, on Robinhood Chain. It shows up as cash when it lands.",
@@ -177,10 +177,9 @@ function ToTurbo({ balUsd, feeUsd, min, onMoved }: { balUsd: number; feeUsd: num
       </div>
       {err && <div className="r2-note err" role="alert"><ErrIcon /><span>{err}</span></div>}
       {done && <div className="r2-note ok" role="status"><span>{done}</span></div>}
-      <button type="button" className="r2-gold" disabled={!!step || n <= 0} onClick={go} data-testid="cash-turbo-btn">
-        {step ? CASH_COPY.turboSteps[step] : n > 0 ? CASH_COPY.toTurbo(usd2(n)) : CASH_COPY.tabs.turbo}
+      <button type="button" className="r2-gold" disabled={!!step || n < min - 1e-9} onClick={go} data-testid="cash-turbo-btn">
+        {step ? CASH_COPY.turboSteps[step] : n >= min - 1e-9 ? CASH_COPY.toTurbo(usd2(n)) : CASH_COPY.turboMin(usd2(min))}
       </button>
-      <span className="cx-fine">{CASH_COPY.turboFine(min)}</span>
     </>
   );
 }
@@ -432,7 +431,7 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
             )}
             {dir === "back" && turbo?.canWithdraw
               ? <FromTurbo cashAddr={addr} onMoved={() => { void refresh(addr); void refreshTurboCash(); }} />
-              : <ToTurbo balUsd={balUsd} feeUsd={feeUsd} min={turbo?.minIn ?? 3}
+              : <ToTurbo balUsd={balUsd} feeUsd={feeUsd} min={turbo?.minIn ?? 5}
                   onMoved={() => { void refresh(addr); void refreshTurboCash(); }} />}
           </>
         ) : (
