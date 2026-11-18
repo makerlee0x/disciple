@@ -27,8 +27,8 @@ const K = {
   ev: (id: string) => `duel:ev:${id}`,
   lock: (id: string) => `duel:lock:${id}`,
   rooms: () => `duel:rooms`,
-  queue: (tier: TierId, len: number) => `duel:q:${tier}:${len}`,
-  qlock: (tier: TierId, len: number) => `duel:qlock:${tier}:${len}`,
+  queue: (tier: TierId, len: number, casual = false) => (casual ? `duel:q:casual:${tier}:${len}` : `duel:q:${tier}:${len}`),
+  qlock: (tier: TierId, len: number, casual = false) => (casual ? `duel:qlock:casual:${tier}:${len}` : `duel:qlock:${tier}:${len}`),
   qsince: (pid: string) => `duel:qsince:${pid}`,
   qseen: (pid: string) => `duel:qseen:${pid}:${Math.floor(Date.now() / 10_000)}`,
   qseenPrev: (pid: string) => `duel:qseen:${pid}:${Math.floor(Date.now() / 10_000) - 1}`,
@@ -134,25 +134,25 @@ export async function ratingOf(pid: string, s: Kv = kv()): Promise<Rating> { ret
  * closest in rating whose window (and yours) covers the gap; windows widen the longer either has waited.
  * → { room } once matched, else { waitedMs, window }.
  */
-export async function pollQueue(me: Pilot, tier: TierId, lenMs: LengthMs, s: Kv = kv()): Promise<{ room: DuelRoom } | { waitedMs: number; window: number }> {
+export async function pollQueue(me: Pilot, tier: TierId, lenMs: LengthMs, s: Kv = kv(), casual = false): Promise<{ room: DuelRoom } | { waitedMs: number; window: number }> {
   const already = await s.get(K.matched(me.pid));
   if (already) { const r = await getRoom(already, s); if (r && r.status === "lobby") return { room: r }; await s.del(K.matched(me.pid)); }
   const act = await activeRoomOf(me.pid, s);
   if (act) return { room: act }; // already seated somewhere: go back to it, never a second ranked room
-  return withLockKey(s, K.qlock(tier, lenMs), async () => {
+  return withLockKey(s, K.qlock(tier, lenMs, casual), async () => {
     const now = Date.now();
     await s.setNX(K.qsince(me.pid), String(now), 120);
     await s.setNX(K.qseen(me.pid), "1", 25);
     const since = Number(await s.get(K.qsince(me.pid))) || now;
     const mine = await ratingOf(me.pid, s);
-    const members = await s.zrange(K.queue(tier, lenMs), 200);
+    const members = await s.zrange(K.queue(tier, lenMs, casual), 200);
     let best: { pid: string; name: string; gap: number } | null = null;
     for (const m of members) {
       const e = parse<{ pid: string; name: string; r: number }>(m);
       if (!e || e.pid === me.pid) continue;
       const seen = (await s.get(K.qseen(e.pid))) || (await s.get(K.qseenPrev(e.pid)));
-      if (!seen) { await s.zrem(K.queue(tier, lenMs), m); continue; } // stopped polling: gone
-      if (await activeRoomOf(e.pid, s)) { await s.zrem(K.queue(tier, lenMs), m); continue; } // seated elsewhere
+      if (!seen) { await s.zrem(K.queue(tier, lenMs, casual), m); continue; } // stopped polling: gone
+      if (await activeRoomOf(e.pid, s)) { await s.zrem(K.queue(tier, lenMs, casual), m); continue; } // seated elsewhere
       const theirSince = Number(await s.get(K.qsince(e.pid))) || now;
       const gap = Math.abs(e.r - mine.r);
       if (gap <= matchWindow(now - since) && gap <= matchWindow(now - theirSince) && (!best || gap < best.gap)) best = { pid: e.pid, name: e.name, gap };
@@ -160,21 +160,21 @@ export async function pollQueue(me: Pilot, tier: TierId, lenMs: LengthMs, s: Kv 
     const meMember = JSON.stringify({ pid: me.pid, name: me.name, r: mine.r });
     if (!best) {
       if (!members.includes(meMember)) {
-        for (const m of members) { const e = parse<{ pid: string }>(m); if (e?.pid === me.pid) await s.zrem(K.queue(tier, lenMs), m); }
-        await s.zadd(K.queue(tier, lenMs), [{ score: mine.r, member: meMember }]);
+        for (const m of members) { const e = parse<{ pid: string }>(m); if (e?.pid === me.pid) await s.zrem(K.queue(tier, lenMs, casual), m); }
+        await s.zadd(K.queue(tier, lenMs, casual), [{ score: mine.r, member: meMember }]);
       }
       return { waitedMs: now - since, window: matchWindow(now - since) };
     }
-    for (const m of members) { const e = parse<{ pid: string }>(m); if (e && (e.pid === me.pid || e.pid === best.pid)) await s.zrem(K.queue(tier, lenMs), m); }
+    for (const m of members) { const e = parse<{ pid: string }>(m); if (e && (e.pid === me.pid || e.pid === best.pid)) await s.zrem(K.queue(tier, lenMs, casual), m); }
     await s.del(K.qsince(me.pid), K.qsince(best.pid));
-    const room = await createRoom("ranked", tier, lenMs, [await playerOf(me, s), await playerOf({ pid: best.pid, name: best.name }, s)], s);
+    const room = await createRoom(casual ? "casual" : "ranked", tier, lenMs, [await playerOf(me, s), await playerOf({ pid: best.pid, name: best.name }, s)], s);
     await s.setNX(K.matched(best.pid), room.id, 60);
     return { room };
   });
 }
-export async function leaveQueue(pid: string, tier: TierId, lenMs: LengthMs, s: Kv = kv()) {
-  const members = await s.zrange(K.queue(tier, lenMs), 200);
-  for (const m of members) { const e = parse<{ pid: string }>(m); if (e?.pid === pid) await s.zrem(K.queue(tier, lenMs), m); }
+export async function leaveQueue(pid: string, tier: TierId, lenMs: LengthMs, s: Kv = kv(), casual = false) {
+  const members = await s.zrange(K.queue(tier, lenMs, casual), 200);
+  for (const m of members) { const e = parse<{ pid: string }>(m); if (e?.pid === pid) await s.zrem(K.queue(tier, lenMs, casual), m); }
   await s.del(K.qsince(pid));
 }
 
@@ -409,9 +409,10 @@ async function settle(r: DuelRoom, price: number, s: Kv): Promise<NewDuelEvent> 
   const winner = tie ? null : d > 0 ? a.pid : b.pid;
   const delta: Record<string, number> = { [a.pid]: 0, [b.pid]: 0 }, rating: Record<string, number> = { [a.pid]: a.rating, [b.pid]: b.rating };
   let season: Record<string, SeasonLine> | undefined, streak: Record<string, number> | undefined;
-  if (r.mode === "ranked" && (await s.setNX(K.rated(r.id), "1", 7 * 86400))) {
+  // casual (unranked online) duels keep the record and streak only, like ranked before real money; friend duels touch nothing
+  if ((r.mode === "ranked" || r.mode === "casual") && (await s.setNX(K.rated(r.id), "1", 7 * 86400))) {
     let out: Awaited<ReturnType<typeof rateDuel>>;
-    try { out = DUEL_RANKED_LIVE ? await rateDuel(r, tie ? 0.5 : d > 0 ? 1 : 0, s) : await recordDuel(r, tie ? 0.5 : d > 0 ? 1 : 0, s); } catch (e) { await s.del(K.rated(r.id)); throw e; } // retry next tick
+    try { out = DUEL_RANKED_LIVE && r.mode === "ranked" ? await rateDuel(r, tie ? 0.5 : d > 0 ? 1 : 0, s) : await recordDuel(r, tie ? 0.5 : d > 0 ? 1 : 0, s); } catch (e) { await s.del(K.rated(r.id)); throw e; } // retry next tick
     delta[a.pid] = out.da; delta[b.pid] = out.db; rating[a.pid] = out.a.r; rating[b.pid] = out.b.r;
     season = Object.keys(out.sp).length ? out.sp : undefined;
     streak = { [a.pid]: out.a.streak, [b.pid]: out.b.streak };
