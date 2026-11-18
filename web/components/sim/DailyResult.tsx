@@ -14,6 +14,7 @@ import AnimClip from "@/components/ui/AnimClip";
 import { freePlayXp, FREE_PLAY_XP } from "@/lib/xp";
 import { usePilotWallet, XP_CHANGED_EVENT } from "@/lib/xpClient";
 import { privyLogin, privyReady } from "@/lib/aa/sessionState";
+import DailyBoardCard from "@/components/sim/DailyBoardCard";
 import { dailyEndsAt, dailyRecap, fmtDailyPnl, fmtMultiple as mult, DAILY, type DailyScore } from "@/lib/sim/daily";
 import { claimFreePlayXp, deviceId, refreshRank, type DailyVerdict, type FreePlayXpResult } from "@/lib/sim/dailyClient";
 import { fmt, type PlayerInput } from "@/lib/sim/run";
@@ -104,7 +105,6 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
   const share = () => send(`${location.origin}/d/${id}${verdict ? `?c=${verdict.runId}${ref && `&${ref}`}` : ref && `?${ref}`}`,
     s.invested <= 0 ? `Daily mission #${id} on DISCIPLE` : `${money(s.pnl)} on Daily mission #${id}${rank?.boarded ? `, #${rank.rank} today` : ""}.`);
   const rankText = (r: NonNullable<typeof rank>) => r.count <= 1 ? `#${r.rank} today` : `#${r.rank.toLocaleString("en-US")} of ${r.count.toLocaleString("en-US")} today${r.count >= 10 ? ` · top ${r.topPct}%` : ""}`;
-  const meOnBoard = !!(board && verdict && board.top.some((r) => r.runId === verdict.runId));
 
   return (
     <div data-testid="daily-result" className="dr" style={{ position: "fixed", inset: 0, zIndex: 40, overflow: "auto", color: "#F2F3F7", fontFamily: "var(--dsc-font-ui)", background: "#07080c" }}>
@@ -113,7 +113,7 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
         .dr-bg .dr-vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
         .dr-bg::after { content: ""; position: absolute; inset: 0; background: radial-gradient(520px 380px at 50% 12%, rgba(242,193,78,.22), rgba(7,8,12,0) 70%), linear-gradient(180deg, rgba(7,8,12,.45) 0%, rgba(7,8,12,.55) 35%, rgba(7,8,12,.92) 70%, #07080c 100%); }
         .dr-wrap { position: relative; max-width: 390px; min-height: 100%; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 68px) 16px calc(env(safe-area-inset-bottom, 0px) + 28px); box-sizing: border-box; display: flex; flex-direction: column; }
-        .dr-board { margin-top: 14px; padding: 14px 16px; border-radius: 16px; background: rgba(18,19,39,.82); border: 1px solid rgba(255,255,255,.14); display: flex; flex-direction: column; gap: 6px; }
+        .dr-wrap .dbc { margin-top: 14px; }
         .dr-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 30px; font-size: 14px; padding: 0 8px; margin: 0 -8px; border-radius: 8px; }
         .dr-row.me { background: rgba(242,193,78,.14); outline: 1px solid rgba(242,193,78,.5); }
         .dr-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -121,7 +121,7 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
           .dr-wrap { max-width: 980px; display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: auto 1fr; column-gap: 28px; align-content: start; padding-top: 76px; }
           .dr-main { grid-column: 1; display: flex; flex-direction: column; }
           .dr-side { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; }
-          .dr-side .dr-board { margin-top: 0; }
+          .dr-side .dbc { margin-top: 0; }
         }
         @media (max-width: 899px) { .dr-main, .dr-side { display: contents; } }
         .dr-top { position: fixed; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + 12px); left: 16px; right: 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; pointer-events: none; }
@@ -184,22 +184,7 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
 
         </div>
         <div className="dr-side">
-        <section className="dr-board" aria-label="Today's board" data-testid="daily-result-board">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
-            <span style={{ ...game, fontWeight: 700, fontSize: 20, letterSpacing: 1, color: "#F3DFA8" }}>TODAY&apos;S TOP PLAYS</span>
-            <span style={{ fontSize: 13, color: "#D7D9E4" }}>{board && board.count > 0 ? `${board.count.toLocaleString("en-US")} pilot${board.count === 1 ? "" : "s"}` : ""}</span>
-          </div>
-          {board && board.top.length ? board.top.map((r, i) => (
-            <div key={r.runId} className={`dr-row${verdict && r.runId === verdict.runId ? " me" : ""}`} data-testid={verdict && r.runId === verdict.runId ? "daily-board-me" : "daily-board-row"}>
-              <span><b style={{ ...game, display: "inline-block", width: 26, fontWeight: 700, fontSize: 15, color: i === 0 ? GOLD : "#D7D9E4" }}>{i + 1}</b>{verdict && r.runId === verdict.runId ? "You" : r.name}</span>
-              <span style={{ ...game, fontWeight: 700, fontSize: 18, color: r.pnl < 0 ? "#FF7FB2" : "#5FF0A0" }}>{fmtDailyPnl(r.pnl)}</span>
-            </div>)) : !board ? <span className="dr-pulse" aria-label="Loading" style={{ margin: "8px 0" }} /> : !rank ? <div style={{ fontSize: 14, color: "#D7D9E4" }}>No plays yet</div> : null}
-          {rank && board && !meOnBoard && (
-            <div className="dr-row me" data-testid="daily-board-me" style={{ marginTop: 4 }}>
-              <span><b style={{ ...game, display: "inline-block", minWidth: 26, fontWeight: 700, fontSize: 15, color: GOLD }}>{rank.rank.toLocaleString("en-US")}</b>You{rank.boarded ? "" : " (not posted)"}</span>
-              <span style={{ ...game, fontWeight: 700, fontSize: 18, color: s.pnl < 0 ? "#FF7FB2" : "#5FF0A0" }}>{fmtDailyPnl(s.pnl)}</span>
-            </div>)}
-        </section>
+        <DailyBoardCard rows={board ? board.top : null} count={board?.count ?? 0} me={rank ? { rank: rank.rank, pnl: s.pnl } : null} meId={verdict?.runId ?? null} testId="daily-result-board" />
         {/* the flight's pilots (maker 2026-11-18: "id want to see what the bots pnl is … how many trades, how much pnl"): the sim's bots and you, from the local replay */}
         {rc.pilots.length > 1 && (() => { const top = rc.pilots.slice(0, 6), me = rc.pilots.findIndex((p) => p.you), rows = me >= 6 ? [...top, rc.pilots[me]] : top;
           return <section className="dr-pilots" aria-label="This flight" data-testid="daily-pilots">

@@ -291,3 +291,9 @@ Removed (restore by adding back):
 - Result hero: `1.1×` big + `+$311 practice cash` → `+$311` big + `1.1×` small. Share text leads with the $ PnL.
 - Result LOBBY moved from the bottom row to the top-left; X moved to the top-right.
 - Trade bar: `BOOST $0.01` with nothing left → `ALL IN` (disabled).
+
+### 2026-11-18 hub round 3 (maker's copy)
+- Hub hero: `Same sky. Everyone apes it.` → `Same chart. Same $250.` + `Who can make the most?` (maker's own words). Tags `#n` / `FREE PLAY` / `NEW IN …` → `FREE PLAY` / `SIMULATOR`, with `NEW IN …` moved to the card's bottom right.
+- `SEE YOUR RESULT` button removed (your place and PnL are pinned on the board).
+- Signed-out `Sign in to make the board.` removed from the hub and pre-launch.
+- Boards (hub, pre-launch, result) use the Top pilots design: pinned Your rank + PnL, medal ranks, faces, $ PnL.

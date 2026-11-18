@@ -7,9 +7,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { DifficultyId } from "@/lib/sim/config";
-import { dailyEndsAt, fmtDailyPnl, fmtMultiple, type DailyScore } from "@/lib/sim/daily";
+import { dailyEndsAt, fmtMultiple, type DailyScore } from "@/lib/sim/daily";
 import { refreshRank, savedDaily } from "@/lib/sim/dailyClient";
-import { usePilotWallet } from "@/lib/xpClient";
+import DailyBoardCard from "@/components/sim/DailyBoardCard";
 import s from "./freePlay.module.css";
 
 export const FP_DIFFS: { id: DifficultyId; label: string; c: string; c2?: string; n: number; desk: string; phone: string }[] = [
@@ -48,7 +48,6 @@ export function FreePlayHub({ dailyId, msg, onDaily, tune }: {
   const [board, setBoard] = useState<Board>(null);
   const [streak, setStreak] = useState(0);
   const [mine, setMine] = useState<{ pnl: number; rank: number; boarded: boolean } | null>(null);
-  const wallet = usePilotWallet();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     setStreak(dailyStreak(dailyId));
@@ -62,8 +61,7 @@ export function FreePlayHub({ dailyId, msg, onDaily, tune }: {
   }, [dailyId]);
   // the old-design sweep hides the app chrome (sidebar, wallet pills) while Free play's own screens are up
   useEffect(() => { document.body.classList.add("fp-hub"); return () => document.body.classList.remove("fp-hub"); }, []);
-  const best = board?.top[0];
-  const pilots = board && board.count > 0 ? `${board.count.toLocaleString("en-US")} pilot${board.count === 1 ? "" : "s"}` : "";
+  const myRunId = savedDaily(dailyId)?.verdict?.runId ?? null;
 
   return (
     <div className={s.hub} data-testid="sim-select">
@@ -79,27 +77,20 @@ export function FreePlayHub({ dailyId, msg, onDaily, tune }: {
             <div className={s.dailyArt} aria-hidden />
             <div className={s.dailyShade} aria-hidden />
             <div className={s.dailyBody}>
-              <div className={s.tags}><span className={s.tag}>#{dailyId}</span><span className={s.tag}>FREE PLAY</span><span className={s.tag}>NEW IN {untilText(dailyEndsAt(dailyId) - now)}</span></div>
+              <div className={s.tags}><span className={s.tag}>FREE PLAY</span><span className={s.tag}>SIMULATOR</span></div>
               <div>
-                <div className={s.dailyH}>Same sky.<br />Everyone apes it.</div>
+                <div className={s.dailyH}>Same chart.<br />Same $250.</div>
+                <p className={s.dailyQ}>Who can make the most?</p>
               </div>
-              <div className={s.phoneMeta}><span>{best ? <>Best today <b style={{ color: "#5FF0A0", fontWeight: 600 }}>{fmtDailyPnl(best.pnl)}</b> by {best.name}</> : "No runs yet"}</span><span>{pilots}</span></div>
-              <div className={s.ctaRow}>
-                <button type="button" className={s.cta} data-testid="sim-daily" onClick={onDaily}>{mine ? "SEE YOUR RESULT" : "FLY TODAY'S FLIGHT"}</button>
-              </div>
+              {!mine && <div className={s.ctaRow}>
+                <button type="button" className={s.cta} data-testid="sim-daily" onClick={onDaily}>FLY TODAY&apos;S FLIGHT</button>
+              </div>}
               {msg && <span className={s.msg} data-testid="sim-daily-msg">{msg}</span>}
             </div>
+            <span className={`${s.tag} ${s.newIn}`}>NEW IN {untilText(dailyEndsAt(dailyId) - now)}</span>
           </section>
 
-          <aside className={s.board} aria-label="Today's board">
-            <div className={s.boardHead}><span className={s.boardT}>TODAY&apos;S BOARD</span><span className={s.meta}>{pilots || `Daily #${dailyId}`}</span></div>
-            {board && board.top.length ? board.top.slice(0, 5).map((r, i) => (
-              <div key={r.runId} className={s.row}><span><b className={`${s.rank} ${i === 0 ? s.rank1 : ""}`}>{i + 1}</b>{r.name}</span><span className={s.mult} style={r.pnl < 0 ? { color: "#FF7FB2" } : undefined}>{fmtDailyPnl(r.pnl)}</span></div>
-            )) : <div className={s.empty}>{board ? "No runs yet" : <span className={s.skel} role="status" aria-label="Loading the board" />}</div>}
-            <div className={s.rule} />
-            <div className={s.row} style={{ color: "#D7D9E4" }}><span>{mine ? `You · #${mine.rank}` : "You · not flown yet"}</span><span className={s.mult} style={{ color: mine ? (mine.pnl < 0 ? "#FF7FB2" : "#5FF0A0") : "#D7D9E4" }}>{mine ? fmtDailyPnl(mine.pnl) : "–"}</span></div>
-            {!(wallet || mine?.boarded) && <span className={s.boardNote}>Sign in to make the board.</span>}
-          </aside>
+          <DailyBoardCard rows={board ? board.top : null} count={board?.count ?? 0} me={mine ? { rank: mine.rank, pnl: mine.pnl } : null} meId={myRunId} max={5} testId="daily-hub-board" />
         </div>
 
         {tune}

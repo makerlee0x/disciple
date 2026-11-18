@@ -6,9 +6,9 @@
  * 3 · 2 · 1 · GO before the market starts. There is no difficulty: one market, the same for everyone.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { dailyEndsAt, dailyRealSeconds, fmtDailyPnl } from "@/lib/sim/daily";
-import { usePilotWallet } from "@/lib/xpClient";
+import { dailyEndsAt, dailyRealSeconds } from "@/lib/sim/daily";
 import { fetchDailyBoard, type Board } from "./FreePlay";
+import DailyBoardCard from "./DailyBoardCard";
 import s from "./preflight.module.css";
 
 const untilText = (ms: number) => { const m = Math.max(0, Math.floor(ms / 60000)); return `${Math.floor(m / 60)}h ${m % 60}m`; };
@@ -52,7 +52,6 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [counting, setCounting] = useState(false);
-  const pilot = usePilotWallet();
   const cd = useCountdown(onGo);
   useEffect(() => {
     const load = () => fetchDailyBoard(dailyId).then(setBoard); load();
@@ -64,7 +63,6 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
     const ok = await onLaunch(); setBusy(false);
     if (ok) { setCounting(true); cd.run(); }
   };
-  const pilots = board && board.count > 0 ? `${board.count.toLocaleString("en-US")} pilot${board.count === 1 ? "" : "s"}` : "";
 
   return (
     <div className={s.pre} data-testid="daily-pre">
@@ -85,13 +83,7 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
       </div>
 
       <div className={s.cols}>
-        <section className={s.board} aria-label="Today's board" data-testid="daily-pre-board">
-          <div className={s.bHead}><span className={s.bT}>TODAY&apos;S BOARD</span><span className={s.bMeta}>{pilots}</span></div>
-          {board && board.top.length ? board.top.map((r, i) => (
-            <div key={r.runId} className={s.row}><span><b className={`${s.rank} ${i === 0 ? s.rank1 : ""}`}>{i + 1}</b>{r.name}</span><span className={s.mult} style={r.pnl < 0 ? { color: "#FF7FB2" } : undefined}>{fmtDailyPnl(r.pnl)}</span></div>
-          )) : <div className={s.empty}>{board ? "No runs yet" : <span className={s.skel} role="status" aria-label="Loading the board" />}</div>}
-          {!pilot && <span className={s.note}>Sign in to make the board.</span>}
-        </section>
+        <DailyBoardCard rows={board ? board.top : null} count={board?.count ?? 0} testId="daily-pre-board" />
         <section className={s.ctl} aria-label="Controls">
           <span className={s.bT}>CONTROLS</span>
           <div className={s.keys}>
