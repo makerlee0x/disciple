@@ -9,11 +9,15 @@ import { useCallback, useEffect, useState } from "react";
 import { fetchXLink, startXLink, unlinkX, X_CHANGED_EVENT, X_NOTE_EVENT } from "@/lib/xLinkClient";
 import { isXResult, X_RESULT_COPY, X_RESULT_PARAM, type XLinkStatus } from "@/lib/xLink";
 
-export default function XLinkControl({ wallet, btnClass = "ds-btn", render, beforeConnect }: {
+export default function XLinkControl({ wallet, btnClass = "ds-btn", render, beforeConnect, connectLabel = "Connect X", fallback = null }: {
   wallet: string | null;
   /** Runs before the page goes to X (Edit profile saves unsaved edits so a new picture / bio isn't lost). false = stop. */
   beforeConnect?: () => Promise<boolean>;
   btnClass?: string;
+  /** Button text when not linked (Edit profile tiles use "Link"). */
+  connectLabel?: string;
+  /** Shown instead of nothing when X linking is off on this server. */
+  fallback?: React.ReactNode;
   /** Layout hook: the caller places the handle / button / note. */
   render: (p: { handle: string | null; action: React.ReactNode; note: string }) => React.ReactNode;
 }) {
@@ -41,7 +45,7 @@ export default function XLinkControl({ wallet, btnClass = "ds-btn", render, befo
     history.replaceState(history.state, "", u.pathname + u.search + u.hash);
   }, []);
 
-  if (!wallet || (!st.enabled && !st.link)) return null;
+  if (!wallet || (!st.enabled && !st.link)) return <>{fallback}</>;
 
   const action = st.link ? (
     <button type="button" className={btnClass} disabled={busy} data-testid="x-unlink"
@@ -55,7 +59,7 @@ export default function XLinkControl({ wallet, btnClass = "ds-btn", render, befo
         if (beforeConnect && !(await beforeConnect())) { setBusy(false); return; }
         const r = await startXLink(wallet); setBusy(false); setNote(r.reason);
       }}>
-      {busy ? "Opening X…" : "Connect X"}
+      {busy ? "Opening X…" : connectLabel}
     </button>
   );
   return <>{render({ handle: st.link?.username ?? null, action, note })}</>;

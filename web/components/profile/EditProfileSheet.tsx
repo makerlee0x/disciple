@@ -27,6 +27,8 @@ export const EDIT_COPY = {
   x: "X account",
   xConnect: "Not linked",
   xButton: "Connect X",
+  links: "Linked accounts",
+  link: "Link",
   save: "Save changes",
   changePicture: "Change picture",
   changeBanner: "Change banner",
@@ -168,19 +170,30 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
             {bioLen > BIO_MAX && <span className="p5-err" role="alert">{C["edit.bio.error.length"]}</span>}
           </label>
 
-          <XLinkControl wallet={wallet} btnClass="p5-btn sm" beforeConnect={saveBeforeX} render={({ handle, action, note }) => (
-            <div className="p5-fld" role="group" aria-label={EDIT_COPY.x}>
-              <span className="lab">{EDIT_COPY.x}</span>
-              <div className="p5-xrow" data-testid="edit-x">
-                <XGlyph size={18} />
-                {handle ? <span className="u">@{handle}</span> : <span className="u muted">{EDIT_COPY.xConnect}</span>}
-                {action}
+          {/* X + holder wallets: three compact tiles on one row (maker 2026-11-18). */}
+          <XLinkControl wallet={wallet} btnClass="p5-btn sm" connectLabel={EDIT_COPY.link} beforeConnect={saveBeforeX}
+            fallback={web && (
+              <div className="p5-fld" role="group" aria-label={EDIT_COPY.links}>
+                <span className="lab">{EDIT_COPY.links}</span>
+                <div className="p5-links"><HolderWallets wallet={wallet} status={holder} onChange={setHolder} tiles /></div>
               </div>
-              {note && <span className="p5-fine" role="status">{note}</span>}
+            )}
+            render={({ handle, action, note }) => (
+            <div className="p5-fld" role="group" aria-label={EDIT_COPY.links}>
+              <span className="lab">{EDIT_COPY.links}</span>
+              <div className="p5-links">
+                <div className="p5-link" data-testid="edit-x">
+                  <div className="p5-link-top">
+                    <span className="p5-link-ico x" aria-hidden><XGlyph size={14} /></span>
+                    <span className="u mono">{handle ? `@${handle}` : "X"}</span>
+                  </div>
+                  {action}
+                </div>
+                {web && <HolderWallets wallet={wallet} status={holder} onChange={setHolder} tiles />}
+                {note && <span className="p5-fine p5-link-wide" role="status">{note}</span>}
+              </div>
             </div>
           )} />
-
-          {web && <HolderWallets wallet={wallet} status={holder} onChange={setHolder} />}
 
           {err && <p className="p5-err" role="alert">{err}</p>}
           <button type="submit" className="p5-btn primary wide p5-gold" disabled={!dirty || !valid || !!busy}>{busy === "save" ? C["edit.saving"] : EDIT_COPY.save}</button>

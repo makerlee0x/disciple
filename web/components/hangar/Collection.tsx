@@ -6,7 +6,9 @@
  */
 import Link from "next/link";
 import AnimClip, { reducedMotion } from "@/components/ui/AnimClip";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { haptic } from "@/lib/game/haptics";
+import Icon from "@/components/icons/Icon";
 import { MILESTONE_COPY } from "@/lib/xp";
 import { withBase } from "@/lib/base-path";
 import { playSfx } from "@/lib/game/sfx";
@@ -56,7 +58,16 @@ export const itemArt = (i: Item, h: number, dim?: boolean, handle = "YOU", copy?
 export const title = (i: Item) => (i.kind === "skin" ? <>{HULL_NAMES[i.hull!]} <em>|</em> {i.name}</> : <>{i.name}</>);
 const kindLabel = (i: Item) => (i.kind === "skin" ? HULL_NAMES[i.hull!] : i.kind === "trail" ? "trail" : i.kind === "tag" ? "name tag" : "flourish");
 
-export function Card({ rar, on, locked, name, label, sub, a, onClick, testid, wide }: { rar: Rarity; on?: boolean; locked?: boolean; wide?: boolean; name: ReactNode; label: string; sub: ReactNode; a: ReactNode; onClick?: () => void; testid?: string }) {
+const HOLD_MS = 450;
+
+/**
+ * A collection card. Tap runs onClick. With onHold, pressing and holding runs onHold instead (maker 2026-11-18: hold a
+ * card to start picking a trade-up), and the click that follows the hold is swallowed.
+ */
+export function Card({ rar, on, locked, name, label, sub, a, onClick, onHold, picked, dim, testid, wide }: { rar: Rarity; on?: boolean; locked?: boolean; wide?: boolean; name: ReactNode; label: string; sub: ReactNode; a: ReactNode; onClick?: () => void; onHold?: () => void; picked?: boolean; dim?: boolean; testid?: string }) {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null), held = useRef(false), at = useRef<[number, number]>([0, 0]);
+  const clear = () => { if (timer.current) clearTimeout(timer.current); timer.current = null; };
+  useEffect(() => clear, []);
   const inner = (
     <>
       <span className="hg-look-art">{a}</span>
@@ -65,10 +76,18 @@ export function Card({ rar, on, locked, name, label, sub, a, onClick, testid, wi
         <b>{name}</b>
         <span className="hg-look-s">{sub}</span>
       </span>
+      {picked && <span className="hg-look-pick" aria-hidden><Icon name="check" size={14} /></span>}
     </>
   );
-  const cls = `hg-look r-${rar}${on ? " on" : ""}${locked ? " locked" : ""}${wide ? " hgu-wide" : ""}`, style = { ["--sw" as string]: SW[rar] };
-  return <li>{onClick ? <button type="button" className={cls} style={style} onClick={onClick} disabled={locked} aria-pressed={!!on} data-testid={testid}>{inner}</button> : <div className={cls} style={style} data-testid={testid}>{inner}</div>}</li>;
+  const cls = `hg-look r-${rar}${on ? " on" : ""}${locked ? " locked" : ""}${wide ? " hgu-wide" : ""}${picked ? " picked" : ""}${dim ? " dim" : ""}${onHold ? " holdable" : ""}`, style = { ["--sw" as string]: SW[rar] };
+  const hold = onHold ? {
+    onPointerDown: (e: ReactPointerEvent) => { held.current = false; at.current = [e.clientX, e.clientY]; clear(); timer.current = setTimeout(() => { held.current = true; timer.current = null; haptic("hold", true); onHold(); }, HOLD_MS); },
+    onPointerMove: (e: ReactPointerEvent) => { if (timer.current && Math.hypot(e.clientX - at.current[0], e.clientY - at.current[1]) > 10) clear(); },
+    onPointerUp: clear, onPointerCancel: clear, onPointerLeave: clear,
+    onContextMenu: (e: ReactMouseEvent) => e.preventDefault(),
+  } : {};
+  const click = () => { if (held.current) { held.current = false; return; } onClick?.(); };
+  return <li>{onClick || onHold ? <button type="button" className={cls} style={style} onClick={click} {...hold} disabled={locked || dim} aria-pressed={!!(on || picked)} data-testid={testid}>{inner}</button> : <div className={cls} style={style} data-testid={testid}>{inner}</div>}</li>;
 }
 
 /* ------------------------------------------------------------ Your rocket ------------------------------------------------------------ */
@@ -139,6 +158,8 @@ export function YourRocket({ col, wallet, handle, sell, side }: { col: Col | nul
   const [insp, setInsp] = useState<string | null>(null);
   // open on the hull you fly, once the collection has loaded
   useEffect(() => { if (col && !picked) { setPicked(true); if (eqItem.hull) setHull(eqItem.hull); } }, [col, picked, eqItem.hull]);
+  // the note floats as a toast so a failed equip shows where you tapped, not at the top of the page
+  useEffect(() => { if (!note) return; const t = setTimeout(() => setNote(""), 4000); return () => clearTimeout(t); }, [note]);
   const prestige = col?.prestige ?? 0;
   const paintsFound = new Set([...owned].filter((id) => id.includes("--") && !id.startsWith(PRESTIGE_HULL)).map((id) => id.split("--")[1]));
 
@@ -165,9 +186,15 @@ export function YourRocket({ col, wallet, handle, sell, side }: { col: Col | nul
     void act({ op: "equip", ...cur, [slot]: v }, "");
   };
   const scrap = (uid: string) => { const c = copyById(uid), it = c && itemById(c.item); void act({ op: "scrap", copy: uid }, it ? `Scrapped for ${DUPE_XP[it.rar]} XP.` : ""); };
-  const inspect = (id: string) => setInsp((v) => (v === id ? null : id));
+  // tap a card: fly it (your best copy) and open its copies; tap the one you fly to open or close its copies (maker 2026-11-18)
+  const tap = (i: Item) => {
+    const flying = i.id === eq.skin || i.id === eq.trail || i.id === eq.tag;
+    if (flying) { setInsp((v) => (v === i.id ? null : i.id)); return; }
+    setInsp(i.id); wear(i.kind as Slot, i.id);
+  };
   const sub = (i: Item, on: boolean) => { const n = copiesOf(col, i.id).length; return on ? `Flying${n > 1 ? ` · ×${n}` : ""}` : n > 1 ? `×${n} copies` : ""; };
-  const panel = (list: Item[]) => { const it = list.find((i) => i.id === insp); return it ? <CopyList col={col} item={it} busy={busy} sell={sell} onEquip={(v) => wear(it.kind as Slot, v)} onScrap={scrap} /> : null; };
+  const spareSub = (i: Item) => { const n = spareOf.get(i.id)?.length ?? 0; return n ? `${n} ${n === 1 ? "spare" : "spares"}` : ""; };
+  const panel = (list: Item[]) => { if (pick) return null; const it = list.find((i) => i.id === insp); return it ? <CopyList col={col} item={it} busy={busy} sell={sell} onEquip={(v) => wear(it.kind as Slot, v)} onScrap={scrap} /> : null; };
   // trails from the series that are out (later ones stay a surprise), the prestige trail; tags: the 6 plates, the prestige plates you have and the next one
   // only what's out: later series stay hidden, prestige items show once you reach that prestige (maker 2026-11-18)
   const trails = ITEMS.filter((i) => i.kind === "trail" && (i.prestige ? i.prestige <= prestige : itemOut(i, now)));
@@ -181,10 +208,33 @@ export function YourRocket({ col, wallet, handle, sell, side }: { col: Col | nul
     for (const c of spares(col).filter((x) => !sell?.listed(x.uid))) { const it = itemById(c.item); if (!it || !tradeUpTarget(it.rar)) continue; const k = `${it.series}:${it.rar}`; const g = m.get(k) ?? { series: it.series, rar: it.rar, list: [] }; g.list.push(c); m.set(k, g); }
     return [...m.values()].sort((a, b) => a.series - b.series || RARITY_RANK(a.rar) - RARITY_RANK(b.rar));
   }, [col, sell]);
+  // hold-to-pick trade-up (maker 2026-11-18): hold a card with spares, then tap cards of the same series and rarity
+  const spareOf = useMemo(() => {
+    const m = new Map<string, Copy[]>();
+    for (const c of spares(col).filter((x) => !sell?.listed(x.uid))) m.set(c.item, [...(m.get(c.item) ?? []), c]);
+    return m;
+  }, [col, sell]);
+  const [pick, setPick] = useState<{ series: number; rar: Rarity; ids: string[] } | null>(null);
+  const canTrade = (i: Item) => !!spareOf.get(i.id)?.length && !!tradeUpTarget(i.rar) && !i.prestige && i.hull !== PRESTIGE_HULL;
+  const fits = (i: Item) => !!pick && canTrade(i) && i.series === pick.series && i.rar === pick.rar;
+  const pickedCopies = pick ? pick.ids.flatMap((id) => spareOf.get(id) ?? []) : [];
+  const startPick = (i: Item) => { if (canTrade(i)) { setInsp(null); setPick({ series: i.series, rar: i.rar, ids: [i.id] }); } };
+  const togglePick = (i: Item) => setPick((p) => {
+    if (!p) return p;
+    const ids = p.ids.includes(i.id) ? p.ids.filter((x) => x !== i.id) : [...p.ids, i.id];
+    return ids.length ? { ...p, ids } : null;
+  });
+  // the card props for an item, in or out of trade-up picking
+  const cardAct = (i: Item, own: boolean) => {
+    if (!own) return {};
+    if (pick) return { onClick: () => togglePick(i), picked: pick.ids.includes(i.id), dim: !fits(i) };
+    return { onClick: () => tap(i), onHold: canTrade(i) ? () => startPick(i) : undefined };
+  };
+  useEffect(() => { if (pick && !pick.ids.some((id) => spareOf.get(id)?.length)) setPick(null); }, [pick, spareOf]);
   const tradeUpGo = async (g: { series: number; rar: Rarity; list: Copy[] }) => {
     if (!wallet || busy) return;
     const ten = [...g.list].sort((a, b) => b.burn - a.burn).slice(0, TRADE_UP_N).map((c) => c.uid);
-    setBusy(true); setNote(""); if (!reducedMotion()) setBurn((n) => n + 1);
+    setBusy(true); setNote(""); setPick(null); if (!reducedMotion()) setBurn((n) => n + 1);
     const r = await collectionAction(wallet, { op: "tradeup", copies: ten });
     setBusy(false);
     const it = r.item;
@@ -218,13 +268,13 @@ export function YourRocket({ col, wallet, handle, sell, side }: { col: Col | nul
         {hullTabs.map((h) => <button key={h} type="button" role="tab" aria-selected={hull === h} className={hull === h ? "on" : ""} onClick={() => setHull(h)}>{HULL_NAMES[h]} · {count(h)}</button>)}
         {prestige >= 1 && <button type="button" role="tab" aria-selected={hull === PRESTIGE_HULL} className={hull === PRESTIGE_HULL ? "on" : ""} onClick={() => setHull(PRESTIGE_HULL)}>{HULL_NAMES[PRESTIGE_HULL]}</button>}
       </div>
-      {note && <p className="hg-sub" role="status">{note}</p>}
+      {note && <p className="pf-toast hgu-toast" role="status">{note}</p>}
       <ul className="hg-looks">
         {skins.map((s) => {
           const own = has(s), on = s.id === eq.skin;
-          return <Card key={s.id} rar={s.rar} on={on || insp === s.id} locked={!own} name={own ? s.name : "???"} label={RL[s.rar]} testid={`skin-${s.id}`}
-            sub={own ? sub(s, on) : earnHow(s.id) ?? ""}
-            a={<SkinArt i={s} h={98} dim={!own} copy={own ? best(s) : undefined} />} onClick={own ? () => inspect(s.id) : undefined} />;
+          return <Card key={s.id} rar={s.rar} on={on && !pick} locked={!own} name={own ? s.name : "???"} label={RL[s.rar]} testid={`skin-${s.id}`}
+            sub={own ? (pick ? spareSub(s) : sub(s, on)) : earnHow(s.id) ?? ""}
+            a={<SkinArt i={s} h={98} dim={!own} copy={own ? best(s) : undefined} />} {...cardAct(s, own)} />;
         })}
       </ul>
       {panel(skins)}
@@ -233,8 +283,8 @@ export function YourRocket({ col, wallet, handle, sell, side }: { col: Col | nul
         <ul className="hg-looks">
           {trails.map((t) => {
             const own = owned.has(t.id), on = t.id === eq.trail;
-            return <Card key={t.id} rar={t.rar} on={on || insp === t.id} locked={!own} name={own ? t.name : "???"} label={t.prestige ? `Prestige ${t.prestige}` : RL[t.rar]} a={<Plume id={t.id} h={98} dim={!own} />} testid={t.id}
-              sub={own ? sub(t, on) : earnHow(t.id) ?? ""} onClick={own ? () => inspect(t.id) : undefined} />;
+            return <Card key={t.id} rar={t.rar} on={on && !pick} locked={!own} name={own ? t.name : "???"} label={t.prestige ? `Prestige ${t.prestige}` : RL[t.rar]} a={<Plume id={t.id} h={98} dim={!own} />} testid={t.id}
+              sub={own ? (pick ? spareSub(t) : sub(t, on)) : earnHow(t.id) ?? ""} {...cardAct(t, own)} />;
           })}
         </ul>
         {panel(trails)}
@@ -244,12 +294,26 @@ export function YourRocket({ col, wallet, handle, sell, side }: { col: Col | nul
         <ul className="hg-looks">
           {tags.map((t) => {
             const own = owned.has(t.id), on = t.id === eq.tag;
-            return <Card key={t.id} wide rar={t.rar} on={on || insp === t.id} locked={!own} name={own ? t.name : "???"} label={t.prestige ? `Prestige ${t.prestige}` : RL[t.rar]} a={<Tag id={t.id} name={handle} w={150} dim={!own} />} testid={t.id}
-              sub={own ? sub(t, on) : ""} onClick={own ? () => inspect(t.id) : undefined} />;
+            return <Card key={t.id} wide rar={t.rar} on={on && !pick} locked={!own} name={own ? t.name : "???"} label={t.prestige ? `Prestige ${t.prestige}` : RL[t.rar]} a={<Tag id={t.id} name={handle} w={150} dim={!own} />} testid={t.id}
+              sub={own ? (pick ? spareSub(t) : sub(t, on)) : ""} {...cardAct(t, own)} />;
           })}
         </ul>
         {panel(tags)}
       </div>
+      {pick && (() => {
+        const n = Math.min(pickedCopies.length, TRADE_UP_N), to = tradeUpTarget(pick.rar)!;
+        return (
+          <div className="hgu-pickbar" role="dialog" aria-label="Trade up" style={{ ["--sw" as string]: SW[pick.rar] }} data-testid="tradeup-pick">
+            <div className="hgu-pickbar-tx">
+              <span className="hg-look-r" style={{ color: SW[pick.rar] }}>{pick.series ? `Series ${pick.series}` : "Any series"} · {RL[pick.rar]} → <span style={{ color: SW[to] }}>{RL[to]}</span></span>
+              <b>{n}/{TRADE_UP_N}</b>
+              <span className="hgu-meter"><i style={{ width: `${(n / TRADE_UP_N) * 100}%`, background: SW[pick.rar] }} /></span>
+            </div>
+            <button type="button" className="dsc3-btn dsc3-btn-primary hgu-buy sm" disabled={busy || n < TRADE_UP_N} onClick={() => tradeUpGo({ series: pick.series, rar: pick.rar, list: pickedCopies })} data-testid="tradeup-pick-go">Trade up</button>
+            <button type="button" className="hgu-pickbar-x" aria-label="Cancel trade-up" onClick={() => setPick(null)}><Icon name="close" size={18} /></button>
+          </div>
+        );
+      })()}
       {burn > 0 && (
         <div className="hgu-cine" role="presentation" onClick={() => setBurn(0)} data-testid="tradeup-burn">
           <AnimClip key={burn} id="D2-tradeup-burn" ratio="none" overlay onEnd={() => setBurn(0)} className="hgu-cine-clip" maxMs={4000} />

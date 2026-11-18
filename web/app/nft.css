@@ -25,8 +25,7 @@
 .p5-fld[aria-label="Holder wallets"] { gap: 8px; }
 .nft-hrow .u { flex: 1; min-width: 0; font: 500 14px var(--dsc-font-mono); }
 .nft-chain { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font: 700 14px / 1 var(--dsc-font-ui); }
-.nft-chain.sol { background: linear-gradient(135deg, #9945FF, #14F195); color: #0B0C0E; }
-.nft-chain.eth { background: #2E323A; color: #D7D9E4; }
+svg.nft-chain { flex: none; display: block; }
 .nft-count { font: 600 12px var(--dsc-font-ui); color: #F3DFA8; white-space: nowrap; }
 .nft-wl { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 0 2px; }
 .nft-wl .nft-pulse { width: 140px; height: 44px; }
