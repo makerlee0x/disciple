@@ -67,7 +67,7 @@ export default function LighterTest() {
     const t = taps.current; if (!t) return;
     try {
       const r = await t.tap(kind);
-      say(`${kind} ${market} ✓ tap→Lighter ${r.ms} ms via ${r.via}${r.waited ? " (waited for a fresh set)" : ""}  nonce ${r.nonce}  size ${r.base}  cap ${r.cap}  ${r.hash.slice(0, 10)}…`);
+      say(`${kind} ${market} ✓ tap→Lighter ${r.ms} ms via ${r.via}${r.waited ? " (waited for a fresh set)" : ""}  idle ${r.idle} ms  nonce ${r.nonce}  size ${r.base}  cap ${r.cap}  ${r.hash.slice(0, 10)}…`);
     } catch (e) { say(`${kind} ${market} ✗ ${(e as Error).message}`); }
     setTimeout(() => void refresh(), 1500);
   };
