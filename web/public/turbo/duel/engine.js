@@ -602,6 +602,13 @@ function mount(root,host){
   // pad plate falls out the bottom of the screen within SOLO_LIFT ms, then each sky plate slides down as it fades into the
   // next, so the whole run reads as rising. The journey runs on the clock and runs further as you near the goal.
   const SOLO_LIFT=3500;
+  // the pad plate with its top third faded to clear, cached per screen size
+  let padC=null; function padCut(){ const im=imgs[SKY_ORDER[0]]; if(!im||!im.complete||!im.width) return null;
+    if(padC&&padC.k===SKY_ORDER[0]&&padC.w===SW&&padC.h===SH) return padC.c;
+    const s=Math.max(SW/im.width,SH/im.height)*1.12, w=im.width*s, h=im.height*s, c=document.createElement("canvas"); c.width=Math.ceil(SW); c.height=Math.ceil(h);
+    const x=c.getContext("2d"); x.drawImage(im,(SW-w)/2,0,w,h); x.globalCompositeOperation="destination-out";
+    const g=x.createLinearGradient(0,0,0,h*.45); g.addColorStop(0,"rgba(0,0,0,1)"); g.addColorStop(.35,"rgba(0,0,0,.85)"); g.addColorStop(1,"rgba(0,0,0,0)"); x.fillStyle=g; x.fillRect(0,0,c.width,h*.45);
+    padC={k:SKY_ORDER[0],w:SW,h:SH,c}; return c; }
   function drawSoloBackdrop(st){ const f=st.f, i0=Math.floor(f), t=f-i0;
     const plate=(k,a,off)=>{ const im=imgs[k]; if(!im||!im.complete||a<=0) return; const s=Math.max(SW/im.width,SH/im.height)*1.6, w=im.width*s, h=im.height*s;
       const sl=(h-SH)/2, y=(SH-h)/2+Math.max(-sl,Math.min(sl,off)); sx.globalAlpha=a; sx.drawImage(im,(SW-w)/2,y,w,h); sx.globalAlpha=1; };
@@ -609,8 +616,11 @@ function mount(root,host){
     const SL=SH*.3;   // a plate slides this far as it fades in and out
     plate(SKY_ORDER[i0],1,t*SL); if(t>0&&i0+1<SKY_ORDER.length) plate(SKY_ORDER[i0+1],t,(t-1)*SL);
     if(st.fin>0) plate(A[FINAL_SKY]?FINAL_SKY:"sky4",st.fin,0);
-    const L=G.lift==null?0:G.lift; if(L<1){ const im=imgs[SKY_ORDER[0]]; if(im&&im.complete){ const s=Math.max(SW/im.width,SH/im.height)*1.12, w=im.width*s, h=im.height*s, e=L*L*(3-2*L);
-      sx.globalAlpha=1-L*.3; sx.drawImage(im,(SW-w)/2,(SH-h)/2+e*SH*1.15,w,h); sx.globalAlpha=1; } }   // the ground drops away under you
+    const L=G.lift==null?0:G.lift; if(L<1){ const pc=padCut(); if(pc){ const e=L*L*(3-2*L), y=(SH-pc.height)/2+e*SH*1.25;
+      sx.globalAlpha=1-L*.3; sx.drawImage(pc,0,y); sx.globalAlpha=1;
+      // a fog bank rides the pad's top edge so the ground melts into the sky instead of a hard line (maker 2026-11-18)
+      const fy=y+pc.height*.3, g=sx.createLinearGradient(0,fy-SH*.22,0,fy+SH*.22); g.addColorStop(0,"rgba(200,206,228,0)"); g.addColorStop(.5,`rgba(200,206,228,${.32*(1-L)})`); g.addColorStop(1,"rgba(200,206,228,0)");
+      sx.fillStyle=g; sx.fillRect(0,fy-SH*.22,SW,SH*.44); } }   // the ground drops away under you
     sx.fillStyle="rgba(11,10,22,.28)"; sx.fillRect(0,0,SW,SH); }
   function drawBackdrop(camAlt,pan){
     const st=skyStage(pan); if(st.solo){ drawSoloBackdrop(st); return; } const f=st.f, i0=Math.floor(f), t=f-i0;
