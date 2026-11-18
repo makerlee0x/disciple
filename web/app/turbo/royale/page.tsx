@@ -1,7 +1,7 @@
 "use client";
 /**
  * /turbo/royale: Turbo Royale, practice (fake money, 11 labelled bots) on live HYPE / SOL / ETH / BTC charts. Hidden with
- * the rest of Turbo (/turbo?turbo=1 on this device). The game is the signed-off prototype, shipped as
+ * the rest of Turbo (/turbo?turbo=1 on this device), and held for launch: blank unless ROYALE_ENABLED or ?royale=1 here. The game is the signed-off prototype, shipped as
  * public/turbo/royale/play.html (built by tools/royale/build.mjs from the Trading Duel's own CSS) and shown full screen.
  * This page feeds it live Lighter prices (Hyperliquid as the fallback, lib/turbo/royalePrices) and, behind the hidden Lighter switch, turns your presses into
  * real Lighter orders (lib/lighter/royale).
@@ -13,6 +13,7 @@ import { RoyaleLighter } from "@/lib/lighter/royale";
 import { onWallet } from "@/lib/walletState";
 import { withBase } from "@/lib/base-path";
 import { isTurboEnabled } from "@/lib/turbo/flag";
+import { royaleOpenHere } from "@/lib/features";
 import { useTurboMusic } from "@/lib/game/turboMusic";
 import { trackFunnel } from "@/lib/funnelClient";
 
@@ -20,7 +21,7 @@ export default function RoyalePage() {
   const [on, setOn] = useState<boolean | null>(null);
   const frame = useRef<HTMLIFrameElement>(null);
   useTurboMusic();
-  useEffect(() => { setOn(isTurboEnabled()); }, []);
+  useEffect(() => { setOn(isTurboEnabled() && royaleOpenHere()); }, []);   // held for launch: lib/features ROYALE_ENABLED
   // funnel: the first round a browser plays (the game turns its music on when a round starts), lib/funnel TURBO_STEPS
   useEffect(() => {
     const f = (e: MessageEvent) => { if (e.origin === location.origin && e.data?.type === "disciple:music" && e.data.on === true) trackFunnel("royale_join"); };

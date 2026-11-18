@@ -10,7 +10,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { withBase } from "@/lib/base-path";
-import { DUEL_HREF, FLIGHTS_HREF } from "@/lib/features";
+import { DUEL_HREF, FLIGHTS_HREF, ROYALE_ENABLED } from "@/lib/features";
 import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
 import { isTurboEnabled } from "@/lib/turbo/flag";
 import s from "./modeSelect.module.css";
@@ -39,7 +39,7 @@ function modes(flying: number, duel: boolean): Mode[] {
     { id: "royale", title: ["Turbo", "royale"], tag: "Practice", tone: "#F2C14E", href: "/turbo/royale", art: "/art/modes/last-pilot.webp", pos: "50% 30%" },
     { id: "free", title: ["Free", "play"], tag: "Free", tone: "#8FE3FF", href: "/flight/sim", art: "/art/modes/free.webp", pos: "50% 30%" },
   ];
-  return all.filter((m) => (m.id !== "duel" && m.id !== "royale") || duel);
+  return all.filter((m) => (m.id !== "duel" && m.id !== "royale") || duel).filter((m) => m.id !== "royale" || ROYALE_ENABLED);
 }
 
 export default function ModeSelect({ signedIn, flying }: { signedIn: boolean; flying: number }) {

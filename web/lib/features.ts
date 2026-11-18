@@ -97,3 +97,24 @@ export const BOT_DUEL_HREF = "/turbo/duel?first=1";
 export const MARKET_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_MARKET !== "0" && process.env.NEXT_PUBLIC_FEATURE_MARKET !== "false";
 /** Where the Live flights tab and the lobby's Live flights card go: every rocket, with its sort chips (not one random rocket). */
 export const FLIGHTS_HREF = "/live";
+
+/**
+ * Turbo Royale. Held for launch (maker, 2026-11-18: "id rather ship a good mode that works great than something thats half
+ * assed. yes lets hold off on royale"). Hide only: the game, /turbo/royale, its APIs, season points, prices and Lighter wiring stay.
+ * Off: no Royale card in the lobby or the app home / quick-play sheet, the Turbo tab goes straight to Trading duel (no menu
+ * while it's the only mode), no Royale tab on Top pilots, and /turbo/royale shows nothing unless this device opted in for
+ * play-testing with /turbo/royale?royale=1 (?royale=0 clears it). Override: NEXT_PUBLIC_FEATURE_ROYALE=1 (build-time; not set anywhere today).
+ */
+export const ROYALE_ENABLED: boolean = process.env.NEXT_PUBLIC_FEATURE_ROYALE === "1" || process.env.NEXT_PUBLIC_FEATURE_ROYALE === "true";
+const ROYALE_TEST_KEY = "disciple.royale.test.v1";
+/** ROYALE_ENABLED, or this device opted in with ?royale=1 (client only; call from an effect). */
+export function royaleOpenHere(): boolean {
+  if (ROYALE_ENABLED) return true;
+  if (typeof window === "undefined") return false;
+  try {
+    const q = new URLSearchParams(window.location.search).get("royale");
+    if (q === "1") window.localStorage.setItem(ROYALE_TEST_KEY, "1");
+    else if (q === "0") window.localStorage.removeItem(ROYALE_TEST_KEY);
+    return window.localStorage.getItem(ROYALE_TEST_KEY) === "1";
+  } catch { return false; }
+}

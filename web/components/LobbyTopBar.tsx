@@ -16,7 +16,7 @@ import LevelChip from "@/components/xp/LevelChip";
 import Icon, { type IconName } from "@/components/icons/Icon";
 import HelpButton from "@/components/HelpButton";
 import { QUICK_PLAY_EVENT } from "@/components/app/events";
-import { DUEL_HREF, FLIGHTS_HREF, MARKET_ENABLED } from "@/lib/features";
+import { DUEL_HREF, FLIGHTS_HREF, MARKET_ENABLED, ROYALE_ENABLED } from "@/lib/features";
 import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
 import { isTurboEnabled, turboEnvOn } from "@/lib/turbo/flag";
 
@@ -40,11 +40,12 @@ const TABS: readonly Tab[] = [
   { href: "/how-it-works", key: "hiw", label: "How to play", icon: "info", phone: true, out: true },
 ];
 
-/** The Turbo tab's two modes. */
-export const TURBO_MODES = [
+/** The Turbo tab's modes. Royale is held for launch (ROYALE_ENABLED); with one mode the tab is a plain link to it, no menu. */
+export const TURBO_MODES: readonly { href: string; label: string; sub: string }[] = [
   { href: DUEL_HREF, label: "Trading duel", sub: DUEL_RANKED_LIVE ? "Ranked" : "1v1" },
-  { href: "/turbo/royale", label: "Turbo royale", sub: "Practice" },
-] as const;
+  ...(ROYALE_ENABLED ? [{ href: "/turbo/royale", label: "Turbo royale", sub: "Practice" }] : []),
+];
+const TURBO_MENU = TURBO_MODES.length > 1;
 
 // The iPhone app's own tab bar (app home concept C, maker 2026-11-16): Top pilots, Play (the app home, big in the middle) and
 // Hangar on the right (maker 2026-11-17). Shown only with html.app (root layout APP_JS); the website's bars are hidden there. Launch lives on the Play tab.
@@ -129,7 +130,7 @@ export default function LobbyTopBar() {
   const nav = (dock: boolean) => (
     <nav className={`lb-tabs${dock ? " lb-dock" : " lb-top"}`} aria-label="Main">
       {/* signed-in / signed-out tabs are both rendered and shown by html[data-you] (CSS), so they never pop in after load */}
-      {TABS.filter((t) => (dock ? !t.desk : !t.phone) && (!t.menu || turbo)).map((t) => t.menu ? (
+      {TABS.filter((t) => (dock ? !t.desk : !t.phone) && (!t.menu || turbo)).map((t) => t.menu && TURBO_MENU ? (
         <button key={t.key} type="button" className={`lb-tab-btn${turboOn || menu?.dock === dock ? " on" : ""}`} aria-haspopup="menu"
           aria-expanded={menu?.dock === dock} data-testid={`nav-${t.key}`} onClick={(e) => openMenu(dock, e.currentTarget)}>
           <Icon name={t.icon} size={22} className="lb-ico" />
@@ -137,7 +138,7 @@ export default function LobbyTopBar() {
           {!dock && <Icon name="chevron-down" size={16} className="lb-caret" />}
         </button>
       ) : (
-        <Link key={t.key} href={t.href} className={[isOn(t.href) ? "on" : "", t.you ? "lb-you-only" : "", t.out ? "lb-out-only" : ""].filter(Boolean).join(" ") || undefined} aria-current={at(t.href) ? "page" : undefined}
+        <Link key={t.key} href={t.menu ? TURBO_MODES[0].href : t.href} className={[(t.menu ? turboOn : isOn(t.href)) ? "on" : "", t.you ? "lb-you-only" : "", t.out ? "lb-out-only" : ""].filter(Boolean).join(" ") || undefined} aria-current={at(t.href) ? "page" : undefined}
           onPointerDown={dock ? () => press(t.href) : undefined} data-testid={`nav-${t.key}`}>
           <Icon name={t.icon} size={22} className="lb-ico" />
           <span className="lb-lbl">{dock && t.short ? t.short : t.label}</span>

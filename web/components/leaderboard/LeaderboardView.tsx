@@ -20,7 +20,7 @@ import { altShort, lightOf } from "@/components/home/rocketBits";
 import { isStoreSrc } from "@/lib/coinImages";
 import { BOARD_WINDOWS, type BoardPilot, type BoardWindow } from "@/lib/home/topPilots";
 import type { BoardCoin, BoardResponse, CrewBoardResponse, ModeResponse, ModeRow, Named, OverallResponse, OverallRow, PositionsResponse } from "@/lib/server/leaderboard";
-import { BOT_DUEL_HREF, CREW_ENABLED } from "@/lib/features";
+import { BOT_DUEL_HREF, CREW_ENABLED, ROYALE_ENABLED } from "@/lib/features";
 import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
 import AnimClip from "@/components/ui/AnimClip";
 import { CLIMB_FREE } from "@/lib/climb/rules";
@@ -31,7 +31,7 @@ const MODES: { k: Mode; label: string }[] = [
   { k: "overall", label: "Overall" },
   { k: "rockets", label: "Rockets" },
   { k: "duel", label: "Duel" },
-  { k: "royale", label: "Royale" },
+  ...(ROYALE_ENABLED ? [{ k: "royale" as Mode, label: "Royale" }] : []),   // held for launch (lib/features)
   { k: "climb", label: "Climb" },
   ...(CREW_ENABLED ? [{ k: "crews" as Mode, label: "Crews" }] : []),
 ];

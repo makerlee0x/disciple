@@ -54,6 +54,7 @@
 
 /* practice tiles */
 .prac { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.prac1 { grid-template-columns: 1fr; }
 .tile { position: relative; display: block; height: 168px; border-radius: 18px; overflow: hidden; isolation: isolate; background: var(--dsc3-sky-ink); }
 .tileTag { position: absolute; top: 10px; left: 10px; padding: 5px 9px; border-radius: 999px; background: rgba(8,9,18,.7); font: 700 11px/1 var(--dsc-font-game); letter-spacing: .08em; text-transform: uppercase; }
 .tileTx { position: absolute; left: 12px; right: 12px; bottom: 12px; display: grid; gap: 3px; }
