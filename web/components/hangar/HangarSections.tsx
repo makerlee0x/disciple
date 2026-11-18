@@ -14,6 +14,7 @@ import LiveCard from "@/components/home/LiveCard";
 import type { LiveHolding, LivePortfolio } from "@/components/profile/LiveHoldings";
 import { signedUsd2, usd2 } from "@/components/profile/money";
 import { DEPOSIT_HREF, onDepositClick } from "@/lib/cashLink";
+import Tooltip from "@/components/ui/Tooltip";
 
 export function ServiceRecord({ pf, aboard, launched, isPrivate }: { pf: LivePortfolio | null; aboard: number | null; launched: HomeCoin[] | null; isPrivate: boolean }) {
   const ok = pf && pf.ok;
@@ -97,14 +98,18 @@ export function TrophyCase({ got }: { got: Map<string, number> | null }) {
         {shown.map((m) => {
           const r = rarityStyle(m.rarity);
           const on = !!got?.has(m.id);
+          const name = MILESTONE_COPY[m.id]?.name ?? m.name;
+          // hover (desktop) or tap (phone): what the trophy is for, earned or locked (maker 2026-11-17)
           return (
-            <li key={m.id} className={on ? "on" : ""} style={{ ["--rar" as string]: r.border, ["--rar-glow" as string]: r.glow }} title={MILESTONE_COPY[m.id]?.desc ?? ""}>
+            <Tooltip key={m.id} content={<><strong>{name} · {on ? r.label : "Locked"}</strong>{MILESTONE_COPY[m.id]?.desc}</>}>
+            <li className={on ? "on" : ""} style={{ ["--rar" as string]: r.border, ["--rar-glow" as string]: r.glow }} aria-label={`${name}${on ? "" : ", locked"}`}>
               <span className="gem" aria-hidden>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={achievementIconPath(m.id)} alt="" width={44} height={44} onError={(e) => { e.currentTarget.style.visibility = "hidden"; }} />
               </span>
-              <span className="nm">{MILESTONE_COPY[m.id]?.name ?? m.name}</span>
+              <span className="nm">{name}</span>
             </li>
+            </Tooltip>
           );
         })}
       </ul>
