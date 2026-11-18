@@ -3,7 +3,7 @@
  * /turbo/climb: Climb, the solo Turbo mode (maker 2026-11-17/18). The screens are the Trading Duel engine
  * (public/turbo/duel/engine.js) with host.climb set: no rival, levels, a goal line and a zoomed sky. This host feeds
  * live BTC, keeps the unlocked level (lib/climb/progress) and applies the unlock rule (lib/climb/rules).
- * Play money only until the Lighter / Nova adapter is live, so test out stays locked. With the hidden Lighter switch
+ * Play money only until the Lighter / Nova adapter is live. No test out (maker 2026-11-18). With the hidden Lighter switch
  * (`?lighter=1`, lib/lighter/duel) each press is also a real order on the pilot's Lighter account, and the server's
  * buzzer closes it when the run's clock runs out.
  */
@@ -81,8 +81,6 @@ export default function ClimbScreen() {
           if (to > u) saveClimbLevel(to);
           return { unlocked: Math.max(u, to) };
         },
-        // test out is real money only (maker 2026-11-17); play money can't skip levels this way
-        testOut: () => ({ error: "Test out opens with real money." }),
       },
     };
     const w = window as unknown as { DuelEngine?: { mount(root: HTMLElement, host: unknown): EngineApi } };
