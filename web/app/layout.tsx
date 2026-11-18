@@ -44,7 +44,7 @@ const SITE_CARD = { url: "/api/og/site", width: 1200, height: 630, alt: "DISCIPL
 export const metadata: Metadata = {
   title: SITE_TITLE,
   description: SITE_LINE,
-  metadataBase: new URL("https://disciple.vip"),
+  metadataBase: new URL("https://www.disciple.vip"),
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "48x48" },
@@ -63,9 +63,9 @@ export const metadata: Metadata = {
 const SITE_LD = JSON.stringify({
   "@context": "https://schema.org",
   "@graph": [
-    { "@type": "Organization", "@id": "https://disciple.vip/#org", name: "DISCIPLE", url: "https://disciple.vip", logo: "https://disciple.vip/icon-512.png", sameAs: ["https://x.com/disciplevip"] },
-    { "@type": "WebSite", "@id": "https://disciple.vip/#site", name: "DISCIPLE", url: "https://disciple.vip", description: SITE_LINE, publisher: { "@id": "https://disciple.vip/#org" } },
-    { "@type": "VideoGame", name: "DISCIPLE", url: "https://disciple.vip", description: SITE_LINE, genre: ["Trading", "Multiplayer"], gamePlatform: ["Web browser", "iOS"], playMode: ["MultiPlayer", "SinglePlayer"], publisher: { "@id": "https://disciple.vip/#org" } },
+    { "@type": "Organization", "@id": "https://www.disciple.vip/#org", name: "DISCIPLE", url: "https://www.disciple.vip", logo: "https://www.disciple.vip/icon-512.png", sameAs: ["https://x.com/disciplevip"] },
+    { "@type": "WebSite", "@id": "https://www.disciple.vip/#site", name: "DISCIPLE", url: "https://www.disciple.vip", description: SITE_LINE, publisher: { "@id": "https://www.disciple.vip/#org" } },
+    { "@type": "VideoGame", name: "DISCIPLE", url: "https://www.disciple.vip", description: SITE_LINE, genre: ["Trading", "Multiplayer"], gamePlatform: ["Web browser", "iOS"], playMode: ["MultiPlayer", "SinglePlayer"], publisher: { "@id": "https://www.disciple.vip/#org" } },
   ],
 });
 

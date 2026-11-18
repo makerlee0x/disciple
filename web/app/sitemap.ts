@@ -9,5 +9,5 @@ const PAGES: [path: string, priority: number][] = [
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  return PAGES.map(([path, priority]) => ({ url: `https://disciple.vip${path}`, changeFrequency: path === "/" || path === "/live" ? "hourly" : "weekly", priority }));
+  return PAGES.map(([path, priority]) => ({ url: `https://www.disciple.vip${path}`, changeFrequency: path === "/" || path === "/live" ? "hourly" : "weekly", priority }));
 }

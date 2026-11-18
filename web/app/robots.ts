@@ -6,7 +6,7 @@ export const dynamic = "force-static";
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [{ userAgent: "*", allow: "/", disallow: ["/admin/", "/dev/", "/api/", "/lighter/", "/settings/", "/wallet/"] }],
-    sitemap: "https://disciple.vip/sitemap.xml",
-    host: "https://disciple.vip",
+    sitemap: "https://www.disciple.vip/sitemap.xml",
+    host: "https://www.disciple.vip",
   };
 }
