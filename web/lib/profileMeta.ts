@@ -14,6 +14,10 @@ import { PROFILE_COPY } from "./copy/profile";
 export const BIO_MAX = 160;
 /** Hard cap on the raw posted bio (UTF-16 units) before any counting: 160 of the longest emoji sequences fit easily. */
 export const BIO_RAW_MAX = 4000;
+/** Display name cap (grapheme clusters). The Hangar title card wraps by word, so a name this long still fits. */
+export const DISPLAY_NAME_MAX = 24;
+/** Hard cap on the raw posted display name (UTF-16 units). */
+export const DISPLAY_NAME_RAW_MAX = 200;
 export const PFP_ID_RE = /^[0-9a-f]{64}$/;
 
 /** ISO 3166-1 alpha-2, officially assigned codes. */
@@ -31,7 +35,11 @@ const COUNTRY_SET = new Set(COUNTRY_CODES);
 /** title: optional chosen title id (lib/titles); "" / missing = the default title. Earned status is checked by the server. */
 /** banner: optional image id from the same moderated store as pfp (pilot-uploaded banner, profile r3); "" / missing = plain panel. */
 /** nft: read-only (GET /api/profile/meta): the Disciple NFT behind the picture, when it is one. Never posted. */
-export type ProfileMeta = { pfp: string; bio: string; flag: string; title?: string; banner?: string; nft?: { chain: "sol" | "eth"; id: string; name: string } | null };
+/** name: optional display name (maker 2026-11-18: "lets add a display name and a username. it looks better with a space"):
+ *  free text with spaces, one line, ≤ DISPLAY_NAME_MAX characters (grapheme clusters). Shown big on the Hangar banner with
+ *  the @username under it. Feeds, trades and boards keep the @username (a–z 0–9 _, capped at USERNAME_MAX), so the display
+ *  name never has to fit a narrow row. "" / missing = the @username (or the default call sign) is the name. */
+export type ProfileMeta = { pfp: string; bio: string; flag: string; title?: string; banner?: string; name?: string; nft?: { chain: "sol" | "eth"; id: string; name: string } | null };
 export const EMPTY_META: ProfileMeta = { pfp: "", bio: "", flag: "", banner: "" };
 
 // C0/C1 controls (newlines too: the bio is one line), zero-width, bidi embeddings/overrides/isolates, BOM.
@@ -52,6 +60,9 @@ export function bioLength(s: string): number {
   for (const _ of segmenter.segment(s)) n++; // eslint-disable-line @typescript-eslint/no-unused-vars
   return n;
 }
+/** Canonical display name: same cleanup as the bio (one line, no control / zero-width / bidi-override chars). */
+export const sanitizeDisplayName = (s: unknown): string => sanitizeBio(s);
+
 /** Country codes are upper case (JP). Anything else is lower-cased (an old c-… community flag, which isFlag rejects). */
 export const normalizeFlag = (s: unknown) => {
   const v = String(s ?? "").trim();
@@ -65,6 +76,8 @@ export const pfpUrl = (id: string) => (PFP_ID_RE.test(id) ? `/api/image/${id}` :
 /** null when valid, else a short reason. Expects canonical values (sanitizeBio / normalizeFlag). */
 export function validateMeta(m: ProfileMeta): string | null {
   if (m.bio.length > BIO_RAW_MAX || bioLength(m.bio) > BIO_MAX) return `Bio: max ${BIO_MAX} characters.`;
+  const name = m.name ?? "";
+  if (name.length > DISPLAY_NAME_RAW_MAX || bioLength(name) > DISPLAY_NAME_MAX) return `Name: max ${DISPLAY_NAME_MAX} characters.`;
   if (!isFlag(m.flag)) return "Unknown flag.";
   if (!isPfpId(m.pfp)) return "Invalid picture.";
   if (!isPfpId(m.banner ?? "")) return "Invalid banner.";
@@ -74,4 +87,4 @@ export function validateMeta(m: ProfileMeta): string | null {
 
 /** Signed by the wallet; verified by /api/profile/meta. Covers every field so a signature can't be reused for other content. */
 export const profileMetaMessage = (address: string, m: ProfileMeta, nonce: string) =>
-  `DISCIPLE profile update\n\nWallet: ${address.toLowerCase()}\nPicture: ${m.pfp || "none"}\n${m.banner ? `Banner: ${m.banner}\n` : ""}Flag: ${m.flag || "none"}\n${m.title ? `Title: ${m.title}\n` : ""}Bio: ${m.bio || "none"}\nNonce: ${nonce}\n\nSigning proves you own this wallet. It costs nothing and sends no transaction.`;
+  `DISCIPLE profile update\n\nWallet: ${address.toLowerCase()}\nPicture: ${m.pfp || "none"}\n${m.banner ? `Banner: ${m.banner}\n` : ""}Flag: ${m.flag || "none"}\n${m.title ? `Title: ${m.title}\n` : ""}${m.name ? `Name: ${m.name}\n` : ""}Bio: ${m.bio || "none"}\nNonce: ${nonce}\n\nSigning proves you own this wallet. It costs nothing and sends no transaction.`;

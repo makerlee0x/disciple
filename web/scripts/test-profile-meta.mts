@@ -77,3 +77,14 @@ test("signed message covers every field and the nonce", () => {
   assert.ok(m.includes("Wallet: 0xabc") && m.includes("Flag: FR") && m.includes("Bio: salut") && m.includes("Nonce: n1") && m.includes("Picture: none"));
   assert.notEqual(m, profileMetaMessage("0xABC", { pfp: "", flag: "FR", bio: "salut!" }, "n1"));
 });
+
+test("display name: spaces kept, one line, capped, signed only when set (maker 2026-11-18)", async () => {
+  const { DISPLAY_NAME_MAX, sanitizeDisplayName } = await import("../lib/profileMeta.ts");
+  assert.equal(sanitizeDisplayName("  Strategy   Coin \n"), "Strategy Coin");
+  assert.equal(validateMeta({ pfp: "", flag: "", bio: "", name: "Strategy Coin" }), null);
+  assert.equal(validateMeta({ pfp: "", flag: "", bio: "", name: "a".repeat(DISPLAY_NAME_MAX) }), null);
+  assert.match(validateMeta({ pfp: "", flag: "", bio: "", name: "a".repeat(DISPLAY_NAME_MAX + 1) }) || "", /Name: max/);
+  const base = { pfp: "", flag: "", bio: "hi" };
+  assert.equal(profileMetaMessage("0xabc", { ...base, name: "" }, "n1"), profileMetaMessage("0xabc", base, "n1"), "no name: same message as older clients");
+  assert.match(profileMetaMessage("0xabc", { ...base, name: "Strategy Coin" }, "n1"), /Name: Strategy Coin\n/);
+});

@@ -6,7 +6,7 @@
 import { IS_STATIC_PREVIEW } from "./base-path";
 import { notifyProfileChanged, signWalletMessage } from "./profile";
 import { PFP_ERROR, pfpFailure, pfpPrecheck, shrinkForUpload } from "./pfpUpload";
-import { EMPTY_META, normalizeFlag, PFP_ID_RE, profileMetaMessage, sanitizeBio, validateMeta, type ProfileMeta } from "./profileMeta";
+import { EMPTY_META, normalizeFlag, PFP_ID_RE, profileMetaMessage, sanitizeBio, sanitizeDisplayName, validateMeta, type ProfileMeta } from "./profileMeta";
 
 const LOCAL_KEY = "disciple.profileMeta";
 const isAddr = (a: string | null | undefined): a is string => !!a && /^0x[0-9a-fA-F]{40}$/.test(a);
@@ -20,12 +20,12 @@ export async function fetchProfileMeta(address: string | null | undefined): Prom
   if (!isAddr(address)) return { ...EMPTY_META };
   try {
     const j = (await (await fetch(`/api/profile/meta?address=${address.toLowerCase()}`, { cache: "no-store" })).json()) as Partial<ProfileMeta>;
-    return { pfp: j.pfp || "", bio: j.bio || "", flag: j.flag || "", title: j.title || "", banner: j.banner || "", nft: j.nft ?? null };
+    return { pfp: j.pfp || "", bio: j.bio || "", flag: j.flag || "", title: j.title || "", banner: j.banner || "", name: j.name || "", nft: j.nft ?? null };
   } catch { return { ...EMPTY_META }; }
 }
 
 export async function saveProfileMeta(input: ProfileMeta, address: string | null): Promise<{ ok: boolean; reason?: string }> {
-  const m: ProfileMeta = { pfp: input.pfp, bio: sanitizeBio(input.bio), flag: normalizeFlag(input.flag), title: input.title || "", banner: input.banner || "" };
+  const m: ProfileMeta = { pfp: input.pfp, bio: sanitizeBio(input.bio), flag: normalizeFlag(input.flag), title: input.title || "", banner: input.banner || "", name: sanitizeDisplayName(input.name) };
   const bad = validateMeta(m);
   if (bad) return { ok: false, reason: bad };
   if (IS_STATIC_PREVIEW) { try { localStorage.setItem(LOCAL_KEY, JSON.stringify(m)); } catch { /* ignore */ } notifyProfileChanged(); return { ok: true }; }

@@ -6,14 +6,15 @@ export const runtime = "nodejs";
  *  - username null: this player owns no reserved name (the common case; nothing is written).
  *  - The wallet must be one of the Privy user's linked wallets (the embedded owner wallet is the account address).
  * Called once per sign-in by lib/profile syncLocalIdentity, so a reserved name can never be "forgotten" when a login
- * method lands on a different wallet, and sign-in never touches anyone else's username.
+ * method lands on a different wallet, and sign-in never touches anyone else's username. A wallet that already holds
+ * another claimed name keeps it (kept: true): the owner chose it, and the reserved name stays theirs to claim back.
  */
 import { NextResponse } from "next/server";
 import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, privyEnv, verificationKeys, verifyIdentityToken, type PrivyUser } from "@/lib/server/privyAuth";
 import { reservedNameFor, reservedOwners } from "@/lib/server/reservedNames";
-import { bindReserved } from "@/lib/server/usernames";
+import { bindReserved, usernameOf } from "@/lib/server/usernames";
 
 export const dynamic = "force-dynamic";
 const isAddr = (a: string) => /^0x[0-9a-f]{40}$/.test(a);
@@ -44,6 +45,10 @@ export async function POST(req: Request) {
   const name = reservedNameFor(user.emails);
   if (!name) return out(200, { ok: true, username: null });
   if (!user.wallets.includes(addr)) return out(403, { ok: false, reason: "Sign in with the account that owns this wallet." });
+  // A call sign the owner picked on this wallet wins: sign-in only fills a wallet that has no name yet (a new login),
+  // it never swaps a chosen name back to the reserved one (maker 2026-11-18: changed the call sign, it came back as before).
+  const current = await usernameOf(addr);
+  if (current && current !== name) return out(200, { ok: true, username: current, moved: false, kept: true });
   const r = await bindReserved(name, addr);
   if (r.moved) console.info("[username] reserved name bound", { name, to: addr, from: r.from });
   return out(200, { ok: true, username: name, moved: r.moved });

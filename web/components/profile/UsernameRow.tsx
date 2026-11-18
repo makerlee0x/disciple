@@ -9,6 +9,11 @@ import { checkUsername, claimUsername, fetchUsernameStatus, localUsername, norma
 import { formatLocalWhen } from "@/lib/usernameCooldown";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
 
+/** What the call sign box accepts as you type: a–z 0–9 _ only. A space becomes "_" (spaces belong in the display name),
+ *  anything else is dropped, so the box can't hold a name that Save would then quietly skip (maker 2026-11-18: typed
+ *  "strategy coin", saved a new picture, and the call sign never changed). */
+export const callSignInput = (v: string) => v.toLowerCase().replace(/^@+/, "").replace(/\s/g, "_").replace(/[^a-z0-9_]/g, "");
+
 export type UsernameStatus = { ok: boolean; text: string; bad?: boolean } | null;
 export type UsernameDraft = {
   me: string; name: string; setName: (v: string) => void; changed: boolean; status: UsernameStatus; locked: boolean; nextAt: number | null;
@@ -56,7 +61,7 @@ export function useUsernameDraft(wallet: string | null, open = true): UsernameDr
     setMe(normalizeUsername(name)); setStatus(null);
     return { ok: true };
   }
-  return { me, name, setName: (v) => setName(v.toLowerCase()), changed, status, locked, nextAt, claim };
+  return { me, name, setName: (v) => setName(callSignInput(v)), changed, status, locked, nextAt, claim };
 }
 
 /** The Username field inside Edit profile (no Save of its own: the sheet's one Save claims it). */

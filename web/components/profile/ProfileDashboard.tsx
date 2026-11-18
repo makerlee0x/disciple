@@ -3,7 +3,7 @@
 import { useXp } from "@/lib/xpClient";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PROFILE_CHANGED_EVENT, localUsername } from "@/lib/profile";
+import { PROFILE_CHANGED_EVENT, fetchUsernameStatus, localUsername } from "@/lib/profile";
 import { defaultUsername, isAddressLike } from "@/lib/defaultUsername";
 import { EMPTY_META, pfpUrl, type ProfileMeta } from "@/lib/profileMeta";
 import { fetchProfileMeta } from "@/lib/profileMetaClient";
@@ -89,7 +89,15 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const [me, setMe] = useState("");
   useEffect(() => {
     if (!isPrivate) return;
-    const read = () => setMe(localUsername());
+    // After any save (picture, bio, call sign) re-read the name. An empty browser cache (another device, a sign-in whose
+    // name read failed) must not blank the banner back to the default call sign (maker 2026-11-18: "added my pfp and it
+    // deleted my call name"): ask the server instead.
+    const read = () => {
+      const u = localUsername();
+      if (u) { setMe(u); return; }
+      const a = connectedAddress();
+      if (a) fetchUsernameStatus(a).then((s) => setMe(s.username || "")).catch(() => {}); else setMe("");
+    };
     read();
     window.addEventListener(PROFILE_CHANGED_EVENT, read);
     return () => window.removeEventListener(PROFILE_CHANGED_EVENT, read);
@@ -237,6 +245,9 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
 
   // No username: the wallet's space-themed default call sign (never with an "@"); public /u/<0x…> slugs likewise.
   const handle = isPrivate ? (me ? `@${me}` : defaultUsername(wallet)) : publicName;
+  // display name (spaces allowed) is the big title when set; the @username then sits under it
+  const title = meta.name?.trim() || handle;
+  const at = meta.name?.trim() && handle.startsWith("@") ? handle : undefined;
   const img = pfpUrl(meta.pfp);
   const noWallet = !isPrivate && resolved && !wallet;
   const holdings = pf ? (pf.ok ? pf.rows : []) : noWallet ? [] : null;
@@ -274,7 +285,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       {toast && <div className="pf-toast" role="status">{toast}</div>}
       {points?.username && <PointsShare handle={points.username} pts={points.pts} rank={points.rank} open={pointsCard} onClose={() => setPointsCard(false)} />}
 
-      <HangarBay handle={handle} bio={bio} avatar={avatar} xp={xp} actions={actions} spend={false} stats={dash}
+      <HangarBay handle={title} at={at} bio={bio} avatar={avatar} xp={xp} actions={actions} spend={false} stats={dash}
         nftAvatar={!!img && !!meta.nft} tags={wallet ? <HolderTags wallet={wallet} /> : null} />
 
       {/* iPhone app only (html.app): the desktop Hangar is one long page on a phone, so a sticky row jumps to each part */}

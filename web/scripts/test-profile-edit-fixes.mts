@@ -142,3 +142,13 @@ test("server: a big raw screenshot is refused by size, the same picture shrunk i
   assert.equal(m.format, "webp");
   assert.ok(Math.max(m.width ?? 0, m.height ?? 0) <= 1024);
 });
+
+test("call sign box: a space becomes _ and other characters are dropped, so Save can't quietly skip it (maker 2026-11-18)", async () => {
+  const src = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "../components/profile/UsernameRow.tsx"), "utf8");
+  const body = /export const callSignInput = \(v: string\) => (.+);\n/.exec(src)?.[1];
+  assert.ok(body, "callSignInput is defined");
+  const callSignInput = new Function("v", `return ${body};`) as (v: string) => string;
+  assert.equal(callSignInput("Strategy Coin"), "strategy_coin");
+  assert.equal(callSignInput("@maker!"), "maker");
+  assert.equal(validateUsername(callSignInput("strategy coin")), null);
+});

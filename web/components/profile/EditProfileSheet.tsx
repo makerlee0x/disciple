@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { withBase } from "@/lib/base-path";
-import { BIO_MAX, BIO_RAW_MAX, EMPTY_META, bioLength, pfpUrl, sanitizeBio, type ProfileMeta } from "@/lib/profileMeta";
+import { BIO_MAX, BIO_RAW_MAX, DISPLAY_NAME_MAX, DISPLAY_NAME_RAW_MAX, EMPTY_META, bioLength, pfpUrl, sanitizeBio, sanitizeDisplayName, type ProfileMeta } from "@/lib/profileMeta";
 import { saveProfileMeta, uploadPfp } from "@/lib/profileMetaClient";
 import XLinkControl from "./XLinkControl";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
@@ -22,6 +22,7 @@ import { isNativeApp } from "@/lib/native";
 export const EDIT_COPY = {
   title: "Edit profile",
   addBanner: "Add a banner",
+  name: "Name",
   bio: "Bio",
   bioPlaceholder: "Tell people who you are.",
   x: "X account",
@@ -34,12 +35,13 @@ export const EDIT_COPY = {
 } as const;
 
 const same = (a: ProfileMeta, b: ProfileMeta) =>
-  a.pfp === b.pfp && (a.banner || "") === (b.banner || "") && sanitizeBio(a.bio) === sanitizeBio(b.bio);
+  a.pfp === b.pfp && (a.banner || "") === (b.banner || "") && sanitizeBio(a.bio) === sanitizeBio(b.bio)
+  && sanitizeDisplayName(a.name) === sanitizeDisplayName(b.name);
 
 /**
  * Edit profile (profile r3): picture (pencil over the avatar), banner (add / change / remove), bio (160 characters) and
- * username, X. One Save (claims a changed username first, then writes picture / banner / bio). Display name, title and
- * guild are not here. Username moved back here from Settings (lee, Nov 11).
+ * display name + username, X. One Save (claims a changed username first, then writes picture / banner / name / bio). The
+ * display name (spaces allowed) is profile meta; the call sign stays the a–z 0–9 _ @handle. Title and guild are not here. Username moved back here from Settings (lee, Nov 11).
  * Picture and banner both go through /api/moderate-image (same store, same checks); picture / banner / bio are one
  * signed write (/api/profile/meta). Desktop modal / phone bottom sheet (Sheet).
  * X: link / unlink a verified X account through X's own OAuth (components/profile/XLinkControl, /api/x).
@@ -78,12 +80,13 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
 
   const uname = useUsernameDraft(wallet, open);
   const bioLen = bioLength(sanitizeBio(draft.bio));
+  const nameLen = bioLength(sanitizeDisplayName(draft.name));
   const metaDirty = !same(draft, meta);
   const dirty = metaDirty || uname.changed;
   // a call sign that can't be claimed (taken / bad) must not hold back the picture and bio (maker 2026-11-16: "bio didn't
   // save" while the call sign said taken). Save then writes the rest and leaves the call sign as it was.
   const nameOk = !uname.changed || !!uname.status?.ok;
-  const valid = bioLen <= BIO_MAX && (nameOk || metaDirty);
+  const valid = bioLen <= BIO_MAX && nameLen <= DISPLAY_NAME_MAX && (nameOk || metaDirty);
   // no "Discard changes?" step (maker 2026-11-16: "everyone knows if you don't click save it doesn't save"): X / Back /
   // Escape / tapping outside just close, and unsaved edits are dropped
   const tryClose = () => onClose();
@@ -101,17 +104,18 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
 
   async function save() {
     setBusy("save"); setErr("");
-    let skipName: string | false = uname.changed && !uname.status?.ok ? C["edit.username.skipped"] : false;
+    // the call sign can't be claimed as typed (too short / taken / reserved): the rest still saves, and the toast says why
+    let skipName: string | false = uname.changed && !uname.status?.ok ? C["edit.username.skipped"](uname.status?.text || C["edit.username.taken"]) : false;
     if (uname.changed && !skipName) {
       const u = await uname.claim();
       // a refused claim (taken a moment ago, 24h cooldown, reserved) must not drop the new picture / bio either
       // (maker 2026-11-16: "uploading a pfp didn't work"): save those, then say why the call sign stayed
       if (!u.ok && !metaDirty) { setBusy(""); setErr(u.reason || C["edit.error.save"]); return; }
-      if (!u.ok) skipName = u.reason || C["edit.username.skipped"];
+      if (!u.ok) skipName = C["edit.username.skipped"](u.reason || C["edit.error.save"]);
       if (u.ok && !metaDirty) { setBusy(""); onClose(true); return; }
     }
     // titles are out of v1: a save never sets one; the flag (off in V1) is passed through untouched
-    const r = await saveProfileMeta({ ...draft, bio: sanitizeBio(draft.bio), title: "" }, wallet);
+    const r = await saveProfileMeta({ ...draft, bio: sanitizeBio(draft.bio), name: sanitizeDisplayName(draft.name), title: "" }, wallet);
     setBusy("");
     if (!r.ok) { setErr(r.reason || C["edit.error.save"]); return; }
     onClose(skipName || true);
@@ -120,9 +124,9 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
   // Connect X leaves the page (X / Privy sign-in), so unsaved picture / banner / bio edits are saved first (maker
   // 2026-11-16: picked a picture, hit Connect X, came back and the picture was gone).
   async function saveBeforeX(): Promise<boolean> {
-    if (!metaDirty || bioLen > BIO_MAX) return true;
+    if (!metaDirty || bioLen > BIO_MAX || nameLen > DISPLAY_NAME_MAX) return true;
     setBusy("save"); setErr("");
-    const r = await saveProfileMeta({ ...draft, bio: sanitizeBio(draft.bio), title: "" }, wallet);
+    const r = await saveProfileMeta({ ...draft, bio: sanitizeBio(draft.bio), name: sanitizeDisplayName(draft.name), title: "" }, wallet);
     setBusy("");
     if (!r.ok) { setErr(r.reason || C["edit.error.save"]); return false; }
     return true;
@@ -146,7 +150,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
             <span className="pen">{busy === "pfp" ? "…" : <PencilGlyph size={14} />}</span>
           </button>
           <div className="nm">
-            <b>{uname.name ? uname.name : (handle || "").replace(/^@/, "")}</b>
+            <b>{draft.name?.trim() || uname.name || (handle || "").replace(/^@/, "")}</b>
             {level && <span>{level}</span>}
             {web && wallet && <button type="button" className="nft-connect" disabled={!!busy} aria-pressed={picking} onClick={() => setPicking((v) => !v)} data-testid="connect-nft">Connect NFT</button>}
           </div>
@@ -159,6 +163,13 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
             onPicked={(id) => { setDraft((d) => ({ ...d, pfp: id })); setPicking(false); }} />
         ) : (
         <form className="p5-edit-body" onSubmit={(e) => { e.preventDefault(); if (dirty && valid && !busy) void save(); }}>
+          <label className="p5-fld">
+            <span className="lab">{EDIT_COPY.name} <em className={nameLen > DISPLAY_NAME_MAX ? "bad" : ""}>{nameLen} / {DISPLAY_NAME_MAX}</em></span>
+            <input className="p5-inp" value={draft.name ?? ""} maxLength={DISPLAY_NAME_RAW_MAX} autoComplete="off" disabled={!!busy}
+              placeholder={uname.me || (handle || "").replace(/^@/, "")}
+              onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value.replace(/[\r\n]+/g, " ") }))} data-testid="edit-display-name" />
+          </label>
+
           <UsernameField u={uname} disabled={!!busy} />
 
           <label className="p5-fld">
