@@ -350,6 +350,27 @@ export async function openCrate(walletIn: string, crateId: string, now = Date.no
 }
 
 
+/**
+ * Admin test grant (maker 2026-11-18: "give me some trails and name tags and skins that i can test listing"). Makes
+ * tradable (unbound) crate-origin copies of the given items for one wallet, with fresh rolls. ADMIN only (api/admin/market).
+ * Prestige items are skipped: they come from prestige level, never as copies.
+ */
+export async function grantTestCopies(walletIn: string, ids: string[], now = Date.now(), s: Kv = kv()): Promise<{ ok: true; copies: Copy[]; skipped: string[] } | { ok: false; reason: string }> {
+  await ensureCatalog(s);
+  const w = lc(walletIn);
+  return withLock(w, s, async () => {
+    const inv = await invOf(w, now, s), copies: Copy[] = [], skipped: string[] = [];
+    for (const id of ids.slice(0, 40)) {
+      const it = itemById(id);
+      if (!it || it.prestige) { skipped.push(id); continue; }
+      const copy = await makeCopy(it, "crate", false, freshRolls(), now, s, w, { crate: "admin-test" });
+      inv.push(copy); copies.push(copy);
+    }
+    if (copies.length) await writeInv(w, inv, s);
+    return { ok: true as const, copies, skipped };
+  });
+}
+
 export type ScrapResult = { ok: true; xp: number } | { ok: false; reason: string };
 
 /** Scrap a copy for XP (the copy is destroyed). Not the one you fly, and not a starter. */
