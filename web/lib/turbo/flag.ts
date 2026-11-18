@@ -18,6 +18,8 @@ import { isNativeApp } from "../native";
 
 export const TURBO_FLAG_KEY = "disciple.turbo.enabled.v1";
 
+/** The build's own setting: the same on the server and the first client render, so it can seed state without a mismatch. */
+export function turboEnvOn(): boolean { return envOn(); }
 function envOn(): boolean {
   const v = process.env.NEXT_PUBLIC_TURBO;
   return v !== "0" && v !== "false";   // on unless a build turns it off

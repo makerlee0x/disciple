@@ -9,7 +9,7 @@ import { pfpUrl } from "./profileMeta";
 import { withBase } from "./base-path";
 import { PROFILE_CHANGED_EVENT } from "./profile";
 
-export type PilotPfp = { img: string | null; nft: boolean };
+export type PilotPfp = { img: string | null; nft: boolean; /** the profile has been read (img null = no picture) */ loaded?: boolean };
 const cache = new Map<string, PilotPfp>();
 
 export function usePilotPfp(wallet: string | null): PilotPfp {
@@ -22,7 +22,7 @@ export function usePilotPfp(wallet: string | null): PilotPfp {
     const read = () => {
       void fetchProfileMeta(key).then((m) => {
         const u = pfpUrl(m.pfp);
-        const next = { img: u ? withBase(u) : null, nft: !!u && !!m.nft };
+        const next = { img: u ? withBase(u) : null, nft: !!u && !!m.nft, loaded: true };
         cache.set(key, next);
         if (alive) setV(next);
       });
