@@ -1145,7 +1145,7 @@ function mount(root,host){
     const fr=u>=FREE;
     rows.push(`<button class="choice${fr?" main":" lock"}" type="button" data-cl="free">${`<i class="ci">${fr?ICO.bolt:ICO.lock}</i>`}<span class="ct"><b>FREE MODE</b><small>any fuel · up to ${gx(MAXG)} · no clock</small></span>${fr?ICO.go:""}</button>`);
     for(const l of LVS.slice().reverse()){ const k=l.n>u?"lock":l.n===u?"cur":"done";
-      rows.push(`<button class="choice${k==="cur"?" main":""} ${k}" type="button" data-cl="${l.n}"><i class="ci">${k==="lock"?ICO.lock:k==="done"?ICO.check:ICO.bolt}</i><span class="ct"><b>LEVEL ${l.n} · ${m2(l.fuel)}</b><small>${gx(l.gear)} · +${m2(l.goal)} (${pctOf(l)}) in 60s${k==="done"?" · cleared":""}</small></span>${k==="lock"?'<span class="tout">TEST OUT</span>':k==="cur"?ICO.go:""}</button>`); }
+      rows.push(`<button class="choice${k==="cur"?" main":""} ${k}" type="button" data-cl="${l.n}"><i class="ci">${k==="lock"?ICO.lock:k==="done"?ICO.check:ICO.bolt}</i><span class="ct"><b>LEVEL ${l.n} · MAKE ${pctOf(l).slice(1)}</b><small>+${m2(l.goal)} on ${m2(l.fuel)} · ${gx(l.gear)} · 60s${k==="done"?" · cleared":""}</small></span>${k==="lock"?'<span class="tout">TEST OUT</span>':k==="cur"?ICO.go:""}</button>`); }
     $("climb").innerHTML=`<div class="choices ladder">${rows.join("")}</div>`;
     $("climb").querySelectorAll("[data-cl]").forEach(b=>b.addEventListener("click",()=>{ ensureAudio(); const v=b.dataset.cl;
       if(v==="free"){ if(CL.state().unlocked>=FREE) climbFreeSetup(); else toast("Clear level "+LVS.length+" to unlock free mode."); return; }
@@ -1173,7 +1173,7 @@ function mount(root,host){
     waitForPrice(()=>{ if(!M||!M.solo) return; M.startAt=Date.now()+3500; start(); }); }
   function climbLaunch(){ root.classList.add("climb"); $("lCancel").hidden=false;
     $("lH").textContent=CLR.free?"FREE MODE":(CLR.test?"TEST OUT · ":"")+"LEVEL "+CLR.level;
-    $("lSub").textContent=`${m2(CLR.fuel)} · ${gx(CLR.gear)}`+(CLR.goal!=null?` · goal +${m2(CLR.goal)}`:" · no clock")+(CL.real?"":" · play money");
+    $("lSub").textContent=`${m2(CLR.fuel)} · ${gx(CLR.gear)}`+(CLR.goal!=null?` · make +${m2(CLR.goal)}`:" · no clock")+(CL.real?"":" · play money");
     const who=$("meN").parentElement; who.innerHTML=(CLR.free?"FREE · ":`LEVEL ${CLR.level} · ${m2(CLR.fuel)} · `)+`<span id="meN" style="color:var(--gold)">${gx(CLR.gear)}</span>`;
     const nx=lvl(CLR.level+1); $("botLab").innerHTML=(CLR.free?"FUEL":"NEXT")+'<span id="botN"></span>';
     $("botP").textContent=CLR.free?m2(CLR.fuel):nx?m2(nx.fuel):"FREE"; $("botP").style.color="var(--gold)";
