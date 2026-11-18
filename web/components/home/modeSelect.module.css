@@ -35,6 +35,8 @@
 .scrim { position: absolute; inset: 0; z-index: -1; background: linear-gradient(0deg, rgba(6, 8, 20, .94) 0%, rgba(6, 8, 20, .55) 38%, rgba(6, 8, 20, 0) 66%); }
 .tag { position: absolute; left: 12px; top: 12px; padding: 5px 10px; border-radius: 999px; background: rgba(11, 12, 14, .66); border: 1px solid rgba(232, 234, 238, .18);
   font: 700 13px / 1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .08em; }
+/* Turbo modes (maker 2026-11-18): second pill, top right */
+.turbo { left: auto; right: 12px; color: #F2C14E; }
 .body { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .name { font: italic 800 clamp(44px, 3.8vw, 64px) / .86 var(--dsc-font-game); text-transform: uppercase; text-shadow: 0 4px 24px rgba(0, 0, 0, .6); }
 .sub { font-size: clamp(14px, 1.05vw, 16px); line-height: 1.35; color: #D7D9E4; }

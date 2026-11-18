@@ -12,7 +12,7 @@ import { seasonAt } from "@/lib/duel/season";
 import { climbSp, royaleSp, type RankMode } from "@/lib/season/points";
 import { kv, type Kv } from "./kv";
 
-const TTL = 70 * 86400; // a season plus a margin; old seasons expire on their own
+const TTL = 200 * 86400; // a 12-week season plus room to seal it into lifetime points (lib/server/lifetime); then they expire
 export const SK = {
   sp: (season: string, mode: RankMode, w: string) => `season:sp:${season}:${mode}:${w}`,
   board: (season: string, mode: RankMode) => `season:board:${season}:${mode}`,

@@ -29,6 +29,8 @@ import { useRewards } from "@/components/claims/useRewards";
 import InvitesCard from "@/components/invites/InvitesCard";
 import Icon from "@/components/icons/Icon";
 import type { ActivityItem } from "@/lib/stats";
+import type { LifetimeRow } from "@/lib/server/leaderboard";
+import PointsShare from "@/components/points/PointsShare";
 import HangarBay from "@/components/hangar/HangarBay";
 import HangarSignedOut from "@/components/hangar/HangarSignedOut";
 import { RocketCard } from "@/components/hangar/Collection";
@@ -208,6 +210,17 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const activity = useRealActivity(wallet);
   const rewards = useRewards(isPrivate && !!wallet);
   const { col } = useCollection(isPrivate ? wallet || null : null);
+  // lifetime points (maker 2026-11-18: never reset, the airdrop ranking) + rank, on every profile
+  const [points, setPoints] = useState<LifetimeRow | null>(null);
+  const [pointsCard, setPointsCard] = useState(false);
+  useEffect(() => {
+    setPoints(null);
+    if (!wallet || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) return;
+    let alive = true;
+    fetch(withBase(`/api/leaderboard?sort=lifetime&me=${wallet}`)).then((r) => (r.ok ? r.json() : null))
+      .then((d: { me?: LifetimeRow | null } | null) => { if (alive) setPoints(d?.me ?? null); }).catch(() => {});
+    return () => { alive = false; };
+  }, [wallet]);
 
   // Still signing in from a saved session: show nothing yet instead of flashing the signed-out hangar (maker 2026-11-17).
   if (isPrivate && !wallet && restoring) return <div className="profile-page hg hg-restoring" aria-busy="true" data-testid="hangar-restoring"><span className="hg-spin" role="status" aria-label="Signing in" /></div>;
@@ -241,9 +254,11 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       : <button type="button" className="hg-ghost" onClick={() => setRewardsOpen(true)} data-testid="rewards-chest"><ChestGlyph size={18} /> Rewards</button>}
     <button type="button" className="hg-ghost" onClick={() => setEdit({ focus: null })} data-testid="edit-profile-btn">{C["profile.action.edit"]}</button>
     <button type="button" className="hg-ghost" onClick={() => setSettingsOpen(true)} data-testid="hangar-settings-btn">Settings</button>
+    {points && points.username && <button type="button" className="hg-ghost" onClick={() => setPointsCard(true)} data-testid="hangar-points-share">Share points</button>}
   </> : null;
   // the cockpit dash (Hangar banner take A): only numbers we really have
   const dash = [
+    points ? { k: `Points · #${points.rank.toLocaleString("en-US")}`, v: points.pts.toLocaleString("en-US") } : null,
     xp ? { k: "Total XP", v: xp.totalXp.toLocaleString("en-US") } : null,
     trophies ? { k: trophies.size === 1 ? "Trophy" : "Trophies", v: String(trophies.size) } : null,
     launched && launched.length ? { k: launched.length === 1 ? "Rocket launched" : "Rockets launched", v: String(launched.length) } : null,
@@ -257,6 +272,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         onClose={(saved) => { setEdit(null); if (saved) flash(typeof saved === "string" ? saved : C["edit.saved"]); }} />}
       {isPrivate && <RewardsPopup open={rewardsOpen} onClose={closeRewards} r={rewards} />}
       {toast && <div className="pf-toast" role="status">{toast}</div>}
+      {points?.username && <PointsShare handle={points.username} pts={points.pts} rank={points.rank} open={pointsCard} onClose={() => setPointsCard(false)} />}
 
       <HangarBay handle={handle} bio={bio} avatar={avatar} xp={xp} actions={actions} spend={false} stats={dash}
         nftAvatar={!!img && !!meta.nft} tags={wallet ? <HolderTags wallet={wallet} /> : null} />

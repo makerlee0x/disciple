@@ -111,3 +111,8 @@
 @media (prefers-reduced-motion: reduce) { .sheet, .quick, .quickWrap { animation: none; } }
 .noneGo { display: inline-flex; align-items: center; gap: 4px; font: italic 800 16px/1 var(--dsc-font-game); text-transform: uppercase; color: var(--dsc3-light-gold); }
 .emptyGo { margin-top: 10px; padding: 12px 22px; border-radius: 12px; background: var(--dsc3-light-gold); color: var(--dsc-sky-ink) !important; font: italic 800 18px/1 var(--dsc-font-game); text-transform: uppercase; }
+
+/* Turbo modes (maker 2026-11-18): pill top right */
+.turboTag { left: auto; right: 10px; color: #F2C14E; }
+.duel .turboTag { top: 8px; right: 8px; }
+.duel em { margin-top: 22px; }

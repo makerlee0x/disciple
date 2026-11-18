@@ -43,7 +43,8 @@ export type OgCard =
   | { kind: "site" }
   | { kind: "rocket"; ticker: string; name: string; host: string | null; mcapUsd: number | null; orbitPct: number | null; graduated: boolean; aboard: number | null; icon: Buffer | null }
   | { kind: "pilot"; handle: string; level: number | null; trophies: number | null; hull: string | null }
-  | { kind: "invite"; from: string | null };
+  | { kind: "invite"; from: string | null }
+  | { kind: "points"; handle: string; pts: number; rank: number; tier: string; tierColor: string; date: string };
 
 const cover = (o: SKRSContext2D, im: Image, x = 0.5, y = 0.5) => {
   const s = Math.max(W / im.width, H / im.height), w = im.width * s, h = im.height * s;
@@ -191,6 +192,23 @@ export async function renderOgCard(c: OgCard): Promise<Buffer> {
     o.fillText("A SEAT ON", PAD, 300); o.fillText("THE ROCKET", PAD, 392);
     o.fillStyle = "#BCC0CA"; o.font = `26px ${F.ui}`;
     lines(o, "Sign in, take your seat and boost your first rocket.", PAD, 456, 520, 36);
+  }
+
+  if (c.kind === "points") {
+    // the Variational-style points card (maker 2026-11-18): lifetime points, rank, this season's tier
+    await plate(o, "points", "assets/tier5.webp", null);   // stand-in: the top sky band, until a points plate is made
+    o.fillStyle = "rgba(11,12,14,0.35)"; o.fillRect(0, 0, W, H);
+    shade(o, 0.95);
+    await brand(o, 100, 30, "#BCC0CA");
+    o.textAlign = "right"; o.fillStyle = c.tierColor; o.font = `40px ${F.g8}`;
+    o.fillText(`${c.tier} tier`.toUpperCase(), W - PAD, 104); o.textAlign = "left";
+    o.fillStyle = "#BCC0CA"; o.font = `30px ${F.ui}`; o.fillText("Points", PAD, 232);
+    const n = c.pts.toLocaleString("en-US");
+    o.fillStyle = "#FFFFFF"; fit(o, n, (px) => `${px}px ${F.g8}`, 172, W - PAD * 2); o.fillText(n, PAD, 382);
+    o.fillStyle = "#9095A0"; o.font = `24px ${F.ui}`; o.fillText("Rank", PAD, 446);
+    o.fillStyle = "#FFFFFF"; o.font = `72px ${F.g8}`; o.fillText(`#${c.rank.toLocaleString("en-US")}`, PAD, 518);
+    o.fillStyle = "#E8EAEE"; o.font = `30px ${F.g7}`; o.fillText(`@${c.handle}`.toUpperCase(), PAD, 586);
+    o.textAlign = "right"; o.fillStyle = "#9095A0"; o.font = `22px ${F.ui}`; o.fillText(c.date, W - PAD, 586); o.textAlign = "left";
   }
 
   return cv.encode("jpeg", 88); // JPEG: ~80 KB vs ~900 KB PNG, quick to unfurl, share and save

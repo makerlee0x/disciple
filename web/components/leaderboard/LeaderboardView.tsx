@@ -8,7 +8,7 @@
  * Same indexed fills and guardrails as the lobby (lib/home/topPilots BOARD_RULES). No rules tooltip, no subtitles.
  * Duels / Crews tabs stay behind their flags.
  */
-import { LEAGUES, leagueProgress } from "@/lib/duel/season";
+import { LEAGUES, leagueBy, leagueProgress } from "@/lib/duel/season";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -19,7 +19,8 @@ import { profileUrl } from "@/lib/profile";
 import { altShort, lightOf } from "@/components/home/rocketBits";
 import { isStoreSrc } from "@/lib/coinImages";
 import { BOARD_WINDOWS, type BoardPilot, type BoardWindow } from "@/lib/home/topPilots";
-import type { BoardCoin, BoardResponse, CrewBoardResponse, ModeResponse, ModeRow, Named, OverallResponse, OverallRow, PositionsResponse } from "@/lib/server/leaderboard";
+import type { BoardCoin, BoardResponse, CrewBoardResponse, LifetimeResponse, LifetimeRow, ModeResponse, ModeRow, Named, OverallResponse, OverallRow, PositionsResponse } from "@/lib/server/leaderboard";
+import PointsShare from "@/components/points/PointsShare";
 import { BOT_DUEL_HREF, CREW_ENABLED, ROYALE_ENABLED } from "@/lib/features";
 import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
 import AnimClip from "@/components/ui/AnimClip";
@@ -38,6 +39,9 @@ const MODES: { k: Mode; label: string }[] = [
 /** Rockets sub-tabs */
 type Sub = "traders" | "positions";
 const SUBS: { k: Sub; label: string }[] = [{ k: "traders", label: "Traders" }, { k: "positions", label: "Positions" }];
+/** Overall sub-tabs (maker 2026-11-18): this season's SP ladder, or lifetime points (never reset; the airdrop ranking) */
+type View = "season" | "lifetime";
+const VIEWS: { k: View; label: string }[] = [{ k: "season", label: "Season" }, { k: "lifetime", label: "Lifetime" }];
 const PLAY: Record<"duel" | "royale" | "climb", { href: string; label: string }> = {
   duel: { href: "/turbo/duel", label: "Play a duel" },
   royale: { href: "/turbo/royale", label: "Play Royale" },
@@ -55,6 +59,8 @@ export const LEADERBOARD_COPY = {
   emptyTitle: "The top spot is open",
   realOnly: "Ranked opens with real money",
   sp: "SP",
+  pts: "Points",
+  share: "Share",
   season: (n: number, days: number) => `Season ${n} · ${days}d left`,
   play: "Play now",
   duel: "Play a duel",
@@ -134,12 +140,13 @@ function TraderRow({ p, coins, self }: { p: BoardPilot & Named & { rank: number 
   );
 }
 
-function YourRank({ face, rank, label, value, down }: { face: { wallet: string } & Named & { username?: string | null }; rank: number | null; label: string; value: string; down?: boolean }) {
+function YourRank({ face, rank, label, value, down, share }: { face: { wallet: string } & Named & { username?: string | null }; rank: number | null; label: string; value: string; down?: boolean; share?: () => void }) {
   return (
-    <div className="tp-mine" data-testid="lb-me">
+    <div className={`tp-mine${share ? " has-share" : ""}`} data-testid="lb-me">
       <Face p={face} big />
       <div className="tp-minerk"><span>{LEADERBOARD_COPY.yourRank}</span><b className="r2-g"><i>#</i> {rank ? rank.toLocaleString("en-US") : "—"}</b></div>
       <div className="tp-minepnl"><span>{label}</span><b className={`r2-g ${down ? "down" : "up"}`}>{value}</b></div>
+      {share && <button type="button" className="tp-share" onClick={share} data-testid="lb-share">{LEADERBOARD_COPY.share}</button>}
     </div>
   );
 }
@@ -196,7 +203,6 @@ function Positions({ d, me }: { d: PositionsResponse; me: string | null }) {
 }
 
 const sp = (n: number) => `${Math.round(n).toLocaleString("en-US")} ${LEADERBOARD_COPY.sp}`;
-const leagueBy = (id: string) => LEAGUES.find((l) => l.id === id) ?? LEAGUES[0];
 const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
 /** One ranked row on a points / level board (Overall, Royale, Climb): rank, face, name + chip, the number. */
@@ -242,6 +248,23 @@ function Overall({ d, me, seasonN }: { d: OverallResponse; me: string | null; se
         </div>
       </section>
     </>
+  );
+}
+
+const pts = (n: number) => Math.round(n).toLocaleString("en-US");
+/** Lifetime points: every season added up, never reset. The chip is this season's tier. */
+function Lifetime({ d, me }: { d: LifetimeResponse; me: string | null }) {
+  const meLc = me?.toLowerCase();
+  const m = d.me;
+  const [card, setCard] = useState(false);
+  return (
+    <section className="tp-card tp-traders" aria-label="Lifetime" data-testid="lb-lifetime">
+      {me && <YourRank face={m ?? { wallet: meLc! }} rank={m?.rank ?? null} label={LEADERBOARD_COPY.pts} value={pts(m?.pts ?? 0)} share={m?.username ? () => setCard(true) : undefined} />}
+      <div className="tp-trows">
+        {d.rows.map((r: LifetimeRow) => <PointRow key={r.wallet} p={r} chip={leagueBy(r.league).name} chipColor={leagueBy(r.league).color} value={pts(r.pts)} self={r.wallet === meLc} />)}
+      </div>
+      {m?.username && <PointsShare handle={m.username} pts={m.pts} rank={m.rank} open={card} onClose={() => setCard(false)} />}
+    </section>
   );
 }
 
@@ -359,6 +382,8 @@ export default function LeaderboardView() {
   const [win, setWin] = useState<BoardWindow>("day");
   const [mode, setMode] = useState<Mode>("overall");
   const [sub, setSub] = useState<Sub>("traders");
+  const [view, setView] = useState<View>("season");
+  const [life, setLife] = useState<LifetimeResponse | null>(null);
   const [me, setMe] = useState<string | null>(null);
   const [traders, setTraders] = useState<BoardResponse | null>(null);
   const [positions, setPositions] = useState<PositionsResponse | null>(null);
@@ -382,20 +407,22 @@ export default function LeaderboardView() {
   useEffect(() => {
     if (mode === "duel") return;
     let alive = true;
-    const sort = mode === "rockets" ? (sub === "traders" ? "pnl" : "positions") : mode;
+    const sort = mode === "rockets" ? (sub === "traders" ? "pnl" : "positions") : mode === "overall" && view === "lifetime" ? "lifetime" : mode;
     const q = new URLSearchParams({ window: win, sort });
     if (me && sort !== "positions") q.set("me", me);
-    type Res = BoardResponse | CrewBoardResponse | PositionsResponse | OverallResponse | ModeResponse;
+    type Res = BoardResponse | CrewBoardResponse | PositionsResponse | OverallResponse | LifetimeResponse | ModeResponse;
     const take = (d: Res | null) => {
       if (!alive) return;
       if (!d) d = sort === "positions" ? { window: win, sort: "positions", rows: [], coins: {} }
         : sort === "pnl" ? { window: win, sort: "pnl", rows: [], coins: {}, counts: { day: 0, week: 0, month: 0, all: 0 }, me: null, bestCall: null }
         : sort === "overall" ? { sort: "overall", season: { n: 1, endsAt: Date.now() }, rows: [], total: 0, me: null, tiers: {} }
+        : sort === "lifetime" ? { sort: "lifetime", season: { n: 1, endsAt: Date.now() }, rows: [], total: 0, me: null }
         : sort === "royale" || sort === "climb" ? { sort, season: { n: 1, endsAt: Date.now() }, rows: [] } : null;
       if (!d) return;
       if (d.sort === "crews") setCrews(d);
       else if (d.sort === "positions") setPositions(d);
       else if (d.sort === "overall") setOverall(d);
+      else if (d.sort === "lifetime") setLife(d);
       else if (d.sort === "royale" || d.sort === "climb") { const m = d; setBoards((b) => ({ ...b, [m.sort]: m })); }
       else {
         const b = d as BoardResponse;
@@ -410,16 +437,16 @@ export default function LeaderboardView() {
     };
     fetch(withBase(`/api/leaderboard?${q}`)).then((r) => (r.ok ? r.json() : null)).then(take).catch(() => take(null));
     return () => { alive = false; };
-  }, [win, mode, sub, me]);
+  }, [win, mode, sub, view, me]);
 
   const rockets = mode === "rockets";
   const loading = mode === "duel" ? DUEL_RANKED_LIVE && !duel
     : mode === "crews" ? !crews || crews.window !== win
-    : mode === "overall" ? !overall
+    : mode === "overall" ? (view === "lifetime" ? !life : !overall)
     : mode === "royale" || mode === "climb" ? !boards[mode]
     : sub === "positions" ? !positions || positions.window !== win
     : !traders || traders.window !== win;
-  const seasonInfo = overall?.season ?? boards.royale?.season ?? boards.climb?.season;
+  const seasonInfo = overall?.season ?? life?.season ?? boards.royale?.season ?? boards.climb?.season;
   const daysLeft = seasonInfo ? Math.max(0, Math.ceil((seasonInfo.endsAt - Date.now()) / 86_400_000)) : 0;
   const emptyBoard = (
     <section className="tp-card tp-empty" data-testid="lb-empty">
@@ -436,6 +463,7 @@ export default function LeaderboardView() {
   if (loading) body = <div className="tp-loading" aria-busy="true" />;
   else if (mode === "duel") body = DUEL_RANKED_LIVE && duel && duel.rows.length ? <>{season && <SeasonLadder d={season} />}<DuelTable d={duel} meLc={me?.toLowerCase()} /></> : <RealOnly mode="duel" />;
   else if (mode === "royale" || mode === "climb") body = boards[mode]?.rows.length ? <ModeBoard d={boards[mode]!} me={me} /> : <RealOnly mode={mode} />;
+  else if (mode === "overall" && view === "lifetime") body = life && (life.rows.length || life.me) ? <Lifetime d={life} me={me} /> : emptyBoard;
   else if (mode === "overall") body = overall && (overall.rows.length || overall.me) ? <Overall d={overall} me={me} seasonN={overall.season.n} /> : emptyBoard;
   else if (mode === "crews") body = crews && crews.crews.length ? <CrewTable d={crews} /> : (
     <section className="tp-card tp-empty" data-testid="lb-empty">
@@ -469,7 +497,9 @@ export default function LeaderboardView() {
           </div>
         </div>
       ) : seasonInfo && mode !== "duel" ? (
-        <div className="tp-bar"><span /><span className="tp-season">{LEADERBOARD_COPY.season(seasonInfo.n, daysLeft)}</span></div>
+        <div className="tp-bar">{mode === "overall" ? <div className="tp-tabs" role="tablist" aria-label="Points">
+          {VIEWS.map((v) => <button key={v.k} type="button" role="tab" aria-selected={view === v.k} className={view === v.k ? "on" : ""} onClick={() => setView(v.k)} data-testid={`lb-view-${v.k}`}>{v.label}</button>)}
+        </div> : <span />}<span className="tp-season">{LEADERBOARD_COPY.season(seasonInfo.n, daysLeft)}</span></div>
       ) : <div className="tp-bar tp-bar0" />}
       {body}
     </div>

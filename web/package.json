@@ -38,6 +38,7 @@
     "test:guilds": "tsx --test scripts/test-guilds.mts",
     "test:funnel": "tsx --test scripts/test-funnel.mts",
     "test:season": "tsx --test scripts/test-season.mts",
+    "test:lifetime": "tsx --conditions=react-server --test scripts/test-lifetime.mts",
     "test:challenge": "tsx --conditions=react-server --test scripts/test-challenge.mts",
     "test:first-run": "tsx --test scripts/test-first-run.mts",
     "test:profile-meta-api": "node scripts/test-profile-meta-api.mjs",

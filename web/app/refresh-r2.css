@@ -986,6 +986,26 @@ html:not([data-you]) .lb-tabs a.lb-you-only, html[data-you] .lb-tabs a.lb-out-on
 .tp-sorts.tp-tiers button { min-height: 36px; padding: 0 12px; font-size: 14px; }
 .tp-tname span.tp-prev { margin-left: 6px; color: #9095A0; background: transparent; border: 1px solid #2E323A; }
 
+/* Lifetime points (maker 2026-11-18): Top pilots Season | Lifetime, the points card sheet */
+.tp-share { all: unset; cursor: pointer; box-sizing: border-box; min-height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid rgba(232,234,238,.22); color: #E8EAEE;
+  font: 700 14px/1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .04em; display: inline-flex; align-items: center; }
+.tp-share:hover { border-color: #F2C14E; color: #FFFFFF; }
+.tp-share:focus-visible { box-shadow: var(--dsc-glow-focus-ring); }
+.tp-mine.has-share { grid-template-columns: auto minmax(0,1fr) auto auto; }
+.pt-share { width: min(640px, calc(100vw - 32px)); padding: 18px; }
+.pt-card { display: block; width: 100%; aspect-ratio: 1200 / 630; border-radius: 14px; background: #0B0C0E; object-fit: cover; }
+.pt-acts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.pt-x { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px; }
+.pt-btn { all: unset; cursor: pointer; box-sizing: border-box; min-height: 44px; padding: 0 16px; border-radius: 12px; border: 1px solid rgba(232,234,238,.22); color: #E8EAEE;
+  font: 700 15px/1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .04em; display: inline-flex; align-items: center; }
+.pt-btn:hover { border-color: rgba(232,234,238,.4); color: #FFFFFF; }
+.pt-btn:focus-visible { box-shadow: var(--dsc-glow-focus-ring); }
+@media (max-width: 720px) {
+  .tp-mine.has-share { grid-template-columns: auto minmax(0,1fr) auto; }
+  .tp-mine.has-share .tp-share { grid-column: 1 / -1; justify-self: start; }
+  .pt-acts > * { flex: 1; justify-content: center; }
+}
+
 /* ── Cash + Turbo cash (maker 2026-11-18): two balances side by side; desktop fits a ~790px window with no scroll ── */
 .cx-bals { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .cx-bals .cx-bal { padding: 12px 14px; display: flex; flex-direction: column; min-width: 0; }

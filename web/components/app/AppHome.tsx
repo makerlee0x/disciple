@@ -122,6 +122,7 @@ export default function AppHome({ initial }: { initial: HomeData }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={withBase("/art/modes/duel.webp")} alt="" loading="lazy" decoding="async" />
           <AnimClip id="A3-mode-duel" ratio="none" loop poster whenVisible className={s.clip} />
+          <span className={`${s.tileTag} ${s.turboTag}`}>Turbo</span>
           <span className={s.duelTx}>
             <b>1v1</b>
           </span>
@@ -161,12 +162,14 @@ export default function AppHome({ initial }: { initial: HomeData }) {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={withBase("/art/modes/live.webp")} alt="" loading="lazy" decoding="async" />
             <span className={s.tileTag} style={{ color: "#5FF0A0" }}>Solo</span>
+            <span className={`${s.tileTag} ${s.turboTag}`}>Turbo</span>
             <span className={s.tileTx}><b>Climb</b></span>
           </Link>
           {ROYALE_ENABLED && <Link href={ROYALE_HREF} className={s.tile} data-testid="app-royale">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={withBase("/art/modes/last-pilot.webp")} alt="" loading="lazy" decoding="async" />
             <span className={s.tileTag} style={{ color: "#F2C14E" }}>Practice</span>
+            <span className={`${s.tileTag} ${s.turboTag}`}>Turbo</span>
             <span className={s.tileTx}><b>Royale</b></span>
           </Link>}
         </div>
