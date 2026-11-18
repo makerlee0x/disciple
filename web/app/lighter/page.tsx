@@ -95,6 +95,14 @@ export default function LighterTest() {
         <button className={btn} disabled={busy || step !== "ready"} onClick={() => void run(`short ${market} $${usd}`, () => lighterOpen(f, market, "short", usd))}>Short</button>
         <button className={btn} disabled={busy || step !== "ready"} onClick={() => void run(`close ${market}`, () => lighterClose(f, market))}>Close</button>
       </div>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <button className={btn} disabled={busy} onClick={() => void run("ping regions", async () => {
+          const rs = await Promise.all(["iad1", "sfo1", "hnd1", "sin1", "fra1", "lhr1", "icn1"].map((r) =>
+            fetch(withBase(`/api/lighter/ping/${r}`), { cache: "no-store" }).then((x) => x.json()).catch(() => ({ region: r, ok: false }))));
+          rs.forEach((x) => say(`ping ${x.region} (ran in ${x.vercel ?? "?"}): best ${x.best ?? "-"} ms, median ${x.median ?? "-"}, first ${x.first ?? "-"}`));
+          return undefined;
+        })}>Ping regions</button>
+      </div>
       <pre className="whitespace-pre-wrap break-all rounded-lg border border-white/15 p-3 text-xs">{log.join("\n") || "—"}</pre>
     </main>
   );
