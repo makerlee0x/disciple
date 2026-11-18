@@ -18,7 +18,7 @@ const load = async (p: P) => challengerOf((await p.params).pilot).catch(() => nu
 
 export async function generateMetadata(p: P): Promise<Metadata> {
   const c = await load(p);
-  const title = c ? `${c.name} challenged you to a trading duel` : "Trading Duel · DISCIPLE";
+  const title = c ? `${c.name} challenged you to a trading duel` : "1v1 trading duel · DISCIPLE";
   const description = "1v1 on live BTC. One minute, most profit wins. Free to play, no sign-up.";
   const img = `${SITE_ORIGIN}/api/og/invite${c ? `?from=${encodeURIComponent(c.name.replace(/^@/, ""))}` : ""}`;
   // X player card (maker 2026-11-16): X reads these tags from the server HTML, shows the square thumbnail with a play

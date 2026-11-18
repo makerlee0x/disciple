@@ -16,7 +16,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ user
     // link preview crawlers: the invite card (naming the sender when the name exists), no cookie
     const o = SITE_ORIGIN, from = await inviterName(raw).catch(() => null);
     return previewPage({
-      title: from ? `@${from} invited you to DISCIPLE` : "You're invited to DISCIPLE", description: "Take your seat and boost your first rocket.",
+      title: from ? `@${from} invited you to DISCIPLE` : "You're invited to DISCIPLE", description: "Multiplayer memecoins. 1v1 trading duels.",
       image: `${o}/api/og/invite${from ? `?from=${encodeURIComponent(from)}` : ""}`, url: `${o}/r/${encodeURIComponent(raw)}`, to: `${o}/`,
     });
   }

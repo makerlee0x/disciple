@@ -15,7 +15,7 @@ export const HIW_ROUTES = {
 
 export const HIW_META = {
   title: "How to play · DISCIPLE",
-  description: "Boost a rocket with your crew and cash out higher.",
+  description: "Multiplayer memecoins and 1v1 trading duels. Launch your own coin with a crew, or take on another trader for one minute.",
 };
 
 export const HIW_TABS = { label: "Mode", pilot: "Pilot", pro: "Pro" } as const;

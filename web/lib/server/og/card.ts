@@ -111,9 +111,9 @@ export async function renderOgCard(c: OgCard): Promise<Buffer> {
     shade(o);
     await brand(o, 118, 34);
     o.fillStyle = "#FFFFFF"; o.font = `118px ${F.g8}`;
-    o.fillText("RIDE IT", PAD, 300); o.fillText("TO ORBIT", PAD, 400);
-    o.fillStyle = "#BCC0CA"; o.font = `26px ${F.ui}`;
-    lines(o, "Every rocket is a live match. The crew boosts it up, and anyone can bomb it down.", PAD, 466, 520, 36);
+    o.fillText("MULTIPLAYER", PAD, 300); o.fillText("MEMECOINS", PAD, 400);
+    o.fillStyle = "#F3DFA8"; o.font = `40px ${F.g7}`;
+    o.fillText("1V1 TRADING DUELS", PAD, 470);
   }
 
   if (c.kind === "rocket") {

@@ -1,0 +1,21 @@
+# DISCIPLE
+
+> Multiplayer memecoins and 1v1 trading duels. Launch your own coin with a crew, or take on another trader for one minute.
+
+DISCIPLE is a game on top of real memecoins. Every coin is a rocket: players buy in to boost it up, sell to cash out, and anyone can bomb it down.
+
+## Modes
+
+- Launch: launch your own coin and fly it with your crew.
+- Duel: 1v1 trading duel. One minute, best PnL wins. Each player trades their own position and keeps their own PnL.
+- Climb: solo trading levels.
+- Daily mission: one run a day, the same for everyone, with a daily board.
+
+## Links
+
+- Site: https://www.disciple.vip
+- Live flights: https://www.disciple.vip/live
+- Top pilots: https://www.disciple.vip/leaderboard
+- How to play: https://www.disciple.vip/how-it-works
+- Risk: https://www.disciple.vip/risk
+- X: https://x.com/disciplevip
