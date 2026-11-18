@@ -150,14 +150,16 @@ function mount(root,host){
     if(l.trail){ pl.tf=trailFx(l.trail,art); if(pl.tf&&fx.trail) pl.tf.seed=fx.trail.seed|0;
       if(l.rgb){ const b=fx.trail&&isFinite(fx.trail.burn)?Math.min(.6,fx.trail.burn*.7):0; pl.flameC=l.rgb.split(",").map(v=>Math.round(+v*(1-b)+90*b)).join(","); } }   // a burnt trail smokes greyer
     pl.tag=tagFx(l.tag); pl.trak=fx.skin&&fx.skin.trak!=null?fx.skin.trak:null; pl.fl=FLOURISH_ART[l.flourish]||(art&&okSrc(art.flourish)?art.flourish:null); }
+  const PL=()=>G.bot?[G.me,G.bot]:[G.me];   // the pilots in this run (Climb: just you)
   function newPlayer(name,me){return {name,me,fuel:FUEL0,pos:null,fees:0,trades:0,up:0,dn:0,green:0,best:0,y:0,vy:0,flame:0,flameC:"255,200,120",sq:0,lastTrade:-1e9,next:0,moments:[]};}
   function newGame(){
     optim=0;
     FUEL0=curFuel(); LEV=CLR?CLR.gear:DUEL_LEV; FEE=CLR?CL.fee:DUEL_FEE; SIZES=PCTS; if(!SIZES.includes(stake)) stake=25; paintSizes(); resizeK();
     const startAt=M&&M.startAt||Date.now()+3500, h=host.history();
     G={t:now_()-startAt,startAt,solo:!!CLR,len:CLR?CLR.len:(M&&M.endAt?M.endAt-startAt:LEN),ot:false,over:false,price:h.length?h[h.length-1].p:0,ticks:[],marks:[],
-       me:newPlayer("you",true),bot:newPlayer(M&&M.opp?M.opp.name:BOTS[botKey].name,false),cfg:BOTS[botKey],started:false};
-    if(!(M&&M.opp&&!M.opp.bot)) G.bot.hull=hullFor();   // bots fly a random hull + skin
+       me:newPlayer("you",true),bot:CLR?null:newPlayer(M&&M.opp?M.opp.name:BOTS[botKey].name,false),   // Climb flies alone (maker 2026-11-18: "there is no rival in this mode")
+       cfg:BOTS[botKey],started:false};
+    if(!G.bot){} else if(!(M&&M.opp&&!M.opp.bot)) G.bot.hull=hullFor();   // bots fly a random hull + skin
     else if(host.shipOf){ const os=host.shipOf(M.opp.pid); if(os) wearLook(G.bot,os); }   // a real rival flies their own look
     { const ms=host.myShip&&host.myShip(); if(ms) wearLook(G.me,ms); }   // your Hangar skin + trail + name tag + flourish
     for(const k of h) G.ticks.push({t:k.ts-startAt,p:k.p});
@@ -325,7 +327,7 @@ function mount(root,host){
     if(G&&G.started&&!G.over){
       G.t=now_()-G.startAt;
       if(!(M&&M.net)){
-      for(const pl of [G.me,G.bot]) if(pl.pos&&pnlOf(pl.pos,G.price)<=-LIQ*pl.pos.coll) liquidate(pl);
+      for(const pl of PL()) if(pl.pos&&pnlOf(pl.pos,G.price)<=-LIQ*pl.pos.coll) liquidate(pl);
       if(!G.solo) botThink();
       }
       if(!(M&&M.net)&&G.t>=G.len&&G.solo) end();
@@ -345,7 +347,7 @@ function mount(root,host){
   // "\u25b23 \u25bc1": boosts in gold, dumps in pink (each press that opens or adds counts once)
   const tally=pl=>`<span style="color:var(--gold)">\u25b2${pl.up}</span> <span style="color:var(--pinkl)">\u25bc${pl.dn}</span>`;
   function ui(){
-    const me=G.me,b=G.bot, pm=profitOf(me), pb=profitOf(b), d=pm-pb;
+    const me=G.me,b=G.bot||G.me, pm=profitOf(me), pb=profitOf(b), d=pm-pb;
     $("meP").textContent=usd(pm,true); $("meP").style.color=pm>0?"var(--green)":pm<0?"var(--pinkl)":"var(--text)";
     $("botP").textContent=usd(pb,true); $("botP").style.color=pb>0?"var(--green)":pb<0?"var(--pinkl)":"var(--text)";
     if(!G.solo){ $("meN").innerHTML=tally(me); $("botN").innerHTML=tally(b); }
@@ -431,7 +433,7 @@ function mount(root,host){
     const from=Math.max(now-WIN,Math.min(G.ticks[T0].t,now-Math.min(20000,WIN))), span=now-from;
     const pts=G.ticks.slice(Math.max(0,T0-1));
     let lo=Infinity,hi=-Infinity; pts.forEach(k=>{lo=Math.min(lo,k.p);hi=Math.max(hi,k.p);});
-    for(const pl of [G.me,G.bot]) if(pl.pos){lo=Math.min(lo,pl.pos.entry);hi=Math.max(hi,pl.pos.entry);}
+    for(const pl of PL()) if(pl.pos){lo=Math.min(lo,pl.pos.entry);hi=Math.max(hi,pl.pos.entry);}
     // the live price sits in the middle of the card, across and up/down (maker 2026-11-16: "the latest price should be in the
     // center, it would be easier to see"): the tape runs from the left edge to the centre, and the scale is even around it
     // the scale fits the last 20 s (12 s on phones), not the whole tape, so a $5 move fills the card (maker 2026-11-17:
@@ -467,7 +469,7 @@ function mount(root,host){
       if(label&&raw<T){ label="\u25b2 "+label; below=true; } else if(label&&raw>h-B){ label="\u25bc "+label; below=false; } else if(y<T+16) below=true;
       cx.setLineDash(pl.me?[5,4]:[3,4]); cx.strokeStyle=color; cx.lineWidth=pl.me?1.5:1; cx.beginPath(); cx.moveTo(L,y); cx.lineTo(w-Rr,y); cx.stroke(); cx.setLineDash([]);
       if(!label) return; cx.font="700 11px "+GF+",sans-serif"; cx.fillStyle=color; cx.textAlign=pl.me?"left":"right"; cx.textBaseline=below?"top":"bottom"; cx.fillText(label,pl.me?L+2:w-Rr-4,below?y+2:y-2); };
-    entry(G.bot,"rgba(185,188,203,.75)","",true);   // rival: line only (their trades are in the feed and the dots)
+    if(G.bot) entry(G.bot,"rgba(185,188,203,.75)","",true);   // rival: line only (their trades are in the feed and the dots)
     entry(G.me,"rgba(242,193,78,.95)",`YOU ${G.me.pos&&G.me.pos.side>0?"BOOSTED":"DUMPED"}`,false);
     // trade dots
     // yours are round, the rival's are diamonds; both the same size so you can read their timing
@@ -596,7 +598,9 @@ function mount(root,host){
   // where the journey is: f = position in the theme's layers (0 = ground), fin = 0..1 fade into the final sky
   function skyStage(pan){ const N=SKY_ORDER.length; if(!G||!G.started) return {f:0,fin:0};
     if(G.solo&&CLR&&CLR.goal!=null){ const u=Math.min(1.4,soloProg()); G.sp=G.sp==null?u:G.sp+(u-G.sp)*.05;
-      return {f:Math.max(0,Math.min(N-1,Math.min(1,G.sp)*(N-1))),fin:Math.max(0,Math.min(1,(G.sp-1)/.3))}; }
+      const tp=Math.max(0,Math.min(1,G.t/G.len)), up=1-Math.pow(1-tp,1.6), j=Math.min(1,.55*up+.55*Math.min(1,G.sp));
+      G.lift=Math.max(0,Math.min(1,G.t/SOLO_LIFT));
+      return {f:Math.max(0,Math.min(N-1,1+j*(N-2))),fin:Math.max(0,Math.min(1,(G.sp-1)/.3)),solo:1}; }
     const run=Math.max(1,G.len-FINAL_MS), p=Math.max(0,Math.min(1,G.t/run));
     if(G.finalAt==null&&G.t>=run&&!G.over){ G.finalAt=G.t; toast("Final 12 seconds"); }   // latched: overtime stays on the moon
     const fin=G.finalAt!=null?Math.min(1,(G.t-G.finalAt)/1500):0;
@@ -604,8 +608,32 @@ function mount(root,host){
     return {f:Math.max(0,Math.min(N-1,p*(N-1)+nudge)),fin}; }
   function skyDens(pan){ const {f,fin}=skyStage(pan), i0=Math.floor(f), t=f-i0, sp=k=>k&&SPACE.has(k)?1:0;
     return (1-.88*(sp(SKY_ORDER[i0])*(1-t)+sp(SKY_ORDER[Math.min(SKY_ORDER.length-1,i0+1)])*t))*(1-.85*fin); }   // clouds thin out toward space, all but gone at the moon
+  // Climb (maker 2026-11-18: "think of a rocket rising ... the background needs to reflect that"): it's a launch. At GO the
+  // pad plate falls out the bottom of the screen within SOLO_LIFT ms, then each sky plate slides down as it fades into the
+  // next, so the whole run reads as rising. The journey runs on the clock and runs further as you near the goal.
+  const SOLO_LIFT=3500;
+  // the pad plate with its top third faded to clear, cached per screen size
+  let padC=null; function padCut(){ const im=imgs[SKY_ORDER[0]]; if(!im||!im.complete||!im.width) return null;
+    if(padC&&padC.k===SKY_ORDER[0]&&padC.w===SW&&padC.h===SH) return padC.c;
+    const s=Math.max(SW/im.width,SH/im.height)*1.12, w=im.width*s, h=im.height*s, c=document.createElement("canvas"); c.width=Math.ceil(SW); c.height=Math.ceil(h);
+    const x=c.getContext("2d"); x.drawImage(im,(SW-w)/2,0,w,h); x.globalCompositeOperation="destination-out";
+    const g=x.createLinearGradient(0,0,0,h*.45); g.addColorStop(0,"rgba(0,0,0,1)"); g.addColorStop(.35,"rgba(0,0,0,.85)"); g.addColorStop(1,"rgba(0,0,0,0)"); x.fillStyle=g; x.fillRect(0,0,c.width,h*.45);
+    padC={k:SKY_ORDER[0],w:SW,h:SH,c}; return c; }
+  function drawSoloBackdrop(st){ const f=st.f, i0=Math.floor(f), t=f-i0;
+    const plate=(k,a,off)=>{ const im=imgs[k]; if(!im||!im.complete||a<=0) return; const s=Math.max(SW/im.width,SH/im.height)*1.6, w=im.width*s, h=im.height*s;
+      const sl=(h-SH)/2, y=(SH-h)/2+Math.max(-sl,Math.min(sl,off)); sx.globalAlpha=a; sx.drawImage(im,(SW-w)/2,y,w,h); sx.globalAlpha=1; };
+    sx.fillStyle="#121327"; sx.fillRect(0,0,SW,SH);
+    const SL=SH*.3;   // a plate slides this far as it fades in and out
+    plate(SKY_ORDER[i0],1,t*SL); if(t>0&&i0+1<SKY_ORDER.length) plate(SKY_ORDER[i0+1],t,(t-1)*SL);
+    if(st.fin>0) plate(A[FINAL_SKY]?FINAL_SKY:"sky4",st.fin,0);
+    const L=G.lift==null?0:G.lift; if(L<1){ const pc=padCut(); if(pc){ const e=L*L*(3-2*L), y=(SH-pc.height)/2+e*SH*1.25;
+      sx.globalAlpha=1-L*.3; sx.drawImage(pc,0,y); sx.globalAlpha=1;
+      // a fog bank rides the pad's top edge so the ground melts into the sky instead of a hard line (maker 2026-11-18)
+      const fy=y+pc.height*.3, g=sx.createLinearGradient(0,fy-SH*.22,0,fy+SH*.22); g.addColorStop(0,"rgba(200,206,228,0)"); g.addColorStop(.5,`rgba(200,206,228,${.32*(1-L)})`); g.addColorStop(1,"rgba(200,206,228,0)");
+      sx.fillStyle=g; sx.fillRect(0,fy-SH*.22,SW,SH*.44); } }   // the ground drops away under you
+    sx.fillStyle="rgba(11,10,22,.28)"; sx.fillRect(0,0,SW,SH); }
   function drawBackdrop(camAlt,pan){
-    const st=skyStage(pan), f=st.f, i0=Math.floor(f), t=f-i0;
+    const st=skyStage(pan); if(st.solo){ drawSoloBackdrop(st); return; } const f=st.f, i0=Math.floor(f), t=f-i0;
     const draw=(k,a)=>{const im=imgs[k]; if(!im||!im.complete||a<=0) return; const s=Math.max(SW/im.width,SH/im.height)*1.12;
       const sl=(im.height*s*1.18-SH)/2, par=Math.max(-sl,Math.min(sl,-(pan||0)*.05)); sx.globalAlpha=a; sx.drawImage(im,(SW-im.width*s*1.18)/2,(SH-im.height*s*1.18)/2+par,im.width*s*1.18,im.height*s*1.18); sx.globalAlpha=1;};
     sx.fillStyle="#121327"; sx.fillRect(0,0,SW,SH);
@@ -671,7 +699,7 @@ function mount(root,host){
     if(pl.me&&G.flourish!=null&&pl.fl){ const ft=(now-G.flourish)/75, fi=artImg(pl.fl);   // your win: confetti + starburst over the rocket
       if(ft>=8) G.flourish=null; else if(ready(fi)){ const fw=fi.naturalWidth/8, s2=h*2.4; sx.globalCompositeOperation="lighter"; sx.drawImage(fi,Math.floor(ft)*fw,0,fw,fi.naturalHeight,x-s2/2,y-s2/2,s2,s2); sx.globalCompositeOperation="source-over"; } }
     // tags sit beside the rocket (on the side away from the rival), so the height between chart and bar is all race
-    const other=pl.me?G.bot:G.me, side=lane(pl)<=lane(other)?-1:1;
+    const other=pl.me?(G.bot||pl):G.me, side=lane(pl)<=lane(other)?-1:1;
     const pr=profitOf(pl), txt=(pl.me?"YOU ":pl.name+" ")+usd(pr,true);
     sx.font=`800 ${pl.me?15:13}px ${GF},sans-serif`; const tw=sx.measureText(txt).width+14;
     const t2=pl.pos?`${pl.pos.side>0?"BOOST \u25b2":"DUMP \u25bc"} ${LEV}\u00d7`:"";
@@ -699,9 +727,9 @@ function mount(root,host){
     const sh=FX.shake; FX.shake=Math.max(0,FX.shake-dt*60);
     let camDy=0;
     if(G){
-      for(const pl of [G.me,G.bot]){ if(pl.wy==null){pl.wy=0;pl.wvy=0;pl.kick=0;pl.dx=0;pl.rot=0;pl.vr=0;} }
+      for(const pl of PL()){ if(pl.wy==null){pl.wy=0;pl.wvy=0;pl.kick=0;pl.dx=0;pl.rot=0;pl.vr=0;} }
       // world positions: spring toward altitude, plus kicks from trades
-      for(const pl of [G.me,G.bot]){
+      for(const pl of PL()){
         const tgt=worldY(pl); pl.wvy+=((tgt-pl.wy)*14-pl.wvy*5.5)*dt + pl.kick*dt*6; pl.kick*=Math.max(0,1-dt*6); pl.wy+=pl.wvy*dt;
         pl.rot+= (Math.max(-.2,Math.min(.2,-pl.wvy*.0006*(pl.me?1:-1))) - pl.rot)*Math.min(1,dt*4) + pl.vr*dt; pl.vr*=Math.max(0,1-dt*3);
         if(pl.me){ if(keys.l) steerTo(pl,(pl.sxt||0)-460*dt); if(keys.r) steerTo(pl,(pl.sxt||0)+460*dt);
@@ -722,14 +750,14 @@ function mount(root,host){
       }
       // camera: follow the middle of the pair, zoom out if the gap won't fit
       const top=LAY.under, bot=LAY.barTop, avail=bot-top;
-      const d=(G.bot.wy-G.me.wy)/K, ad=Math.abs(d)*500/LEV;  // smoothed $ lead (kicks included), scaled so 50× opens the gap as much as 500× did
+      const d=G.solo?0:(G.bot.wy-G.me.wy)/K, ad=Math.abs(d)*500/LEV;  // smoothed $ lead (kicks included), scaled so 50× opens the gap as much as 500× did
       // both rockets are the same size (the higher one is winning, always); a bigger lead opens the gap and pulls the camera
       // back a little (rockets shrink to ~55% at most, never ants): $1 ≈ 40% of the room, $2 ≈ 65%, $5 ≈ 96%
       const hT=LAY.rh0*(1-.45*Math.tanh(ad/4)); LAY.h+=(hT-LAY.h)*Math.min(1,dt*3); LAY.hr=LAY.h;
       const h=LAY.h, hr=h, sep=(avail-h)*Math.tanh(ad/2.5), mid=(top+bot)/2;
-      LAY.pxPer=ad>.3?sep/ad:2*h; LAY.pmid=-(G.me.wy+G.bot.wy)/2/K; LAY.mid=mid; LAY.sep=sep; LAY.lead=d;
+      LAY.pxPer=ad>.3?sep/ad:2*h; LAY.pmid=-(G.me.wy+(G.bot||G.me).wy)/2/K; LAY.mid=mid; LAY.sep=sep; LAY.lead=d;
       cam.z=h/LAY.rh0;
-      const ct=(G.me.wy+G.bot.wy)/2, prev=cam.y; cam.vy+=((ct-cam.y)*9-cam.vy*5)*dt; cam.y+=cam.vy*dt; camDy=cam.y-prev;
+      const ct=(G.me.wy+(G.bot||G.me).wy)/2, prev=cam.y; cam.vy+=((ct-cam.y)*9-cam.vy*5)*dt; cam.y+=cam.vy*dt; camDy=cam.y-prev;
       const lim=pl=>{ const hh=pl.me?h:hr; return [top+Math.max(hh*.5,34), bot-hh*.5]; };   // 34 = half the tag block beside the rocket
       // place the pair around the middle of the room
       const yMe0=mid+(d>=0?-1:1)*sep/2, yRv0=mid+(d>=0?1:-1)*sep/2;   // + is down
@@ -742,7 +770,7 @@ function mount(root,host){
       // can see the lead and taunt. Up/down is the old range again (the leader can drop to the loser's level; the loser
       // can't climb past). The flying feel comes from the clouds and the sky journey, not from roaming apart.
       const [oLo,oHi]=myOffRange(); G.me.syt=Math.max(oLo,Math.min(oHi,G.me.syt||0)); G.me.syo=Math.max(oLo,Math.min(oHi,G.me.syo||0));
-      for(const [pl,y0] of [[G.me,yMe0],[G.bot,yRv0]]){ const [a,b]=lim(pl); pl.y=Math.max(a,Math.min(b,y0+(pl.syo||0))); }
+      for(const [pl,y0] of (G.bot?[[G.me,yMe0],[G.bot,yRv0]]:[[G.me,yMe0]])){ const [a,b]=lim(pl); pl.y=Math.max(a,Math.min(b,y0+(pl.syo||0))); }
       if(G.solo){ const [a,b]=lim(G.me); G.me.y=Math.max(a,Math.min(b,soloY())); }   // Climb: the sky zooms to the run (START, goal, NUKE)
       LAY.pan=0; LAY.dPan=0;
       if(G.solo&&G.me.sVy) camDy+=G.me.sVy*(CLR&&CLR.goal!=null?1:2.2);
@@ -750,15 +778,15 @@ function mount(root,host){
     sx.save(); if(sh) sx.translate(rnd(-sh,sh)*.5,rnd(-sh,sh)*.5);
     const pan=LAY&&G?LAY.pan||0:0, dPan=LAY&&G?LAY.dPan||0:0; if(LAY) LAY.dPan=0;
     const camAlt=-cam.y/K, viewAlt=camAlt-pan/Math.max(60,LAY&&LAY.pxPer||60); drawBackdrop(viewAlt,pan);
-    const speed=G&&G.started&&!G.over?34:12, cdy=-camDy*.7-dPan;
+    const speed=G&&G.started&&!G.over?(G.solo?110+260*(1-(G.lift==null?1:G.lift)):34):12, cdy=-camDy*.7-dPan;
     FLY.step(sx,SW,SH,dt,cdy,skyDens(pan),[0,1],speed);
     // stars stream with the camera: climbing makes them rush down past you
-    const base=G&&G.started?50:25, v=base*dt - camDy*1.4 - dPan*.5;
+    const base=G&&G.started?(G.solo?180:50):25, v=base*dt - camDy*1.4 - dPan*.5;
     sx.fillStyle="rgba(255,255,255,.75)";
     for(const s of stars){ s.y+=v*s.z; if(s.y>SH){s.y-=SH;s.x=Math.random()*SW;} if(s.y<0){s.y+=SH;s.x=Math.random()*SW;} sx.fillRect(s.x,s.y,1.3*s.z,Math.max(1.5,Math.min(26,Math.abs(v)*1.6))*s.z); }
     if(G){
       if(G.solo) soloLines(); else { drawRuler(); drawGap(); }
-      const lead=Math.abs(profitOf(G.me)-profitOf(G.bot))>0.005?(profitOf(G.me)>profitOf(G.bot)?G.me:G.bot):null;
+      const lead=G.bot&&Math.abs(profitOf(G.me)-profitOf(G.bot))>0.005?(profitOf(G.me)>profitOf(G.bot)?G.me:G.bot):null;
       for(const pl of (G.solo?[G.me]:[G.bot,G.me])){
         const climbing=pl.wvy<-20;
         if(Math.random()<(climbing?.9:.5)*(pl.tf?.35:1)) part({x:lane(pl)+pl.dx+rnd(-4,4),y:pl.y+(pl.me?RH():RH()*.82)*.55,vx:rnd(-20,20),vy:rnd(120,220)+Math.max(0,-pl.wvy*.3),life:rnd(.5,.9),size:rnd(8,15),col:pl.tf?pl.flameC:pl.me?"255,226,160":"255,170,210",kind:"smoke",add:false});
@@ -846,12 +874,12 @@ function mount(root,host){
     ensureAudio(); openChat(false); pickSky(M&&M.net?M.startAt:null); newGame(); resetReport(); show("launch"); $("feed").innerHTML="";
     $("aLab").innerHTML=`LAUNCH IN<em>SKY \u00b7 ${THEME.n}</em>`;
     $("lKeys").innerHTML=(SW>=900?[["SPACE","boost"],["SHIFT","dump"],["ENTER","cash out"],["WASD","fly"],["Q E","tricks"],["T","chat"]]:[["TAP","boost or dump"],["PILL","cash out"],["DRAG","steer"]]).map(([k,v])=>`<span><kbd>${k}</kbd>${v}</span>`).join("");
-    $("botLab").innerHTML=`${esc(G.bot.name).toUpperCase()} \u00b7 <span id="botN">0</span>`;
+    if(G.bot) $("botLab").innerHTML=`${esc(G.bot.name).toUpperCase()} \u00b7 <span id="botN">0</span>`;
     FX.parts.length=0; FX.pops.length=0; cam={y:0,vy:0,z:1}; if(LAY){LAY.pan=0;LAY.dPan=0;} ui();
     const c=$("count"), pc=$("preCount"); c.hidden=true; let shown=null;
-    const bot=!!(M&&!M.net); $("lH").textContent=bot?"BOT MATCH":"BOTH READY"; $("lCancel").hidden=!bot;
+    const bot=!!(M&&!M.net&&G.bot); $("lH").textContent=bot?"BOT MATCH":"BOTH READY"; $("lCancel").hidden=!bot;
     $("lSub").textContent=bot?`${G.bot.name} \u00b7 ${botKey.toUpperCase()} \u00b7 ${money(curFuel())} fuel \u00b7 no rating`:"";
-    if(G.solo) climbLaunch();
+    if(G.solo){ const pad=THEMES.find(t=>t.n==="THE PAD")||THEMES.find(t=>t.n==="MOONRISE"); if(pad){ THEME=pad; SKY_ORDER=pad.s; } climbLaunch(); }
     clearInterval(launchIv); const iv=launchIv=setInterval(()=>{ if(dead){clearInterval(iv);return;} const left=G.startAt-now_(); const n=Math.ceil(left/1000);
       if(left>0){ if(n!==shown){ shown=n; pc.textContent=n; pc.style.animation="none"; void pc.offsetWidth; pc.style.animation=""; if(n<=3) sfx("count"); } return; }
       if(!priceReady()){ if(shown!=="wait"){ shown="wait"; pc.textContent="\u2026"; $("lSub").textContent="Waiting for the live BTC price. GO as soon as it lands."; } return; }
@@ -1191,11 +1219,13 @@ function mount(root,host){
     $("lH").textContent=CLR.free?"FREE MODE":(CLR.test?"TEST OUT · ":"")+"LEVEL "+CLR.level;
     $("lSub").textContent=`${m2(CLR.fuel)} · ${gx(CLR.gear)}`+(CLR.goal!=null?` · make +${m2(CLR.goal)}`:" · no clock")+(CL.real?"":" · play money");
     const who=$("meN").parentElement; who.innerHTML=(CLR.free?"FREE · ":`LEVEL ${CLR.level} · ${m2(CLR.fuel)} · `)+`<span id="meN" style="color:var(--gold)">${gx(CLR.gear)}</span>`;
-    const nx=lvl(CLR.level+1); $("botLab").innerHTML=(CLR.free?"FUEL":"NEXT")+'<span id="botN"></span>';
-    $("botP").textContent=CLR.free?m2(CLR.fuel):nx?m2(nx.fuel):"FREE"; $("botP").style.color="var(--gold)";
+    const nx=lvl(CLR.level+1); $("botLab").innerHTML=(CLR.free?"FUEL":"TO GOAL")+'<span id="botN"></span>';
+    $("botP").textContent=CLR.free?m2(CLR.fuel):"0%"; $("botP").style.color="var(--gold)";
     $("landB").hidden=!CLR.free; }
-  function soloUi(){ const p=profitOf(G.me), li=$("leadI"), nx=lvl(CLR.level+1);
-    $("botP").textContent=CLR.free?m2(CLR.fuel):nx?m2(nx.fuel):"FREE"; $("botP").style.color="var(--gold)";
+  function soloUi(){ const p=profitOf(G.me), li=$("leadI");
+    // top right: how far to this level's goal (maker 2026-11-18), green once you're past it
+    if(CLR.free){ $("botP").textContent=m2(CLR.fuel); $("botP").style.color="var(--gold)"; }
+    else { const pc=Math.max(0,Math.round(p/CLR.goal*100)); $("botP").textContent=pc+"%"; $("botP").style.color=pc>=100?"var(--green)":"var(--gold)"; }
     if(CLR.free){ $("clock").textContent=mmss(Math.max(0,G.t)); li.style.width="0"; $("leadT").textContent=""; return; }
     const pr=Math.max(0,Math.min(1,p/CLR.goal)); li.style.left="0%"; li.style.width=Math.max(2,pr*100)+"%"; li.style.background="var(--green)";
     $("leadT").textContent="GOAL +"+m2(CLR.goal); $("leadT").style.color="var(--green)"; }
@@ -1214,7 +1244,7 @@ function mount(root,host){
   // screen at the start"): PnL maps to sky heights, measured in rooms (one room = the visible sky). The GOAL gate is
   // SOLO_UP rooms above START and the NUKE SOLO_DN rooms below it, so both start off screen. The camera follows the
   // rocket a beat behind, which is what makes the clouds and stars rush past while you climb.
-  const SOLO_UP=2.4, SOLO_DN=1.7, SOLO_ANCHOR=.62;
+  const SOLO_UP=2.4, SOLO_DN=1.7, SOLO_ANCHOR=.84, SOLO_TOP=.14, SOLO_BOT=.9;
   function soloW(v){ if(CLR.goal==null) return 0; const u=v/CLR.goal;
     if(u>=0) return SOLO_UP*(1-Math.pow(1-Math.min(u,1),1.35))+Math.max(0,u-1)*1.2;   // ease-out: the first cents climb the most
     const lossTo=G.me.pos?LIQ*G.me.pos.coll:CLR.goal*3; return -SOLO_DN*Math.pow(Math.min(1.2,-v/lossTo),.7); }
@@ -1225,12 +1255,34 @@ function mount(root,host){
   function soloProg(){ return CLR.goal!=null?Math.max(0,profitOf(G.me)/CLR.goal):0; }
   function soloY(){ const [a,z,H]=soloRoom();
     if(CLR.goal!=null){ const w=soloW(profitOf(G.me)); G.rW=G.rW==null?w:G.rW+(w-G.rW)*.1;
-      const c0=G.camW==null?G.rW:G.camW; G.camW=c0+(G.rW-c0)*.045; G.me.sVy=-(G.camW-c0)*H;   // px the camera moved this frame (negative = climbing)
+      // maker 2026-11-18: "the rocket should be able to go up and down the full height of the screen". It starts low
+      // (SOLO_ANCHOR) and flies freely between SOLO_TOP and SOLO_BOT; past those the camera scrolls with it.
+      const c0=G.camW==null?0:G.camW, fr=SOLO_ANCHOR-(G.rW-c0); let ct=c0;
+      if(fr<SOLO_TOP) ct=G.rW-(SOLO_ANCHOR-SOLO_TOP); else if(fr>SOLO_BOT) ct=G.rW-(SOLO_ANCHOR-SOLO_BOT);
+      G.camW=c0+(ct-c0)*.08; G.me.sVy=-(G.camW-c0)*H;   // px the camera moved this frame (negative = climbing)
       if(G.me.sVy<-.3) G.me.flame=Math.min(2.2,G.me.flame+Math.min(.15,-G.me.sVy*.03));
       return a+SOLO_ANCHOR*H-(G.rW-G.camW)*H+(G.me.syo||0)*.2; }
     const t=soloYOf(profitOf(G.me)), was=G.me.sY; G.me.sY=was==null?t:was+(t-was)*.12; G.me.sVy=was==null?0:G.me.sY-was;
     return G.me.sY+(G.me.syo||0)*.2; }
-  function soloLines(){ const me=G.me, pos=me.pos, p=profitOf(me), top=LAY.under+6, bot=LAY.barTop+10, f=n=>Math.round(n).toLocaleString("en-US");
+  // height: $ marks up the sky between START and the GOAL, and the duel's gap ruler from START up to your rocket
+  // the right edge for labels at height y, moved left past the mute button when they'd sit under it
+  function soloRight(y,hh){ const m=$("mute"), c=sky.getBoundingClientRect(); if(!m||m.hidden) return SW-12; const r=m.getBoundingClientRect(), t=r.top-c.top, b=r.bottom-c.top;
+    return y+hh>t-4&&y<b+4?r.left-c.left-10:SW-12; }
+  function soloHeight(){ if(CLR.goal==null) return; const g=CLR.goal, top=LAY.under, p=profitOf(G.me), yS=soloYOf(0), yG=soloYOf(g);
+    sx.font="700 11px "+GF+",sans-serif"; sx.textAlign="right"; sx.textBaseline="bottom";
+    let lastY=-1e9; for(let i=6;i>=1;i--){ if(i===4) continue; const v=g*i/4, y=soloYOf(v); if(y<top||y>SH||y-lastY<30||Math.abs(y-yS)<26||Math.abs(y-yG)<26) continue; lastY=y;
+      sx.strokeStyle=v>0?"rgba(95,240,160,.16)":"rgba(255,143,189,.16)"; sx.lineWidth=1; sx.setLineDash([3,7]); sx.beginPath(); sx.moveTo(0,y); sx.lineTo(SW,y); sx.stroke(); sx.setLineDash([]);
+      sx.fillStyle=v>0?"rgba(95,240,160,.75)":"rgba(255,143,189,.75)"; sx.fillText((v>0?"+$":"\u2212$")+Math.abs(v).toFixed(2),soloRight(y-14,14),y-3); }
+    if(Math.abs(p)<.005) return;
+    // a tether from START to the rocket's tail, so the climb reads as height gained
+    const a=G.me, x=lane(a)+(a.dx||0), y0=Math.max(top,Math.min(SH,soloYOf(0))), y1=a.y+(p>0?RH()*.62:-RH()*.55); if(Math.abs(y1-y0)<24) return;
+    const t0=Math.min(y0,y1), t1=Math.max(y0,y1), col=p>0?"95,240,160":"255,143,189";
+    sx.strokeStyle=`rgba(${col},.6)`; sx.lineWidth=2; sx.setLineDash([4,5]); sx.beginPath(); sx.moveTo(x,t0); sx.lineTo(x,t1); sx.stroke(); sx.setLineDash([]);
+    sx.beginPath(); sx.moveTo(x-6,t0); sx.lineTo(x+6,t0); sx.moveTo(x-6,t1); sx.lineTo(x+6,t1); sx.stroke();
+    const t=(p>0?"+":"\u2212")+"$"+Math.abs(p).toFixed(2); sx.font="800 16px "+GF+",sans-serif";
+    const w=sx.measureText(t).width+12, my=Math.max(t0+40,Math.min(t1-40,Math.min((t0+t1)/2,LAY.barTop-30))); if(t1-t0>90){ sx.fillStyle=`rgba(${col},.95)`; rr(x-w/2,my-11,w,22,8); sx.fill();
+    sx.fillStyle="#121327"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(t,x,my+1); } }
+  function soloLines(){ soloHeight(); const me=G.me, pos=me.pos, p=profitOf(me), top=LAY.under+6, bot=LAY.barTop+10, f=n=>Math.round(n).toLocaleString("en-US");
     const L=[{v:0,label:"START",plain:1,col:"242,243,247"}];
     const priceAt=v=>pos?pos.entry*(1+pos.side*(v-(p-pnlOf(pos,G.price)))/pos.size):null;   // the price at which your profit reads v
     if(CLR.goal!=null) L.push({v:CLR.goal,label:"GOAL +"+m2(CLR.goal),sub:pos?f(priceAt(CLR.goal)):null,col:"95,240,160",gate:1,w:3});
@@ -1238,14 +1290,14 @@ function mount(root,host){
       L.push({v:nv,label:"NUKE",pin:"NUKE "+f(np)+" · "+usd(-LIQ*pos.coll),sub:f(np),col:"240,48,127",ink:"#fff",band:60}); }
     for(const l of L){ let y=soloYOf(l.v), pin=0; if(CLR.goal!=null&&(y<top-30||y>bot+30)) continue; if(y<top){y=top;pin=-1;} if(y>bot){y=bot;pin=1;}
       if(l.plain){ if(pin) continue; sx.strokeStyle="rgba(255,255,255,.45)"; sx.lineWidth=1.5; sx.setLineDash([6,5]); sx.beginPath(); sx.moveTo(0,y); sx.lineTo(SW,y); sx.stroke(); sx.setLineDash([]);
-        sx.font="700 11px "+GF+",sans-serif"; sx.textAlign="right"; sx.textBaseline="bottom"; sx.fillStyle="rgba(242,243,247,.85)"; sx.fillText(l.label,SW-12,y-3); continue; }
+        sx.font="700 11px "+GF+",sans-serif"; sx.textAlign="right"; sx.textBaseline="bottom"; sx.fillStyle="rgba(242,243,247,.85)"; sx.fillText(l.label,soloRight(y-14,14),y-3); continue; }
       if(!pin){ if(l.band){ const g=sx.createLinearGradient(0,y,0,y+l.band); g.addColorStop(0,`rgba(${l.col},.28)`); g.addColorStop(1,`rgba(${l.col},0)`); sx.fillStyle=g; sx.fillRect(0,y,SW,l.band); }
         if(l.gate){ const g=sx.createLinearGradient(0,y-26,0,y+26); g.addColorStop(0,`rgba(${l.col},0)`); g.addColorStop(.5,`rgba(${l.col},.22)`); g.addColorStop(1,`rgba(${l.col},0)`); sx.fillStyle=g; sx.fillRect(0,y-26,SW,52); }
         sx.strokeStyle=`rgba(${l.col},.9)`; sx.lineWidth=l.w||2; sx.beginPath(); sx.moveTo(0,y); sx.lineTo(SW,y); sx.stroke(); }
       const txt=(pin<0?"▲ ":pin>0?"▼ ":"")+(pin&&l.pin?l.pin:l.label); sx.font="800 14px "+GF+",sans-serif"; const tw=sx.measureText(txt).width+16, hh=22, ly=pin<0?y:pin>0?y-hh:y-hh/2;
       // right-aligned: the trade feed lives top left
       let sw=0; if(l.sub&&!pin){ sx.font="700 12px "+GF+",sans-serif"; sw=sx.measureText(l.sub).width+12; }
-      const x1=SW-12-tw; sx.font="800 14px "+GF+",sans-serif";
+      const x1=soloRight(ly,hh)-tw; sx.font="800 14px "+GF+",sans-serif";
       sx.fillStyle=`rgba(${l.col},.95)`; rr(x1,ly,tw,hh,7); sx.fill(); sx.fillStyle=l.ink||"#121327"; sx.textAlign="left"; sx.textBaseline="middle"; sx.fillText(txt,x1+8,ly+hh/2+1);
       if(sw){ const x2=x1-4-sw; sx.font="700 12px "+GF+",sans-serif"; sx.fillStyle="rgba(11,10,22,.86)"; rr(x2,ly+2,sw,hh-4,6); sx.fill(); sx.fillStyle=`rgba(${l.col},1)`; sx.fillText(l.sub,x2+6,ly+hh/2+1); } } }
   function climbEnd(){ G.over=true; if(G.me.pos) close(G.me); music(false); ui();

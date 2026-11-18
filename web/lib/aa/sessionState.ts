@@ -72,3 +72,5 @@ export function hasSavedSession(): boolean {
     return !!v?.owner && (!v.expiresAt || v.expiresAt > Date.now());
   } catch { return false; }
 }
+/** Privy loaded and says signed out: drop a stale saved session so the next refresh doesn't paint the old pill. */
+export function forgetSavedSession() { try { localStorage.removeItem(SESSION_LS); } catch { /* private mode */ } }
