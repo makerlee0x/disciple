@@ -447,7 +447,20 @@ export async function tick(id: string, price: number | null, s: Kv = kv()) {
 }
 /** the buzzer closes real Lighter positions for any seat that armed this duel (lib/server/lighter/match) */
 async function lighterBuzzer(r: DuelRoom, s: Kv) {
-  await Promise.all(r.players.map((p) => buzzer(p.pid, r.id, s).catch((e) => console.error("[duel] lighter buzzer", e))));
+  if (process.env.LIGHTER_ENABLED !== "1") return;
+  const pids = r.players.map((p) => p.pid);
+  // duel routes run in iad1, which Lighter refuses: hand the close to the fra1 route (app/api/lighter/buzz)
+  // production: the public domain (deployment URLs can sit behind Vercel's protection); previews: the bypass header if set
+  const host = process.env.VERCEL_ENV === "production" ? process.env.VERCEL_PROJECT_PRODUCTION_URL : process.env.VERCEL_URL;
+  const secret = process.env.CRON_SECRET, bypass = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  if (host && secret) {
+    try {
+      const res = await fetch(`https://${host}/api/lighter/buzz`, { method: "POST", headers: { authorization: `Bearer ${secret}`, "content-type": "application/json", ...(bypass ? { "x-vercel-protection-bypass": bypass } : {}) }, body: JSON.stringify({ id: r.id, pids }) });
+      if (res.ok) return;
+      console.error("[duel] lighter buzz route", res.status);
+    } catch (e) { console.error("[duel] lighter buzz route", e); }
+  }
+  await Promise.all(pids.map((pid) => buzzer(pid, r.id, s).catch((e) => console.error("[duel] lighter buzzer", e))));
 }
 
 export async function trade(id: string, pid: string, action: TradeAction, usd: number, price: number | null, s: Kv = kv()) {
