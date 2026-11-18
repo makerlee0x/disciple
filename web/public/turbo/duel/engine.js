@@ -197,13 +197,13 @@ function mount(root,host){
     G.marks.push({t:G.t,p:price,me:pl.me,k:"x"});
     moment(pl,`${pl.me?"you":esc(pl.name)} got NUKED on a ${side>0?"BOOST":"DUMP"}`,-lost);
     fxBomb(pl); feed(pl,"r",`${pl.me?"you":esc(pl.name)} got <b>NUKED</b>`);
-    if(pl.me&&G.solo){ G.nuked=true; if(pl.fuel<1) setTimeout(()=>{ if(G&&G.solo&&!G.over) end(); },1400); }   // Climb: out of fuel ends the run
+    if(pl.me&&G.solo){ G.nuked=true; if(pl.fuel<minT()) setTimeout(()=>{ if(G&&G.solo&&!G.over) end(); },1400); }   // Climb: out of fuel ends the run
     if(pl.me){sfx("bomb");buzz([60,40,90]);} else sfx("bomb",.5,(lane(pl)/SW)*2-1);
   }
   function open(pl,side,stake,why){
     if(!(G&&G.price>0)){ if(pl.me) toast("Waiting for the live BTC price\u2026"); return false; }
     stake=Math.min(stake,pl.fuel/(1+LEV*FEE));
-    if(stake<1){ if(pl.me) fuelOut(); return false; }
+    if(stake<(pl.me?minT():1)){ if(pl.me) fuelOut(); return false; }
     const size=stake*LEV, fee=size*FEE;
     pl.fuel-=stake+fee; pl.fees+=fee; pl.trades++;
     if(pl.pos&&pl.pos.side===side){
@@ -229,6 +229,7 @@ function mount(root,host){
   // trade size = a share of the duel fuel you have left (maker 2026-11-17, like Sell % in live flight); 0 = ALL
   const PCTS=[10,25,50,0]; let stake=25, SIZES=PCTS, cPct=25;   // cPct: Climb free mode's size slider, 1-100%
   const pctUsd=(pc,f)=>pc===0?f:Math.floor(f*pc)/100;   // whole cents, rounded down
+  const minT=()=>CLR?.1:1;   // smallest trade: Climb 10 cents (Lighter has no minimum, maker 2026-11-18: ".10 minimum to limit spam"); duels keep the server $1
   const stakeUsd=()=>pctUsd(stake,G&&G.me?G.me.fuel:FUEL0);   // open() keeps the fee back
   /* custom budgets (friend duels): same rule as lib/duel/rules sizesFor. Sizes = half the budget on a 1-2-5 step, then three steps down. */
   const BUD_MIN=5, BUD_MAX=10000, okBud=v=>Number.isInteger(v)&&v>=BUD_MIN&&v<=BUD_MAX;
@@ -240,9 +241,9 @@ function mount(root,host){
   function curFuel(){ if(CLR) return CLR.fuel; return M&&M.fuel&&okBud(M.fuel)?M.fuel:TIERS[botKey].fuel; }
   function curSizes(){ return M&&M.fuel&&okBud(M.fuel)?sizesFor(M.fuel):TIERS[botKey].sizes; }
   function paintSizes(){ const f=G&&G.me?G.me.fuel:FUEL0; document.querySelectorAll(".size button").forEach(b=>{const v=SIZES[+b.dataset.i]; if(v==null){ b.hidden=true; return; } const d=pctUsd(v,f);
-    b.innerHTML=(v===0?"ALL":v+"%")+`<span class="u">${d>=1?"$"+(d>=10?Math.floor(d):d.toFixed(2).replace(/\.00$/,"")):"\u2013"}</span>`; b.classList.toggle("on",v===stake); b.classList.toggle("lo",d<1);});
+    b.innerHTML=(v===0?"ALL":v+"%")+`<span class="u">${d>=minT()?"$"+(d>=10?Math.floor(d):d.toFixed(2).replace(/\.00$/,"")):"\u2013"}</span>`; b.classList.toggle("on",v===stake); b.classList.toggle("lo",d<minT());});
     const sl=$("cSlI"); if(sl&&CLR&&CLR.free){ const pc=stake===0?100:stake, d=pctUsd(stake,f); if(+sl.value!==pc) sl.value=pc; sl.style.setProperty("--p",pc+"%");
-      $("cSlV").innerHTML=`${pc}%<span class="u">${d>=1?"$"+(d>=10?Math.floor(d):d.toFixed(2)):"\u2013"}</span>`; } }
+      $("cSlV").innerHTML=`${pc}%<span class="u">${d>=minT()?"$"+(d>=10?Math.floor(d):d.toFixed(2)):"\u2013"}</span>`; } }
   function act(kind){
     if(!G||!G.started||G.over) return;
     if(!(G.price>0)){ toast("Waiting for the live BTC price\u2026"); return; }
@@ -1184,7 +1185,6 @@ function mount(root,host){
     +".duel-root .land{width:auto;padding:0 12px;font:800 16px/1 var(--f-game);letter-spacing:1px;color:var(--text)}"
     +".duel-root .choices.ladder{gap:6px}.duel-root .choices.ladder .choice{min-height:0;padding-top:8px;padding-bottom:8px}"
     +".duel-root .choice.lock .ci,.duel-root .choice.lock .ct{opacity:.5}.duel-root .choice.done .ci{color:var(--green)}"
-    +".duel-root .choice .tout{margin-left:auto;flex:none;font:800 14px/1 var(--f-game);letter-spacing:.8px;padding:7px 10px;border-radius:9px;background:rgba(242,193,78,.16);color:var(--gold);border:1px solid rgba(242,193,78,.5)}"
     +".duel-root .cbig{display:flex;flex-direction:column;align-items:center;gap:6px;padding:6px 0 10px;text-align:center}"
     +".duel-root .cbig small{font:700 14px/1 var(--f-game);letter-spacing:1.5px;color:var(--muted)}"
     +".duel-root .cbig b{font:800 64px/1 var(--f-game);color:var(--gold)}.duel-root .cbig b.dn{color:var(--pinkl)}.duel-root .cbig b.up{color:var(--green)}"
@@ -1205,18 +1205,12 @@ function mount(root,host){
     const fr=u>=FREE;
     rows.push(`<button class="choice${fr?" main":" lock"}" type="button" data-cl="free">${`<i class="ci">${fr?ICO.bolt:ICO.lock}</i>`}<span class="ct"><b>FREE MODE</b><small>any fuel · up to ${gx(MAXG)} · no clock</small></span>${fr?ICO.go:""}</button>`);
     for(const l of LVS.slice().reverse()){ const k=l.n>u?"lock":l.n===u?"cur":"done";
-      rows.push(`<button class="choice${k==="cur"?" main":""} ${k}" type="button" data-cl="${l.n}"><i class="ci">${k==="lock"?ICO.lock:k==="done"?ICO.check:ICO.bolt}</i><span class="ct"><b>LEVEL ${l.n} · MAKE ${pctOf(l).slice(1)}</b><small>+${m2(l.goal)} on ${m2(l.fuel)} · ${gx(l.gear)} · 60s${k==="done"?" · cleared":""}</small></span>${k==="lock"?'<span class="tout">TEST OUT</span>':k==="cur"?ICO.go:""}</button>`); }
+      rows.push(`<button class="choice${k==="cur"?" main":""} ${k}" type="button" data-cl="${l.n}"><i class="ci">${k==="lock"?ICO.lock:k==="done"?ICO.check:ICO.bolt}</i><span class="ct"><b>LEVEL ${l.n} · MAKE ${pctOf(l).slice(1)}</b><small>+${m2(l.goal)} on ${m2(l.fuel)} · ${gx(l.gear)} · 60s${k==="done"?" · cleared":""}</small></span>${k==="cur"?ICO.go:""}</button>`); }
     $("climb").innerHTML=`<div class="choices ladder">${rows.join("")}</div>`;
     $("climb").querySelectorAll("[data-cl]").forEach(b=>b.addEventListener("click",()=>{ ensureAudio(); const v=b.dataset.cl;
       if(v==="free"){ if(CL.state().unlocked>=FREE) climbFreeSetup(); else toast("Clear level "+LVS.length+" to unlock free mode."); return; }
       const n=+v; if(n<=CL.state().unlocked){ climbPlay(n); return; }
-      climbTestOut(n); })); }
-  function climbTestOut(n){ const l=lvl(n); show("cres");
-    $("cres").innerHTML=`<div class="cbig"><small>TEST OUT</small><b>LEVEL ${n}</b><strong>${m2(l.fuel)} · ${gx(l.gear)}</strong><em>HIT +${m2(l.goal)} (${pctOf(l)}) IN 60s</em></div>`
-      +`<div class="choices"><button class="choice main" type="button" id="cTo"><i class="ci">${ICO.bolt}</i><span class="ct"><b>TEST OUT</b><small>${m2(l.fuel)} · real money · 1 try a day</small></span>${ICO.go}</button></div>`
-      +`<button class="sec wide" type="button" id="cBack" style="margin-top:8px">LEVELS</button>`;
-    $("cBack").addEventListener("click",climbHome);
-    $("cTo").addEventListener("click",()=>{ const r=CL.testOut?CL.testOut(n):{error:"Test out opens with real money."}; if(r&&r.error){ toast(r.error); return; } climbPlay(n,true); }); }
+      toast("Clear level "+(n-1)+" first."); })); }   // no test out (maker 2026-11-18: "that ruins the fun")
   function climbFreeSetup(){ show("cres");
     const fuels=LVS.map(l=>l.fuel), gears=[]; for(let g=10;g<=MAXG;g+=10) gears.push(g);
     const opt=(k,v,lab)=>`<button class="opt${cFree[k]===v?" on":""}" type="button" data-${k}="${v}">${lab}</button>`;
@@ -1233,7 +1227,7 @@ function mount(root,host){
     if(CL.lighter) CL.lighter.begin({fuel:CLR.fuel,gear:CLR.gear});
     waitForPrice(()=>{ if(!M||!M.solo) return; M.startAt=Date.now()+3500; if(CL.lighter) CL.lighter.arm(M.startAt+(isFinite(CLR.len)?CLR.len:270000)); start(); }); }
   function climbLaunch(){ root.classList.add("climb"); $("lCancel").hidden=false;
-    $("lH").textContent=CLR.free?"FREE MODE":(CLR.test?"TEST OUT · ":"")+"LEVEL "+CLR.level;
+    $("lH").textContent=CLR.free?"FREE MODE":"LEVEL "+CLR.level;
     $("lSub").textContent=`${m2(CLR.fuel)} · ${gx(CLR.gear)}`+(CLR.goal!=null?` · make +${m2(CLR.goal)}`:" · no clock")+(CL.real?"":" · play money");
     const who=$("meN").parentElement; who.innerHTML=(CLR.free?"FREE · ":`LEVEL ${CLR.level} · ${m2(CLR.fuel)} · `)+`<span id="meN" style="color:var(--gold)">${gx(CLR.gear)}</span>`;
     const nx=lvl(CLR.level+1); $("botLab").innerHTML=(CLR.free?"FUEL":"TO GOAL")+'<span id="botN"></span>';
