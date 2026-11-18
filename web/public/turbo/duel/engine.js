@@ -586,7 +586,8 @@ function mount(root,host){
   // where the journey is: f = position in the theme's layers (0 = ground), fin = 0..1 fade into the final sky
   function skyStage(pan){ const N=SKY_ORDER.length; if(!G||!G.started) return {f:0,fin:0};
     if(G.solo&&CLR&&CLR.goal!=null){ const u=Math.min(1.4,soloProg()); G.sp=G.sp==null?u:G.sp+(u-G.sp)*.05;
-      return {f:Math.max(0,Math.min(N-1,Math.min(1,G.sp)*(N-1))),fin:Math.max(0,Math.min(1,(G.sp-1)/.3))}; }
+      const tp=Math.max(0,Math.min(1,G.t/G.len)), j=Math.min(1,Math.max(tp*.75,G.sp));
+      return {f:Math.max(0,Math.min(N-1,j*(N-1))),fin:Math.max(0,Math.min(1,(G.sp-1)/.3))}; }
     const run=Math.max(1,G.len-FINAL_MS), p=Math.max(0,Math.min(1,G.t/run));
     if(G.finalAt==null&&G.t>=run&&!G.over){ G.finalAt=G.t; toast("Final 12 seconds"); }   // latched: overtime stays on the moon
     const fin=G.finalAt!=null?Math.min(1,(G.t-G.finalAt)/1500):0;
@@ -1204,7 +1205,7 @@ function mount(root,host){
   // screen at the start"): PnL maps to sky heights, measured in rooms (one room = the visible sky). The GOAL gate is
   // SOLO_UP rooms above START and the NUKE SOLO_DN rooms below it, so both start off screen. The camera follows the
   // rocket a beat behind, which is what makes the clouds and stars rush past while you climb.
-  const SOLO_UP=2.4, SOLO_DN=1.7, SOLO_ANCHOR=.62;
+  const SOLO_UP=2.4, SOLO_DN=1.7, SOLO_ANCHOR=.84, SOLO_TOP=.14, SOLO_BOT=.9;
   function soloW(v){ if(CLR.goal==null) return 0; const u=v/CLR.goal;
     if(u>=0) return SOLO_UP*(1-Math.pow(1-Math.min(u,1),1.35))+Math.max(0,u-1)*1.2;   // ease-out: the first cents climb the most
     const lossTo=G.me.pos?LIQ*G.me.pos.coll:CLR.goal*3; return -SOLO_DN*Math.pow(Math.min(1.2,-v/lossTo),.7); }
@@ -1215,12 +1216,30 @@ function mount(root,host){
   function soloProg(){ return CLR.goal!=null?Math.max(0,profitOf(G.me)/CLR.goal):0; }
   function soloY(){ const [a,z,H]=soloRoom();
     if(CLR.goal!=null){ const w=soloW(profitOf(G.me)); G.rW=G.rW==null?w:G.rW+(w-G.rW)*.1;
-      const c0=G.camW==null?G.rW:G.camW; G.camW=c0+(G.rW-c0)*.045; G.me.sVy=-(G.camW-c0)*H;   // px the camera moved this frame (negative = climbing)
+      // maker 2026-11-18: "the rocket should be able to go up and down the full height of the screen". It starts low
+      // (SOLO_ANCHOR) and flies freely between SOLO_TOP and SOLO_BOT; past those the camera scrolls with it.
+      const c0=G.camW==null?0:G.camW, fr=SOLO_ANCHOR-(G.rW-c0); let ct=c0;
+      if(fr<SOLO_TOP) ct=G.rW-(SOLO_ANCHOR-SOLO_TOP); else if(fr>SOLO_BOT) ct=G.rW-(SOLO_ANCHOR-SOLO_BOT);
+      G.camW=c0+(ct-c0)*.08; G.me.sVy=-(G.camW-c0)*H;   // px the camera moved this frame (negative = climbing)
       if(G.me.sVy<-.3) G.me.flame=Math.min(2.2,G.me.flame+Math.min(.15,-G.me.sVy*.03));
       return a+SOLO_ANCHOR*H-(G.rW-G.camW)*H+(G.me.syo||0)*.2; }
     const t=soloYOf(profitOf(G.me)), was=G.me.sY; G.me.sY=was==null?t:was+(t-was)*.12; G.me.sVy=was==null?0:G.me.sY-was;
     return G.me.sY+(G.me.syo||0)*.2; }
-  function soloLines(){ const me=G.me, pos=me.pos, p=profitOf(me), top=LAY.under+6, bot=LAY.barTop+10, f=n=>Math.round(n).toLocaleString("en-US");
+  // height: $ marks up the sky between START and the GOAL, and the duel's gap ruler from START up to your rocket
+  function soloHeight(){ if(CLR.goal==null) return; const g=CLR.goal, top=LAY.under, p=profitOf(G.me);
+    sx.font="700 11px "+GF+",sans-serif"; sx.textAlign="right"; sx.textBaseline="bottom";
+    for(let i=-8;i<=6;i++){ if(i===0||i===4) continue; const v=g*i/4, y=soloYOf(v); if(y<top||y>SH) continue;
+      sx.strokeStyle=v>0?"rgba(95,240,160,.16)":"rgba(255,143,189,.16)"; sx.lineWidth=1; sx.setLineDash([3,7]); sx.beginPath(); sx.moveTo(0,y); sx.lineTo(SW,y); sx.stroke(); sx.setLineDash([]);
+      sx.fillStyle=v>0?"rgba(95,240,160,.75)":"rgba(255,143,189,.75)"; sx.fillText((v>0?"+$":"\u2212$")+Math.abs(v).toFixed(2),SW-12,y-3); }
+    if(Math.abs(p)<.005) return;
+    const a=G.me, x=Math.min(SW-40,lane(a)+Math.max(46,RH()*.55)), y0=Math.max(top,Math.min(SH,soloYOf(0))), y1=a.y; if(Math.abs(y1-y0)<24) return;
+    const t0=Math.min(y0,y1), t1=Math.max(y0,y1), col=p>0?"95,240,160":"255,143,189";
+    sx.strokeStyle=`rgba(${col},.6)`; sx.lineWidth=2; sx.setLineDash([4,5]); sx.beginPath(); sx.moveTo(x,t0); sx.lineTo(x,t1); sx.stroke(); sx.setLineDash([]);
+    sx.beginPath(); sx.moveTo(x-6,t0); sx.lineTo(x+6,t0); sx.moveTo(x-6,t1); sx.lineTo(x+6,t1); sx.stroke();
+    const t=(p>0?"+":"\u2212")+"$"+Math.abs(p).toFixed(2); sx.font="800 16px "+GF+",sans-serif";
+    const w=sx.measureText(t).width+12, my=(t0+t1)/2; sx.fillStyle=`rgba(${col},.95)`; rr(x-w/2,my-11,w,22,8); sx.fill();
+    sx.fillStyle="#121327"; sx.textAlign="center"; sx.textBaseline="middle"; sx.fillText(t,x,my+1); }
+  function soloLines(){ soloHeight(); const me=G.me, pos=me.pos, p=profitOf(me), top=LAY.under+6, bot=LAY.barTop+10, f=n=>Math.round(n).toLocaleString("en-US");
     const L=[{v:0,label:"START",plain:1,col:"242,243,247"}];
     const priceAt=v=>pos?pos.entry*(1+pos.side*(v-(p-pnlOf(pos,G.price)))/pos.size):null;   // the price at which your profit reads v
     if(CLR.goal!=null) L.push({v:CLR.goal,label:"GOAL +"+m2(CLR.goal),sub:pos?f(priceAt(CLR.goal)):null,col:"95,240,160",gate:1,w:3});
