@@ -53,14 +53,16 @@ export async function marketNow(cfg: LighterConfig, marketId: number): Promise<M
 /** The player's main Lighter account for their wallet, or null before their first deposit. */
 /** The player's main Lighter account, or null if they haven't deposited yet. Lighter matches the address as given, so
  *  try the checksummed form first, then lowercase. */
-export async function accountIndexOf(cfg: LighterConfig, l1: string): Promise<number | null> {
-  const forms = [...new Set([safeChecksum(l1), l1.toLowerCase(), l1])];
+export async function accountIndexOf(cfg: LighterConfig, l1: string, trace?: string[]): Promise<number | null> {
+  const forms = [...new Set([safeChecksum(l1), l1.toLowerCase()])];
   for (const a of forms) {
     try {
       const r = await get<Resp & { sub_accounts?: { index: number; account_type?: number }[] }>(cfg, "/api/v1/accountsByL1Address", { l1_address: a });
+      trace?.push(`${a.slice(0, 8)}: ${JSON.stringify(r).slice(0, 200)}`);
       const main = r.sub_accounts?.find((x) => !x.account_type) ?? r.sub_accounts?.[0];
       if (main) return Number(main.index);
     } catch (e) {
+      trace?.push(`${a.slice(0, 8)}: ${e instanceof LighterError ? `${e.status} ${e.code ?? ""} ${e.message}` : String(e)}`.slice(0, 200));
       if (!(e instanceof LighterError && (e.status === 400 || e.status === 404))) throw e;
     }
   }

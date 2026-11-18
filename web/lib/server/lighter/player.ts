@@ -21,10 +21,11 @@ import { checked, signer, signerFor } from "./signer";
 export type Step = "deposit" | "key" | "tier" | "approve" | "ready";
 const APPROVAL_DAYS = 365;
 
-export async function status(cfg: LighterConfig, pid: string): Promise<{ step: Step; account: number | null; collateral?: string; positions?: LighterPosition[] }> {
+export async function status(cfg: LighterConfig, pid: string): Promise<{ step: Step; account: number | null; collateral?: string; positions?: LighterPosition[]; lookup?: string[] }> {
   const p = await getPlayer(cfg, pid);
-  const acct = p?.account ?? (await accountIndexOf(cfg, pid));
-  if (acct == null) return { step: "deposit", account: null };
+  const trace: string[] = [];
+  const acct = p?.account ?? (await accountIndexOf(cfg, pid, trace));
+  if (acct == null) return { step: "deposit", account: null, lookup: trace };
   const a = await account(cfg, acct).catch(() => null);
   const base = { account: acct, collateral: a?.collateral, positions: (a?.positions ?? []).filter((x) => Number(x.position) !== 0) };
   if (!p?.keyReady) return { step: "key", ...base };

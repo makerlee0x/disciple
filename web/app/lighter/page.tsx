@@ -10,7 +10,7 @@ import { onWallet } from "@/lib/walletState";
 import { aaSignMessage } from "@/lib/aa/session";
 import { lighterClose, lighterOpen, lighterSetUp, lighterStatus, type LighterStep } from "@/lib/lighter/client";
 
-type Status = Awaited<ReturnType<typeof lighterStatus>> & { collateral?: string; positions?: { symbol?: string; position?: string; sign?: number }[] };
+type Status = Awaited<ReturnType<typeof lighterStatus>> & { collateral?: string; positions?: { symbol?: string; position?: string; sign?: number }[]; lookup?: string[] };
 const MARKETS = ["BTC", "ETH", "SOL", "HYPE"] as const;
 
 export default function LighterTest() {
@@ -62,6 +62,7 @@ export default function LighterTest() {
         {st?.positions?.map((p, i) => <div key={i}>position: {p.symbol} {p.sign === -1 ? "-" : ""}{p.position}</div>)}
       </div>
       {step === "deposit" && <p className="mb-4 text-amber-300">No Lighter {st?.network} account for this wallet yet. Deposit to Lighter from it first.</p>}
+      {!!st?.lookup?.length && <pre className="mb-4 whitespace-pre-wrap text-xs opacity-70">{st.lookup.join("\n")}</pre>}
       <div className="mb-4 flex flex-wrap gap-2">
         {!wallet && <button className={btn} onClick={() => privyLogin()}>Sign in</button>}
         <button className={btn} disabled={busy || !wallet} onClick={() => void refresh()}>Refresh</button>
