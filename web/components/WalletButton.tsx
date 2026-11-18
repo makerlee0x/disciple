@@ -20,7 +20,8 @@ import {
 } from "@/lib/aa/session";
 import { bookedPortfolio, loadPortfolio, type Portfolio } from "@/lib/portfolio";
 import { SIGN_IN_COPY, SIGN_IN_FAILED_EVENT, WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT, type WalletId } from "@/lib/walletCta";
-import { onPrivy, privyAuthenticated } from "@/lib/aa/sessionState";
+import { hasSavedSession, onPrivy, privyAuthenticated, privyLoaded } from "@/lib/aa/sessionState";
+import { lastPill, saveLastPill, type LastPill } from "@/lib/walletState";
 import AccountMenu from "@/components/account/AccountMenu";
 import WelcomeToast, { TOPBAR_POPOVER_EVENT, markSignInStarted } from "@/components/account/WelcomeToast";
 import { COIN_DECIMALS, knownDecimals, usdgDecimals } from "@/lib/usdg";
@@ -98,7 +99,21 @@ function PillProgress({ progress }: { progress: number }) {
 
 export default function WalletButton({ compact = false, hideCash = false }: { compact?: boolean; /** profile pages: no cash / total cards */ hideCash?: boolean } = {}) {
   const [addr, setAddr] = useState<Address | null>(null);
-  const pilot = usePilotParts(addr);
+  // Sign-in speed (2026-11-18): Privy takes seconds to reconnect on a refresh (SDK chunk, session check, wallet iframe).
+  // Until it answers, a browser with a saved session shows its last pill (address, @name, cash) at once: display only, no
+  // menu and no trades (those wait for the real session). Privy saying signed out, or 20 s without a Privy sign-in, drops it.
+  const [guess, setGuess] = useState<LastPill | null>(null);
+  useEffect(() => {
+    const out = () => privyLoaded() && !privyAuthenticated();
+    const p = hasSavedSession() && !out() ? lastPill() : null;
+    if (p) setGuess(p);
+    const off = onPrivy(() => { if (out()) setGuess(null); });
+    const t = setTimeout(() => { if (!privyAuthenticated()) setGuess(null); }, 20000);
+    return () => { off(); clearTimeout(t); };
+  }, []);
+  useEffect(() => { if (addr) setGuess(null); }, [addr]);
+  const shown: Address | null = addr ?? (guess?.address as Address | undefined) ?? null;
+  const pilot = usePilotParts(shown);
   const [busy, setBusy] = useState("");
   const [, setEth] = useState<bigint | null>(null);
   const [cashText, setCashText] = useState("");
@@ -176,7 +191,8 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
       show(a);
     } catch { /* ignore: keep the last (booked) values */ }
   }
-  useEffect(() => { if (!addr) return; refresh(addr); const i = setInterval(() => refresh(addr), 15000); const t = () => setTimeout(() => refresh(addr), 1500);
+  const readFor = useRef<string | null>(null);
+  useEffect(() => { const addr = shown; if (readFor.current !== addr) { readFor.current = addr; setPf(null); lastRead.current = null; } if (!addr) return; refresh(addr); const i = setInterval(() => refresh(addr), 15000); const t = () => setTimeout(() => refresh(addr), 1500);
     // SITE #137: our relay's receipt block ('disciple:op' confirmed) ⇒ later reads are pinned at/after it
     const op = (e: Event) => { const d = (e as CustomEvent<{ phase?: string; blockNumber?: string }>).detail; const b = blockOf(d?.blockNumber); if (d?.phase === "confirmed" && b !== undefined) fillBook.raiseFloor(addr, b); };
     // the fill decoded from the receipt logs: book it and show it now (no RPC), then one read pinned at/after its block
@@ -190,27 +206,33 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
     };
     const cash = () => refresh(addr);   // "Get test cash" landed (lib/testCash)
     addEventListener("disciple:livetrade", t); addEventListener("disciple:fillreceipt", r); addEventListener("disciple:op", op); addEventListener(CASH_ARRIVED_EVENT, cash);
-    return () => { clearInterval(i); removeEventListener("disciple:livetrade", t); removeEventListener("disciple:fillreceipt", r); removeEventListener("disciple:op", op); removeEventListener(CASH_ARRIVED_EVENT, cash); }; }, [addr, coin]);   // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { clearInterval(i); removeEventListener("disciple:livetrade", t); removeEventListener("disciple:fillreceipt", r); removeEventListener("disciple:op", op); removeEventListener(CASH_ARRIVED_EVENT, cash); }; }, [shown, coin]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // live retest #5: the chip shows the claimed @name (the account's, else its owner's), not only the short address
   const [uname, setUname] = useState<string | null>(null);
   const ownerAddr = addr ? aaSession()?.owner : undefined;
   useEffect(() => {
-    if (!addr) { setUname(null); return; }
+    if (!shown) { setUname(null); return; }
+    // paint the name this browser last showed for this wallet, then confirm it from the server
+    const last = lastPill();
+    setUname(last && last.address.toLowerCase() === shown.toLowerCase() ? last.name : null);
     let alive = true;
-    const load = () => { lookupFirstName([addr, ownerAddr]).then((n) => { if (alive) setUname(n); }); };
+    const load = () => { lookupFirstName([shown, ownerAddr]).then((n) => { if (alive) setUname(n); }); };
     const changed = () => { clearNameCache(); load(); };
     load();
     addEventListener(PROFILE_CHANGED_EVENT, changed);
     return () => { alive = false; removeEventListener(PROFILE_CHANGED_EVENT, changed); };
-  }, [addr, ownerAddr]);
+  }, [shown, ownerAddr]);
+  // remember the real pill for the next refresh
+  useEffect(() => { if (addr) saveLastPill({ address: addr, name: uname, cashUsd: pf?.cashUsd ?? null }); }, [addr, uname, pf?.cashUsd]);
+  const cashUsd = pf?.cashUsd ?? (guess && shown === guess.address ? guess.cashUsd : null) ?? 0;
 
   // premium sidebar: the Sidebar's account card shows the same address + name (display only; lib/walletCta.ts)
   useEffect(() => {
-    const id: WalletId | null = addr ? { address: addr, name: uname } : null;
+    const id: WalletId | null = shown ? { address: shown, name: uname } : null;
     (window as unknown as { __walletId?: WalletId | null }).__walletId = id;
     dispatchEvent(new CustomEvent(WALLET_ID_EVENT, { detail: id }));
-  }, [addr, uname]);
+  }, [shown, uname]);
   useEffect(() => () => {
     (window as unknown as { __walletId?: WalletId | null }).__walletId = null;
     dispatchEvent(new CustomEvent(WALLET_ID_EVENT, { detail: null }));
@@ -240,7 +262,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
   // Phones (≤760px): the signed-out pill ("Sign in") is hidden from the top bar (it pushed GAME's ✕ out of
   // the corner; CSS .ap-wallet-cta in globals.css) and the same action lives in the Sidebar menu. Publish the pill's
   // label for the Sidebar and run the pill's own action when the Sidebar item is tapped.
-  const ctaLabel = !isDeployed() || addr ? null : aaAvailable() ? "Sign in" : "Connect wallet";
+  const ctaLabel = !isDeployed() || shown ? null : aaAvailable() ? "Sign in" : "Connect wallet";
   useEffect(() => {
     (window as unknown as { __walletCta?: string | null }).__walletCta = ctaLabel;
     dispatchEvent(new CustomEvent(WALLET_CTA_EVENT, { detail: { label: ctaLabel } }));
@@ -251,7 +273,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
   }, []);
   const ctaClick = useRef<() => void>(() => {});
   ctaClick.current = () => {
-    if (addr || busy) return;
+    if (shown || busy) return;
     if (aaAvailable() && SIGNER_MODE === "local") { markSignInStarted(); run("creating account", connectLocal); }
     else if (aaAvailable()) signIn();
     else setMenu(true);
@@ -307,7 +329,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
       <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
         {/* .wb-row: one line on desktop; on phones (≤480px) it wraps right-aligned instead of running off the left edge (GAME 390×844) */}
         <div className="wb-row" style={{ display: "flex", gap: 8, alignItems: "center", whiteSpace: "nowrap" }}>
-          {addr ? (
+          {shown ? (
             <>
               {compact ? (
                 <>
@@ -317,14 +339,14 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
                   {!hideCash && (
                     <a href={DEPOSIT_HREF} onClick={onDepositClick} className="wb-cash" data-testid="cash-card" aria-label="Your cash: open Cash" title="Cash. Boosts spend it, dumps pay it. Tap to add.">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg>
-                      <b>{usd2(pf?.cashUsd ?? 0)}</b>
+                      <b>{usd2(cashUsd)}</b>
                       <svg className="wb-cash-plus" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
                     </a>
                   )}
-                  <button type="button" className="wb-pilot" aria-label="Your pilot menu" aria-haspopup={smart ? "menu" : undefined} aria-expanded={smart ? acct : undefined}
-                    onClick={() => { if (smart) { if (!acct) dispatchEvent(new Event(TOPBAR_POPOVER_EVENT)); setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>
+                  <button type="button" className="wb-pilot" aria-label="Your pilot menu" aria-haspopup={smart ? "menu" : undefined} aria-expanded={smart ? acct : undefined} aria-busy={!addr || undefined}
+                    onClick={() => { if (!addr) return; if (smart) { if (!acct) dispatchEvent(new Event(TOPBAR_POPOVER_EVENT)); setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>
                     {pilot.avatar}
-                    <span>{copied ? "Copied" : chipLabel(uname, addr)}</span>
+                    <span>{copied ? "Copied" : chipLabel(uname, shown)}</span>
                     {pilot.hasPfp && <b className="wb-lv" aria-label={`Level ${pilot.info.level}`}>{pilot.info.level}</b>}
                     <PillProgress progress={pilot.info.progress} />
                     {smart && <svg className="wb-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M6 9l6 6 6-6" /></svg>}
@@ -346,9 +368,9 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
                     </a>
                   </div>
                 )}
-                <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
+                <button type="button" title={smart ? `Smart account (owner ${sess?.owner}) — click to copy` : "Wallet"} onClick={() => { if (!addr) return; if (smart) { setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
                   style={{ ...pill, background: "rgba(31,111,74,.9)", color: "#c8ffe4" }}>
-                  {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, addr)}{!copied && GUILDS_ENABLED && <> <GuildTagFor address={addr} markOnly /></>}
+                  {smart ? <><Icon name="bolt" size={12} style={{ verticalAlign: -1 }} /> </> : ""}{copied ? "copied" : chipLabel(uname, shown)}{!copied && GUILDS_ENABLED && <> <GuildTagFor address={shown} markOnly /></>}
                 </button>
               </>
               )}
@@ -387,7 +409,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
           <AccountMenu wallet={addr} name={chipLabel(uname, addr)} initial={(uname || "P").replace(/^@/, "").charAt(0).toUpperCase()}
             cashUsd={pf?.cashUsd ?? 0} onClose={() => setAcct(false)} onSignOut={() => run("", disconnect)} />
         )}
-        {!addr && signFail && (
+        {!shown && signFail && (
           <div className="r2-note err wb-fail" role="alert" data-testid="signin-failed">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 8v5M12 16.5v.5" /></svg>
             <span>{signFail} <button type="button" className="wb-retry" onClick={signIn}>{SIGN_IN_COPY.retry}</button></span>
@@ -395,7 +417,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
         )}
       </div>
       {/* top right stays minimal (lee, Oct 30): one cash figure + the account chip; no token / STRATEGY balance line */}
-      {addr && !pf && cashText && !compact && <span title="Cash. Boosts spend it, dumps pay it." style={{ fontSize: 10, opacity: 0.8 }}>{cashText}</span>}
+      {shown && !pf && cashText && !compact && <span title="Cash. Boosts spend it, dumps pay it." style={{ fontSize: 10, opacity: 0.8 }}>{cashText}</span>}
       {addr && legacy && (
         <span role="status" aria-label="sweep old account" style={{ fontSize: 10, color: "#C9CED6", maxWidth: 320, textAlign: "right" }}>
           Your old account {legacy.account.slice(0, 8)}… still holds {[legacy.eth > BigInt(0) ? `${Number(formatUnits(legacy.eth, 18)).toFixed(5)} ETH` : "", ...legacy.tokens.map((t) => t.symbol)].filter(Boolean).join(", ")}.{" "}
