@@ -10,6 +10,7 @@ import { BOMB_TIERS } from "@/lib/config";
 import { bombTierIndex } from "@/lib/flight/bombTier";
 import { playerUsd, type Fill } from "@/lib/trades";
 import { DAY_MS, prePriceOf } from "./trending";
+import { rocketsDaySp } from "@/lib/season/points";
 
 /**
  * Board guardrails (maker 2026-11-13, main mode hook loop): the board keeps PnL and % gain, but only for good calls.
@@ -324,6 +325,19 @@ export function positionBoard(fillsByCoin: Fill[][], now: number, o: BoardOpts =
       .slice(0, n)
       .map((p) => ({ ...p, sizeUsd: Math.round(p.sizeUsd * 100) / 100, pnlUsd: Math.round(p.pnlUsd * 100) / 100, pct: p.sizeUsd > 0 ? Math.round((p.pnlUsd / p.sizeUsd) * 1000) / 10 : 0 }));
   }
+  return out;
+}
+
+/** Rockets season points (lib/season/points): each UTC day's realized PnL inside [from, to) pays SP, capped a day. Pure. */
+export function rocketSeasonSp(fillsByCoin: Fill[][], now: number, from: number, to: number, o: BoardOpts = {}): Record<string, number> {
+  const days = new Map<string, number>();
+  for (const c of walk(fillsByCoin, now, o).closes) {
+    if (c.ts < from || c.ts >= to) continue;
+    const k = `${c.wallet}|${Math.floor(c.ts / DAY_MS)}`;
+    days.set(k, (days.get(k) ?? 0) + c.pnl);
+  }
+  const out: Record<string, number> = {};
+  for (const [k, pnl] of days) { const sp = rocketsDaySp(pnl); if (sp > 0) { const w = k.split("|")[0]; out[w] = (out[w] ?? 0) + sp; } }
   return out;
 }
 

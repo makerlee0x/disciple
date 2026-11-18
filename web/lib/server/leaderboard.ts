@@ -7,8 +7,11 @@ import "server-only";
 import { levelInfo } from "@/lib/xp";
 import { BOARD_WINDOWS, crewBoard, gapToNext, rankBoard, type BestCall, type BoardPilot, type BoardPosition, type BoardSort, type BoardWindow, type CrewRow } from "@/lib/home/topPilots";
 import { pfpUrl } from "@/lib/profileMeta";
-import { getHomeData, getPilotBoard, getPositionBoard } from "./home";
+import { getHomeData, getPilotBoard, getPositionBoard, getRocketSeasonSp } from "./home";
 import { metaOf } from "./profileMeta";
+import { climbBoard, modeSp } from "./seasonModes";
+import { leagueOf, seasonAt } from "@/lib/duel/season";
+import { RANK_MODES, totalSp, type ModeSp } from "@/lib/season/points";
 import { guildTagsOf } from "./guilds";
 import { usernameOf } from "./usernames";
 import { ledgerOf, totals } from "./xp";
@@ -120,4 +123,45 @@ export async function getPositions(window: BoardWindow): Promise<PositionsRespon
   const v: PositionsResponse = { window, sort: "positions", rows, coins: await coinsOf(rows.map((r) => r.coin)) };
   cache.set(window, { at: Date.now(), v });
   return v;
+}
+
+/* ── Overall + mode ranks (maker 2026-11-18): one season ladder, SP from every mode (lib/season/points) ─────────────── */
+
+type Face = Named & { wallet: string; username: string | null; level: number | null };
+export type OverallRow = Face & { rank: number; pts: number; league: string; by: ModeSp };
+export type OverallResponse = { sort: "overall"; season: { n: number; endsAt: number }; rows: OverallRow[]; total: number; me: OverallRow | null };
+const go = globalThis as unknown as { __dscOverall?: { at: number; ranked: { wallet: string; pts: number; by: ModeSp }[]; named: OverallRow[] } };
+
+export async function getOverall(me: string | null): Promise<OverallResponse> {
+  const now = Date.now(), season = seasonAt(now);
+  let c = go.__dscOverall;
+  if (!c || now - c.at > CACHE_MS) {
+    const [rockets, duel, royale, climb] = await Promise.all([getRocketSeasonSp(), modeSp("duel").catch(() => ({})), modeSp("royale").catch(() => ({})), modeSp("climb").catch(() => ({}))]);
+    const per = { rockets, duel, royale, climb } as Record<(typeof RANK_MODES)[number], Record<string, number>>;
+    const m = new Map<string, ModeSp>();
+    for (const k of RANK_MODES) for (const [w, v] of Object.entries(per[k])) if (v > 0) { const r = m.get(w) ?? {}; r[k] = v; m.set(w, r); }
+    const ranked = [...m.entries()].map(([wallet, by]) => ({ wallet, by, pts: totalSp(by) })).sort((a, b) => b.pts - a.pts || a.wallet.localeCompare(b.wallet));
+    const named = (await name(ranked.slice(0, BOARD_TOP))).map((r, i) => ({ ...r, rank: i + 1, league: leagueOf(r.pts).id }));
+    c = { at: now, ranked, named };
+    go.__dscOverall = c;
+  }
+  let mine: OverallRow | null = null;
+  const lc = me?.toLowerCase();
+  if (lc) {
+    const i = c.ranked.findIndex((r) => r.wallet === lc);
+    if (i >= 0) mine = i < BOARD_TOP ? c.named[i] : { ...(await name([c.ranked[i]]))[0], rank: i + 1, league: leagueOf(c.ranked[i].pts).id };
+  }
+  return { sort: "overall", season: { n: season.n, endsAt: season.endsAt }, rows: c.named, total: c.ranked.length, me: mine };
+}
+
+/** Royale (SP by place) and Climb (best level, then fastest clear) boards, this season. Empty until real money. */
+export type ModeRow = Face & { rank: number; pts?: number; climbLevel?: number; clearMs?: number };
+export type ModeResponse = { sort: "royale" | "climb"; season: { n: number; endsAt: number }; rows: ModeRow[] };
+export async function getModeBoard(mode: "royale" | "climb"): Promise<ModeResponse> {
+  const season = seasonAt(Date.now());
+  const raw: { wallet: string; pts?: number; climbLevel?: number; clearMs?: number }[] = mode === "climb"
+    ? await climbBoard(BOARD_TOP).catch(() => [])
+    : Object.entries(await modeSp("royale", BOARD_TOP).catch(() => ({} as Record<string, number>))).map(([wallet, pts]) => ({ wallet, pts }));
+  const rows = (await name(raw)).map((r, i) => ({ ...r, rank: i + 1 }));
+  return { sort: mode, season: { n: season.n, endsAt: season.endsAt }, rows };
 }

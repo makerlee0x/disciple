@@ -944,3 +944,21 @@ textarea.he-ta { min-height: 76px; padding: 12px 14px; resize: none; display: bl
   .tp-ppnl b { font-size: 19px; }
   .tp-ppnl span.tp-p { display: block; margin-top: 5px; font-size: 12px; color: #9095A0; white-space: nowrap; }
 }
+
+/* Top pilots mode tabs (Overall · Rockets · Duel · Royale · Climb) */
+.tp-modes { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.tp-modes button { all: unset; cursor: pointer; box-sizing: border-box; min-height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid #2E323A; background: rgba(22,24,28,.8);
+  display: inline-flex; align-items: center; font: 700 20px/1 var(--dsc-font-game); text-transform: uppercase; color: #BCC0CA; white-space: nowrap; }
+.tp-modes button:hover { color: #FFFFFF; }
+.tp-modes button.on { border-color: #F2C14E; color: #121327; background: linear-gradient(180deg, #F3DFA8, #F2C14E); }
+.tp-modes button:focus-visible { box-shadow: var(--dsc-glow-focus-ring); outline: none; }
+.tp-season { font: 700 15px/1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .02em; color: #9095A0; padding: 12px 0; }
+.tp-bar0 { margin: 0 0 4px; }
+.tp-white { color: #FFFFFF; }
+.tp-tname span[style] { background: rgba(232,234,238,.06); font-weight: 600; }
+@media (max-width: 760px) {
+  .tp-modes { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin: 12px -16px 0; padding: 0 16px; }
+  .tp-modes::-webkit-scrollbar { display: none; }
+  .tp-modes button { flex: none; min-height: 38px; padding: 0 14px; font-size: 17px; }
+  .tp-season { padding: 4px 0; font-size: 13px; }
+}

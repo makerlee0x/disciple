@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { BOARD_RULES, bestCalls, gapToNext, pilotBoard, positionBoard, rankBoard, topPilots } from "@/lib/home/topPilots";
+import { BOARD_RULES, bestCalls, gapToNext, pilotBoard, positionBoard, rankBoard, rocketSeasonSp, topPilots } from "@/lib/home/topPilots";
 import type { Fill } from "@/lib/trades";
+import { climbSp, rocketsDaySp, royaleSp, totalSp } from "@/lib/season/points";
+
 
 const H = 3600_000, NOW = 100 * H;
 let n = 0;
@@ -96,5 +98,26 @@ describe("cash board (maker, Nov 18)", () => {
     const day = positionBoard(fills, NOW).day;
     expect(day).toHaveLength(1);
     expect(day[0]).toMatchObject({ wallet: "0xa", coin: "c1", sizeUsd: 100, pnlUsd: 300, pct: 300, entryMcap: 10_000, exitMcap: 60_000, openedAt: NOW - 6 * H, closedAt: NOW - 4 * H });
+  });
+});
+
+const D = 24 * H, SNOW = 100 * D;
+const sf = (trader: string, coin: string, side: "buy" | "sell", tokens: number, usd: number, ts: number) => f(trader, coin, side, tokens, usd, ts);
+describe("season points (overall rank)", () => {
+  it("royale by place, climb by level, rockets per $10 capped a day", () => {
+    expect([1, 2, 3, 4, 10, 11].map(royaleSp)).toEqual([50, 25, 25, 10, 10, 0]);
+    expect(climbSp(3)).toBe(60);
+    expect([9.99, 10, 125, 99_999, -50].map(rocketsDaySp)).toEqual([0, 1, 12, 50, 0]);
+    expect(totalSp({ rockets: 12, duel: 30, climb: 60 })).toBe(102);
+  });
+  it("rockets SP: each UTC day inside the season, red days pay nothing", () => {
+    const from = SNOW - 10 * D;
+    const fills = [[
+      sf("0xa", "c1", "buy", 10, 100, SNOW - 3 * D), sf("0xa", "c1", "sell", 5, 600, SNOW - 3 * D + H), // +550 → 50 (cap)
+      sf("0xa", "c1", "sell", 5, 150, SNOW - 2 * D),                                                  // +100 → 10
+      sf("0xb", "c1", "buy", 10, 100, SNOW - 2 * D), sf("0xb", "c1", "sell", 10, 20, SNOW - 2 * D + H), // red → 0
+      sf("0xc", "c1", "buy", 10, 10, SNOW - 20 * D), sf("0xc", "c1", "sell", 10, 500, SNOW - 19 * D),   // before the season
+    ]];
+    expect(rocketSeasonSp(fills, SNOW, from, SNOW + D)).toEqual({ "0xa": 60 });
   });
 });

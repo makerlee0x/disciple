@@ -18,8 +18,9 @@ import { pairOf, pairSymOf, shortHex } from "@/lib/home/pairs";
 import { isHiddenCoin } from "@/lib/home/hiddenCoins";
 import { flaggedCopySet } from "@/lib/server/nameLock";
 import { chipOf, lobbyAgeTokens, pickHero, statsFromFills, type HomeCoin, type HomeData } from "@/lib/home/trending";
-import { bestCalls, pilotBoard, positionBoard, type PositionBoard, topPilots, tickerOf, type BestCalls, type BoardOpts, type PilotBoard, type TickerItem, type TopPilots } from "@/lib/home/topPilots";
+import { bestCalls, pilotBoard, positionBoard, rocketSeasonSp, type PositionBoard, topPilots, tickerOf, type BestCalls, type BoardOpts, type PilotBoard, type TickerItem, type TopPilots } from "@/lib/home/topPilots";
 import { levelInfo } from "@/lib/xp";
+import { seasonAt } from "@/lib/duel/season";
 import { resolveKeys } from "./imageStore";
 import { usernameOf } from "./usernames";
 import { ledgerOf, totals } from "./xp";
@@ -28,7 +29,7 @@ import { indexTrades, tradesOf } from "./trades";
 const CACHE_MS = 15_000;
 const FILLS_CAP = 2000;
 const MAX_COINS = 120;
-const g = globalThis as unknown as { __dscHome?: { at: number; v: HomeData }; __dscHomeP?: Promise<HomeData> | null; __dscBoard?: { at: number; v: PilotBoard }; __dscPositions?: { at: number; v: PositionBoard } };
+const g = globalThis as unknown as { __dscHome?: { at: number; v: HomeData }; __dscHomeP?: Promise<HomeData> | null; __dscBoard?: { at: number; v: PilotBoard }; __dscPositions?: { at: number; v: PositionBoard }; __dscRocketSp?: { at: number; season: string; v: Record<string, number> } };
 
 const timeout = <T,>(p: Promise<T>, ms: number, fallback: T) =>
   Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
@@ -105,6 +106,8 @@ async function build(): Promise<HomeData> {
   // the full /leaderboard (lib/server/leaderboard) ranks from the same fills; kept server side, not in HomeData
   g.__dscBoard = { at: now, v: pilotBoard(fillsBy, now, opts) };
   g.__dscPositions = { at: now, v: positionBoard(fillsBy, now, opts) };
+  const season = seasonAt(now);
+  g.__dscRocketSp = { at: now, season: season.id, v: rocketSeasonSp(fillsBy, now, season.startsAt, season.endsAt, opts) };
   const ticker = tickerOf(fillsBy, new Map(coins.map((c) => [c.token, c.name])));
   await timeout(namePilots(pilots, ticker, calls), 2_500, undefined);
   return { at: now, coins, ...pick, chips, pilots, bestCalls: calls, ticker };
@@ -138,6 +141,13 @@ export async function getPilotBoard(budgetMs = 9_000): Promise<PilotBoard | null
 export async function getPositionBoard(budgetMs = 9_000): Promise<PositionBoard | null> {
   await getHomeData(budgetMs);
   return g.__dscPositions?.v ?? null;
+}
+
+/** This season's Rockets SP per wallet (lib/season/points), from the last home build; {} before the first. */
+export async function getRocketSeasonSp(budgetMs = 9_000): Promise<Record<string, number>> {
+  await getHomeData(budgetMs);
+  const c = g.__dscRocketSp;
+  return c && c.season === seasonAt(Date.now()).id ? c.v : {};
 }
 
 /** Home data, cached CACHE_MS; never throws (empty state on failure). */
