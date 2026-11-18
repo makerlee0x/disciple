@@ -1,5 +1,5 @@
 /** loads public/turbo/duel/engine.js (window.DuelEngine) once; the Trading Duel and Climb both mount it */
-export const ENGINE_SRC = "/turbo/duel/engine.js?v=58";
+export const ENGINE_SRC = "/turbo/duel/engine.js?v=60";
 
 export function loadDuelEngine(): Promise<void> {
   const w = window as unknown as { DuelEngine?: unknown };
