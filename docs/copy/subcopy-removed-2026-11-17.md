@@ -263,3 +263,11 @@ Before → after (restore by swapping back):
 - Crews empty: "No crews on the board yet" + "Join a crew and fly together. Crews rank by orbits aboard, then green rockets." → "No crews yet" + button.
 - How to play (content/how-it-works.ts): eyebrows "How to play" / "The rules" removed; Pilot sub "Seats cost real cash. Cash out for more than you paid in, and you win." → "Seats cost real cash."; Pro sub removed; legend, rules cards, mode tags, host line, Ready up sub shortened (old strings in git history of that file at 0482960).
 - Hover titles (PnlHud, TradeBridge, WalletButton, GameRadio, HudModeToggle, FlightCanvas, SettingsMenu, SwapSettingsModal, FirstBoostField, OneTapSlippagePicker, quickLaunch firstBoostTip) shortened; "Trade settings" menu sub "amounts, price protection" removed.
+
+## 2026-11-18 follow-up: Daily flight pre-launch (`web/components/sim/DailyPreflight.tsx`)
+
+Removed (restore by adding back):
+- Hero sub under "Same chart. Everyone apes it.": `One shot. Best cash-out takes the board.` (the `1 shot` pill says it).
+- Board empty: `Empty. Go take #1.` → `No runs yet`. Board loading: `Loading the board…` → pulse bar.
+- Board note, signed in: `You're signed in. Your score counts.` → nothing. Signed out: `Sign in to make the board. You can do it after you land.` → `Sign in to make the board.`
+- Under LAUNCH: `Fake money. Only your first run counts.` (the `$250 fake cash` and `1 shot` pills say it).

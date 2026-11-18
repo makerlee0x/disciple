@@ -79,7 +79,6 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
 
       <div className={s.hero}>
         <h1 className={s.h}>Same chart.<br />Everyone apes it.</h1>
-        <p className={s.p}>One shot. Best cash-out takes the board.</p>
         <div className={s.facts}>
           <span><b>{Math.round(dailyRealSeconds())} sec</b></span><span><b>$250</b>fake cash</span><span><b>1</b>shot</span>
         </div>
@@ -90,8 +89,8 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
           <div className={s.bHead}><span className={s.bT}>TODAY&apos;S BOARD</span><span className={s.bMeta}>{pilots}</span></div>
           {board && board.top.length ? board.top.map((r, i) => (
             <div key={r.runId} className={s.row}><span><b className={`${s.rank} ${i === 0 ? s.rank1 : ""}`}>{i + 1}</b>{r.name}</span><span className={s.mult}>{fmtMultiple(r.multiple)}</span></div>
-          )) : <div className={s.empty}>{board ? "Empty. Go take #1." : "Loading the board…"}</div>}
-          <span className={s.note}>{pilot ? "You're signed in. Your score counts." : "Sign in to make the board. You can do it after you land."}</span>
+          )) : <div className={s.empty}>{board ? "No runs yet" : <span className={s.skel} role="status" aria-label="Loading the board" />}</div>}
+          {!pilot && <span className={s.note}>Sign in to make the board.</span>}
         </section>
         <section className={s.ctl} aria-label="Controls">
           <span className={s.bT}>CONTROLS</span>
@@ -109,7 +108,6 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
       <div className={s.foot}>
         {msg && <p className={s.err} role="status" data-testid="daily-pre-msg">{msg}</p>}
         <button type="button" className={s.go} data-testid="daily-launch" onClick={launch} disabled={busy || counting}>{busy ? "LOADING…" : counting ? "LAUNCHING" : "LAUNCH"}</button>
-        <span className={s.fine}>Fake money. Only your first run counts.</span>
       </div>
       <CountOverlay n={cd.n} />
     </div>

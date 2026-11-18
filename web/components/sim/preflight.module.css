@@ -18,7 +18,6 @@
 .chip { justify-self: end; padding: 6px 12px; border-radius: 999px; background: rgba(18,19,39,.7); border: 1px solid rgba(255,255,255,.22); font: 700 14px var(--dsc-font-game); letter-spacing: .5px; color: #F3DFA8; white-space: nowrap; }
 .hero { display: flex; flex-direction: column; gap: 10px; padding-top: 6vh; }
 .h { margin: 0; font: 800 64px/.92 var(--dsc-font-game); }
-.p { margin: 0; max-width: 560px; font-size: 15px; line-height: 1.5; color: rgba(215,217,228,.92); }
 .facts { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
 .facts span { display: inline-flex; align-items: baseline; gap: 6px; padding: 8px 14px; border-radius: 12px; background: rgba(18,19,39,.78); border: 1px solid #2E323A; font-size: 13px; color: #D7D9E4; }
 .facts b { font: 800 22px var(--dsc-font-game); color: #F2F3F7; }
@@ -33,6 +32,8 @@
 .rank1 { color: #F2C14E; }
 .mult { font: 700 18px var(--dsc-font-game); color: #5FF0A0; }
 .empty { font-size: 14px; color: #D7D9E4; line-height: 1.45; }
+.skel { display: block; height: 14px; width: 60%; border-radius: 7px; background: rgba(215,217,228,.12); animation: skel 1.2s ease-in-out infinite alternate; }
+@keyframes skel { from { opacity: .45; } to { opacity: 1; } }
 .note { margin-top: 4px; font-size: 12px; color: rgba(215,217,228,.75); }
 .keys { display: grid; gap: 8px; margin-top: 2px; }
 .keys > div { display: flex; align-items: center; gap: 6px; font-size: 14px; color: #D7D9E4; }
@@ -48,14 +49,13 @@
 .go:disabled { opacity: .7; cursor: default; }
 .go:focus-visible, .back:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
 .err { margin: 0; font-size: 13px; color: #FFB48F; text-align: center; }
-.fine { font-size: 12px; color: rgba(215,217,228,.7); text-align: center; }
 
 /* the 3 · 2 · 1 · GO count (the duel's .count, popped in) */
 .count { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; pointer-events: none; background: radial-gradient(closest-side, rgba(7,8,12,.55), rgba(7,8,12,0)); }
 .count b { font: 800 160px/1 var(--dsc-font-game); color: #F2F3F7; text-shadow: 0 6px 30px rgba(0,0,0,.6); animation: pop .32s cubic-bezier(.2,1.4,.4,1); }
 .count b.countGo { color: #F2C14E; }
 @keyframes pop { 0% { transform: scale(.55); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .count b { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .count b, .skel { animation: none; } }
 
 @media (max-width: 760px) {
   .pre { gap: 16px; }
@@ -63,7 +63,6 @@
   .chip { font-size: 12px; padding: 5px 9px; }
   .hero { padding-top: 18vh; }
   .h { font-size: 44px; }
-  .p { font-size: 14px; }
   .facts b { font-size: 19px; }
   .cols { grid-template-columns: 1fr; }
   .ctl .keys { display: none; }
