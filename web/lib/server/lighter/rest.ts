@@ -25,7 +25,7 @@ export interface MarketDetail {
   size_decimals: number; price_decimals: number;
   min_base_amount: string; min_quote_amount: string;
   last_trade_price: number; mark_price?: string;
-  min_initial_margin_fraction: number; taker_fee: string;
+  min_initial_margin_fraction: number; taker_fee: string; market_type?: string;
 }
 export interface LighterPosition { market_id: number; symbol: string; sign: number; position: string; avg_entry_price: string; unrealized_pnl: string; liquidation_price: string; allocated_margin: string }
 export interface LighterAccount { index: number; account_type: number; collateral: string; available_balance: string; positions: LighterPosition[]; approved_integrators?: unknown[] }
@@ -38,7 +38,8 @@ export async function markets(cfg: LighterConfig): Promise<MarketDetail[]> {
   return marketsCache.rows;
 }
 export async function marketBySymbol(cfg: LighterConfig, symbol: string): Promise<MarketDetail> {
-  const m = (await markets(cfg)).find((x) => x.symbol === symbol);
+  const rows = await markets(cfg);
+  const m = rows.find((x) => x.symbol === symbol && (x.market_type ?? "perp") === "perp") ?? rows.find((x) => x.symbol === symbol);
   if (!m) throw new LighterError(404, `No ${symbol} market on Lighter ${cfg.network}.`);
   return m;
 }
@@ -85,6 +86,12 @@ export async function account(cfg: LighterConfig, index: number): Promise<Lighte
 }
 export async function nextNonce(cfg: LighterConfig, accountIndex: number, apiKeyIndex: number): Promise<number> {
   return (await get<Resp & { nonce: number }>(cfg, "/api/v1/nextNonce", { account_index: accountIndex, api_key_index: apiKeyIndex })).nonce;
+}
+/** What Lighter did with a sent tx, ~1.5 s later (for the test page). Raw and trimmed; never throws. */
+export async function txStatus(cfg: LighterConfig, hash: string): Promise<string> {
+  await new Promise((ok) => setTimeout(ok, 1500));
+  try { return JSON.stringify(await get<Resp>(cfg, "/api/v1/tx", { by: "hash", value: hash })).slice(0, 400); }
+  catch (e) { return `tx lookup: ${(e as Error).message}`.slice(0, 200); }
 }
 export async function sendTx(cfg: LighterConfig, txType: number, txInfo: string): Promise<string> {
   return (await form<Resp & { tx_hash: string }>(cfg, "/api/v1/sendTx", { tx_type: txType, tx_info: txInfo })).tx_hash;

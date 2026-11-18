@@ -77,7 +77,7 @@ export default function LighterTest() {
         <button className={btn} disabled={busy || step !== "ready"} onClick={() => void run(`short ${market} $${usd}`, () => lighterOpen(f, market, "short", usd))}>Short</button>
         <button className={btn} disabled={busy || step !== "ready"} onClick={() => void run(`close ${market}`, () => lighterClose(f, market))}>Close</button>
       </div>
-      <pre className="whitespace-pre-wrap rounded-lg border border-white/15 p-3 text-xs">{log.join("\n") || "—"}</pre>
+      <pre className="whitespace-pre-wrap break-all rounded-lg border border-white/15 p-3 text-xs">{log.join("\n") || "—"}</pre>
     </main>
   );
 }
