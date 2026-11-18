@@ -19,6 +19,7 @@ import type { PlayerInput, SimEvent } from "@/lib/sim/run";
 import { dailyToday, fmtMultiple, DAILY, DAILY_BUY_PCTS } from "@/lib/sim/daily";
 import { claimFreePlayXp, saveDaily, savedDaily, startDaily, submitDaily, type DailyVerdict, type FreePlayXpResult } from "@/lib/sim/dailyClient";
 import { usePilotWallet, XP_CHANGED_EVENT } from "@/lib/xpClient";
+import { FREE_PLAY_XP } from "@/lib/xp";
 import DailyResult from "@/components/sim/DailyResult";
 import RocketClear from "@/components/sim/RocketClear";
 import DailyPreflight, { CountOverlay, useCountdown } from "@/components/sim/DailyPreflight";
@@ -219,6 +220,8 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
       )}
       {phase === "run" && run && (
         <FreePlayStrip mode={dailyRun ? `DAILY #${dailyId}` : "PRACTICE"} left={clock(Math.max(0, minutes * 60 - run.t) / (dailyRun ? DAILY.speed : 1))} difficulty={difficulty} goals={scoreRun(run).goals} alert={alert} phone={phone}
+          rank={(() => { const lb = run.leaderboard(), k = lb.findIndex((r) => r.arch === "you"); return k >= 0 ? { k: k + 1, of: lb.length } : null; })()}
+          xp={dailyRun ? FREE_PLAY_XP.daily : undefined}
           tune={tuneOpen && !dailyRun ? <>
             {SPEEDS.map((s) => <button key={s} type="button" data-testid={`sim-speed-${s}`} aria-pressed={speed === s} onClick={() => setSpeed(s)}>{s}×</button>)}
             <button type="button" aria-pressed={paused} onClick={() => setPaused((p) => !p)}>{paused ? "▶" : "⏸"}</button>

@@ -263,3 +263,37 @@ Before → after (restore by swapping back):
 - Crews empty: "No crews on the board yet" + "Join a crew and fly together. Crews rank by orbits aboard, then green rockets." → "No crews yet" + button.
 - How to play (content/how-it-works.ts): eyebrows "How to play" / "The rules" removed; Pilot sub "Seats cost real cash. Cash out for more than you paid in, and you win." → "Seats cost real cash."; Pro sub removed; legend, rules cards, mode tags, host line, Ready up sub shortened (old strings in git history of that file at 0482960).
 - Hover titles (PnlHud, TradeBridge, WalletButton, GameRadio, HudModeToggle, FlightCanvas, SettingsMenu, SwapSettingsModal, FirstBoostField, OneTapSlippagePicker, quickLaunch firstBoostTip) shortened; "Trade settings" menu sub "amounts, price protection" removed.
+
+## 2026-11-18 follow-up: Daily flight pre-launch (`web/components/sim/DailyPreflight.tsx`)
+
+Removed (restore by adding back):
+- Hero sub under "Same chart. Everyone apes it.": `One shot. Best cash-out takes the board.` (the `1 shot` pill says it).
+- Board empty: `Empty. Go take #1.` → `No runs yet`. Board loading: `Loading the board…` → pulse bar.
+- Board note, signed in: `You're signed in. Your score counts.` → nothing. Signed out: `Sign in to make the board. You can do it after you land.` → `Sign in to make the board.`
+- Under LAUNCH: `Fake money. Only your first run counts.` (the `$250 fake cash` and `1 shot` pills say it).
+- Hero heading on both the pre-launch and the hub: `Same chart.` → `Same sky.` (maker: no "chart"). `$250 fake cash` pill → `$250` (the FREE PLAY tag says it). Top bar `DAILY FLIGHT #n` → `DAILY MISSION #n`.
+
+### Daily result (`web/components/sim/DailyResult.tsx`)
+- Story line under the chart (`Peak came 25s after you left. Asteroid dumped.` / `Sold the top.` / `Held to the end.` …): removed from view, still the chart's aria-label.
+- Legend `Boarded $5.0K` / `You out 1.1×` / `Never boarded` / `No exit` → `In $5.0K` / `Out 1.1×` / `–` / `Held`.
+- XP card sub `1,490 XP to Needle Walnut & Brass skin` removed (cap note, errors and "Sign in to keep it" stay).
+- Header + share text `Daily flight #n` → `Daily mission #n`.
+
+### Daily hub (`web/components/sim/FreePlay.tsx`)
+- Title `FREE PLAY` → `DAILY MISSION`; sub `Fake cash. One chart a day.` removed.
+- Tags `SAME CHART FOR EVERYONE` / `NEW FLIGHT IN …` → `#n` / `FREE PLAY` / `NEW IN …`. Kicker `DAILY FLIGHT #n` removed.
+- Hero sub `You cashed out at 1.1×. New chart at midnight UTC.` / `One shot a day. Best cash-out takes the board.` removed.
+- `1 pilot so far` next to the button removed (board header shows the count).
+- Board: `Empty. Go take #1.` → `No runs yet`, `Loading the board…` → pulse, `Resets midnight UTC.` removed, signed-out note → `Sign in to make the board.`; phone `Nobody's flown it yet` → `No runs yet`.
+- Footer `Fake money. Nothing here touches your wallet.` removed.
+
+### 2026-11-18 playtest round 2 (Daily mission)
+- Result hero: `1.1×` big + `+$311 practice cash` → `+$311` big + `1.1×` small. Share text leads with the $ PnL.
+- Result LOBBY moved from the bottom row to the top-left; X moved to the top-right.
+- Trade bar: `BOOST $0.01` with nothing left → `ALL IN` (disabled).
+
+### 2026-11-18 hub round 3 (maker's copy)
+- Hub hero: `Same sky. Everyone apes it.` → `Same chart. Same $250.` + `Who can make the most?` (maker's own words). Tags `#n` / `FREE PLAY` / `NEW IN …` → `FREE PLAY` / `SIMULATOR`, with `NEW IN …` moved to the card's bottom right.
+- `SEE YOUR RESULT` button removed (your place and PnL are pinned on the board).
+- Signed-out `Sign in to make the board.` removed from the hub and pre-launch.
+- Boards (hub, pre-launch, result) use the Top pilots design: pinned Your rank + PnL, medal ranks, faces, $ PnL.

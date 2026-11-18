@@ -6,9 +6,9 @@
  * 3 · 2 · 1 · GO before the market starts. There is no difficulty: one market, the same for everyone.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { dailyEndsAt, dailyRealSeconds, fmtMultiple } from "@/lib/sim/daily";
-import { usePilotWallet } from "@/lib/xpClient";
+import { dailyEndsAt, dailyRealSeconds } from "@/lib/sim/daily";
 import { fetchDailyBoard, type Board } from "./FreePlay";
+import DailyBoardCard from "./DailyBoardCard";
 import s from "./preflight.module.css";
 
 const untilText = (ms: number) => { const m = Math.max(0, Math.floor(ms / 60000)); return `${Math.floor(m / 60)}h ${m % 60}m`; };
@@ -52,7 +52,6 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [counting, setCounting] = useState(false);
-  const pilot = usePilotWallet();
   const cd = useCountdown(onGo);
   useEffect(() => {
     const load = () => fetchDailyBoard(dailyId).then(setBoard); load();
@@ -64,35 +63,27 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
     const ok = await onLaunch(); setBusy(false);
     if (ok) { setCounting(true); cd.run(); }
   };
-  const pilots = board && board.count > 0 ? `${board.count.toLocaleString("en-US")} pilot${board.count === 1 ? "" : "s"}` : "";
 
   return (
     <div className={s.pre} data-testid="daily-pre">
       <div className={s.bg} aria-hidden />
       <header className={s.top}>
-        <button type="button" className={s.back} onClick={() => { cd.cancel(); onBack(); }} disabled={counting} aria-label="Back to Free play">
+        <button type="button" className={s.back} onClick={() => { cd.cancel(); onBack(); }} disabled={counting} aria-label="Back">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 5l-7 7 7 7" /></svg>BACK
         </button>
-        <div className={s.title}>DAILY FLIGHT #{dailyId}</div>
+        <div className={s.title}>DAILY MISSION #{dailyId}</div>
         <span className={s.chip}>New in {untilText(dailyEndsAt(dailyId) - now)}</span>
       </header>
 
       <div className={s.hero}>
-        <h1 className={s.h}>Same chart.<br />Everyone apes it.</h1>
-        <p className={s.p}>One shot. Best cash-out takes the board.</p>
+        <h1 className={s.h}>Same sky.<br />Everyone apes it.</h1>
         <div className={s.facts}>
-          <span><b>{Math.round(dailyRealSeconds())} sec</b></span><span><b>$250</b>fake cash</span><span><b>1</b>shot</span>
+          <span><b>{Math.round(dailyRealSeconds())} sec</b></span><span><b>$250</b></span><span><b>1</b>shot</span>
         </div>
       </div>
 
       <div className={s.cols}>
-        <section className={s.board} aria-label="Today's board" data-testid="daily-pre-board">
-          <div className={s.bHead}><span className={s.bT}>TODAY&apos;S BOARD</span><span className={s.bMeta}>{pilots}</span></div>
-          {board && board.top.length ? board.top.map((r, i) => (
-            <div key={r.runId} className={s.row}><span><b className={`${s.rank} ${i === 0 ? s.rank1 : ""}`}>{i + 1}</b>{r.name}</span><span className={s.mult}>{fmtMultiple(r.multiple)}</span></div>
-          )) : <div className={s.empty}>{board ? "Empty. Go take #1." : "Loading the board…"}</div>}
-          <span className={s.note}>{pilot ? "You're signed in. Your score counts." : "Sign in to make the board. You can do it after you land."}</span>
-        </section>
+        <DailyBoardCard rows={board ? board.top : null} count={board?.count ?? 0} testId="daily-pre-board" />
         <section className={s.ctl} aria-label="Controls">
           <span className={s.bT}>CONTROLS</span>
           <div className={s.keys}>
@@ -109,7 +100,6 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
       <div className={s.foot}>
         {msg && <p className={s.err} role="status" data-testid="daily-pre-msg">{msg}</p>}
         <button type="button" className={s.go} data-testid="daily-launch" onClick={launch} disabled={busy || counting}>{busy ? "LOADING…" : counting ? "LAUNCHING" : "LAUNCH"}</button>
-        <span className={s.fine}>Fake money. Only your first run counts.</span>
       </div>
       <CountOverlay n={cd.n} />
     </div>

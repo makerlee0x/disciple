@@ -28,7 +28,7 @@ const runState = (page: Page) => page.evaluate(() => {
 test("the Free play hub shows today's daily and its board, with no practice levels", async ({ page }) => {
   await page.goto("/flight/sim");
   const hub = page.getByTestId("sim-select");
-  await expect(hub.getByRole("heading", { name: "FREE PLAY" })).toBeVisible();
+  await expect(hub.getByRole("heading", { name: "DAILY MISSION" })).toBeVisible();
   await expect(hub.getByTestId("sim-daily")).toHaveText("FLY TODAY'S FLIGHT");
   // practice was removed (maker 2026-11-16): the daily is the whole mode
   for (const d of ["pve", "pvp", "trench"]) await expect(hub.getByTestId(`sim-diff-${d}`)).toHaveCount(0);
@@ -123,7 +123,7 @@ test("Daily flight: fly it, get scored by the server, and see the same result ne
   await expect(rank).toBeVisible({ timeout: 20_000 });
   await expect(rank).toHaveText(/Would place #\d+ of \d+ today/);
   await expect(res.getByTestId("daily-rank-error")).toHaveCount(0);
-  await expect(res.getByTestId("daily-multiple")).toHaveText(/\d+(\.\d+)?×/);
+  await expect(res.getByTestId("daily-pnl")).toHaveText(/^[+−]\$[\d,]+$/);
   await expect(res.getByTestId("daily-result-board")).toBeVisible();
 
   // one scored run per device a day: the hub now offers the result, not a second flight

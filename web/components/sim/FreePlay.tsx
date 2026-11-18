@@ -9,7 +9,7 @@ import Link from "next/link";
 import type { DifficultyId } from "@/lib/sim/config";
 import { dailyEndsAt, fmtMultiple, type DailyScore } from "@/lib/sim/daily";
 import { refreshRank, savedDaily } from "@/lib/sim/dailyClient";
-import { usePilotWallet } from "@/lib/xpClient";
+import DailyBoardCard from "@/components/sim/DailyBoardCard";
 import s from "./freePlay.module.css";
 
 export const FP_DIFFS: { id: DifficultyId; label: string; c: string; c2?: string; n: number; desk: string; phone: string }[] = [
@@ -34,9 +34,9 @@ export function dailyStreak(today: number): number {
   return n;
 }
 
-const Flame = ({ size = 18 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#F2C14E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 3c1 4 5 5 5 10a5 5 0 0 1-10 0c0-3 2-4 2-7 2 1 3 2 3 4" /></svg>;
+const Flame = ({ size = 18 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden><defs><linearGradient id="fpFlame" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stopColor="#FF7A3D" /><stop offset="1" stopColor="#F2C14E" /></linearGradient></defs><path d="M12 2.5c1.2 3.6 5.5 5.4 5.5 10.6A5.5 5.5 0 0 1 6.5 13c0-3 1.8-4.4 2.2-7.2 1.9 1 3 2.6 3.1 4.6.9-1.6 1-4.6.2-7.9z" fill="url(#fpFlame)" /><path d="M12 21a2.6 2.6 0 0 1-2.6-2.6c0-1.9 1.6-2.6 2.1-4.4 1.6 1.2 3.1 2.4 3.1 4.4A2.6 2.6 0 0 1 12 21z" fill="#FFF1C9" /></svg>;
 
-export type Board = { count: number; top: { runId: string; name: string; multiple: number }[] } | null;
+export type Board = { count: number; top: { runId: string; name: string; multiple: number; pnl: number }[] } | null;
 /** today's board (GET /api/daily): the top 10 and how many pilots are on it */
 export const fetchDailyBoard = (id: number): Promise<NonNullable<Board>> =>
   fetch(`/api/daily?id=${id}`).then((r) => (r.ok ? r.json() : null)).then((j) => (j && Array.isArray(j.top) ? { count: j.count ?? 0, top: j.top } : { count: 0, top: [] })).catch(() => ({ count: 0, top: [] }));
@@ -47,31 +47,29 @@ export function FreePlayHub({ dailyId, msg, onDaily, tune }: {
 }) {
   const [board, setBoard] = useState<Board>(null);
   const [streak, setStreak] = useState(0);
-  const [mine, setMine] = useState<{ multiple: number; rank: number; boarded: boolean } | null>(null);
-  const wallet = usePilotWallet();
+  const [mine, setMine] = useState<{ pnl: number; rank: number; boarded: boolean } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     setStreak(dailyStreak(dailyId));
     const v = savedDaily(dailyId)?.verdict;
-    if (v) { setMine({ multiple: v.score.multiple, rank: v.rank, boarded: !!v.boarded });
+    if (v) { setMine({ pnl: v.score.pnl, rank: v.rank, boarded: !!v.boarded });
       // the rank moves as more pilots finish, and a run is boarded once its pilot saves it: read both fresh
-      void refreshRank(dailyId, v.runId).then((r) => { if (r) setMine({ multiple: v.score.multiple, rank: r.rank, boarded: r.boarded }); }); }
+      void refreshRank(dailyId, v.runId).then((r) => { if (r) setMine({ pnl: v.score.pnl, rank: r.rank, boarded: r.boarded }); }); }
     const load = () => fetchDailyBoard(dailyId).then(setBoard);
     load();
     let n = 0; const iv = setInterval(() => { setNow(Date.now()); if (++n % 4 === 0 && !document.hidden) load(); }, 30_000); return () => clearInterval(iv);   // board every 2 min, only while visible (KV request budget)
   }, [dailyId]);
   // the old-design sweep hides the app chrome (sidebar, wallet pills) while Free play's own screens are up
   useEffect(() => { document.body.classList.add("fp-hub"); return () => document.body.classList.remove("fp-hub"); }, []);
-  const best = board?.top[0];
-  const pilots = board && board.count > 0 ? `${board.count.toLocaleString("en-US")} pilot${board.count === 1 ? "" : "s"}` : "";
+  const myRunId = savedDaily(dailyId)?.verdict?.runId ?? null;
 
   return (
     <div className={s.hub} data-testid="sim-select">
       <div className={s.wrap}>
         <div className={s.head}>
-          <Link href="/" className={s.back} aria-label="Back to the lobby"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 5l-7 7 7 7" /></svg></Link>
-          <div className={s.titleBox}><h1 className={s.title}>FREE PLAY</h1><span className={s.sub}>Fake cash. One chart a day.</span></div>
-          {streak > 0 ? <span className={s.streak} data-testid="fp-streak"><Flame />{streak}-day streak</span> : <span style={{ width: 44 }} aria-hidden />}
+          <Link href="/" className={s.back} aria-label="Back to the lobby"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 5l-7 7 7 7" /></svg><span className={s.backT}>BACK</span></Link>
+          <div className={s.titleBox}><h1 className={s.title}>DAILY MISSION</h1></div>
+          {streak > 0 ? <span className={s.streak} data-testid="fp-streak" aria-label={`${streak}-day streak`}><span className={s.streakIcon}><Flame size={16} /></span><b className={s.streakN}>{streak}</b><span className={s.streakL}>DAY<br />STREAK</span></span> : <span style={{ width: 44 }} aria-hidden />}
         </div>
 
         <div className={s.top}>
@@ -79,34 +77,23 @@ export function FreePlayHub({ dailyId, msg, onDaily, tune }: {
             <div className={s.dailyArt} aria-hidden />
             <div className={s.dailyShade} aria-hidden />
             <div className={s.dailyBody}>
-              <div className={s.tags}><span className={s.tag}>SAME CHART FOR EVERYONE</span><span className={s.tag}>NEW FLIGHT IN {untilText(dailyEndsAt(dailyId) - now)}</span></div>
+              <div className={s.tags}><span className={s.tag}>FREE PLAY</span><span className={s.tag}>SIMULATOR</span></div>
               <div>
-                <span className={s.kicker}>DAILY FLIGHT #{dailyId}</span>
-                <div className={s.dailyH}>Same chart.<br />Everyone apes it.</div>
-                <p className={s.dailyP}>{mine ? `You cashed out at ${fmtMultiple(mine.multiple)}. New chart at midnight UTC.` : "One shot a day. Best cash-out takes the board."}</p>
+                <div className={s.dailyH}>Same chart.<br />Same $250.</div>
+                <p className={s.dailyQ}>Who can make the most?</p>
               </div>
-              <div className={s.phoneMeta}><span>{best ? <>Best today <b style={{ color: "#5FF0A0", fontWeight: 600 }}>{fmtMultiple(best.multiple)}</b> by {best.name}</> : "Nobody\u2019s flown it yet"}</span><span>{pilots}</span></div>
-              <div className={s.ctaRow}>
-                <button type="button" className={s.cta} data-testid="sim-daily" onClick={onDaily}>{mine ? "SEE YOUR RESULT" : "FLY TODAY'S FLIGHT"}</button>
-                {pilots && <span className={`${s.meta} ${s.desk}`}>{pilots} so far</span>}
-              </div>
+              {!mine && <div className={s.ctaRow}>
+                <button type="button" className={s.cta} data-testid="sim-daily" onClick={onDaily}>FLY TODAY&apos;S FLIGHT</button>
+              </div>}
               {msg && <span className={s.msg} data-testid="sim-daily-msg">{msg}</span>}
             </div>
+            <span className={`${s.tag} ${s.newIn}`}>NEW IN {untilText(dailyEndsAt(dailyId) - now)}</span>
           </section>
 
-          <aside className={s.board} aria-label="Today's board">
-            <div className={s.boardHead}><span className={s.boardT}>TODAY&apos;S BOARD</span><span className={s.meta}>{pilots || `Daily #${dailyId}`}</span></div>
-            {board && board.top.length ? board.top.slice(0, 5).map((r, i) => (
-              <div key={r.runId} className={s.row}><span><b className={`${s.rank} ${i === 0 ? s.rank1 : ""}`}>{i + 1}</b>{r.name}</span><span className={s.mult}>{fmtMultiple(r.multiple)}</span></div>
-            )) : <div className={s.empty}>{board ? "Empty. Go take #1." : "Loading the board…"}</div>}
-            <div className={s.rule} />
-            <div className={s.row} style={{ color: "#D7D9E4" }}><span>{mine ? `You · #${mine.rank}` : "You · not flown yet"}</span><span className={s.mult} style={{ color: mine ? "#5FF0A0" : "#D7D9E4" }}>{mine ? fmtMultiple(mine.multiple) : "–"}</span></div>
-            <span className={s.boardNote}>{wallet || mine?.boarded ? "Resets midnight UTC." : "Sign in to make the board. Resets midnight UTC."}</span>
-          </aside>
+          <DailyBoardCard rows={board ? board.top : null} count={board?.count ?? 0} me={mine ? { rank: mine.rank, pnl: mine.pnl } : null} meId={myRunId} max={5} testId="daily-hub-board" />
         </div>
 
         {tune}
-        <div className={s.foot}>Fake money. Nothing here touches your wallet.</div>
       </div>
     </div>
   );
@@ -119,8 +106,12 @@ const GOALS: { k: keyof DailyScore["goals"]; label: string }[] = [{ k: "green", 
 
 export type StripAlert = { text: string; good?: boolean } | null;
 /** the run layer: mode, time left and the three goals; one alert line for a tell or a big moment */
-export function FreePlayStrip({ mode, left, difficulty, goals, alert, phone, tune }: {
+export function FreePlayStrip({ mode, left, difficulty, goals, alert, phone, tune, rank, xp }: {
   mode: string; left: string; difficulty: DifficultyId; goals: DailyScore["goals"]; alert: StripAlert; phone: boolean; tune?: React.ReactNode;
+  /** your live place on this flight by $ PnL (maker 2026-11-18: "put your # position at the top") */
+  rank?: { k: number; of: number } | null;
+  /** XP each goal pays (daily), shown on the goal */
+  xp?: Partial<Record<keyof DailyScore["goals"], number>>;
 }) {
   const [open, setOpen] = useState(false);
   const d = fpDiff(difficulty), done = GOALS.filter((g) => goals[g.k]).length;
@@ -129,8 +120,8 @@ export function FreePlayStrip({ mode, left, difficulty, goals, alert, phone, tun
   // row from disciple:simclock and taps back with disciple:simgoals to open this panel; the chip stays as a fallback.
   useEffect(() => {
     if (!phone) return;
-    dispatchEvent(new CustomEvent("disciple:simclock", { detail: { mode, left, dots: dots.split(",").map((x) => x === "true") } }));
-  }, [phone, mode, left, dots]);
+    dispatchEvent(new CustomEvent("disciple:simclock", { detail: { mode, left, rank: rank ? rank.k : null, dots: dots.split(",").map((x) => x === "true") } }));
+  }, [phone, mode, left, dots, rank?.k]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!phone) return;
     const f = () => setOpen((o) => !o);
@@ -142,18 +133,21 @@ export function FreePlayStrip({ mode, left, difficulty, goals, alert, phone, tun
       <span style={{ color: "#F3DFA8" }}>{mode}</span><span>{left}</span><span className={s.chipDots} aria-hidden>{GOALS.map((g) => <i key={g.k} className={goals[g.k] ? "on" : ""} />)}</span>
     </button>
   );
-  return (
+  return (<>
+    {/* desktop: the game clock and your place, top centre (maker 2026-11-18) */}
+    {!phone && <div className={s.topClock} data-testid="sim-clock" aria-hidden>
+      {rank && <span className={s.topRank}>#{rank.k}<small>/{rank.of}</small></span>}<span className={s.topTime}>{left}</span></div>}
     <div className={s.strip} data-testid="sim-bar" role="status" aria-label={`${mode}, ${left} left`}>
       <div className={s.stripHead}>
-        <span className={s.stripMode}>{mode}</span><span className={s.stripClock}>{left}</span>
+        <span className={s.stripMode}>{mode}</span>{phone && <span className={s.stripClock}>{left}</span>}
         {!mode.startsWith("DAILY") && <span className={s.stripDiff} style={{ "--c": d.c } as React.CSSProperties}><i />{d.label}</span>}
         {phone && <button type="button" className={s.stripFold} data-testid="sim-chip-close" aria-label="Fold the goals" onClick={() => setOpen(false)}>▴</button>}
       </div>
-      <div className={s.goals}>{GOALS.map((g) => <span key={g.k} className={`${s.goal} ${goals[g.k] ? s.goalOn : ""}`}><Check on={goals[g.k]} />{g.label}</span>)}</div>
+      <div className={s.goals}>{GOALS.map((g) => <span key={g.k} className={`${s.goal} ${goals[g.k] ? s.goalOn : ""}`}><Check on={goals[g.k]} />{g.label}{xp?.[g.k] ? <b className={s.goalXp}>+{xp[g.k]} XP</b> : null}</span>)}</div>
       {alert && <div className={`${s.alert} ${alert.good ? s.alertGood : ""}`} data-testid="sim-alert">{alert.text}</div>}
       {tune && <div className={s.stripTune}>{tune}</div>}
     </div>
-  );
+  </>);
 }
 
 const money = (v: number) => (v < 0 ? "−$" : "+$") + Math.abs(v).toFixed(2);

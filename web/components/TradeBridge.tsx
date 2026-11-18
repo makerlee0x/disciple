@@ -209,7 +209,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
     const f = () => { const c = simCash(); setPctCash((x) => (x === c ? x : c)); };
     f(); const iv = setInterval(f, 250); return () => clearInterval(iv);
   }, [pctMode]);
-  const pctUsd = useMemo(() => (pctMode ? buyPcts!.map((p) => Math.max(0.01, pctBuyUsd(pctCash, p))) : null), [pctMode, buyPcts, pctCash]);
+  const pctUsd = useMemo(() => (pctMode ? buyPcts!.map((p) => (pctCash < 1 ? 0 : Math.max(0.01, pctBuyUsd(pctCash, p)))) : null), [pctMode, buyPcts, pctCash]);
   const pctUsdRef = useRef(pctUsd); pctUsdRef.current = pctUsd;
   // push overrides + tag state to the engine (again whenever it (re)announces ammo, i.e. after boot)
   const pushCfg = useRef(() => {});
@@ -717,7 +717,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
   const shoot = (side: "buy" | "sell", extra?: { usd?: number; frac?: number; all?: boolean }) =>
     (tradeClick(), window.dispatchEvent(new CustomEvent("disciple:shoot", { detail: { side, mode, ...(extra || (customUsd ? { usd: customUsd } : side === "buy" && pctMode ? { usd: pctShot(mode) } : {})) } })));
   // a % buy sized from the cash at the moment of the tap (the 250 ms poll can lag a fill)
-  const pctShot = (i: number) => Math.max(0.01, pctBuyUsd(simCash(), buyPcts![i]));
+  const pctShot = (i: number) => { const c = simCash(); return c < 1 ? 0 : Math.max(0.01, pctBuyUsd(c, buyPcts![i])); };   // under $1 left = all in (maker 2026-11-18: "it said .01 left")
   const presetUsd = (i: number) => pctUsd?.[i] ?? ammo.usd[i] ?? MODES[i].usd;
   const presetLabel = (i: number) => (pctMode ? pctBuyLabel(buyPcts![i]) : chipUsd(ammo.usd[i] ?? MODES[i].usd));
   // sell sizing. LIVE (Fix 4): frac of the smart account's REAL balanceOf × the real mark (the bridge re-reads balanceOf before
@@ -803,6 +803,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
   const btn: React.CSSProperties = { all: "unset", cursor: "pointer", padding: "8px 14px", borderRadius: 9, fontWeight: 800, fontSize: 13, letterSpacing: 0.5, textAlign: "center" };
   const autoUsd = DEFAULT_BUY.slice();
   const shotUsd = customUsd || presetUsd(mode);
+  const allIn = pctMode && !customUsd && shotUsd <= 0;   // Daily: the whole cash is in the bag
   const cashUsd = live ? liveCash : paperCash;
   // spendable = cash − Σ pending (spend + gas reserve) − this op's gas (live: the reservation registry; paper: the engine checks)
   const rawLive = live && CASH_RAW.v !== null;   // live: raw bigint compare (decimals from config); $ only for the label
@@ -873,7 +874,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
     <>
     <AmmoTierNotice />
     {alertStrip}
-    <PhoneThrottle buyLabel={pctMode && !customUsd ? presetLabel(mode) : chipUsd(shotUsd)} sellLabel={freePlay ? "HALF" : phoneDumpAll ? "ALL" : customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
+    <PhoneThrottle buyLabel={allIn ? "ALL IN" : pctMode && !customUsd ? presetLabel(mode) : chipUsd(shotUsd)} sellLabel={freePlay ? "HALF" : phoneDumpAll ? "ALL" : customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
       onBoost={() => shoot("buy")} onDump={() => dumpRef.current?.()}
       dumpAll={phoneDumpAll} dumpSub={has ? (phoneDumpUsd > 0 ? `≈ ${chipUsd(+phoneDumpUsd.toFixed(2))}` : "") : "no bag yet"}
       boostDisabled={short} dumpDisabled={!has} inFlightFull={full} boostTitle={boostTitle} dumpTitle={dumpTitle}
@@ -964,10 +965,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
           {!pro && <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}><span style={hudLabel}>Boost amount</span><span style={{ fontSize: 12, color: HUD.dim }}>{modeTag} {cashUsd != null ? `Cash ${fmtShot(Math.max(0, cashUsd))}` : ""}</span></div>}
           {!pro && <div role="radiogroup" aria-label="boost amount" style={{ display: "flex", gap: 5 }}>{boostChips}{customBuyInput}</div>}
           <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} {...hoverSide("buy")} title={boostTitle} aria-disabled={short || full} disabled={short} data-inflight={full ? "1" : "0"} onClick={() => shoot("buy")}
+            <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} {...hoverSide("buy")} title={boostTitle} aria-disabled={short || full || allIn} disabled={short || allIn} data-inflight={full ? "1" : "0"} onClick={() => shoot("buy")}
               style={{ all: "unset", flex: 1, minHeight: 56, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, whiteSpace: "nowrap", background: HUD.gold, color: HUD.ink,
-                font: `800 27px/1 ${HUD.game}`, letterSpacing: ".02em", opacity: short || full ? 0.45 : 1, cursor: short || full ? "not-allowed" : "pointer" }}>
-              {full ? COPY.inFlight : <>{t("tb.boost")} {fmtShot(shotUsd)}{cap("SPACE", true)}</>}</button>
+                font: `800 27px/1 ${HUD.game}`, letterSpacing: ".02em", opacity: short || full || allIn ? 0.45 : 1, cursor: short || full || allIn ? "not-allowed" : "pointer" }}>
+              {full ? COPY.inFlight : allIn ? "ALL IN" : <>{t("tb.boost")} {fmtShot(shotUsd)}{cap("SPACE", true)}</>}</button>
           </div>
         </div>
         <div aria-hidden="true" style={{ width: 1, background: HUD.border }} />
