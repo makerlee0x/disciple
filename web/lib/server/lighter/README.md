@@ -29,6 +29,10 @@ maker. Duel leverage is Lighter's max: 50x BTC/ETH, 25x SOL, 20x HYPE. Market or
 | `LIGHTER_INTEGRATOR_INDEX` | Disciple's own Lighter account index (fees land here) |
 | `LIGHTER_PARTNER_FEE_BP` | `0.05` (default) |
 
+## Testing
+Hidden page `/lighter` (not linked): sign in, then Set up, Long / Short / Close with timings. The env vars must be on the
+Preview environment too, for a PR preview. Disciple's testnet fee account is 577.
+
 ## Still open
 - Lighter tier name for Plus: assumed `plus` (`LIGHTER_TIER` overrides). Confirm on testnet.
 - Privy wallet must be a plain EOA for Lighter's L1 signature; a smart-account address won't work.
