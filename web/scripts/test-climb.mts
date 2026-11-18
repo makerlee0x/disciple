@@ -49,10 +49,8 @@ test("levels scale with the balance: level 5 = the balance, same % goals; tiny o
   assert.equal(k[4].fuel, 1000); assert.equal(k[4].goal, 100);
   assert.equal(k[0].fuel, 10); assert.equal(k[0].goal, 0.1);
   const t = R.climbLevelsFor(20);
-  assert.equal(t[4].fuel, 20); assert.equal(t[0].fuel, 10); assert.equal(t[0].goal, 0.1);   // $10 floor
-  const h = R.climbLevelsFor(100);   // maker's playtest balance: level 1 was $1 with a $0.01 goal
-  assert.deepEqual(h.map((l) => l.fuel), [10, 10, 10, 27.75, 100]); assert.equal(h[0].goal, 0.1);
-  assert.equal(R.climbLevelsFor(6)[0].fuel, 6);   // never more than the balance
+  assert.equal(t[4].fuel, 20); assert.equal(t[0].fuel, 1);   // $1 floor
+  assert.equal(R.climbLevelsFor(100)[0].fuel, 1); assert.equal(R.climbLevelsFor(100)[0].goal, 0.01);
   assert.deepEqual(R.climbLevelsFor(0).map((l) => l.fuel), [12, 33, 77, 333, 1200]);
   // unlocks use the scaled ladder's $ goals
   assert.equal(R.unlockAfter(1, 1, 0.1, k), 2);

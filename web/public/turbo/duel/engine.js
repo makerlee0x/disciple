@@ -134,7 +134,9 @@ function mount(root,host){
   const RM=matchMedia('(prefers-reduced-motion: reduce)').matches; let reduce=RM;
   const rnd=(a,b)=>a+Math.random()*(b-a);
   const gauss=()=>{let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);};
-  const usd=(v,s)=>{ if(!isFinite(v)||Math.abs(v)<.005) return "$0.00"; return (s&&v>0?"+":"")+(v<0?"\u2212":"")+"$"+Math.abs(v).toFixed(2); };   // no "\u2212$0.00"
+  const usd=(v,s)=>{ const a=Math.abs(v), sub=CLR&&a<.01;   // Climb's $1 levels move in fractions of a cent: show them ($0.004)
+    if(!isFinite(v)||a<(sub?.0005:.005)) return "$0.00";   // and never "\u2212$0.00"
+    return (s&&v>0?"+":"")+(v<0?"\u2212":"")+"$"+a.toFixed(sub?3:2); };
   const px=p=>p.toLocaleString("en-US",{minimumFractionDigits:1,maximumFractionDigits:1});
   const mmss=ms=>{const s=Math.max(0,Math.ceil(ms/1000));return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");};
 
