@@ -7,14 +7,14 @@
  *   Trading duel card → the duel lobby
  *   Flying now: a shelf of real rockets (Live window cards); the last card and See all open Live rockets (search + sort)
  *   Host a launch
- *   Practice: Turbo royale + Free play
+ *   Practice: Turbo royale (held for launch, ROYALE_ENABLED) + Free play
  * The Play tab in the app tab bar is this screen; tapping it again here opens Quick play (QUICK_PLAY_EVENT).
  * Every number is live (HomeData + the pilot's XP). Nothing here pays cash or tokens.
  */
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { withBase } from "@/lib/base-path";
-import { BOT_DUEL_HREF, DUEL_HREF } from "@/lib/features";
+import { BOT_DUEL_HREF, DUEL_HREF, ROYALE_ENABLED } from "@/lib/features";
 import type { HomeData } from "@/lib/home/trending";
 import { flyingNow } from "@/lib/home/appHome";
 import { dailyEndsAt, dailyToday } from "@/lib/sim/daily";
@@ -153,13 +153,13 @@ export default function AppHome({ initial }: { initial: HomeData }) {
 
       <section className={s.sec} aria-labelledby="app-practice">
         <h2 id="app-practice" className={s.secT}>Practice</h2>
-        <div className={s.prac}>
-          <Link href={ROYALE_HREF} className={s.tile} data-testid="app-royale">
+        <div className={ROYALE_ENABLED ? s.prac : `${s.prac} ${s.prac1}`}>
+          {ROYALE_ENABLED && <Link href={ROYALE_HREF} className={s.tile} data-testid="app-royale">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={withBase("/art/modes/last-pilot.webp")} alt="" loading="lazy" decoding="async" />
             <span className={s.tileTag} style={{ color: "#F2C14E" }}>Practice</span>
             <span className={s.tileTx}><b>Turbo royale</b></span>
-          </Link>
+          </Link>}
           <Link href={FREE_HREF} className={s.tile} data-testid="app-free">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={withBase("/art/modes/free.webp")} alt="" loading="lazy" decoding="async" />
@@ -178,7 +178,7 @@ export default function AppHome({ initial }: { initial: HomeData }) {
             </header>
             <div className={s.opts}>
               <Link href={DUEL_HREF} className={`${s.opt} ${s.optHot}`} onClick={close} data-testid="quick-duel"><Thumb src="/art/modes/duel.webp" /><span><b>Trading duel</b><span>Practice</span></span><Icon name="chevron-right" size={20} /></Link>
-              <Link href={ROYALE_HREF} className={s.opt} onClick={close} data-testid="quick-royale"><Thumb src="/art/modes/last-pilot.webp" /><span><b>Turbo royale</b><span>Practice</span></span><Icon name="chevron-right" size={20} /></Link>
+              {ROYALE_ENABLED && <Link href={ROYALE_HREF} className={s.opt} onClick={close} data-testid="quick-royale"><Thumb src="/art/modes/last-pilot.webp" /><span><b>Turbo royale</b><span>Practice</span></span><Icon name="chevron-right" size={20} /></Link>}
               <Link href={FREE_HREF} className={s.opt} onClick={close} data-testid="quick-free"><Thumb src="/art/modes/free.webp" /><span><b>Free play</b><span>Free</span></span><Icon name="chevron-right" size={20} /></Link>
               <button type="button" className={s.opt} onClick={() => setSheet("rockets")} data-testid="quick-coins"><Thumb src="/art/modes/live.webp" /><span><b>Real coins</b>{flying > 0 && <span><i className={s.dot} aria-hidden />{flying} flying</span>}</span><Icon name="chevron-right" size={20} /></button>
             </div>
