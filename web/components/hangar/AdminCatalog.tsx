@@ -38,6 +38,28 @@ export default function AdminCatalog({ configured = false }: { configured?: bool
   const [busy, setBusy] = useState(false);
   const [dates, setDates] = useState<Record<string, string>>({});
   const [json, setJson] = useState("");
+  const [grantTo, setGrantTo] = useState("maker");
+  /** tradable test copies for listing (maker 2026-11-18): a spread of rarities per kind, via /api/admin/market op grant */
+  const grantTest = async () => {
+    if (!data) return;
+    const order: Rarity[] = ["mythic", "legendary", "epic", "rare", "uncommon", "common"];
+    const pick = (kind: string, n: number) => {
+      const rows = data.items.filter((r) => r.kind === kind && !r.id.startsWith("tag-prestige") && r.out);
+      const out: string[] = [];
+      for (const rar of [...order].reverse()) { const r = rows.find((x) => x.rar === rar && !out.includes(x.id)); if (r) out.push(r.id); if (out.length >= n) break; }
+      return out;
+    };
+    const items = [...pick("skin", 4), ...pick("trail", 4), ...pick("tag", 3)];
+    setBusy(true); setErr(null); setMsg(null);
+    try {
+      const t = await privyAccessToken();
+      if (!t) throw new Error("Log in first.");
+      const r = await fetch(withBase("/api/admin/market"), { method: "POST", headers: { authorization: `Bearer ${t}`, "content-type": "application/json" }, body: JSON.stringify({ op: "grant", username: grantTo.trim(), items }), cache: "no-store" });
+      const j = (await r.json().catch(() => ({}))) as { copies?: { item: string }[]; skipped?: string[]; reason?: string };
+      if (!r.ok) throw new Error(j.reason || "Grant failed.");
+      setMsg(`Granted ${j.copies?.length ?? 0} items to @${grantTo.trim()}${j.skipped?.length ? ` (skipped ${j.skipped.join(", ")})` : ""}.`);
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
   const [nd, setNd] = useState({ name: "", series: "1", start: "", paints: [] as string[] });
   const [up, setUp] = useState({ name: "", url: "" });
 
@@ -132,6 +154,14 @@ export default function AdminCatalog({ configured = false }: { configured?: bool
               ))}
             </div>
             <button type="button" className="cl-btn sm primary" style={{ marginTop: 12 }} disabled={busy} onClick={saveDates}>Save dates</button>
+          </section>
+
+          <section className="cl-card" style={{ padding: 22 }} data-testid="cat-test-grant">
+            <h3 className="cl-display xs">Test items</h3>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+              <label>@<input value={grantTo} onChange={(e) => setGrantTo(e.target.value)} style={{ width: 140 }} /></label>
+              <button type="button" className="cl-btn sm primary" disabled={busy || !grantTo.trim()} onClick={grantTest}>Grant 4 skins · 4 trails · 3 tags</button>
+            </div>
           </section>
 
           <section className="cl-card" style={{ padding: 22 }} data-testid="cat-add-drop">

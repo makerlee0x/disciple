@@ -148,6 +148,20 @@ function mount(root,host){
     pro:{name:"@solwhale",fuel:50,sizes:[2,5,10,25,0],react:[450,900],cool:4000,thr:10,tp:.3,sl:-.25,noise:.03,stake:10,flip:.25,hold:[12000,26000],rate:6},
     shark:{name:"@rektproof",fuel:150,sizes:[5,10,25,50,0],react:[250,520],cool:3000,thr:6,tp:.6,sl:-.2,noise:0,stake:30,flip:.4,hold:[9000,20000],rate:8},
   };
+  /* Bot skill follows the pilot, not the fuel tier (maker 2026-11-18: "difficulty needs to scale with the user's rank").
+     The tier only sets fuel and trade sizes. Skill 0..1 = hidden rating (1000 -> 0, 1500 -> 1), new pilots (under 5 online
+     duels) start easy at .15, then each bot win nudges it up and each loss down (localStorage duel.botAdj, +-.35 max).
+     Behaviour blends the old rookie (0) -> pro (.5) -> shark (1) bots. */
+  const BOT_SKILL=[BOTS.rookie,BOTS.pro,BOTS.shark];
+  function botAdj(){ try{ const v=+localStorage.getItem("duel.botAdj"); return isFinite(v)?Math.max(-.35,Math.min(.35,v)):0; }catch(e){ return 0; } }
+  function botAdjBy(d){ try{ localStorage.setItem("duel.botAdj",String(Math.max(-.35,Math.min(.35,botAdj()+d)))); }catch(e){} }
+  function botSkill(){ const r=REC||{}, games=(r.w||0)+(r.l||0), base=games<5?.15:((r.rating||1200)-1000)/500;
+    return Math.max(0,Math.min(1,base+botAdj())); }
+  function botCfg(){ const s=botSkill(), x=s*2, i=Math.min(1,Math.floor(x)), f=x-i, a=BOT_SKILL[i], b=BOT_SKILL[i+1];
+    const L=(u,v)=>u+(v-u)*f, LL=(u,v)=>[L(u[0],v[0]),L(u[1],v[1])], fuel=TIERS[botKey].fuel;
+    return {name:(s<.34?BOTS.rookie:s<.67?BOTS.pro:BOTS.shark).name, skill:s, react:LL(a.react,b.react), cool:L(a.cool,b.cool),
+      thr:L(a.thr,b.thr), tp:L(a.tp,b.tp), sl:L(a.sl,b.sl), noise:L(a.noise,b.noise), flip:L(a.flip,b.flip), hold:LL(a.hold,b.hold),
+      rate:L(a.rate,b.rate), stake:Math.max(1,Math.round(fuel*L(a.stake/a.fuel,b.stake/b.fuel)))}; }
   let botKey="pro", LEN=60000; // one length: 1 minute (maker, 2026-11-16: "3 minutes is way too long")
   try{botKey=localStorage.getItem("duel.tier")||botKey; if(!BOTS[botKey]) botKey="pro";}catch(e){}
   /* match: null, or {net:true, startAt, endAt, me:pid, opp:{pid,name}} for a live duel, or {net:false} for practice */
@@ -169,10 +183,10 @@ function mount(root,host){
   function newGame(){
     optim=0;
     FUEL0=curFuel(); LEV=CLR?CLR.gear:DUEL_LEV; FEE=CLR?CL.fee:DUEL_FEE; SIZES=PCTS; if(CLR&&CLR.free) stake=cPct>=100?0:cPct; else if(!SIZES.includes(stake)) stake=25; paintSizes(); resizeK();
-    const startAt=M&&M.startAt||Date.now()+3500, h=host.history();
+    const startAt=M&&M.startAt||Date.now()+3500, h=host.history(), BCFG=botCfg();
     G={t:now_()-startAt,startAt,solo:!!CLR,len:CLR?CLR.len:(M&&M.endAt?M.endAt-startAt:LEN),ot:false,over:false,price:h.length?h[h.length-1].p:0,ticks:[],marks:[],
-       me:newPlayer("you",true),bot:CLR?null:newPlayer(M&&M.opp?M.opp.name:BOTS[botKey].name,false),   // Climb flies alone (maker 2026-11-18: "there is no rival in this mode")
-       cfg:BOTS[botKey],started:false};
+       me:newPlayer("you",true),bot:CLR?null:newPlayer(M&&M.opp?M.opp.name:BCFG.name,false),   // Climb flies alone (maker 2026-11-18: "there is no rival in this mode")
+       cfg:BCFG,started:false};
     if(!G.bot){} else if(!(M&&M.opp&&!M.opp.bot)) G.bot.hull=hullFor();   // bots fly a random hull + skin
     else if(host.shipOf){ const os=host.shipOf(M.opp.pid); if(os) wearLook(G.bot,os); }   // a real rival flies their own look
     { const ms=host.myShip&&host.myShip(); if(ms) wearLook(G.me,ms); }   // your Hangar skin + trail + name tag + flourish
@@ -936,6 +950,7 @@ function mount(root,host){
     const rec=Object.assign({w:0,l:0,rating:1200,streak:0},REC);
     const dr=net?net.delta:0;
     if(net&&net.rating) { rec.rating=net.rating; if((M.ranked||M.casual)&&!tie){ if(win){rec.w++;rec.streak++;} else {rec.l++;rec.streak=0;} } REC=rec; }
+    if(M&&!M.net&&!tie&&!host.first) botAdjBy(win?.06:-.08);   // bots ease off after a loss, push after a win
     LAST={pm,pb,win:win&&!tie,tie,opp:G.bot.name,bot:!!(M&&!M.net),sat:G.me.up+G.me.dn===0,len:lenTxt()};
     { const x=host.climbing&&host.climbing(), a=$("rClimb"); a.hidden=!x;   // cross-link (maker 2026-11-16): a real rocket climbing right now
       if(x){ a.href=x.href; a.innerHTML=`<b>\u25b2 $${esc(x.sym)}</b><span>${esc(x.line)}</span><em>BOOST IT \u2192</em>`; } }
@@ -1054,7 +1069,7 @@ function mount(root,host){
   $("iX").addEventListener("click",()=>{ track("duel_share"); const t=encodeURIComponent(`1v1 me in a trading duel on DISCIPLE \u2694\ufe0f ${$("iCode").textContent}`), u=encodeURIComponent($("iLink").dataset.share||$("iLink").dataset.url||""); window.open(`https://x.com/intent/post?text=${t}&url=${u}`,"_blank","noopener"); });
   $("iCancel").addEventListener("click",()=>{ host.leave(); show("intro"); });
   $("joinF").addEventListener("submit",e=>{ e.preventDefault(); if(!SIGNED&&!host.guest){ host.signIn(); return; } const v=$("joinI").value.trim(); if(!v) return; ensureAudio(); mode="friend"; lerr(""); host.join(v); });
-  function practice(){ M={net:false,ranked:false}; OFF=0; opp={name:BOTS[botKey].name,bot:true}; openVs("BOT MATCH",{name:BOTS[botKey].name,bot:true},"bot match \u00b7 no rating"); meReady(); }   // a bot is always ready: go straight to the countdown, which has a Cancel
+  function practice(){ M={net:false,ranked:false}; OFF=0; const bn=botCfg().name; opp={name:bn,bot:true}; openVs("BOT MATCH",{name:bn,bot:true},"bot match \u00b7 no rating"); meReady(); }   // a bot is always ready: go straight to the countdown, which has a Cancel
   let opp=null;
   function openVs(tag,o,kind){ show("vs"); sfx("found"); opp=o; $("vTag").textContent=tag; $("vName").textContent=o.name; $("vAv").textContent=o.name.replace("@","").slice(0,2).toUpperCase();
     $("vMe").textContent=RL?`${REC.rating.toLocaleString("en-US")} \u00b7 ${REC.w}-${REC.l}`:`${REC.w}-${REC.l}`; $("vThem").textContent=o.bot?"bot":RL?`${(o.rating||1200).toLocaleString("en-US")} \u00b7 ${o.w||0}-${o.l||0}`:`${o.w||0}-${o.l||0}`;
@@ -1402,7 +1417,7 @@ function mount(root,host){
     price:(p,ts)=>pushPrice(p,ts),
     setMe:(rec,signed)=>{ REC=Object.assign({w:0,l:0,rating:1200,streak:0},rec||{}); SIGNED=!!signed; paintLobby(); },
     setClock:(serverNow)=>{ OFF=serverNow-Date.now(); },
-    searching:(waitedMs,window_,botOffer)=>{ $("sT").textContent=mmss(waitedMs+999); $("sSub").textContent=`${tierName(botKey)} \u00b7 ${lenTxt()}`+(RL?` \u00b7 ${REC.rating-window_}\u2013${REC.rating+window_}`:""); if(botOffer&&$("sBot").hidden){ $("sBot").hidden=false; $("sH").textContent="STILL LOOKING"; } },
+    searching:(waitedMs,window_,botOffer)=>{ $("sT").textContent=mmss(waitedMs+999); $("sSub").textContent=`${tierName(botKey)} \u00b7 ${lenTxt()}`+(RL?` \u00b7 ${REC.rating-window_}\u2013${REC.rating+window_}`:""); if(botOffer&&!$("search").hidden){ host.cancelSearch(); practice(); } },   // nobody live after 20 s: start a bot duel on its own (maker 2026-11-18)
     invite:(code,url,share)=>{ $("iCode").textContent="DUEL-"+code; $("iLink").textContent=url.replace(/^https?:\/\//,""); $("iLink").dataset.url=url; $("iLink").dataset.share=share||""; $("iSub").textContent=`FRIEND \u00b7 ${money(CFUEL)} fuel each \u00b7 ${lenTxt()}`; $("iWait").textContent="Waiting for your friend to open the link\u2026"; show("invite"); },
     room:(r,meId)=>{ // lobby state of a server room
       if(r.tier&&TIERS[r.tier]) botKey=r.tier; if(r.lenMs) LEN=Math.min(r.lenMs,60000);

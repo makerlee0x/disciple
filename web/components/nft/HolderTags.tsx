@@ -1,6 +1,6 @@
 "use client";
 /**
- * Holder chips on a pilot's profile: DISCIPLE (holds a Disciple on Solana) and FOUNDER (holds one of The Twelve on
+ * Holder chips on a pilot's profile: DISCIPLE (holds a Disciple on Solana) and ACCESS KEY (holds one of The Twelve on
  * Ethereum). Status only, never a promise of anything (maker 2026-11-17). Renders nothing for non-holders.
  */
 import { useEffect, useState } from "react";
@@ -19,7 +19,7 @@ export default function HolderTags({ wallet }: { wallet: string }) {
   if (!h.disciples && !h.founders) return null;
   return (
     <>
-      {h.founders > 0 && <span className="nft-tag founder" data-testid="tag-founder" title={h.founders > 1 ? `${h.founders} founder passes` : "Founder pass"}>Founder</span>}
+      {h.founders > 0 && <span className="nft-tag founder" data-testid="tag-founder" title={`${h.founders} ${h.founders === 1 ? "Access Key" : "Access Keys"}`}>Access key{h.founders > 1 ? ` ×${h.founders}` : ""}</span>}
       {h.disciples > 0 && <span className="nft-tag disciple" data-testid="tag-disciple" title={`${h.disciples} ${h.disciples === 1 ? "Disciple" : "Disciples"}`}>Disciple{h.disciples > 1 ? ` ×${h.disciples}` : ""}</span>}
     </>
   );
