@@ -2,8 +2,10 @@
  * Live prices for Turbo Royale's four maps (HYPE, SOL, ETH, BTC).
  * Lighter first (maker 2026-11-18: "switch to their charts"): its public `market_stats` WebSocket, the mark price of the
  * venue the real orders go to (mainnet: testnet books are empty, so their prices mean nothing). Hyperliquid's public
- * `allMids` stream (the duel's BTC source, priceFeed.ts) fills in any coin Lighter hasn't priced in the last 15 s.
- * Nothing is invented: a coin with no price from either is left out, and the game falls back to its simulated walk.
+ * `allMids` stream (the duel's BTC source, priceFeed.ts) is only for a coin Lighter hasn't priced yet: once Lighter
+ * prices a coin, that coin stays on Lighter (a quiet stretch holds its last price), so a chart never jumps between the
+ * two venues' prices (maker 2026-11-18). The last prices go out again every second so the game knows they're live.
+ * Nothing is invented: a coin with no price from either is left out, and the game holds the drop until all four have one.
  */
 import { HYPERLIQUID_INFO_URL, HYPERLIQUID_WS_URL } from "./priceFeed";
 
@@ -150,19 +152,33 @@ export function streamLighterMids(cb: (m: RoyaleMids) => void): () => void {
   };
 }
 
-/** Royale's feed: Lighter's price per coin while it's fresh, Hyperliquid's otherwise (at most every `everyMs`) */
+/** Royale's feed: Lighter's price per coin once it has one (for good), Hyperliquid's before that; at most every
+ *  `everyMs`, and the last prices again every second */
 export function streamRoyalePrices(cb: (m: RoyaleMids) => void, everyMs = 250): () => void {
-  const lit: Partial<Record<RoyaleCoin, { p: number; at: number }>> = {};
-  const hl: RoyaleMids = {};
+  const merged = royaleMerge();
   let last = 0, timer: ReturnType<typeof setTimeout> | null = null;
   const flush = () => {
     timer = null; last = Date.now();
-    const out: RoyaleMids = {};
-    for (const c of ROYALE_COINS) { const l = lit[c]; const p = l && last - l.at < 15_000 ? l.p : hl[c]; if (p) out[c] = p; }
+    const out = merged.prices();
     if (Object.keys(out).length) try { cb(out); } catch { /* listener */ }
   };
   const kick = () => { if (!timer) timer = setTimeout(flush, Math.max(0, everyMs - (Date.now() - last))); };
-  const stopL = streamLighterMids((m) => { const now = Date.now(); for (const c of ROYALE_COINS) { const p = m[c]; if (p) lit[c] = { p, at: now }; } kick(); });
-  const stopH = streamRoyaleMids((m) => { Object.assign(hl, m); kick(); }, 0);
-  return () => { stopL(); stopH(); if (timer) clearTimeout(timer); };
+  const beat = setInterval(() => { if (Date.now() - last > 900) kick(); }, 1_000);
+  const stopL = streamLighterMids((m) => { merged.lighter(m); kick(); });
+  const stopH = streamRoyaleMids((m) => { merged.hyperliquid(m); kick(); }, 0);
+  return () => { stopL(); stopH(); clearInterval(beat); if (timer) clearTimeout(timer); };
+}
+
+/** the source rule on its own (tested): a coin Lighter has priced never goes back to Hyperliquid */
+export function royaleMerge() {
+  const lit: RoyaleMids = {}, hl: RoyaleMids = {};
+  return {
+    lighter(m: RoyaleMids) { Object.assign(lit, m); },
+    hyperliquid(m: RoyaleMids) { Object.assign(hl, m); },
+    prices(): RoyaleMids {
+      const out: RoyaleMids = {};
+      for (const c of ROYALE_COINS) { const p = lit[c] ?? hl[c]; if (p) out[c] = p; }
+      return out;
+    },
+  };
 }

@@ -61,3 +61,13 @@ test("Royale reads Lighter market_stats: one market, the /all map, by symbol or 
   assert.deepEqual(parseLighterStats({ market_stats: { market_id: 77, symbol: "sol", last_trade_price: "201" } }, ids), { SOL: 201 });
   assert.deepEqual(parseLighterStats({ type: "pong" }, ids), {});
 });
+
+test("Royale charts never jump venues: once Lighter prices a coin it stays on Lighter", async () => {
+  const { royaleMerge } = await import("../lib/turbo/royalePrices");
+  const m = royaleMerge();
+  m.hyperliquid({ BTC: 104010, HYPE: 44 });
+  assert.deepEqual(m.prices(), { BTC: 104010, HYPE: 44 });
+  m.lighter({ BTC: 104000 });
+  m.hyperliquid({ BTC: 104050, HYPE: 44.2 });
+  assert.deepEqual(m.prices(), { BTC: 104000, HYPE: 44.2 });   // BTC holds Lighter's last price; HYPE has no Lighter price yet
+});
