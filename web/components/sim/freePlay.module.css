@@ -140,6 +140,12 @@
 .stripTune button { height: 28px; padding: 0 8px; border-radius: 8px; border: 1px solid #2E323A; background: rgba(11,12,14,.6); color: #F2F3F7; font: 700 13px var(--dsc-font-game); cursor: pointer; }
 .stripTune button[aria-pressed="true"] { background: #F2F3F7; color: #121327; }
 .stripFold { display: none; }
+.topClock { position: fixed; z-index: 31; top: 14px; left: calc(50% + var(--ap-rail-w, 0px) / 2); transform: translateX(-50%); display: flex; align-items: center; gap: 10px;
+  padding: 6px 16px; border-radius: 14px; background: rgba(18,19,39,.82); border: 1px solid rgba(243,223,168,.35); pointer-events: none; font-family: var(--dsc-font-game); }
+.topTime { font-weight: 800; font-size: 34px; line-height: 1; color: #F2F3F7; font-variant-numeric: tabular-nums; }
+.topRank { font-weight: 800; font-size: 26px; line-height: 1; color: #F2C14E; padding-right: 10px; border-right: 1px solid rgba(243,223,168,.3); }
+.topRank small { font-size: 15px; font-weight: 700; color: #D7D9E4; }
+.goalXp { margin-left: auto; font-weight: 700; font-size: 12px; color: rgba(243,223,168,.7); }
 @media (max-width: 760px) {
   .strip { left: auto; right: 12px; top: calc(var(--ph-radio-top, 314px) + 44px); width: 212px; padding: 10px 12px; gap: 8px; }
   .stripClock { font-size: 20px; }

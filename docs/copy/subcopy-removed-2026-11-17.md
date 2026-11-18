@@ -286,3 +286,8 @@ Removed (restore by adding back):
 - `1 pilot so far` next to the button removed (board header shows the count).
 - Board: `Empty. Go take #1.` → `No runs yet`, `Loading the board…` → pulse, `Resets midnight UTC.` removed, signed-out note → `Sign in to make the board.`; phone `Nobody's flown it yet` → `No runs yet`.
 - Footer `Fake money. Nothing here touches your wallet.` removed.
+
+### 2026-11-18 playtest round 2 (Daily mission)
+- Result hero: `1.1×` big + `+$311 practice cash` → `+$311` big + `1.1×` small. Share text leads with the $ PnL.
+- Result LOBBY moved from the bottom row to the top-left; X moved to the top-right.
+- Trade bar: `BOOST $0.01` with nothing left → `ALL IN` (disabled).

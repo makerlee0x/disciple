@@ -12,7 +12,7 @@ import "server-only";
  * Signed-in board (maker 2026-11-13): anyone can fly and see where they'd place, but a run goes on the board only when
  * its pilot signs in and saves it (boardRun, from POST /api/freeplay/xp), one run per wallet a day.
  *
- * Keys: daily:{id}:z (zset run id → multiple), daily:{id}:zflag (flagged runs), daily:{id}:run:{runId} (the run, 30 days),
+ * Keys: daily:{id}:zp (zset run id → $ PnL; maker 2026-11-18 "this should be pnl", was daily:{id}:z by multiple), daily:{id}:zflag (flagged runs), daily:{id}:run:{runId} (the run, 30 days),
  * daily:{id}:ip:{ip} (new scored runs from that IP),
  * daily:{id}:owner:{runId} (the wallet that saved the run's XP after signing in: its username and level then show),
  * daily:{id}:pilot:{wallet} (the one run that wallet put on the board).
@@ -41,7 +41,7 @@ export const DAILY_GRACE_MS = 10 * 60_000;
 export const DAILY_PER_IP = 5;
 export const runIdOf = (device: string) => createHash("sha256").update("disciple:daily:" + device).digest("hex").slice(0, 16);
 export const nameOf = (runId: string) => defaultUsername("0x" + createHash("sha256").update("disciple:pilot:" + runId).digest("hex").slice(0, 40));
-const zkey = (id: number) => `daily:${id}:z`, rkey = (id: number, run: string) => `daily:${id}:run:${run}`, okey = (id: number, run: string) => `daily:${id}:owner:${run}`,
+const zkey = (id: number) => `daily:${id}:zp`, rkey = (id: number, run: string) => `daily:${id}:run:${run}`, okey = (id: number, run: string) => `daily:${id}:owner:${run}`,
   fkey = (id: number) => `daily:${id}:zflag`, pkey = (id: number, w: string) => `daily:${id}:pilot:${w}`, ipkey = (id: number, net: string) => `daily:${id}:ip:${net}`;
 /** the hashed network an IP belongs to (see ipBucket) */
 export const netOf = (ip: string) => createHash("sha256").update(ipBucket(ip)).digest("hex").slice(0, 16);
@@ -103,7 +103,7 @@ export async function submitDaily(id: number, device: unknown, inputs: unknown, 
 }
 /** where a run places: on the board, or where it would place if its pilot signed in and saved it */
 async function placeOf(id: number, run: DailyRun, s: Kv) {
-  const boarded = !!(await ownerOf(id, run.runId, s)), [above, count] = await Promise.all([s.zcountAbove(zkey(id), run.score.multiple), s.zcard(zkey(id))]);
+  const boarded = !!(await ownerOf(id, run.runId, s)), [above, count] = await Promise.all([s.zcountAbove(zkey(id), run.score.pnl), s.zcard(zkey(id))]);
   return { boarded, rank: above + 1, count: boarded ? Math.max(count, above + 1) : count + 1 };
 }
 /**
@@ -113,7 +113,7 @@ async function placeOf(id: number, run: DailyRun, s: Kv) {
 export async function boardRun(id: number, run: DailyRun, wallet: string, s: Kv = kv()): Promise<boolean> {
   const w = wallet.toLowerCase();
   if (!(await s.setNX(pkey(id, w), run.runId, RUN_TTL_S)) && (await s.get(pkey(id, w))) !== run.runId) return false;
-  await s.zadd(run.flags?.length ? fkey(id) : zkey(id), [{ score: run.score.multiple, member: run.runId }]);
+  await s.zadd(run.flags?.length ? fkey(id) : zkey(id), [{ score: run.score.pnl, member: run.runId }]);
   return true;
 }
 /** the run this wallet already put on daily `id`'s board, if any */
@@ -122,7 +122,16 @@ export async function readRun(id: number, runId: string, s: Kv = kv()): Promise<
   if (!/^[0-9a-f]{16}$/.test(runId)) return null;
   const v = await s.get(rkey(id, runId)); return v ? (JSON.parse(v) as DailyRun) : null;
 }
+/** one-time move of a day's board from the old multiple-scored zset (daily:{id}:z) to the $ PnL one, when the new one is empty */
+async function movePnlBoard(id: number, s: Kv) {
+  if (await s.zcard(zkey(id))) return;
+  const old = await s.zrange(`daily:${id}:z`, 1000, true); if (!old.length) return;
+  const runs = await s.mget(old.map((r) => rkey(id, r)));
+  const rows = runs.flatMap((v) => { if (!v) return []; const r = JSON.parse(v) as DailyRun; return [{ score: r.score.pnl, member: r.runId }]; });
+  if (rows.length) await s.zadd(zkey(id), rows);
+}
 export async function dailyBoard(id: number, opts: { me?: string | null; run?: string | null } = {}, s: Kv = kv()): Promise<DailyBoard> {
+  await movePnlBoard(id, s);
   const ids = await s.zrange(zkey(id), 10, true);
   const runs = ids.length ? await s.mget(ids.map((r) => rkey(id, r))) : [];
   // a saved run shows its pilot's username (pilotOf), not the device call sign (maker 2026-11-17: "my name isnt on the leaderboard")

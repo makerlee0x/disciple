@@ -123,7 +123,7 @@ test("Daily flight: fly it, get scored by the server, and see the same result ne
   await expect(rank).toBeVisible({ timeout: 20_000 });
   await expect(rank).toHaveText(/Would place #\d+ of \d+ today/);
   await expect(res.getByTestId("daily-rank-error")).toHaveCount(0);
-  await expect(res.getByTestId("daily-multiple")).toHaveText(/\d+(\.\d+)?×/);
+  await expect(res.getByTestId("daily-pnl")).toHaveText(/^[+−]\$[\d,]+$/);
   await expect(res.getByTestId("daily-result-board")).toBeVisible();
 
   // one scored run per device a day: the hub now offers the result, not a second flight

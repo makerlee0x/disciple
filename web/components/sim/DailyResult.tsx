@@ -14,7 +14,7 @@ import AnimClip from "@/components/ui/AnimClip";
 import { freePlayXp, FREE_PLAY_XP } from "@/lib/xp";
 import { usePilotWallet, XP_CHANGED_EVENT } from "@/lib/xpClient";
 import { privyLogin, privyReady } from "@/lib/aa/sessionState";
-import { dailyEndsAt, dailyRecap, fmtMultiple as mult, DAILY, type DailyScore } from "@/lib/sim/daily";
+import { dailyEndsAt, dailyRecap, fmtDailyPnl, fmtMultiple as mult, DAILY, type DailyScore } from "@/lib/sim/daily";
 import { claimFreePlayXp, deviceId, refreshRank, type DailyVerdict, type FreePlayXpResult } from "@/lib/sim/dailyClient";
 import { fmt, type PlayerInput } from "@/lib/sim/run";
 import { fetchDailyBoard, type Board } from "./FreePlay";
@@ -31,13 +31,14 @@ function useUntil(at: number) {
   return at - now;
 }
 
-function Goal({ on, label }: { on: boolean; label: string }) {
+function Goal({ on, label, xp }: { on: boolean; label: string; xp: number }) {
   return (
-    <div data-testid={`daily-goal-${on ? "on" : "off"}`} style={{ height: 58, boxSizing: "border-box", borderRadius: 12, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3,
+    <div data-testid={`daily-goal-${on ? "on" : "off"}`} style={{ height: 72, boxSizing: "border-box", borderRadius: 12, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3,
       ...(on ? { background: "rgba(242,193,78,0.12)", border: "1px solid rgba(242,193,78,0.5)" } : { border: "1px dashed rgba(215,217,228,0.35)" }) }}>
       {on ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden><circle cx="12" cy="12" r="10" fill={GOLD} /><path d="M7.5 12.5l3 3 6-6.5" stroke="#121327" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
         : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(215,217,228,0.55)" strokeWidth="1.6" aria-hidden><circle cx="12" cy="12" r="9.5" /></svg>}
       <span style={{ ...game, fontWeight: 700, fontSize: 13, color: on ? "#F2F3F7" : "#D7D9E4" }}>{label}</span>
+      <span style={{ ...game, fontWeight: 700, fontSize: 12, color: on ? GOLD : "rgba(215,217,228,0.55)" }}>+{xp} XP</span>
     </div>
   );
 }
@@ -99,9 +100,9 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
     try { if (navigator.share) { await navigator.share({ title: "DISCIPLE Daily flight", text, url }); return; } } catch { return; }
     try { await navigator.clipboard.writeText(`${text} ${url}`); setNote("Link copied"); } catch { setNote(url); }
   };
-  const challenge = () => { if (verdict) send(`${location.origin}/d/${id}?c=${verdict.runId}${ref && `&${ref}`}`, `I cashed out at ${mult(s.multiple)} on Daily mission #${id}. Beat it.`); };
+  const challenge = () => { if (verdict) send(`${location.origin}/d/${id}?c=${verdict.runId}${ref && `&${ref}`}`, `${money(s.pnl)} on Daily mission #${id}. Beat it.`); };
   const share = () => send(`${location.origin}/d/${id}${verdict ? `?c=${verdict.runId}${ref && `&${ref}`}` : ref && `?${ref}`}`,
-    s.invested <= 0 ? `Daily mission #${id} on DISCIPLE` : `${mult(s.multiple)} on Daily mission #${id}${rank?.boarded ? `, #${rank.rank} today` : ""}.`);
+    s.invested <= 0 ? `Daily mission #${id} on DISCIPLE` : `${money(s.pnl)} on Daily mission #${id}${rank?.boarded ? `, #${rank.rank} today` : ""}.`);
   const rankText = (r: NonNullable<typeof rank>) => r.count <= 1 ? `#${r.rank} today` : `#${r.rank.toLocaleString("en-US")} of ${r.count.toLocaleString("en-US")} today${r.count >= 10 ? ` · top ${r.topPct}%` : ""}`;
   const meOnBoard = !!(board && verdict && board.top.some((r) => r.runId === verdict.runId));
 
@@ -111,18 +112,24 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
         .dr-bg { position: fixed; inset: 0; background: url(/art/share/daily.webp) 62% 30% / cover no-repeat; opacity: .55; pointer-events: none; }
         .dr-bg .dr-vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
         .dr-bg::after { content: ""; position: absolute; inset: 0; background: radial-gradient(520px 380px at 50% 12%, rgba(242,193,78,.22), rgba(7,8,12,0) 70%), linear-gradient(180deg, rgba(7,8,12,.45) 0%, rgba(7,8,12,.55) 35%, rgba(7,8,12,.92) 70%, #07080c 100%); }
-        .dr-wrap { position: relative; max-width: 390px; min-height: 100%; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 52px) 16px calc(env(safe-area-inset-bottom, 0px) + 28px); box-sizing: border-box; display: flex; flex-direction: column; }
+        .dr-wrap { position: relative; max-width: 390px; min-height: 100%; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 68px) 16px calc(env(safe-area-inset-bottom, 0px) + 28px); box-sizing: border-box; display: flex; flex-direction: column; }
         .dr-board { margin-top: 14px; padding: 14px 16px; border-radius: 16px; background: rgba(18,19,39,.82); border: 1px solid rgba(255,255,255,.14); display: flex; flex-direction: column; gap: 6px; }
         .dr-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 30px; font-size: 14px; padding: 0 8px; margin: 0 -8px; border-radius: 8px; }
         .dr-row.me { background: rgba(242,193,78,.14); outline: 1px solid rgba(242,193,78,.5); }
         .dr-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         @media (min-width: 900px) {
-          .dr-wrap { max-width: 980px; display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: auto 1fr; column-gap: 28px; align-content: start; padding-top: 40px; }
+          .dr-wrap { max-width: 980px; display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-rows: auto 1fr; column-gap: 28px; align-content: start; padding-top: 76px; }
           .dr-main { grid-column: 1; display: flex; flex-direction: column; }
           .dr-side { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-direction: column; }
-          .dr-side .dr-board { margin-top: 58px; }
+          .dr-side .dr-board { margin-top: 0; }
         }
         @media (max-width: 899px) { .dr-main, .dr-side { display: contents; } }
+        .dr-top { position: fixed; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + 12px); left: 16px; right: 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; pointer-events: none; }
+        .dr-top > * { pointer-events: auto; }
+        .dr-top .dr-topbtn { height: 44px; padding: 0 14px 0 10px; font-size: 16px; }
+        .dr-top .dr-x { width: 44px; padding: 0; }
+        .dr-pilots { margin-top: 14px; padding: 14px 16px; border-radius: 16px; background: rgba(18,19,39,.82); border: 1px solid rgba(255,255,255,.14); display: flex; flex-direction: column; gap: 2px; }
+        .dr-pilots .dr-row { min-height: 26px; font-size: 13px; }
         .dr-btn { height: 52px; box-sizing: border-box; border-radius: 14px; background: rgba(18,19,39,.78); border: 1px solid #2E323A; color: #F2F3F7; cursor: pointer; text-decoration: none;
           display: flex; align-items: center; justify-content: center; gap: 8px; font: 800 20px var(--dsc-font-game); letter-spacing: .5px; }
         .dr-pulse { display: inline-block; width: 64px; height: 10px; border-radius: 5px; background: rgba(215,217,228,.25); animation: dr-pulse 1.1s ease-in-out infinite; vertical-align: middle; }
@@ -133,17 +140,20 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
       `}</style>
       {/* Grok loop B6 (2026-11-17): a dawn launch behind the result, under the same scrim; the share plate stays for reduced motion */}
       <div className="dr-bg" aria-hidden><AnimClip id="B6-daily" loop className="dr-vid" /></div>
+      {/* top bar (maker 2026-11-18): LOBBY where a back button goes, X in the top right */}
+      <div className="dr-top">
+        <Link href="/" data-testid="daily-lobby" className="dr-btn dr-topbtn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 5l-7 7 7 7" /></svg>LOBBY</Link>
+        <span style={{ ...game, fontWeight: 700, fontSize: 15, letterSpacing: 1.5, color: "#F3DFA8" }}>DAILY MISSION #{id}</span>
+        <button type="button" data-testid="daily-close" aria-label="Close" onClick={onClose} className="dr-btn dr-topbtn dr-x">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+      </div>
       <div className="dr-wrap"><div className="dr-main">
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ ...game, fontWeight: 700, fontSize: 15, letterSpacing: 1.5, color: "#F3DFA8" }}>DAILY MISSION #{id}</span>
-          <button type="button" data-testid="daily-close" aria-label="Close and go to Free play" onClick={onClose} style={{ width: 44, height: 44, boxSizing: "border-box", borderRadius: 12, background: "rgba(18,19,39,0.78)", border: "1px solid #2E323A", display: "grid", placeItems: "center", cursor: "pointer" }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg></button>
-        </div>
 
         <div style={{ marginTop: 14, display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
           <span style={{ ...game, fontWeight: 700, fontSize: 16, letterSpacing: 3, color: "#D7D9E4" }}>{head}</span>
-          <span data-testid="daily-multiple" style={{ ...game, fontWeight: 800, fontSize: 104, lineHeight: 0.9, color: GOLD }}>{mult(s.multiple)}</span>
-          <span style={{ ...game, fontWeight: 700, fontSize: 22 }}>{money(s.pnl)} <span style={{ fontWeight: 600, fontSize: 16, color: "#D7D9E4" }}>practice cash</span></span>
+          <span data-testid="daily-pnl" style={{ ...game, fontWeight: 800, fontSize: 96, lineHeight: 0.9, color: s.pnl < 0 ? "#FF7FB2" : GOLD }}>{money(s.pnl)}</span>
+          <span data-testid="daily-multiple" style={{ ...game, fontWeight: 700, fontSize: 22, color: "#D7D9E4" }}>{mult(s.multiple)}</span>
           {rank && !rank.boarded ? <span data-testid="daily-rank-pending" style={{ marginTop: 6, padding: "5px 12px", borderRadius: 999, border: "1px dashed rgba(95,240,160,0.5)", fontSize: 13, color: "#BFF8D8" }}>
             Would place #{rank.rank.toLocaleString("en-US")} of {rank.count.toLocaleString("en-US")} today</span>
             : rank ? <span data-testid="daily-rank" style={{ marginTop: 6, padding: "5px 12px", borderRadius: 999, background: "rgba(95,240,160,0.12)", border: "1px solid rgba(95,240,160,0.5)", fontSize: 13, color: "#BFF8D8" }}>
@@ -152,7 +162,7 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
         </div>
 
         <div style={{ marginTop: 20, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
-          <Goal on={s.goals.green} label="GREEN" /><Goal on={s.goals.cash2x} label="CASH OUT 2×" /><Goal on={s.goals.orbit} label="REACH ORBIT" />
+          <Goal on={s.goals.green} label="GREEN" xp={FREE_PLAY_XP.daily.green} /><Goal on={s.goals.cash2x} label="CASH OUT 2×" xp={FREE_PLAY_XP.daily.cash2x} /><Goal on={s.goals.orbit} label="REACH ORBIT" xp={FREE_PLAY_XP.daily.orbit} />
         </div>
 
         <div style={{ marginTop: 16, padding: "12px 14px", borderRadius: 16, background: "rgba(22,24,28,0.85)", border: "1px solid #2E323A" }}>
@@ -182,14 +192,28 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
           {board && board.top.length ? board.top.map((r, i) => (
             <div key={r.runId} className={`dr-row${verdict && r.runId === verdict.runId ? " me" : ""}`} data-testid={verdict && r.runId === verdict.runId ? "daily-board-me" : "daily-board-row"}>
               <span><b style={{ ...game, display: "inline-block", width: 26, fontWeight: 700, fontSize: 15, color: i === 0 ? GOLD : "#D7D9E4" }}>{i + 1}</b>{verdict && r.runId === verdict.runId ? "You" : r.name}</span>
-              <span style={{ ...game, fontWeight: 700, fontSize: 18, color: "#5FF0A0" }}>{mult(r.multiple)}</span>
+              <span style={{ ...game, fontWeight: 700, fontSize: 18, color: r.pnl < 0 ? "#FF7FB2" : "#5FF0A0" }}>{fmtDailyPnl(r.pnl)}</span>
             </div>)) : !board ? <span className="dr-pulse" aria-label="Loading" style={{ margin: "8px 0" }} /> : !rank ? <div style={{ fontSize: 14, color: "#D7D9E4" }}>No plays yet</div> : null}
           {rank && board && !meOnBoard && (
             <div className="dr-row me" data-testid="daily-board-me" style={{ marginTop: 4 }}>
               <span><b style={{ ...game, display: "inline-block", minWidth: 26, fontWeight: 700, fontSize: 15, color: GOLD }}>{rank.rank.toLocaleString("en-US")}</b>You{rank.boarded ? "" : " (not posted)"}</span>
-              <span style={{ ...game, fontWeight: 700, fontSize: 18, color: "#5FF0A0" }}>{mult(s.multiple)}</span>
+              <span style={{ ...game, fontWeight: 700, fontSize: 18, color: s.pnl < 0 ? "#FF7FB2" : "#5FF0A0" }}>{fmtDailyPnl(s.pnl)}</span>
             </div>)}
         </section>
+        {/* the flight's pilots (maker 2026-11-18: "id want to see what the bots pnl is … how many trades, how much pnl"): the sim's bots and you, from the local replay */}
+        {rc.pilots.length > 1 && (() => { const top = rc.pilots.slice(0, 6), me = rc.pilots.findIndex((p) => p.you), rows = me >= 6 ? [...top, rc.pilots[me]] : top;
+          return <section className="dr-pilots" aria-label="This flight" data-testid="daily-pilots">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+              <span style={{ ...game, fontWeight: 700, fontSize: 18, letterSpacing: 1, color: "#F3DFA8" }}>THIS FLIGHT</span>
+              <span style={{ ...game, fontWeight: 600, fontSize: 12, letterSpacing: 1, color: "#D7D9E4" }}>TRADES · PNL</span>
+            </div>
+            {rows.map((p) => { const k = rc.pilots.indexOf(p) + 1;
+              return <div key={p.name + k} className={`dr-row${p.you ? " me" : ""}`} data-testid={p.you ? "daily-pilot-me" : "daily-pilot"}>
+                <span><b style={{ ...game, display: "inline-block", minWidth: 26, fontWeight: 700, fontSize: 14, color: k === 1 ? GOLD : "#D7D9E4" }}>{k}</b>{p.name}{!p.you && <span style={{ marginLeft: 6, fontSize: 10, color: "rgba(215,217,228,.6)", letterSpacing: .5 }}>BOT</span>}</span>
+                <span style={{ display: "flex", gap: 14, alignItems: "baseline" }}><span style={{ fontSize: 12, color: "#D7D9E4" }}>{p.trades}</span>
+                  <span style={{ ...game, minWidth: 64, textAlign: "right", fontWeight: 700, fontSize: 16, color: p.pnl < 0 ? "#FF7FB2" : "#5FF0A0" }}>{fmtDailyPnl(p.pnl)}</span></span>
+              </div>; })}
+          </section>; })()}
         {showCard && <div data-testid="daily-xp" style={{ marginTop: 14, minHeight: 72, boxSizing: "border-box", padding: "10px 14px", borderRadius: 16, background: "rgba(243,223,168,0.08)", border: "1px solid rgba(243,223,168,0.4)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
           <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <span data-testid="daily-xp-head" style={{ ...game, fontWeight: 800, fontSize: 22, color: "#F3DFA8" }}>{xpHead}</span>
@@ -204,9 +228,7 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
           <button type="button" data-testid="daily-challenge-friend" onClick={challenge} disabled={!verdict} style={{ ...game, height: 60, borderRadius: 16, background: GOLD, color: "#121327", border: 0, cursor: verdict ? "pointer" : "default", opacity: verdict ? 1 : 0.55, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, fontWeight: 800, fontSize: 24, letterSpacing: 1 }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#121327" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 12v7h16v-7M12 3v12M7 8l5-5 5 5" /></svg>CHALLENGE A FRIEND</button>
           {note && <span data-testid="daily-note" style={{ textAlign: "center", fontSize: 12, color: "#BFF8D8", wordBreak: "break-all" }}>{note}</span>}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <Link href="/" data-testid="daily-lobby" className="dr-btn">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M15 5l-7 7 7 7" /></svg>LOBBY</Link>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
             <button type="button" data-testid="daily-share" onClick={share} className="dr-btn">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><circle cx="18" cy="5" r="2.5" /><circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="19" r="2.5" /><path d="M8.2 10.9l7.6-4.3M8.2 13.1l7.6 4.3" /></svg>SHARE</button>
           </div>

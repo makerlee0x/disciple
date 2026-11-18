@@ -1085,7 +1085,7 @@ function wingStep(dt){ if(!S.wing.size) return;
     if(w.peel!=null){ const a=S.t-w.peel; w.x+=w.peelDir*420*dt*(1+a*2); w.y+=260*dt*(1+a*3); w.rot+=w.peelDir*dt*3;
       if(a>2.5||w.y>H+200) S.wing.delete(w.k); }
     else if(S.t-w.last>WING_TTL){ w.x=lerp(w.x,sx+wob,1-Math.exp(-dt*1.2)); w.y=lerp(w.y,-160,1-Math.exp(-dt*0.8)); if(w.y<-120) S.wing.delete(w.k); }
-    else { const k=S.t-w.join<1.5?2.2:3, tx=sx+wob, ty=sy+Math.sin(S.t*1.3+ph)*6; w.x=lerp(w.x,tx,1-Math.exp(-dt*k)); w.y=lerp(w.y,ty,1-Math.exp(-dt*k)); w.rot=lerp(w.rot,clamp((tx-w.x)*-0.004,-0.3,0.3),0.1); }
+    else { const k=S.t-w.join<1.5?2.2:3, tx=sx+wob, ty=sy+Math.sin(S.t*1.3+ph)*6; w.x=lerp(w.x,tx,1-Math.exp(-dt*k)); w.y=lerp(w.y,ty,1-Math.exp(-dt*k)); w.rot=lerp(w.rot,clamp((tx-w.x)*-0.004,-0.3,0.3)+(FREE_FLY?(90-(S.aimDisp??90))*Math.PI/180*0.85:0),0.1); }   // free play: the crew rides the same coin, so it tips with your nose (maker 2026-11-18: "my rocket pointed down but the others went up")
     w.hist.unshift(w.x); if(w.hist.length>90) w.hist.length=90; }
   for(const [k,t] of S.wingRecent) if(S.t-t>WING_TTL) S.wingRecent.delete(k); }
 function wingExtra(){ let n=0; for(const k of S.wingRecent.keys()) if(!S.wing.has(k)) n++; return n; }
@@ -3007,6 +3007,7 @@ function simStep(stepDt){
   // vertical velocity for attitude: the ~10 s candle window (smooth trend) blended with the live climb rate,
   // so a dump tips the nose over promptly instead of waiting for the window to turn
   S.vyAtt=0.45*(S.momV||0)+0.55*(S.vyS||0);   // market motion stays separate from cosmetic manual dive
+  if (FREE_FLY) S.vyAtt*=0.6;   // free play: a dump tips the nose over less and it rights itself sooner (the 1.5x Daily market kept it pointed down)
   stepHeading(S, aimWithDive(aimFromMotion(S.vyAtt, S.lean, S.fight, PX_PER_ALT*0.02, S), S.dive, S), 0, dt);   // v0 = 2% of a tier per second (source-independent)
   S.heading=Math.PI/2 - S.aimDisp*Math.PI/180; S.tilt=S.heading;
   // CAMERA — locked to the price altitude (@altfollow). Was: stepCamera's lagging chase (the rocket rose / dropped on

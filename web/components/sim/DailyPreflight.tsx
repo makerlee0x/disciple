@@ -6,7 +6,7 @@
  * 3 · 2 · 1 · GO before the market starts. There is no difficulty: one market, the same for everyone.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { dailyEndsAt, dailyRealSeconds, fmtMultiple } from "@/lib/sim/daily";
+import { dailyEndsAt, dailyRealSeconds, fmtDailyPnl } from "@/lib/sim/daily";
 import { usePilotWallet } from "@/lib/xpClient";
 import { fetchDailyBoard, type Board } from "./FreePlay";
 import s from "./preflight.module.css";
@@ -88,7 +88,7 @@ export default function DailyPreflight({ dailyId, msg, onBack, onLaunch, onGo }:
         <section className={s.board} aria-label="Today's board" data-testid="daily-pre-board">
           <div className={s.bHead}><span className={s.bT}>TODAY&apos;S BOARD</span><span className={s.bMeta}>{pilots}</span></div>
           {board && board.top.length ? board.top.map((r, i) => (
-            <div key={r.runId} className={s.row}><span><b className={`${s.rank} ${i === 0 ? s.rank1 : ""}`}>{i + 1}</b>{r.name}</span><span className={s.mult}>{fmtMultiple(r.multiple)}</span></div>
+            <div key={r.runId} className={s.row}><span><b className={`${s.rank} ${i === 0 ? s.rank1 : ""}`}>{i + 1}</b>{r.name}</span><span className={s.mult} style={r.pnl < 0 ? { color: "#FF7FB2" } : undefined}>{fmtDailyPnl(r.pnl)}</span></div>
           )) : <div className={s.empty}>{board ? "No runs yet" : <span className={s.skel} role="status" aria-label="Loading the board" />}</div>}
           {!pilot && <span className={s.note}>Sign in to make the board.</span>}
         </section>
