@@ -1,5 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "app/api/lighter/route.ts": { "regions": ["fra1"] },
+    "app/api/lighter/buzz/route.ts": { "regions": ["fra1"] },
+    "app/api/lighter/ping/fra1/route.ts": { "regions": ["fra1"] }
+  },
   "crons": [
     { "path": "/api/cron/poke-pricer", "schedule": "* * * * *" },
     { "path": "/api/cron/name-lock", "schedule": "*/5 * * * *" },
