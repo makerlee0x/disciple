@@ -23,12 +23,12 @@ const D: PanelData = {
     { token: "e", name: "Delta V", ticker: "DELTA", img: "/pairs/coin/delta.webp", kind: "crew", usd: 80.1, ready: 32.22 },
   ],
   history: [
-    { k: "Drop", note: "Season 1 top 100", day: "Nov 19", usd: 96 },
+    { k: "Bonus", note: "Season 1 top 100", day: "Nov 19", usd: 96 },
     { k: "Hosting", day: "Nov 19", usd: 118.4 },
-    { k: "KOL", note: "Week 46", day: "Nov 18", usd: 150 },
+    { k: "Referral", note: "Week 46", day: "Nov 18", usd: 150 },
     { k: "Crew", day: "Nov 18", usd: 21.7 },
     { k: "Hosting", day: "Nov 17", usd: 302.66 },
-    { k: "KOL", note: "Week 45", day: "Nov 11", usd: 100 },
+    { k: "Referral", note: "Week 45", day: "Nov 11", usd: 100 },
   ],
   invite: "disciple.vip/r/maker",
 };

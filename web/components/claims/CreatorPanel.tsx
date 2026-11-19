@@ -21,7 +21,7 @@ export type PanelData = {
   nHost: number; nCrew: number; nKol: number; nDrops: number;
   payTo: { kind: "me" | "user" | "wallet"; label: string; addr: string };
   rockets: PanelRocket[];
-  history: { k: "Hosting" | "Crew" | "KOL" | "Drop"; day: string; usd: number; note?: string }[];
+  history: { k: "Hosting" | "Crew" | "Referral" | "Bonus"; day: string; usd: number; note?: string }[];
   invite: string;
 };
 export type PanelView = "home" | "history" | "payto" | "coin" | "transfer";
@@ -65,8 +65,8 @@ export default function CreatorPanel({ open = true, onClose = () => {}, d, view:
   const tiles = [
     { k: "Hosting", usd: d.byKind.host, sub: `${d.nHost} rockets` },
     { k: "Crew", usd: d.byKind.crew, sub: `${d.nCrew} rockets` },
-    { k: "KOL", usd: d.byKind.kol, sub: `${d.nKol} payouts` },
-    { k: "Drops", usd: d.byKind.drops, sub: `${d.nDrops} from Disciple` },
+    { k: "Referral", usd: d.byKind.kol, sub: `${d.nKol} payouts` },
+    { k: "Bonus", usd: d.byKind.drops, sub: `${d.nDrops} from Disciple` },
   ];
   const tab = view === "history" ? "history" : "rockets";
 
@@ -83,7 +83,6 @@ export default function CreatorPanel({ open = true, onClose = () => {}, d, view:
           </div>
           <button type="button" className="p5-rw-go" disabled={d.ready < 0.005}>Claim</button>
         </div>
-        <PayTo d={d} onChange={() => setView("payto")} />
         <div className="p5-rw-tiles cp-tiles">
           {tiles.map((x) => <div key={x.k} className="p5-rw-tile"><span className="k">{x.k}</span><b>{usd2(x.usd)}</b><span>{x.sub}</span></div>)}
         </div>
@@ -120,7 +119,8 @@ export default function CreatorPanel({ open = true, onClose = () => {}, d, view:
       </>}
 
       {view === "payto" && <>
-        <Head title="Pays to" onBack={() => setView("home")} onClose={onClose} />
+        <Head title="Pays to" onBack={() => setView("coin")} onClose={onClose} />
+        {c && <div className="cp-who cp-coinrow"><PairArt src={withBase(c.img)} tk={c.ticker} size="list" px={40} /><span className="t"><b>{c.name}</b><span>${c.ticker}</span></span></div>}
         <div className="cp-opts" role="radiogroup" aria-label="Pays to">
           <button type="button" role="radio" aria-checked={false} className="cp-opt">
             <span className="dot" /><span className="t"><b>Your wallet</b><span className="mono">0x9f2c…41De</span></span>
@@ -138,8 +138,8 @@ export default function CreatorPanel({ open = true, onClose = () => {}, d, view:
           <span className="t"><b>@moonboi</b><span className="mono">0x51Ab…9C07</span></span>
           <Icon name="check" size={18} className="ok" />
         </div>
-        <div className="cp-warn" role="note"><Icon name="warning" size={16} /><span>Claims from all your rockets go here. Sent rewards can&apos;t be pulled back.</span></div>
-        <span className="cx-fine left cp-fee">Network fee ~$0.01 · 3 rockets</span>
+        <div className="cp-warn" role="note"><Icon name="warning" size={16} /><span>{c?.name}&apos;s fees pay here. Sent rewards can&apos;t be pulled back.</span></div>
+        <span className="cx-fine left cp-fee">Network fee ~$0.01</span>
         <button type="button" className="p5-btn primary wide p5-gold">Save</button>
       </>}
 
@@ -150,6 +150,7 @@ export default function CreatorPanel({ open = true, onClose = () => {}, d, view:
           <div className="tx"><span className="k">Ready to claim</span><b className="cp-v">{usd2(c.ready)}</b><span className="sub">{usd2(c.usd)} earned all time</span></div>
           <button type="button" className="p5-rw-go">Claim</button>
         </div>
+        <PayTo d={d} onChange={() => setView("payto")} />
         <section className="cp-sec">
           <h3 className="cp-h">Coin info</h3>
           <div className="cp-img">
