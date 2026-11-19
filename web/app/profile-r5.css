@@ -475,3 +475,8 @@ button.cp-prow:hover .n b { color: #FFFFFF; }
 .cp .p5-rw-claim .sub { white-space: normal; }
 @media (max-width: 720px) { .cp-anon .t { display: none; } .cp-anon { padding: 0 5px; } }
 .cp.p5-modal > * { flex-shrink: 0; }
+/* Hold to transfer: the fill grows while held */
+.cp-danger { position: relative; overflow: hidden; }
+.cp-danger .cp-fill { position: absolute; inset: 0; background: rgba(18,19,39,.28); transform-origin: left center; pointer-events: none; }
+.cp-danger .cp-hl { position: relative; display: inline-flex; align-items: center; gap: 8px; }
+.cp .up-card, .cp .r2-note { flex-shrink: 0; }

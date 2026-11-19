@@ -24,9 +24,8 @@ import { useCashHistory, useRealActivity } from "./RealActivity";
 import type { CashKind, CashRow } from "@/lib/cashHistory";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import PortfolioBlock from "./PortfolioBlock";
-import { ChestGlyph } from "./Glyphs";
 import { agoLabel, usd2 } from "./money";
-import RewardsPopup from "@/components/claims/RewardsPopup";
+import RewardsPanel from "@/components/claims/RewardsPanel";
 import { shareInvite } from "@/lib/invite";
 import { useRewards } from "@/components/claims/useRewards";
 import InvitesCard from "@/components/invites/InvitesCard";
@@ -348,9 +347,6 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const bio = meta.bio ? <p className="hg-bio" data-testid="profile-bio"><BioText text={meta.bio} /></p>
     : isPrivate ? <button type="button" className="hg-addbio" onClick={() => setEdit({ focus: "bio" })}><Icon name="plus" size={14} /> {C["profile.bio.empty.own"]}</button> : null;
   const actions = isPrivate ? <>
-    {rewards.canClaim
-      ? <button type="button" className="dsc3-btn dsc3-btn-primary hg-claim" onClick={() => setRewardsOpen(true)} data-testid="claim-now"><ChestGlyph size={18} /> Claim rewards</button>
-      : <button type="button" className="hg-ghost" onClick={() => setRewardsOpen(true)} data-testid="rewards-chest"><ChestGlyph size={18} /> Rewards</button>}
     <button type="button" className="hg-ghost" onClick={() => void shareInvite(wallet, me).then((h) => { if (h === "copied") { setInvited(true); setTimeout(() => setInvited(false), 1400); } })} data-testid="invite-btn"><Icon name="share" size={16} /> {invited ? "Link copied" : "Invite"}</button>
     <button type="button" className="hg-ghost" onClick={() => setEdit({ focus: null })} data-testid="edit-profile-btn">{C["profile.action.edit"]}</button>
     <button type="button" className="hg-ghost" onClick={() => setSettingsOpen(true)} data-testid="hangar-settings-btn">Settings</button>
@@ -370,7 +366,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
       {isPrivate && <EditProfileSheet open={!!edit} focus={edit?.focus} wallet={wallet} meta={meta}
         handle={handle} level={xp?.level ? `Level ${xp.level.level} · ${xp.level.prestigeName}` : undefined}
         onClose={(saved) => { setEdit(null); if (saved) flash(typeof saved === "string" ? saved : C["edit.saved"]); }} />}
-      {isPrivate && <RewardsPopup open={rewardsOpen} onClose={closeRewards} r={rewards} />}
+      {isPrivate && <RewardsPanel open={rewardsOpen} onClose={closeRewards} r={rewards} />}
       {toast && <div className="pf-toast" role="status">{toast}</div>}
       {points?.username && <PointsShare handle={points.username} pts={points.pts} rank={points.rank} open={pointsCard} onClose={() => setPointsCard(false)} />}
 
@@ -386,7 +382,8 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         </nav>
       )}
 
-      <ServiceRecord pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} isPrivate={isPrivate} />
+      <ServiceRecord pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} isPrivate={isPrivate}
+        rewards={isPrivate && wallet ? { usd: rewards.data ? rewards.data.summary.claimableUsd : null, onOpen: () => setRewardsOpen(true) } : null} />
 
       {/* maker 2026-11-17: Altitude top left beside a half-width Your rocket card; Trophy case and Your fleet side by side under
           them. Skins, trails, trade up and crates live on /rocket. */}

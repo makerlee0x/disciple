@@ -1,5 +1,5 @@
 /**
- * Claims: the Rewards popup (Hangar popups v2) and the host dashboard. A new pilot has nothing to claim, so Claim stays
+ * Claims: the Rewards panel (Hangar fourth tile, maker 2026-11-19) and the host dashboard. A new pilot has nothing to claim, so Claim stays
  * off and each tab explains how rewards come in; the referral link is the pilot's own.
  */
 import { test, expect } from "./support/fixtures";
@@ -28,7 +28,8 @@ test("a new pilot's Rewards: nothing ready, Claim off, all three tabs open", asy
     await expect(tabs.nth(i)).toHaveAttribute("aria-selected", "true");
   }
   await expect(pop.getByTestId("rewards-tab-referral")).toHaveCount(0);
-  await expect(pop.getByTestId("rewards-tile-referral")).toHaveCount(0);
+  // four source tiles (maker 2026-11-19): Hosting, Crew, Referral, Bonus
+  for (const k of ["creator", "crew", "referral", "bonus"]) await expect(pop.getByTestId(`rewards-tile-${k}`)).toBeVisible();
 });
 
 test("the referral link is yours and Copy copies it", async ({ page, pilot, context }) => {

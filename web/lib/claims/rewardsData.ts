@@ -42,6 +42,10 @@ export type RewardsData = {
   rockets: RocketReward[];
   /** distinct friends whose referrer is this account (ReferralRegistry.ReferrerAttributed); null when unreadable */
   friendsInvited: number | null;
+  /** every rocket this account hosts (wallet + private), claimable or not: the Rewards panel's coin pages */
+  hosted: CreatorRocket[];
+  /** claimable now in dollars per rocket, keyed `${kind}:${token lowercase}` (kind creator | crew) */
+  readyUsd: Record<string, number>;
 };
 
 const sinkAbi = parseAbi(["function referralSink() view returns (address)"]);
@@ -193,6 +197,11 @@ export async function loadRewards(pc: PublicClient, me: Address, caps: Caps, ste
     referralPaused: paused,
     rockets: rocketRows,
     friendsInvited: friends,
+    hosted: rockets,
+    readyUsd: Object.fromEntries([
+      ...rockets.map((r) => [`creator:${lc(r.token)}`, (usdOf(r.claimable, r.quote.address, prices) ?? 0) + (tokenSideOn(r) ? usdOf(r.tokenSide!.claimable, r.tokenSide!.asset.address, prices) ?? 0 : 0)]),
+      ...crewRows.map((r) => [`crew:${lc(r.token)}`, usdOf(r.pending, r.quote.address, prices) ?? 0]),
+    ]),
   };
 }
 
