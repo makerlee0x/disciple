@@ -96,7 +96,8 @@ function PillProgress({ progress }: { progress: number }) {
   })() : "";
   return (
     <svg ref={ref} className="wb-prog" width={box?.w ?? 0} height={box?.h ?? 0} aria-hidden>
-      {d && <path d={d} pathLength={100} fill="none" stroke="var(--dsc3-light-gold)" strokeWidth={sw} strokeLinecap="round" strokeDasharray={`${p * 100} 100`} />}
+      {/* nothing at 0 XP: a zero-length round-capped dash paints a stray gold dot */}
+      {d && p > 0 && <path d={d} pathLength={100} fill="none" stroke="var(--dsc3-light-gold)" strokeWidth={sw} strokeLinecap="round" strokeDasharray={`${p * 100} 100`} />}
     </svg>
   );
 }
