@@ -50,14 +50,16 @@ export default function ClimbScreen() {
       api?.price(price, ts);
     };
     // On Lighter the chart is Lighter's own BTC from the first frame (public stream, no account needed), swapped for the
-    // pilot's exchange once the account is read. Until then, or whenever Lighter goes quiet for 3 s, the play-money feed
-    // (Hyperliquid) fills in, so the countdown never waits on Lighter (maker 2026-11-18: Climb "froze on 3").
-    let lastLx = 0;
-    const lxTick = (p: number) => { lastLx = Date.now(); tick(p, lastLx); };
+    // pilot's exchange once the account is read; before, it waited on that read and Climb "froze on 3" (maker
+    // 2026-11-18). Never another venue's price under real orders (no jumps between venues): when Lighter goes quiet the
+    // last price holds, and if it never comes the engine calls the run off after 15 s.
+    let lastLx = 0, lastP = 0;
+    const lxTick = (p: number) => { lastLx = Date.now(); lastP = p; tick(p, lastLx); };
     let stopPrice = onLighter
       ? streamLighterMids((m) => { if (m.BTC) lxTick(m.BTC); })
       : ad.subscribePrice("BTC", (t) => tick(t.price, t.ts));
-    const stopBackup = onLighter ? ad.subscribePrice("BTC", (t) => { if (Date.now() - lastLx > 3_000) tick(t.price, Date.now()); }) : () => {};
+    const hold = onLighter ? setInterval(() => { if (lastP > 0 && Date.now() - lastLx > 2_000) tick(lastP, Date.now()); }, 1_000) : null;
+    const stopBackup = () => { if (hold) clearInterval(hold); };
     let lf: ReturnType<typeof lighterFetcher> | null = null;
     /** the Lighter account now: cash, and the BTC position's real entry */
     const readLighter = async () => {
