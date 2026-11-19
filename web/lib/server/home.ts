@@ -15,6 +15,7 @@ import { listLaunches } from "@/lib/events";
 import { publicClient } from "@/lib/protocol-viem";
 import { storeSrc, STORE_ID_RE, uriKey } from "@/lib/coinImages";
 import { pairOf, pairSymOf, shortHex } from "@/lib/home/pairs";
+import { pairLogoBySymbol } from "@/lib/whitelistQuotes";
 import { isHiddenCoin } from "@/lib/home/hiddenCoins";
 import { flaggedCopySet } from "@/lib/server/nameLock";
 import { chipOf, lobbyAgeTokens, pickHero, statsFromFills, type HomeCoin, type HomeData } from "@/lib/home/trending";
@@ -44,6 +45,11 @@ async function resolveImages(uris: string[]): Promise<Map<string, string>> {
   } catch { /* unmoderated ⇒ PairArt monogram */ }
   for (const u of uris) if (!out.has(u)) out.set(u, "");
   return out;
+}
+
+/** Base pair logo for every rocket: the 12 whitelisted pair coins (and USDG / ETH) carry their own art. */
+function namePairs(coins: HomeCoin[]): void {
+  for (const c of coins) { const l = pairLogoBySymbol(c.pairSym); if (l) c.pairIcon = l; }
 }
 
 export const EMPTY_HOME: HomeData = { at: 0, coins: [], hero: null, heroMode: "empty", next: [], chips: [] };
@@ -82,6 +88,7 @@ async function build(): Promise<HomeData> {
       stats: statsFromFills(fills, now, x.mcapUsd, fills.length >= FILLS_CAP),
     };
   });
+  namePairs(coins);
   // each coin's launch look (lib/coinLook), for the cards, the pad and the hero
   const looks = await timeout(coinLooksOf(coins.map((c) => c.token)).catch(() => ({} as Record<string, CoinLook>)), 1_500, {} as Record<string, CoinLook>);
   for (const c of coins) if (looks[c.token]) c.look = looks[c.token];

@@ -681,6 +681,7 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
 .ds-select-btn { display: flex; align-items: center; gap: 10px; width: 100%; cursor: pointer; text-align: left; }
 .ds-select.open .ds-select-btn { border-color: rgba(201, 206, 214, 0.8); box-shadow: 0 0 0 3px rgba(201, 206, 214, 0.12); }
 .ds-select-label { font-weight: 600; color: #E8EAEE; letter-spacing: .02em; }
+.ds-select-icon { flex: none; width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
 .ds-select-hint { margin-left: auto; color: rgba(232,234,238,0.55); font-family: ui-monospace, monospace; font-size: 12px; }
 .ds-select-caret { color: #C9CED6; font-size: 11px; transition: transform var(--dsc-duration-fast) var(--dsc-easing-standard); }
 .ds-select.open .ds-select-caret { transform: rotate(180deg); }

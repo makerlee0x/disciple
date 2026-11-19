@@ -81,8 +81,8 @@ export function Fleet({ rows, home, launched, isPrivate, owner }: {
       ) : (
         <div className="hg-fleet" data-testid="tab-rockets">
           {tab === "aboard"
-            ? (list as LiveHolding[]).map((h) => <LiveCard key={h.coin} c={asCoin(h, home)} seat={usd2(h.usd)} testId="fleet-card" />)
-            : (list as HomeCoin[]).map((c) => <LiveCard key={c.token} c={c} testId="fleet-card" />)}
+            ? (list as LiveHolding[]).map((h) => <LiveCard key={h.coin} c={asCoin(h, home)} seat={usd2(h.usd)} testId="fleet-card" compact />)
+            : (list as HomeCoin[]).map((c) => <LiveCard key={c.token} c={c} testId="fleet-card" compact />)}
         </div>
       )}
     </section>

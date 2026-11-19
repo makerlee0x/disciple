@@ -17,7 +17,8 @@ import { isClassic, trailRgb } from "@/lib/coinLook";
 import s from "./liveCard.module.css";
 
 /** `seat` (Hangar fleet): the pilot's holding in dollars, shown in place of the 24h change. */
-export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: string; seat?: string }) {
+/** `compact` (Hangar fleet, maker 2026-11-19): a short strip, about a quarter of the card's height, rocket on the left. */
+export default function LiveCard({ c, testId, seat, compact }: { c: HomeCoin; testId?: string; seat?: string; compact?: boolean }) {
   const t = tierProgress(c.mcapUsd);
   const chg = c.stats?.chg24 ?? null;
   const crew = c.stats?.crew ?? null;
@@ -28,7 +29,7 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
   const skinned = !!c.look && !isClassic(c.look);
   const style = { ...lit(c), ["--sky" as string]: `url(${withBase(skySrc(t.index))})`, ...(c.look ? { ["--trail" as string]: trailRgb(c.look.trail) } : {}) };
   return (
-    <Link href={flightHref(c)} prefetch={false} className={s.card} style={style} data-testid={testId} aria-label={`${c.name}, ${altShort(c.mcapUsd)} market cap${chg != null ? `, ${chg >= 0 ? "up" : "down"} ${pct(Math.abs(chg))} today` : ""}. Drop in`}>
+    <Link href={flightHref(c)} prefetch={false} className={`${s.card}${compact ? " " + s.compact : ""}`} style={style} data-testid={testId} aria-label={`${c.name}, ${altShort(c.mcapUsd)} market cap${chg != null ? `, ${chg >= 0 ? "up" : "down"} ${pct(Math.abs(chg))} today` : ""}. Drop in`}>
       <span className={s.sky} aria-hidden />
       <span className={s.streaks} aria-hidden />
       <span className={s.glow} aria-hidden />
@@ -43,7 +44,7 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
       <span className={s.top}>
         <span className={s.tags}>
           {/* maker 2026-11-19: the base pair replaces the LIVE / IN ORBIT pill */}
-          {c.pairSym && !c.pairSym.startsWith("0x") && <PairTag sym={c.pairSym} />}
+          {c.pairSym && !c.pairSym.startsWith("0x") && <PairTag sym={c.pairSym} icon={c.pairIcon} />}
         </span>
       </span>
 
@@ -73,13 +74,14 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
 }
 
 /** The rocket's base pair: a round pill with the pair coin's logo + symbol. */
-function PairTag({ sym }: { sym: string }) {
-  const logo = pairLogoBySymbol(sym);
+function PairTag({ sym, icon }: { sym: string; icon?: string }) {
+  const src = icon ?? pairLogoBySymbol(sym);
+  const logo = src ? (isStoreSrc(src) || /^https?:/.test(src) ? src : withBase(src)) : null;
   const label = sym.replace(/^mUSDG$/, "USDG");
   return (
     <span className={s.pair} title={`Paired with ${label}`} aria-label={`Paired with ${label}`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {logo && <img src={withBase(logo)} alt="" width={16} height={16} loading="lazy" decoding="async" />}
+      {logo ? <img src={logo} alt="" width={20} height={20} loading="lazy" decoding="async" /> : <i aria-hidden>{label[0]}</i>}
       <span>{label}</span>
     </span>
   );

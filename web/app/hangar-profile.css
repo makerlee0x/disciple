@@ -9,7 +9,17 @@
 .hg-duo > .hg-sec .hg-sech span { font-size: 13px; }
 .hg-duo .hg-fleet { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 .hg-duo .hg-empty { padding: 20px; }
+/* Fleet over Trophy case | Flight log (maker 2026-11-19): the log takes the left column's height and scrolls inside */
+.hg-stack { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.hg-stack > .hg-sec { margin-top: 0; padding: 24px; gap: 12px; background: var(--dsc3-panel); border: 1px solid var(--dsc3-panel-border); border-radius: var(--dsc3-panel-radius); min-width: 0; }
+.hg-stack > .hg-sec .hg-sech h2 { font: 800 30px / 1 var(--dsc-font-game); text-transform: uppercase; }
+.hg-stack .hg-fleet { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.hg-stack .hg-fleet-sk { aspect-ratio: auto; height: 88px; }
+.hg-stack .hg-empty { padding: 20px; }
+.hg-split > .hg-log { contain: size; min-height: 420px; }
+.hg-log .p5-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 @media (max-width: 980px) { .hg-duo { grid-template-columns: minmax(0, 1fr); gap: 16px; } }
+@media (max-width: 980px) { .hg-split > .hg-log { contain: none; min-height: 0; } .hg-log .p5-list { overflow: visible; } .hg-stack { gap: 16px; } }
 
 /* the profile's Your rocket card */
 .hgu-card { justify-content: flex-start; background: radial-gradient(120% 90% at 18% 40%, color-mix(in srgb, var(--sw) 14%, transparent), transparent 60%), var(--dsc3-panel); }

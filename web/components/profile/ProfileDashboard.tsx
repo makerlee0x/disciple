@@ -31,6 +31,7 @@ import { shareInvite } from "@/lib/invite";
 import { useRewards } from "@/components/claims/useRewards";
 import InvitesCard from "@/components/invites/InvitesCard";
 import Icon, { type IconName } from "@/components/icons/Icon";
+import DsSelect from "@/components/ui/DsSelect";
 import type { ActivityItem } from "@/lib/stats";
 import type { LifetimeRow } from "@/lib/server/leaderboard";
 import PointsShare from "@/components/points/PointsShare";
@@ -80,10 +81,44 @@ function logRows(trades: ActivityItem[], cash: CashRow[] | null): LogRow[] {
   return rows.sort((a, b) => b.ts - a.ts);
 }
 
+/** Flight log filter (maker 2026-11-19): one entry per kind of move; only kinds this log actually has are offered. */
+const LOG_FILTERS: { k: string; label: string; kinds: (keyof typeof LOG_KIND)[] }[] = [
+  { k: "boost", label: "Boosts", kinds: ["buy"] },
+  { k: "dump", label: "Dumps", kinds: ["sell", "bomb"] },
+  { k: "deposit", label: "Deposits", kinds: ["deposit"] },
+  { k: "withdraw", label: "Withdrawals", kinds: ["withdraw"] },
+  { k: "sold", label: "Market sales", kinds: ["sold"] },
+  { k: "bought", label: "Market buys", kinds: ["bought"] },
+  { k: "turbo", label: "Turbo cash", kinds: ["turbo-in", "turbo-out"] },
+  { k: "fees", label: "Creator fees", kinds: ["fees"] },
+  { k: "rewards", label: "Rewards", kinds: ["rewards"] },
+];
+
 /** Flight log: ↑ BOOST / ↓ DUMP · rocket, plus (own) market, deposits, withdrawals, Turbo cash · dollars · when. */
-function Activity({ rows: trades, cash, isPrivate, owner }: { rows: ActivityItem[] | null; cash: CashRow[] | null; isPrivate: boolean; owner: string }) {
+function Activity(props: { rows: ActivityItem[] | null; cash: CashRow[] | null; isPrivate: boolean; owner: string }) {
+  const [filter, setFilter] = useState("all");
+  const all = useMemo(() => (props.rows ? logRows(props.rows, props.cash) : null), [props.rows, props.cash]);
+  const options = useMemo(() => {
+    const have = new Set(all?.map((r) => r.kind));
+    return LOG_FILTERS.filter((f) => f.kinds.some((k) => have.has(k)));
+  }, [all]);
+  const f = options.find((o) => o.k === filter);
+  return (
+    <section className="dsc3-panel hg-panel hg-log" aria-labelledby="hg-log">
+      <header className="hg-panelh">
+        <h2 id="hg-log">Flight log</h2>
+        {options.length > 1 && (
+          <DsSelect className="pill" value={f ? f.k : "all"} onChange={setFilter} ariaLabel="Show"
+            options={[{ value: "all", label: "Everything" }, ...options.map((o) => ({ value: o.k, label: o.label }))]} />
+        )}
+      </header>
+      <LogList {...props} all={all && f ? all.filter((r) => f.kinds.includes(r.kind)) : all} key={f?.k ?? "all"} />
+    </section>
+  );
+}
+
+function LogList({ all: rows, cash, isPrivate, owner }: { all: LogRow[] | null; cash: CashRow[] | null; isPrivate: boolean; owner: string }) {
   const [page, setPage] = useState(1);
-  const rows = useMemo(() => (trades ? logRows(trades, cash) : null), [trades, cash]);
   if (rows == null || (isPrivate && cash == null && !rows.length)) return <div className="p5-list" aria-busy="true" data-testid="tab-activity" />;
   if (!rows.length) {
     return isPrivate ? (
@@ -118,8 +153,8 @@ function Activity({ rows: trades, cash, isPrivate, owner }: { rows: ActivityItem
  *   bay: call sign as a title card, bio, level bar, Rewards / Edit profile / Settings (own)
  *   service record: hangar value + today, cash (+ Add cash), flights aboard, rockets launched
  *   Your altitude (the portfolio chart) | Your rocket (a half-width card, own only; the full collection and crates are /rocket)
- *   Trophy case | Your fleet (rockets aboard or launched, as the lobby's Live window cards)
- *   Flight log, then invites (own)
+ *   Your fleet (compact Live window cards) over the Trophy case | Flight log (filter by kind, scrolls at that height)
+ *   then invites (own)
  * Settings opens from the pilot chip (/profile#settings). Everything shown is live; nothing is sample data.
  */
 export default function ProfileDashboard({ mode = "private", username }: { mode?: "private" | "public"; username?: string }) {
@@ -359,14 +394,15 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         <PortfolioBlock pf={noWallet ? { ok: true, cashUsd: 0, rows: [] } : pf} isPrivate={isPrivate} title={isPrivate ? "Your altitude" : "Altitude"} />
         {isPrivate && <RocketCard col={col} handle={handle} />}
       </div>
-      <div className="hg-duo">
-        <TrophyCase got={trophies} href={isPrivate ? "/achievements" : `/u/${encodeURIComponent(username ?? "")}/stats`} />
-        <Fleet rows={holdings} home={home} launched={launched} isPrivate={isPrivate} owner={ownerName} />
-      </div>
-      <section className="dsc3-panel hg-panel" aria-labelledby="hg-log">
-        <header className="hg-panelh"><h2 id="hg-log">Flight log</h2></header>
+      {/* maker 2026-11-19: Your fleet (compact cards) with the Trophy case under it on the left, the Flight log on the right at
+          the left column's height (it scrolls inside) */}
+      <div className="hg-duo hg-split">
+        <div className="hg-stack">
+          <Fleet rows={holdings} home={home} launched={launched} isPrivate={isPrivate} owner={ownerName} />
+          <TrophyCase got={trophies} href={isPrivate ? "/achievements" : `/u/${encodeURIComponent(username ?? "")}/stats`} />
+        </div>
         <Activity rows={noWallet ? [] : activity} cash={noWallet ? [] : cash} isPrivate={isPrivate} owner={ownerName} />
-      </section>
+      </div>
       {isPrivate && <InvitesCard />}
     </div>
   );
