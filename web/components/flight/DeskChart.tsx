@@ -3,7 +3,8 @@
  * Desktop Pilot chart (maker 2026-11-14 picked board C "Trader's right column" on the desktop ideas page
  * https://claude.ai/artifact/6bL2Ydgd7GwgxPniaQ7XSv): the phone flight's chart card, big, at the top of the right column.
  * The crew feed (GameChat, Pilot) starts under it via --ap-pilot-chart-h. Pro keeps its DexChart; phones keep PhoneHud's copy.
- * Click the card to make it taller; the 1M / 5M / 1H / 1D pick and the size are remembered on this device.
+ * Click the card to make it taller (not on a live coin: maker 2026-11-19, the taller card pushed the stats pills and the crew
+ * chat down, so live flight keeps the normal size); the 1M / 5M / 1H / 1D pick and the size are remembered on this device.
  */
 import { useEffect, useState } from "react";
 import PhoneChart from "./PhoneChart";
@@ -34,7 +35,8 @@ export default function DeskChart({ ticker }: { ticker: string }) {
   // a live coin page: the stats pills (Price · 24H · Vol · Liquidity · Holders) sit inside the chart card, along its bottom
   const [coin, setCoin] = useState("");
   useEffect(() => { setCoin((/^\/coin\/(0x[0-9a-fA-F]{40})/.exec(location.pathname)?.[1] ?? "").toLowerCase()); }, []);
-  const h = (big ? DESK_CHART_BIG_H : DESK_CHART_H) + (coin ? COIN_STATS_H : 0);
+  const grow = !coin;
+  const h = (big && grow ? DESK_CHART_BIG_H : DESK_CHART_H) + (coin ? COIN_STATS_H : 0);
   // the Pilot crew feed starts under this card
   useEffect(() => { const root = document.documentElement; root.style.setProperty("--ap-pilot-chart-h", on ? `${h + 14}px` : "0px");
     root.style.setProperty("--ap-pilot-feed-w", on ? `min(${DESK_CHART_W}px, 34vw)` : "300px");
@@ -44,8 +46,9 @@ export default function DeskChart({ ticker }: { ticker: string }) {
   return (
     <div className="dsk-chart" data-testid="desk-chart" style={{ position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + 34px)", width: `min(${DESK_CHART_W}px, 34vw)`, height: h, zIndex: 33, transition: "height .25s ease" }}>
       <style>{`
-        .dsk-chart .pc { position: absolute; inset: 0; border-radius: 16px; background: rgba(12,13,28,.92); border: 1px solid rgba(255,255,255,.14); box-shadow: 0 12px 30px rgba(0,0,0,.35); overflow: hidden; cursor: zoom-in; box-sizing: border-box; }
-        .dsk-chart .pc[data-big="1"] { cursor: zoom-out; }
+        .dsk-chart .pc { position: absolute; inset: 0; border-radius: 16px; background: rgba(12,13,28,.92); border: 1px solid rgba(255,255,255,.14); box-shadow: 0 12px 30px rgba(0,0,0,.35); overflow: hidden; box-sizing: border-box; }
+        .dsk-chart .pc[data-grow="1"] { cursor: zoom-in; }
+        .dsk-chart .pc[data-grow="1"][data-big="1"] { cursor: zoom-out; }
         .dsk-chart .pc canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
         .dsk-chart .pc-lab { position: absolute; left: 14px; top: 12px; display: flex; gap: 8px; align-items: baseline; font: 700 14px/1 'Barlow Condensed', 'Arial Narrow', sans-serif; letter-spacing: 1.4px; color: rgba(215,217,228,.85); pointer-events: none; }
         .dsk-chart .pc-lab b { display: none; }
@@ -54,7 +57,7 @@ export default function DeskChart({ ticker }: { ticker: string }) {
         .dsk-chart .pc-tf button.on { background: #F2F3F7; color: #121327; }
         .dsk-chart .pc-tf button:focus-visible { outline: 2px solid #F2C14E; }
       `}</style>
-      <PhoneChart tf={tf} onTf={setTf} big={big} onBig={() => setBig((b) => !b)} entry={entry} ticker={ticker} badge={null} bottom={coin ? COIN_STATS_H : 0}>
+      <PhoneChart tf={tf} onTf={setTf} big={big && grow} onBig={grow ? () => setBig((b) => !b) : undefined} entry={entry} ticker={ticker} badge={null} bottom={coin ? COIN_STATS_H : 0}>
         {coin && <CoinStats coin={coin} />}
       </PhoneChart>
     </div>

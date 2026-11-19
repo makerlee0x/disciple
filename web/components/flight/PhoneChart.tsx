@@ -75,7 +75,9 @@ const money = (v: number) => (!(v > 0) ? "$0" : v >= 1e9 ? `$${(v / 1e9).toFixed
 const G = "800 13px 'Barlow Condensed', 'Arial Narrow', sans-serif";
 
 export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge, bottom = 0, children }: {
-  tf: number; onTf: (i: number) => void; big: boolean; onBig: () => void; entry: number | null; ticker: string;
+  tf: number; onTf: (i: number) => void; big: boolean;
+  /** tap the card to make it taller; left out (live coin flight on desktop) the card stays its normal size */
+  onBig?: () => void; entry: number | null; ticker: string;
   badge: { t: string; c: string } | null;
   /** px kept clear at the bottom of the plot (desktop: the stats pills sit there) */
   bottom?: number; children?: React.ReactNode;
@@ -170,7 +172,7 @@ export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge,
   }, [big, tf, pausedAt]);
 
   return (
-    <div className="pc" data-testid="phone-chart" data-big={big ? "1" : "0"} role="group" aria-label="Market cap chart. Tap to make it bigger." onClick={onBig}>
+    <div className="pc" data-testid="phone-chart" data-big={big ? "1" : "0"} data-grow={onBig ? "1" : "0"} role="group" aria-label={onBig ? "Market cap chart. Tap to make it bigger." : "Market cap chart"} onClick={onBig}>
       <canvas ref={cv} aria-hidden />
       <span className="pc-lab"><span ref={lab}>MARKET CAP</span>{ticker ? <b>{ticker}</b> : null}</span>
       {badge && <span className="pc-badge" data-testid="phone-mode" style={{ borderColor: badge.c }}><i style={{ background: badge.c }} />{badge.t}</span>}
