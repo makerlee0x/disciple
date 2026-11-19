@@ -134,7 +134,7 @@ export default function ClimbScreen() {
         if (startCash == null) return null;
         for (let i = 0; i < 8; i++) {
           const r = await readLighter().catch(() => null);
-          if (r && r.cash != null && r.entry == null) { realCash = r.cash; setBalance(r.cash); return Math.round((r.cash - startCash) * 100) / 100; }
+          if (r && r.cash != null && r.entry == null) { realCash = r.cash; setBalance(r.cash); return Math.round((r.cash - startCash) * 1e6) / 1e6; }
           await new Promise((ok) => setTimeout(ok, 600));
         }
         return null;
