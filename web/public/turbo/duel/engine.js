@@ -76,7 +76,12 @@ function mount(root,host){
     +"@keyframes fuelShake{0%{transform:translate(-50%,8px)}35%{transform:translate(calc(-50% - 6px),0)}55%{transform:translate(calc(-50% + 5px),0)}75%{transform:translate(calc(-50% - 3px),0)}100%{transform:translate(-50%,0)}}"
     +"@keyframes fuelBlink{50%{opacity:0}}"
     +"@keyframes fuelNudge{50%{box-shadow:0 0 0 4px var(--gold),0 0 26px rgba(242,193,78,.6);transform:scale(1.04)}}"
-    +"@media (prefers-reduced-motion:reduce){.duel-root .fuelout,.duel-root .fuelout i::before,.duel-root #bOut.nudge{animation:none}}"
+    // final-seconds callout (finalCall; maker 2026-11-19: the plain toast was old design): a game-type chip with a live dot
+    +".duel-root .fcall{position:absolute;left:50%;top:calc(var(--ch) + 170px);z-index:31;display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:12px;background:#15161B;border:2px solid var(--gold);box-shadow:0 0 0 4px rgba(242,193,78,.16),0 12px 30px rgba(0,0,0,.55);font:800 22px/1 var(--f-game);letter-spacing:1px;color:var(--gold);white-space:nowrap;opacity:0;transform:translate(-50%,8px) scale(.96);transition:opacity .15s,transform .2s;pointer-events:none}"
+    +".duel-root .fcall.show{opacity:1;transform:translate(-50%,0) scale(1)}"
+    +".duel-root .fcall i{width:9px;height:9px;border-radius:50%;background:#FF4D6D;box-shadow:0 0 10px #FF4D6D;animation:fuelBlink .5s steps(2) infinite}"
+    +".duel-root .fcall b{color:#F2F3F7}"
+    +"@media (prefers-reduced-motion:reduce){.duel-root .fuelout,.duel-root .fuelout i::before,.duel-root #bOut.nudge,.duel-root .fcall i{animation:none}}"
     +"@media (max-height:720px){.duel-root .res .xlink{display:none}.duel-root .res .moments div:nth-child(n+3){display:none}.duel-root .res h1{font-size:40px}.duel-root .res .margin b{font-size:44px}.duel-root .res .sc b{font-size:26px}}";
   let st=document.getElementById("duel-css"); if(!st){ st=document.createElement("style"); st.id="duel-css"; st.textContent=CSS+RES_CSS; document.head.appendChild(st); }
   root.classList.add("duel-root"); root.innerHTML=HTML;
@@ -464,6 +469,10 @@ function mount(root,host){
     const o=$("bOut"); for(const el of [n,o]) if(el){ el.classList.remove("show","nudge"); void el.offsetWidth; }
     if(n) n.classList.add("show"); if(o) o.classList.add("nudge"); $("toast").classList.remove("show"); buzz([30,40,30]);
     clearTimeout(fuelT); fuelT=setTimeout(()=>{ if(n) n.classList.remove("show"); if(o) o.classList.remove("nudge"); },2200); }
+  // the last FINAL_MS of a race: a callout chip in the HUD's type, not the plain toast
+  let fcT=0; function finalCall(){ let n=$("fCall"); if(!n){ n=document.createElement("div"); n.id="fCall"; n.className="fcall"; n.setAttribute("role","status"); $("app").appendChild(n); }
+    n.innerHTML=`<i aria-hidden="true"></i>FINAL <b>${Math.round(FINAL_MS/1000)}</b> SECONDS`; n.classList.remove("show"); void n.offsetWidth; n.classList.add("show"); $("toast").classList.remove("show");
+    clearTimeout(fcT); fcT=setTimeout(()=>n.classList.remove("show"),2200); }
   let toastT=0; function toast(m){ if(/^out of duel fuel/i.test(m)){ fuelOut(); return; } if(/^cash out first/i.test(m)&&G&&G.me&&G.me.pos){ fuelOut(G.me.pos.side); return; } const t=$("toast");t.textContent=m;t.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove("show"),1800);}
 
   /* ---------- chart ---------- */
@@ -655,7 +664,7 @@ function mount(root,host){
       const finT=G.t>=run?Math.min(1,(G.t-run)/1500):0;
       return {f:Math.max(0,Math.min(N-1,1+j*(N-2))),fin:Math.max(finT,Math.max(0,Math.min(1,(G.sp-1)/.3))),solo:1}; }
     const run=Math.max(1,G.len-FINAL_MS), p=Math.max(0,Math.min(1,G.t/run));
-    if(G.finalAt==null&&G.t>=run&&!G.over){ G.finalAt=G.t; toast("Final 12 seconds"); }   // latched: overtime stays on the moon
+    if(G.finalAt==null&&G.t>=run&&!G.over){ G.finalAt=G.t; finalCall(); }   // latched: overtime stays on the moon
     const fin=G.finalAt!=null?Math.min(1,(G.t-G.finalAt)/1500):0;
     const nudge=Math.max(-.6,Math.min(.6,-(pan||0)/Math.max(1,SH)*.5));
     return {f:Math.max(0,Math.min(N-1,p*(N-1)+nudge)),fin}; }
@@ -1080,7 +1089,11 @@ function mount(root,host){
     $("quitOv").addEventListener("pointerdown",e=>{ if(e.target===e.currentTarget) qShut(); });
     on(window,"keydown",e=>{ if($("quitOv").hidden) return; e.stopPropagation(); if(e.key==="Escape") qShut(); },true);   // no boost / cash-out keys behind the confirm
     if(!document.getElementById("duel-quit-css")){ const qs=document.createElement("style"); qs.id="duel-quit-css"; qs.textContent=QUIT_CSS; document.head.appendChild(qs); } }
-  if(host.guest){ $("go").hidden=true; const bk=root.querySelector(".pre-back"); if(bk) bk.style.visibility="hidden"; const mc=root.querySelector(".me-chip"); if(mc) mc.style.visibility="hidden"; const tb=document.querySelectorAll(".duel-root .tab"); if(tb[0]) tb[0].textContent="VS BOT"; if(tb[1]) tb[1].textContent="VS FRIEND";
+  if(host.guest){ $("go").hidden=true; const bk=root.querySelector(".pre-back");
+    // BACK on /duel (maker 2026-11-19): to the page you came from on this site, else home. Hidden in the X embed (it has its own link out)
+    if(bk){ if(host.embed) bk.style.visibility="hidden"; else bk.addEventListener("click",e=>{ let same=false; try{ same=!!document.referrer&&new URL(document.referrer).origin===location.origin; }catch(_){}
+      if(same&&history.length>1){ e.preventDefault(); history.back(); } }); }
+    const mc=root.querySelector(".me-chip"); if(mc) mc.style.visibility="hidden"; const tb=document.querySelectorAll(".duel-root .tab"); if(tb[0]) tb[0].textContent="VS BOT"; if(tb[1]) tb[1].textContent="VS FRIEND";
     $("botSub").innerHTML=`Play money ${RK(false)}`; }
   $("mkLink").addEventListener("click",()=>{ ensureAudio(); if(!SIGNED&&!host.guest){ host.signIn(); return; } mode="friend"; lerr(""); host.createLink(botKey,LEN,CFUEL); });
   $("iCopy").addEventListener("click",()=>{ track("duel_share"); const t=$("iLink").dataset.url||""; try{navigator.clipboard.writeText(t); toast("Link copied");}catch(e){ toast(t); } });
