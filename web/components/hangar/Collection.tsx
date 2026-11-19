@@ -20,6 +20,7 @@ import {
 } from "@/lib/collection";
 import { collectionAction } from "@/lib/collectionClient";
 import { SellControl, type SellHooks } from "./Market";
+import { openSend } from "@/lib/send/open";
 
 const fmt = (n: number) => n.toLocaleString("en-US");
 /** "Level 10 reward" / "Final Push trophy reward" for items you earn by playing, else null */
@@ -127,6 +128,7 @@ function CopyList({ col, item, onEquip, onScrap, busy, sell }: { col: Col | null
                 <span className="hgu-copy-act">
                   {on ? <span className="hgu-owned">Flying</span> : listing ? null : <button type="button" className="dsc3-btn dsc3-btn-primary hgu-buy sm" disabled={busy} onClick={() => onEquip(c.uid)} data-testid={`equip-${c.uid}`}>Equip</button>}
                   {sell && !on && !c.bound && !isStarter(c) && <SellControl copy={c} listing={listing} hooks={sell} />}
+                  {!on && !listing && !c.bound && !isStarter(c) && <button type="button" className="dsc3-btn hgu-scrap" disabled={busy} onClick={() => openSend({ kind: "item", item, copy: c })} data-testid={`send-${c.uid}`}>Send</button>}
                   {!on && !listing && !isStarter(c) && <button type="button" className="dsc3-btn hgu-scrap" disabled={busy} onClick={() => { if (sure !== c.uid) { setSure(c.uid); return; } setSure(null); onScrap(c.uid); }}>{sure === c.uid ? `Scrap for ${DUPE_XP[item.rar]} XP?` : "Scrap"}</button>}
                 </span>
               </li>
