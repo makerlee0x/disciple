@@ -271,6 +271,8 @@ export const PUBLIC_GET_LIMITS = {
   usernameLookupPerIp: { limit: 60, windowSec: 60 },
   /** GET /api/name-lock (launch-form check + coin-page copy flag) */
   nameLockPerIp: { limit: 60, windowSec: 60 },
+  /** GET /api/search (top bar search, debounced as you type; reads are in-memory caches) */
+  searchPerIp: { limit: 90, windowSec: 60 },
 } as const;
 
 /**

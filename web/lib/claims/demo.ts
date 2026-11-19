@@ -82,5 +82,7 @@ export function demoRewards(nowSec: number): RewardsData {
       { token: "0xcac8a9654de3ae01470fc9e93e58fb97d5b86bb3", name: "Smoke Test", ticker: "SMOKE", kind: "crew", usd: 3.14 },
     ],
     friendsInvited: 7,
+    hosted: demoRockets(true),
+    readyUsd: { "creator:0xcac8a9654de3ae01470fc9e93e58fb97d5b86bb3": 45.12, "creator:0x000000000000000000000000000000000000d302": 0, "crew:0xcac8a9654de3ae01470fc9e93e58fb97d5b86bb3": 1.57 },
   };
 }

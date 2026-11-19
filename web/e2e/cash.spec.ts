@@ -1,4 +1,4 @@
-/** Add cash and Cash out (round 2 "Cash" board + Add cash board 2/3, signed off 2026-11-13/14). */
+/** Deposit (Add cash) and Transfer (was Cash out) (round 2 "Cash" board + Add cash board 2/3, signed off 2026-11-13/14). */
 import { test, expect, isPhone } from "./support/fixtures";
 import type { Page } from "@playwright/test";
 
@@ -51,7 +51,7 @@ test("Send crypto instead shows your own cash address", async ({ page, pilot }) 
   await expect(pop.getByTestId("cash-card-fund")).toBeVisible();
 });
 
-test("Cash out checks the amount and the address before sending", async ({ page, pilot }) => {
+test("Transfer checks the amount and who it goes to before sending", async ({ page, pilot }) => {
   await pilot.signIn({ cash: 20 });
   await page.goto("/");
   const pop = await openCash(page);
@@ -61,11 +61,13 @@ test("Cash out checks the amount and the address before sending", async ({ page,
   await expect(send).toBeDisabled();
   await pop.getByRole("button", { name: "Half" }).click();
   await expect(pop.getByTestId("cash-amount")).toHaveValue("10.00");
-  await expect(send).toHaveText("Cash out $10.00");
-  await pop.getByTestId("cash-to").fill("0x1234");
-  await send.click();
-  await expect(pop.getByRole("alert")).toHaveText(/doesn't look right/);
-  await pop.getByTestId("cash-to").fill("0x000000000000000000000000000000000000dEaD");
+  await expect(send).toHaveText("Send $10.00");
+  // no recipient yet: still can't send
+  await expect(send).toBeDisabled();
+  await pop.getByTestId("picker-input").fill("0x1234");
+  await expect(pop.getByTestId("picker-err")).toHaveText(/doesn't look like/);
+  await pop.getByTestId("picker-input").fill("0x000000000000000000000000000000000000dEaD");
+  await expect(pop.getByTestId("picker-found")).toContainText("0x0000");
   await pop.getByTestId("cash-amount").fill("25");
   await send.click();
   await expect(pop.getByRole("alert")).toHaveText("That's more than you have. You can cash out up to $20.00.");
@@ -77,7 +79,8 @@ test("a cash out the chain refuses fails in plain words", async ({ page, pilot }
   const pop = await openCash(page);
   await pop.getByTestId("cash-tab-out").click();
   await pop.getByTestId("cash-amount").fill("5");
-  await pop.getByTestId("cash-to").fill("0x000000000000000000000000000000000000dEaD");
+  await pop.getByTestId("picker-input").fill("0x000000000000000000000000000000000000dEaD");
+  await expect(pop.getByTestId("picker-found")).toBeVisible();
   await pop.getByTestId("cash-out-btn").click();
   const alert = pop.getByRole("alert");
   await expect(alert).toBeVisible({ timeout: 20_000 });

@@ -16,10 +16,22 @@ import { signedUsd2, usd2 } from "@/components/profile/money";
 import { DEPOSIT_HREF, onDepositClick, openCash } from "@/lib/cashLink";
 import Tooltip from "@/components/ui/Tooltip";
 import { onTurboCash } from "@/lib/turbo/turboCash";
+import { openSend } from "@/lib/send/open";
+
+/** Rocket bag send (fleet card icon → components/send/SendHost): off until the gasless token transfer is wired. */
+const SEND_ROCKETS = false;
+
+export function SendIcon({ size = 16 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden><path d="M21 3L10 14" /><path d="M21 3l-7 18-4-7-7-4z" /></svg>;
+}
 
 /** Service record strip (maker 2026-11-18): Hangar value, Cash, Turbo cash. Flights aboard / Rockets launched are gone
  *  (Your fleet below already shows them). Turbo cash is the owner's own trading balance, so only the private Hangar has it. */
-export function ServiceRecord({ pf, isPrivate }: { pf: LivePortfolio | null; isPrivate: boolean }) {
+export function ServiceRecord({ pf, isPrivate, rewards }: {
+  pf: LivePortfolio | null; isPrivate: boolean;
+  /** maker 2026-11-19: the owner's fourth tile, gold, opens the Rewards panel (null = still reading) */
+  rewards?: { usd: number | null; onOpen: () => void } | null;
+}) {
   const [turbo, setTurbo] = useState(0);
   const [canAdd, setCanAdd] = useState(false);
   useEffect(() => (isPrivate ? onTurboCash((t) => { setTurbo(t.usd); setCanAdd(t.canAdd); }) : undefined), [isPrivate]);
@@ -28,7 +40,7 @@ export function ServiceRecord({ pf, isPrivate }: { pf: LivePortfolio | null; isP
   const total = ok ? pf.cashUsd + rockets! + (isPrivate ? turbo : 0) : null;
   const today = ok && pf.rows.every((r) => Number.isFinite(r.price24h)) ? pf.rows.reduce((s, r) => s + r.tokens * (r.priceNow - r.price24h), 0) : null;
   return (
-    <section className={`hg-record${isPrivate ? " three" : ""}`} aria-label="Service record" data-testid="profile-portfolio">
+    <section className={`hg-record${isPrivate ? rewards ? " four" : " three" : ""}`} aria-label="Service record" data-testid="profile-portfolio">
       <div>
         <span className="l">Hangar value</span>
         <b data-testid="portfolio-total">{total != null ? usd2(total) : "—"}</b>
@@ -37,13 +49,20 @@ export function ServiceRecord({ pf, isPrivate }: { pf: LivePortfolio | null; isP
       <div>
         <span className="l">Cash</span>
         <b data-testid="portfolio-cash">{ok ? usd2(pf.cashUsd) : "—"}</b>
-        {isPrivate ? <Link href={DEPOSIT_HREF} onClick={onDepositClick} className="s">Add cash</Link> : <span className="s" />}
+        {/* maker 2026-11-19 (pins on the rewards mockup): Cash gets a clear Deposit, Turbo cash a Transfer */}
+        {isPrivate ? <span className="hg-cashacts"><Link href={DEPOSIT_HREF} onClick={onDepositClick} className="dsc3-btn dsc3-btn-white" data-testid="hangar-deposit">Deposit</Link></span> : <span className="s" />}
       </div>
       {isPrivate && (
         <div>
           <span className="l">Turbo cash</span>
           <b data-testid="portfolio-turbo">{usd2(turbo)}</b>
-          {canAdd ? <a href={DEPOSIT_HREF} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); openCash("turbo"); }} className="s">Add to Turbo</a> : <span className="s" />}
+          {canAdd ? <span className="hg-cashacts"><a href={DEPOSIT_HREF} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); openCash("turbo"); }} className="dsc3-btn" data-testid="hangar-turbo-transfer">Transfer</a></span> : <span className="s" />}
+        </div>
+      )}
+      {isPrivate && rewards && (
+        <div className="act rw" data-testid="hangar-rewards">
+          <span className="rw-tx"><span className="l">Rewards</span><b data-testid="portfolio-rewards">{rewards.usd != null ? usd2(rewards.usd) : "—"}</b></span>
+          <button type="button" className="hg-act gold" onClick={rewards.onOpen} data-testid="claim-now">Claim</button>
         </div>
       )}
     </section>
@@ -81,7 +100,21 @@ export function Fleet({ rows, home, launched, isPrivate, owner }: {
       ) : (
         <div className="hg-fleet" data-testid="tab-rockets">
           {tab === "aboard"
-            ? (list as LiveHolding[]).map((h) => <LiveCard key={h.coin} c={asCoin(h, home)} seat={usd2(h.usd)} testId="fleet-card" compact />)
+            ? (list as LiveHolding[]).map((h) => {
+              const c = asCoin(h, home);
+              const card = <LiveCard key={h.coin} c={c} seat={usd2(h.usd)} testId="fleet-card" compact />;
+              if (!isPrivate || !SEND_ROCKETS) return card;
+              // send this bag to another pilot by @username (maker 2026-11-19)
+              return (
+                <div key={h.coin} className="sd-fleet">
+                  {card}
+                  <button type="button" className="sd-fleetbtn" aria-label={`Send ${c.ticker || c.name}`} data-testid="fleet-send"
+                    onClick={() => openSend({ kind: "rocket", coin: h.coin, name: c.name, symbol: (h.symbol || c.ticker.replace(/^\$/, "")) || "ROCKET", icon: c.icon, tokens: h.tokens, priceUsd: h.priceNow })}>
+                    <SendIcon />
+                  </button>
+                </div>
+              );
+            })
             : (list as HomeCoin[]).map((c) => <LiveCard key={c.token} c={c} testId="fleet-card" compact />)}
         </div>
       )}

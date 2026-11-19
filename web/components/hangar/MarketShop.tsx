@@ -18,6 +18,7 @@ import {
 } from "@/lib/collection";
 import { isNativeApp } from "@/lib/native";
 import { parsePrice, usd, type Listing, type Sale } from "@/lib/market";
+import { SEARCH_NAV_EVENT } from "@/lib/search";
 import { buyListing, buyQuote, listingDetail, marketAction, useMarket } from "@/lib/marketClient";
 import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
 import { itemArt } from "./Collection";
@@ -307,7 +308,7 @@ function Sheet({ l, rows, me, onPick, onClose }: { l: Listing; rows: Listing[]; 
         <div className="mk-sheet-tx">
           <small className="mk-kind">{kindLine(it)}</small>
           <h2>{nameOf(it)}</h2>
-          <span className="mk-tags lg">{forMe && <i className="fy">For you</i>}{c?.fe && <i className="fe">First edition</i>}{c?.trak != null && <i className="ft">FlightTrak™ · {fmt(c.trak)} wins</i>}</span>
+          <span className="mk-tags lg">{forMe && <i className="fy">Private sale</i>}{c?.fe && <i className="fe">First edition</i>}{c?.trak != null && <i className="ft">FlightTrak™ · {fmt(c.trak)} wins</i>}</span>
           <b className="mk-big">{usd(l.price)}</b>
           {avg && <span className="mk-avg">Avg sale {usd(avg)}{l.price < avg ? <i className="mk-deal">-{Math.round((1 - l.price / avg) * 100)}%</i> : null}</span>}
           {cta}
@@ -344,16 +345,29 @@ export function MarketShop({ wallet, crates }: { wallet: string | null; crates?:
   const set = (p: Partial<F>) => setF((x) => ({ ...x, ...p }));
   const [sel, setSel] = useState<string | null>(null);
   const [showF, setShowF] = useState(false);
+  // site search links (components/search/SiteSearch): ?listing=<id> opens that copy, ?q= fills the search
+  useEffect(() => {
+    const read = () => {
+      const p = new URLSearchParams(window.location.search);
+      const l = p.get("listing"), q = p.get("q");
+      if (l && /^[a-f0-9]{12,16}$/.test(l)) setSel(l);
+      if (q) setF((x) => ({ ...x, q: q.slice(0, 60) }));
+    };
+    read();
+    // a search pick while already on /market changes the URL without remounting this page
+    const again = () => window.setTimeout(read, 60);
+    addEventListener(SEARCH_NAV_EVENT, again);
+    return () => removeEventListener(SEARCH_NAV_EVENT, again);
+  }, []);
   const live = liveSeries(Date.now()) ?? SERIES[0];
   const last = useMemo(() => lastSales(sales), [sales]);
   const shown = useMemo(() => apply(rows ?? [], f, last), [rows, f, last]);
   const [extra, setExtra] = useState<Listing | null>(null);
+  // a ?listing= link to a private sale (it's never in the open rows): load it on its own
   useEffect(() => {
-    const id = new URLSearchParams(location.search).get("l");
-    if (!id || !/^[a-f0-9]{12}$/.test(id)) return;
-    setSel(id);
-    void listingDetail(id).then((d) => { if (d) setExtra(d.listing); });
-  }, []);
+    if (!sel || !rows || rows.some((l) => l.id === sel) || extra?.id === sel) return;
+    void listingDetail(sel).then((d) => { if (d) setExtra(d.listing); });
+  }, [sel, rows, extra]);
   const close = useCallback(() => setSel(null), []);
   const open = sel ? rows?.find((l) => l.id === sel) ?? (extra?.id === sel ? extra : null) : null;
   if (web === false) {

@@ -202,10 +202,10 @@ html:not([data-you]) .lb-bar { padding-right: calc(24px + 110px); }
 .lb-playnow:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
 /* signed in, Play now sits just left of the cash + pilot chips; narrower desktops tighten the tabs so all five fit */
 @media (max-width: 1440px) { .lb-bar { gap: 28px; } .lb-bar .lb-tabs.lb-top { gap: 22px; } .lb-bar .lb-tabs.lb-top a, .lb-bar .lb-tabs.lb-top .lb-tab-btn { font-size: 18px; } }
-@media (max-width: 1280px) { html[data-you] .lb-playnow { display: none; } }
-/* the desktop Launch tab only stands in for LAUNCH NOW where that button is hidden (signed in, ≤1280px) */
+@media (max-width: 1024px) { html[data-you] .lb-playnow { display: none; } }  /* one pilot pill (2026-11-19) left room down to 1024px */
+/* the desktop Launch tab only stands in for LAUNCH NOW where that button is hidden (signed in, ≤1024px) */
 html:not([data-you]) .lb-tabs.lb-top a.lb-launch-tab { display: none; }
-@media (min-width: 1281px) { .lb-tabs.lb-top a.lb-launch-tab { display: none; } }
+@media (min-width: 1025px) { .lb-tabs.lb-top a.lb-launch-tab { display: none; } }
 @media (max-width: 900px) {
   html:not([data-you]) .lb-bar { padding-right: 16px; }
   .lb-playnow { position: absolute; top: calc(var(--ap-safe-top, 0px) + 12px); right: calc(16px + 88px); min-height: 40px; padding: 0 16px; font-size: 16px; }

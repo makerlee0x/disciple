@@ -194,10 +194,10 @@ test("session policy: referral, creator and crew claims stay one-tap; a private-
   await assert.rejects(checkCalls(pcNoCurve, cfg, st(), [...fees, ...crew, ...priv], ME), PolicyError);
 });
 
-test("copy: Rewards strings are plain words, dollars only (static scan of RewardsPopup)", async () => {
+test("copy: Rewards strings are plain words, dollars only (static scan of RewardsPanel)", async () => {
   const { readFileSync } = await import("node:fs");
   const { JARGON } = await import("../lib/aa/relayOp");
-  const src = readFileSync(new URL("../components/claims/RewardsPopup.tsx", import.meta.url), "utf8");
+  const src = readFileSync(new URL("../components/claims/RewardsPanel.tsx", import.meta.url), "utf8");
   const block = src.slice(src.indexOf("const T = {"), src.indexOf("} as const;"));
   const strings = Array.from(block.matchAll(/:\s*"([^"]+)"/g), (m) => m[1]);
   assert.ok(strings.length >= 10);
@@ -216,7 +216,7 @@ test("referral deposit: dollars only, neutral dash when the coin has no live pri
   assert.equal(usdLabel(BigInt(10) * E6, { decimals: 6, usd: null }), NO_PRICE);
   assert.equal(NO_PRICE, "—");
   const { readFileSync } = await import("node:fs");
-  const src = readFileSync(new URL("../components/claims/RewardsPopup.tsx", import.meta.url), "utf8");
+  const src = readFileSync(new URL("../components/claims/RewardsPanel.tsx", import.meta.url), "utf8");
   assert.ok(!/<Money\b|ConfirmSheet|fmtAmount/.test(src), "no token amounts in the Rewards section");
 });
 
@@ -233,4 +233,24 @@ test("rocket rewards: same rocket + type merged, unpriced / zero dropped, bigges
   ]);
   assert.deepEqual(rows.map((r) => [r.name, r.kind, r.usd]), [["Beta", "crew", 20], ["Alpha", "creator", 15], ["Alpha", "crew", 1]]);
   assert.equal(countFriends([A, A.toLowerCase(), B, "nope"]), 2);
+});
+
+test("rewards panel coin info: links round-trip through socialsURI, junk reads as no links", async () => {
+  const { parseSocials, socialsURI } = await import("../lib/claims/coinAdmin.ts");
+  const l = { twitter: "x.com/a", telegram: " t.me/b ", website: "" };
+  assert.equal(socialsURI(l), JSON.stringify({ twitter: "x.com/a", telegram: "t.me/b" }));
+  assert.deepEqual(parseSocials(socialsURI(l)), { twitter: "x.com/a", telegram: "t.me/b", website: "" });
+  assert.equal(socialsURI({}), "");
+  assert.deepEqual(parseSocials("not json"), {});
+});
+
+test("gasless anonCreatorMeta: only updateMetadataBySig, only to an AnonLauncher", async () => {
+  const { isRelayableCall, SEL } = await import("../lib/trade/gaslessAction.ts");
+  const { ANON_ADDONS } = await import("../lib/anon.ts");
+  const { ACTIVE_CHAIN } = await import("../lib/chains.ts");
+  const launcher = ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher;
+  const data = `${SEL.updateMetadataBySig}${"00".repeat(64)}` as `0x${string}`;
+  if (launcher) assert.equal(isRelayableCall("anonCreatorMeta", { to: launcher, data }), true);
+  assert.equal(isRelayableCall("anonCreatorMeta", { to: "0x000000000000000000000000000000000000dEaD", data }), false);
+  assert.equal(isRelayableCall("anonCreatorMeta", { to: launcher ?? "0x000000000000000000000000000000000000dEaD", data: `${SEL.transferCreatorBySig}${"00".repeat(64)}` as `0x${string}` }), false);
 });

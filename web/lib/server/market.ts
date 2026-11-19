@@ -447,7 +447,7 @@ export async function answerOffer(walletIn: string, id: string, op: "accept" | "
     if (!made.ok) return { ok: false, reason: `It can't go through: ${made.reason.charAt(0).toLowerCase()}${made.reason.slice(1)}` };
     return { ok: true, offer: await endOffer(cur, "accepted", now, s, { listing: made.listing.id }) };
   }) as OfferResult;
-  if (r.ok) await tell(o.from, `accepted:${o.id}`, async () => pushCopy().offerAccepted(itemName(o.item), o.price), `/market?l=${r.offer.listing}`, now, s);
+  if (r.ok) await tell(o.from, `accepted:${o.id}`, async () => pushCopy().offerAccepted(itemName(o.item), o.price), `/market?listing=${r.offer.listing}`, now, s);
   return r;
 }
 

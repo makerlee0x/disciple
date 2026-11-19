@@ -44,6 +44,8 @@ export interface Kv {
   zcountAbove(k: string, min: number): Promise<number>;
   sadd(k: string, ...m: string[]): Promise<void>;
   smembers(k: string): Promise<string[]>;
+  /** Keys matching a glob (SCAN MATCH, at most `max`). Optional: only the site search backfill (lib/server/search) uses it. */
+  scan?(match: string, max?: number): Promise<string[]>;
   /** Atomic GET + DEL (single-use tokens): the value, or null if absent/expired or already taken. */
   getDel(k: string): Promise<string | null>;
   /** Atomic INCR; the key expires ttlSec after the FIRST increment (fixed-window counter). Returns the new count. */
@@ -106,6 +108,11 @@ function local(): Kv {
     async zcountAbove(k, min) { await ready; return Object.values(st.z[k] ?? {}).filter((v) => v > min).length; },
     async sadd(k, ...m) { await ready; const s = new Set(st.s[k] ?? []); m.forEach((x) => s.add(x)); st.s[k] = Array.from(s); save(); },
     async smembers(k) { await ready; return st.s[k] ?? []; },
+    async scan(match, max = 20_000) {
+      await ready;
+      const re = new RegExp(`^${match.split("*").map((x) => x.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`);
+      return Object.keys(st.kv).filter((k) => re.test(k) && live(k)).slice(0, max);
+    },
     async getDel(k) { await ready; const e = live(k); if (!e) return null; delete st.kv[k]; save(); return e.v; },
     async incrEx(k, ttl) { await ready; const e = live(k); const n = (e ? Number(e.v) || 0 : 0) + 1; st.kv[k] = { v: String(n), exp: e?.exp || Date.now() + ttl * 1000 }; save(); return n; },
     async incrByEx(k, by, ttl) { await ready; const e = live(k); const n = (e ? Number(e.v) || 0 : 0) + Math.floor(by); st.kv[k] = { v: String(n), exp: e?.exp || Date.now() + ttl * 1000 }; save(); return n; },
@@ -191,6 +198,17 @@ function upstash(url: string, token: string): Kv {
     async zcountAbove(k, min) { return Number(await cmd<number>("ZCOUNT", k, `(${min}`, "+inf")) || 0; },
     async sadd(k, ...m) { if (m.length) await cmd("SADD", k, ...m); },
     async smembers(k) { return (await cmd<string[]>("SMEMBERS", k)) ?? []; },
+    async scan(match, max = 20_000) {
+      const out: string[] = [];
+      let cur = "0";
+      for (let i = 0; i < 200 && out.length < max; i++) {
+        const r = await cmd<[string, string[]]>("SCAN", cur, "MATCH", match, "COUNT", 1000);
+        out.push(...(r?.[1] ?? []));
+        cur = String(r?.[0] ?? "0");
+        if (cur === "0") break;
+      }
+      return out.slice(0, max);
+    },
     getDel: (k) => cmd<string | null>("GETDEL", k),
     async incrEx(k, ttl) { return Number(await cmd<number>("EVAL", INCR_EX_LUA, 1, k, ttl)); },
     async incrByEx(k, by, ttl) { return Number(await cmd<number>("EVAL", INCRBY_EX_LUA, 1, k, Math.floor(by), ttl)); },

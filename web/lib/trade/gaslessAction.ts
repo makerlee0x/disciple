@@ -7,7 +7,8 @@
  * login or trade mechanism.
  */
 import { decodeFunctionData, encodeFunctionData, toFunctionSelector, type Address, type Hex } from "viem";
-import { deployment } from "../chains";
+import { ACTIVE_CHAIN, deployment } from "../chains";
+import { ANON_ADDONS } from "../anon";
 import { GaslessReject, PERMIT2, type Erc2612, type Permit } from "./gaslessPermit2";
 import {
   erc2612PermitAbi, microUsdg, multicall3Abi, permit2TransferAbi,
@@ -17,7 +18,7 @@ import { callsHash, encodeForwarderAction, type ForwarderAction, type ForwarderC
 
 export { MULTICALL3, transferTypedData, withdrawFeeRaw, minWithdrawAmount } from "./gaslessWithdraw";
 
-export const ACTION_KINDS = ["anonClaim", "anonTransferCreator", "trampPull"] as const;
+export const ACTION_KINDS = ["anonClaim", "anonTransferCreator", "anonCreatorMeta", "trampPull"] as const;
 export type ActionKind = (typeof ACTION_KINDS)[number];
 
 export const SEL = {
@@ -25,6 +26,8 @@ export const SEL = {
   /** lp-accrue CurveFeeVault: a private coin's curve-phase creator fees, same Claim struct as claimManyBySig. */
   claimManyAsStealthBySig: toFunctionSelector("claimManyAsStealthBySig((address,address[],address,uint256,uint256,bytes))"),
   transferCreatorBySig: toFunctionSelector("transferCreatorBySig(address,address,uint256,bytes)"),
+  /** Rewards panel coin info (private coins): AnonLauncher.updateMetadataBySig, signed by the stealth owner. */
+  updateMetadataBySig: toFunctionSelector("updateMetadataBySig(address,string,string,string,uint256,bytes)"),
   pull: toFunctionSelector("pull(uint256)"),
 } as const;
 
@@ -33,11 +36,14 @@ export const ACTION_GAS = {
   anonClaim: BigInt(250_000),
   anonClaimPerExtra: BigInt(80_000),
   anonTransferCreator: BigInt(120_000),
+  /** image + description + socials strings land in Launchpad storage (≤ ~1.2 KB): sized for the longest allowed text */
+  anonCreatorMeta: BigInt(420_000),
   trampPull: BigInt(550_000),
 } as const;
 export const ACTION_TX_GAS_LIMIT = {
   anonClaim: BigInt(800_000),
   anonTransferCreator: BigInt(300_000),
+  anonCreatorMeta: BigInt(900_000),
   trampPull: BigInt(900_000),
 } as const;
 
@@ -61,6 +67,7 @@ export function actionGas(kind: ActionKind, callCount = 1, needsPermit = false):
   const n = BigInt(Math.max(1, callCount | 0));
   const body = kind === "anonClaim" ? ACTION_GAS.anonClaim + ACTION_GAS.anonClaimPerExtra * (n - 1n)
     : kind === "anonTransferCreator" ? ACTION_GAS.anonTransferCreator
+    : kind === "anonCreatorMeta" ? ACTION_GAS.anonCreatorMeta
     : ACTION_GAS.trampPull;
   return body + (needsPermit ? WITHDRAW_GAS_PERMIT : 0n) + WITHDRAW_GAS_PAD;
 }
@@ -70,6 +77,8 @@ export function actionTxGasLimit(kind: ActionKind): bigint {
 }
 
 const eq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+/** the active chain's AnonLauncher (v2) or the legacy v1 one */
+const isAnonLauncher = (a: string) => { const x = ANON_ADDONS[ACTIVE_CHAIN.id]; return [x?.anonLauncher, x?.anonLauncherLegacy].some((v) => !!v && eq(v, a)); };
 const selOf = (data: Hex): Hex => (data.slice(0, 10).toLowerCase() as Hex);
 
 /** Human message for a msg.sender-only function that has no on-behalf / signature variant. */
@@ -86,6 +95,7 @@ export function describeBlockedCall(data: Hex): string {
     [toFunctionSelector("claim(address)")]: "Launchpad.claim(address)",
     [toFunctionSelector("claimCreatorFeesToUsdg(address,uint256)")]: "DiscipleRouter.claimCreatorFeesToUsdg(address,uint256)",
     [toFunctionSelector("transferCreator(address,address)")]: "Launchpad.transferCreator(address,address)",
+    [toFunctionSelector("updateMetadata(address,string,string,string)")]: "Launchpad.updateMetadata(address,string,string,string)",
     [toFunctionSelector("placeTramp(address,int24,int24,uint256,uint128,uint256)")]: "TrampWallManager.placeTramp",
     [toFunctionSelector("placeWall(address,int24,int24,uint256,uint128,uint256)")]: "TrampWallManager.placeWall",
     [toFunctionSelector("cancel(uint256)")]: "TrampWallManager.cancel(uint256)",
@@ -107,6 +117,7 @@ export function isRelayableCall(kind: ActionKind, c: ActionCall): boolean {
   const s = selOf(c.data);
   if (kind === "anonClaim") return s === SEL.claimManyBySig || s === SEL.claimManyAsStealthBySig;
   if (kind === "anonTransferCreator") return s === SEL.transferCreatorBySig;
+  if (kind === "anonCreatorMeta") return s === SEL.updateMetadataBySig && isAnonLauncher(c.to);
   return s === SEL.pull && eq(c.to, deployment().trampWallManager);
 }
 

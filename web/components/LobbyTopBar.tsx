@@ -15,6 +15,7 @@ import { WALLET_ID_EVENT, walletId } from "@/lib/walletCta";
 import LevelChip from "@/components/xp/LevelChip";
 import Icon, { type IconName } from "@/components/icons/Icon";
 import HelpButton from "@/components/HelpButton";
+import SiteSearch from "@/components/search/SiteSearch";
 import { QUICK_PLAY_EVENT } from "@/components/app/events";
 import { CLIMB_HREF, DUEL_HREF, FLIGHTS_HREF, MARKET_ENABLED, ROYALE_ENABLED } from "@/lib/features";
 import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
@@ -22,7 +23,7 @@ import { isTurboEnabled, turboEnvOn } from "@/lib/turbo/flag";
 
 // Nav rework (maker 2026-11-16, order 2026-11-18): the DISCIPLE mark is the way to the lobby, so there is no Lobby tab.
 // Desktop tabs: Turbo (a small menu: Duel, Climb), Market (MARKET_ENABLED), Top pilots, Hangar. Launch is not a desktop tab
-// (maker 2026-11-18): the gold LAUNCH NOW button on the right opens the launch flow. Signed in on narrow desktops (≤1280px)
+// (maker 2026-11-18): the gold LAUNCH NOW button on the right opens the launch flow. Signed in on narrow desktops (≤1024px)
 // the button is hidden for room, so the Launch tab comes back there (lb-launch-tab, CSS). Phones keep Launch first in the
 // bottom tab bar, then Turbo, Market, Top pilots, Hangar (signed-out phones get How to play there). Live flights is out of
 // the bar (maker 2026-11-18); /live still works. How to play is also the "?" (HelpButton).
@@ -157,6 +158,8 @@ export default function LobbyTopBar() {
         <img className="lb-lockup" src="/brand/disciple-lockup-horizontal-light.svg" alt="DISCIPLE" width={141} height={30} />
       </Link>
       {nav(false)}
+      {/* site search (maker 2026-11-19): a field on wide desktops, a magnifier that opens a full-screen search elsewhere */}
+      <SiteSearch />
       {!you && <HelpButton className="lb-help-out" />}
       <Link href="/create" className="lb-playnow" data-testid="topbar-launch" data-sfx="primary">Launch now</Link>
       <LevelChip toastOnly />

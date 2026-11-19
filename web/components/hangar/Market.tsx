@@ -207,7 +207,7 @@ export function HangarTrades({ wallet, mine }: { col?: Col | null; wallet: strin
     setBusy(false); setNote(r.ok ? ok : r.reason ?? "Couldn't do that.");
   };
   const buyBtn = (l: Listing) => web
-    ? <Link href={`/market?l=${l.id}`} className="dsc3-btn dsc3-btn-primary hgu-buy sm" data-testid="private-buy">Buy {usd(l.price)}</Link>
+    ? <Link href={`/market?listing=${l.id}`} className="dsc3-btn dsc3-btn-primary hgu-buy sm" data-testid="private-buy">Buy {usd(l.price)}</Link>
     : <span className="hgu-owned">{usd(l.price)} · on the web</span>;
   const newest: Record<Tab, number> = {
     priv: Math.max(0, ...forYou.map((l) => l.at)),
@@ -255,7 +255,7 @@ export function HangarTrades({ wallet, mine }: { col?: Col | null; wallet: strin
             <Row key={o.id} item={o.item} copy={o.copy} testid="offer-out-row"
               line={<>{pilot(o.toName, o.to)} · {copyLine(o.copy)}</>}
               act={o.state === "accepted" && o.listing
-                ? <>{web ? <Link href={`/market?l=${o.listing}`} className="dsc3-btn dsc3-btn-primary hgu-buy sm">Pay {usd(o.price)}</Link> : <span className="hgu-owned">Pay on the web</span>}<span className="hgu-owned">Accepted · {left(o.at + OFFER_PAY_MS)}</span></>
+                ? <>{web ? <Link href={`/market?listing=${o.listing}`} className="dsc3-btn dsc3-btn-primary hgu-buy sm">Pay {usd(o.price)}</Link> : <span className="hgu-owned">Pay on the web</span>}<span className="hgu-owned">Accepted · {left(o.at + OFFER_PAY_MS)}</span></>
                 : <><span className="mkt-amt"><b>{usd(o.price)}</b><small>Waiting</small></span>
                   <button type="button" className="dsc3-btn hgu-scrap" disabled={busy} onClick={() => act({ op: "cancel", offer: o.id }, "Cancelled.")}>Cancel</button></>} />
           ))}</ul>

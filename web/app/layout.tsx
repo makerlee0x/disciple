@@ -13,6 +13,7 @@ import "./hangar-profile.css";
 import "./market.css";
 import "./nft.css";
 import "./refresh-r2.css";
+import "./search.css";
 import { barlowCondensed, geist, instrumentSerif } from "./fonts";
 import AppShell from "@/components/AppShell";
 import ChatBridge from "@/components/chat/ChatBridge";
