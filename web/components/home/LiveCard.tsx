@@ -39,8 +39,9 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
 
       <span className={s.top}>
         <span className={s.tags}>
-          <span className={s.live}><i aria-hidden />{c.graduated ? "In orbit" : "Live"}</span>
+          {/* maker 2026-11-19: every rocket is live, so the base pair takes the LIVE pill's spot; IN ORBIT stays for graduated */}
           {c.pairSym && !c.pairSym.startsWith("0x") && <PairTag sym={c.pairSym} />}
+          {c.graduated && <span className={s.live}><i aria-hidden />In orbit</span>}
         </span>
         {chg != null && <span className={chg >= 0 ? s.up : s.dn}>{chg >= 0 ? "+" : "−"}{pct(Math.abs(chg))}</span>}
       </span>
@@ -68,7 +69,7 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
   );
 }
 
-/** The rocket's base pair: the pair coin's logo + symbol (logo only on phones). */
+/** The rocket's base pair: a round pill with the pair coin's logo + symbol. */
 function PairTag({ sym }: { sym: string }) {
   const logo = pairLogoBySymbol(sym);
   const label = sym.replace(/^mUSDG$/, "USDG");
