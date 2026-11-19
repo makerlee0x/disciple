@@ -5,7 +5,7 @@
  * CreatorFeeHarvest.launchWithPermit2(signer, permit, params, w, sig): the signer is the coin creator, `usdgIn` buys the
  * First BOOST (leftover back to the signer in USDG), and `gasFee` USDG goes to the relayer (msg.sender), which paid the ETH.
  * Every launch field is in the witness (paramsHash = keccak256(abi.encode(params))), so the relayer can't change any of it.
- * The harvest caps gasFee at $1. Must match contracts/src/addons/CreatorFeeHarvest.sol byte for byte.
+ * The harvest caps gasFee at $3 (WALLET_LAUNCH_MAX_GAS_FEE_USD). Must match contracts/src/addons/CreatorFeeHarvest.sol byte for byte.
  */
 import { encodeAbiParameters, encodeFunctionData, keccak256, parseAbi, type Address, type Hex } from "viem";
 import { GaslessReject, PERMIT2, type Erc2612, type Permit } from "./gaslessPermit2";
@@ -13,6 +13,10 @@ import { GaslessReject, PERMIT2, type Erc2612, type Permit } from "./gaslessPerm
 export const GASLESS_LAUNCH_TYPE =
   "GaslessLaunch(bytes32 paramsHash,uint8 mode,uint256 usdgIn,uint256 minQuoteIn,uint8 creatorFeeDestination,uint256 gasFee)";
 export const GASLESS_LAUNCH_WITNESS_TYPE = `GaslessLaunch witness)${GASLESS_LAUNCH_TYPE}TokenPermissions(address token,uint256 amount)`;
+
+/** CreatorFeeHarvest.launchWithPermit2 refuses a gasFee above $3 (hook rebuild PR #553). */
+export const WALLET_LAUNCH_MAX_GAS_FEE_USD = 3;
+export const maxWalletLaunchGasFee = (usdgDecimals: number): bigint => BigInt(WALLET_LAUNCH_MAX_GAS_FEE_USD) * BigInt(10) ** BigInt(usdgDecimals);
 
 export type LaunchParams = {
   name: string; ticker: string; imageURI: string; description: string; socialsURI: string; quote: Address;
@@ -120,7 +124,7 @@ export function checkWalletLaunch(q: WalletLaunchRequest, o: { usdg: Address; us
   if (q.permit.permitted.token.toLowerCase() !== o.usdg.toLowerCase()) throw new GaslessReject("permit token mismatch");
   if (q.permit.permitted.amount !== q.w.usdgIn + q.w.gasFee) throw new GaslessReject("permit amount mismatch");
   if (q.w.paramsHash.toLowerCase() !== launchParamsHash(q.params).toLowerCase()) throw new GaslessReject("launch fields don't match the signature");
-  if (q.w.gasFee > 10n ** BigInt(o.usdgDecimals)) throw new GaslessReject("network fee over $1 right now; try again in a bit");
+  if (q.w.gasFee > maxWalletLaunchGasFee(o.usdgDecimals)) throw new GaslessReject(`network fee over $${WALLET_LAUNCH_MAX_GAS_FEE_USD} right now; try again in a bit`);
   if (!(q.w.mode >= 0 && q.w.mode <= 2)) throw new GaslessReject("bad mode");
   if (!(q.w.creatorFeeDestination >= 0 && q.w.creatorFeeDestination <= 2)) throw new GaslessReject("bad fee destination");
   if (q.permit.deadline < now || q.params.deadline < now) throw new GaslessReject("launch expired; try again");

@@ -14,7 +14,7 @@ import { ACTIVE_CHAIN, deployment } from "../chains";
 import { GaslessReject, PERMIT2 } from "../trade/gaslessPermit2";
 import { erc2612PermitAbi, withdrawFeeRaw } from "../trade/gaslessWithdraw";
 import {
-  checkWalletLaunch, encodeLaunchEstimate, encodeWalletLaunch, parseLaunchParams, parseWalletLaunchRequest, type WalletLaunchRequest,
+  checkWalletLaunch, encodeLaunchEstimate, maxWalletLaunchGasFee, WALLET_LAUNCH_MAX_GAS_FEE_USD, encodeWalletLaunch, parseLaunchParams, parseWalletLaunchRequest, type WalletLaunchRequest,
 } from "../trade/gaslessWalletLaunch";
 import { ANON_LAUNCH_TX_GAS_LIMIT } from "../trade/gaslessAnonLaunch";
 import { requireGaslessMode, type GaslessConfirmed, type GaslessDeps } from "./gaslessRelay";
@@ -71,7 +71,7 @@ export async function quoteWalletLaunch(raw: unknown): Promise<WalletLaunchQuote
   } catch (e) { throw notSent(e); }
   const [r, rate] = await Promise.all([directRelayer(), liveUsdgPerEth()]);
   const gasFee = withdrawFeeRaw(gas, r.fee, rate, dep.usdgDecimals);
-  if (gasFee > BigInt(10) ** BigInt(dep.usdgDecimals)) throw notSent(new GaslessReject("network fee over $1 right now; try again in a bit"));
+  if (gasFee > maxWalletLaunchGasFee(dep.usdgDecimals)) throw notSent(new GaslessReject(`network fee over $${WALLET_LAUNCH_MAX_GAS_FEE_USD} right now; try again in a bit`));
   return { gasFee: gasFee.toString(), gas: gas.toString(), harvest: harvestAddr(), usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, permit2: PERMIT2 };
 }
 
