@@ -1,14 +1,13 @@
 /* ── site search (components/search/SiteSearch, maker 2026-11-19) ─────────────────────────────────────────────────────
    Wide desktop (≥1400px): a rounded field after the tabs, results drop down under it. Narrower: a round magnifier like the "?"
-   that opens a full-screen search. Phones: the magnifier takes the "?" slot in the wallet strip (the "?" links move into
-   the empty search screen). */
+   that opens a full-screen search. Phones: the magnifier sits left of the pilot pill; How to play and Docs are on the empty search screen too. */
 .ss { position: relative; flex: 0 1 340px; min-width: 0; margin-left: auto; margin-right: -28px; display: flex; justify-content: flex-end; }
 @media (max-width: 1440px) { .ss { margin-right: -16px; } }
 .ss + .lb-help-out { margin-left: 0; }
 .lb-bar .lb-tabs.lb-top { flex-shrink: 0; }   /* the field gives way, never the tabs */
 .lb-bar .ss ~ .lb-playnow { margin-left: 0 !important; }
-/* signed in at ≤1280px Launch now is hidden: the search is the bar's last item and the bar's padding already keeps 12px */
-@media (max-width: 1280px) { html[data-you] .ss { margin-right: 0; } }
+/* signed in at ≤1024px Launch now is hidden: the search is the bar's last item and the bar's padding already keeps 12px */
+@media (max-width: 1024px) { html[data-you] .ss { margin-right: 0; } }
 
 .ss-field { position: relative; flex: 1; min-width: 0; }
 .ss-in {
@@ -61,9 +60,6 @@
   html[data-you] .ss { right: calc(16px + var(--ap-safe-right, 0px) + var(--wb-w, var(--wb-w-in)) + 8px); }
   .ss-icon { width: 36px; height: 36px; }
   .ss-icon svg { width: 20px; height: 20px; }
-  /* the magnifier takes the "?" slot; How to play and Docs are on the empty search screen */
-  html:not(.app) .wb-root .lb-help { display: none !important; }
-  html:not(.app) { --wb-w-in: calc(var(--wb-cash-w) + 12px + 44px); }
   .lb-playnow { padding: 0 12px; }
 }
 @media (max-width: 480px) { .lb-lockup { height: 24px; } }

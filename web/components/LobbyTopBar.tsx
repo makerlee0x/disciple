@@ -23,7 +23,7 @@ import { isTurboEnabled, turboEnvOn } from "@/lib/turbo/flag";
 
 // Nav rework (maker 2026-11-16, order 2026-11-18): the DISCIPLE mark is the way to the lobby, so there is no Lobby tab.
 // Desktop tabs: Turbo (a small menu: Duel, Climb), Market (MARKET_ENABLED), Top pilots, Hangar. Launch is not a desktop tab
-// (maker 2026-11-18): the gold LAUNCH NOW button on the right opens the launch flow. Signed in on narrow desktops (≤1280px)
+// (maker 2026-11-18): the gold LAUNCH NOW button on the right opens the launch flow. Signed in on narrow desktops (≤1024px)
 // the button is hidden for room, so the Launch tab comes back there (lb-launch-tab, CSS). Phones keep Launch first in the
 // bottom tab bar, then Turbo, Market, Top pilots, Hangar (signed-out phones get How to play there). Live flights is out of
 // the bar (maker 2026-11-18); /live still works. How to play is also the "?" (HelpButton).
