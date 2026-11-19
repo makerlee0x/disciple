@@ -71,7 +71,8 @@ export function Fleet({ rows, home, launched, isPrivate, owner }: {
           <button type="button" className="dsc3-chip" aria-pressed={tab === "launched"} onClick={() => setTab("launched")}>Launched</button>
         </div>
       </header>
-      {list == null ? <div className="hg-fleet" aria-busy="true" data-testid="tab-rockets" /> : !list.length ? (
+      {/* still reading the wallet: card-shaped pulses, not one flat grey box (maker 2026-11-19) */}
+      {list == null ? <div className="hg-fleet" aria-busy="true" data-testid="tab-rockets"><i className="hg-fleet-sk" /><i className="hg-fleet-sk" /></div> : !list.length ? (
         <div className="hg-empty" data-testid="tab-rockets">
           {tab === "aboard"
             ? isPrivate ? <><b>No seats yet</b><Link href="/" className="dsc3-btn dsc3-btn-white">Find a flight</Link></> : <p>{owner} isn&apos;t aboard any rockets right now.</p>
