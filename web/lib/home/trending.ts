@@ -41,6 +41,8 @@ export type HomeCoin = {
   ticker: string;
   pair: "STRATEGY" | "USDG" | "OTHER";
   pairSym: string;
+  /** the base pair coin's logo (listed pair art or a rocket's own image); absent = monogram */
+  pairIcon?: string;
   icon: string;
   creator: string;
   /** Full creator wallet (lower case), for the guild tag lookup. */

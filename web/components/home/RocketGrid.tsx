@@ -13,6 +13,12 @@ import type { HomeCoin, HomeData } from "@/lib/home/trending";
 import Icon from "@/components/icons/Icon";
 import DsSelect from "@/components/ui/DsSelect";
 import LiveCard from "./LiveCard";
+import { pairLogoBySymbol } from "@/lib/whitelistQuotes";
+import { withBase } from "@/lib/base-path";
+import { isStoreSrc } from "@/lib/coinImages";
+
+/** A pair logo path (/whitelist/…) gets the base path; a stored rocket image is already absolute. */
+const pairImg = (src: string | null | undefined) => (!src ? undefined : isStoreSrc(src) || /^https?:/.test(src) ? src : withBase(src));
 import s from "./rocketGrid.module.css";
 
 /** Sort chips (maker 2026-11-18): Newest, Trending (24h climb), Volume (24h), Near orbit, Ascended (graduated). */
@@ -49,9 +55,16 @@ export default function RocketGrid({ initial }: { initial: HomeCoin[] }) {
   // the base pairs on the board right now (what each rocket is bought and sold in), most rockets first
   const pairs = useMemo(() => {
     const n = new Map<string, number>();
-    for (const c of coins) if (c.pairSym) n.set(c.pairSym, (n.get(c.pairSym) ?? 0) + 1);
-    return [...n.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k]) => k);
+    const icon = new Map<string, string>();
+    for (const c of coins) {
+      if (!c.pairSym || c.pairSym.startsWith("0x")) continue;   // an unnamed quote stays out of the list (no raw contracts)
+      n.set(c.pairSym, (n.get(c.pairSym) ?? 0) + 1);
+      if (c.pairIcon && !icon.has(c.pairSym)) icon.set(c.pairSym, c.pairIcon);
+    }
+    const keys = [...n.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k]) => k);
+    return keys.map((k) => ({ value: k, label: k.replace(/^MUSDG$/i, "USDG"), icon: pairImg(icon.get(k) ?? pairLogoBySymbol(k)) }));
   }, [coins]);
+  const pairKeys = useMemo(() => pairs.map((p) => p.value), [pairs]);
   const [q, setQ] = useState("");
   const [shown, setShown] = useState(CHUNK);
   const more = useRef<HTMLDivElement>(null);
@@ -62,7 +75,7 @@ export default function RocketGrid({ initial }: { initial: HomeCoin[] }) {
     const mode = DIFFS.find((d) => d.k === diff)?.mode;
     const r = coins.filter((c) => {
       if (needle && !(c.name.toLowerCase().includes(needle) || c.ticker.toLowerCase().includes(needle) || c.token.includes(needle) || (c.pairSym ?? "").toLowerCase().includes(needle))) return false;
-      if (pair !== "all" && pairs.includes(pair) && c.pairSym !== pair) return false;
+      if (pair !== "all" && pairKeys.includes(pair) && c.pairSym !== pair) return false;
       if (mode !== undefined && (c.graduated || c.mode !== mode)) return false;
       if (verifiedOnly && !isVerified(c.token) && !vset.has(c.token)) return false;
       if (sort === "near") return !c.graduated && (c.progressBps ?? 0) >= NEAR_BPS;
@@ -75,7 +88,7 @@ export default function RocketGrid({ initial }: { initial: HomeCoin[] }) {
     else if (sort === "busy") r.sort((a, b) => vol(b) - vol(a) || b.block - a.block);
     else if (sort === "near") r.sort((a, b) => (b.progressBps ?? 0) - (a.progressBps ?? 0));
     return r;
-  }, [coins, q, diff, pair, pairs, verifiedOnly, vset, sort]);
+  }, [coins, q, diff, pair, pairKeys, verifiedOnly, vset, sort]);
 
   useEffect(() => setShown(CHUNK), [q, diff, pair, verifiedOnly, sort]);
   useEffect(() => {
@@ -103,8 +116,8 @@ export default function RocketGrid({ initial }: { initial: HomeCoin[] }) {
           <DsSelect className="pill" value={diff} onChange={(v) => setDiff(v as Diff)} ariaLabel="Difficulty"
             options={DIFFS.map((d) => ({ value: d.k, label: d.label }))} />
           {pairs.length > 0 && (
-            <DsSelect className="pill" value={pairs.includes(pair) ? pair : "all"} onChange={setPair} ariaLabel="Pair"
-              options={[{ value: "all", label: "Any pair" }, ...pairs.map((p) => ({ value: p, label: p }))]} />
+            <DsSelect className="pill" value={pairKeys.includes(pair) ? pair : "all"} onChange={setPair} ariaLabel="Pair"
+              options={[{ value: "all", label: "Any pair" }, ...pairs]} />
           )}
           <button type="button" className="dsc3-chip" aria-pressed={verifiedOnly} onClick={() => setVerifiedOnly((v) => !v)} title="Hand-verified rockets only">
             <Icon name="verified" size={16} /> Verified

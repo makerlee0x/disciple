@@ -3,7 +3,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import Icon from "@/components/icons/Icon";
 
-export type DsOption = { value: string; label: string; hint?: string };
+/** `icon`: optional image (a coin logo) before the label, round. */
+export type DsOption = { value: string; label: string; hint?: string; icon?: string };
 
 /** Themed dropdown (dark/navy + gold) — replaces native <select> so no OS menu / system blue. */
 export default function DsSelect({ value, options, onChange, ariaLabel, className = "" }: {
@@ -41,6 +42,8 @@ export default function DsSelect({ value, options, onChange, ariaLabel, classNam
     <div ref={ref} className={`ds-select ${open ? "open" : ""} ${className}`}>
       <button type="button" className="ds-input ds-select-btn" aria-haspopup="listbox" aria-expanded={open}
         aria-controls={id} aria-label={ariaLabel} onClick={() => setOpen((o) => !o)} onKeyDown={onKey}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {cur?.icon && <img className="ds-select-icon" src={cur.icon} alt="" width={20} height={20} />}
         <span className="ds-select-label">{cur ? cur.label : "—"}</span>
         {cur?.hint && <span className="ds-select-hint">{cur.hint}</span>}
         <span className="ds-select-caret" aria-hidden><Icon name="chevron-down" size={16} /></span>
@@ -52,6 +55,8 @@ export default function DsSelect({ value, options, onChange, ariaLabel, classNam
               className={`${o.value === value ? "sel" : ""} ${i === hi ? "hi" : ""}`}
               onMouseEnter={() => setHi(i)} onMouseDown={(e) => { e.preventDefault(); pick(o.value); }}>
               <span className="ds-select-check" aria-hidden>{o.value === value ? <Icon name="check" size={12} /> : ""}</span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {o.icon && <img className="ds-select-icon" src={o.icon} alt="" width={20} height={20} loading="lazy" />}
               <span className="ds-select-label">{o.label}</span>
               {o.hint && <span className="ds-select-hint">{o.hint}</span>}
             </li>

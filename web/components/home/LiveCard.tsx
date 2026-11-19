@@ -43,7 +43,7 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
       <span className={s.top}>
         <span className={s.tags}>
           {/* maker 2026-11-19: the base pair replaces the LIVE / IN ORBIT pill */}
-          {c.pairSym && !c.pairSym.startsWith("0x") && <PairTag sym={c.pairSym} />}
+          {c.pairSym && !c.pairSym.startsWith("0x") && <PairTag sym={c.pairSym} icon={c.pairIcon} />}
         </span>
       </span>
 
@@ -73,13 +73,14 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
 }
 
 /** The rocket's base pair: a round pill with the pair coin's logo + symbol. */
-function PairTag({ sym }: { sym: string }) {
-  const logo = pairLogoBySymbol(sym);
+function PairTag({ sym, icon }: { sym: string; icon?: string }) {
+  const src = icon ?? pairLogoBySymbol(sym);
+  const logo = src ? (isStoreSrc(src) || /^https?:/.test(src) ? src : withBase(src)) : null;
   const label = sym.replace(/^mUSDG$/, "USDG");
   return (
     <span className={s.pair} title={`Paired with ${label}`} aria-label={`Paired with ${label}`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {logo && <img src={withBase(logo)} alt="" width={16} height={16} loading="lazy" decoding="async" />}
+      {logo ? <img src={logo} alt="" width={20} height={20} loading="lazy" decoding="async" /> : <i aria-hidden>{label[0]}</i>}
       <span>{label}</span>
     </span>
   );

@@ -30,6 +30,7 @@
 .pair { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 9px 2px 2px; border-radius: 999px; background: rgba(11, 12, 14, .6);
   font: 600 12px / 1 var(--dsc-font-ui); text-transform: uppercase; letter-spacing: .02em; }
 .pair img { flex: none; width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
+.pair i { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--c); color: var(--dsc-sky-ink); font: 800 11px / 1 var(--dsc-font-game); font-style: normal; }
 .pair span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row .up, .row .dn { font: 700 13px / 1 var(--dsc-font-ui); }
 .row i { font-style: normal; font-weight: 500; color: var(--dsc-muted-on-sky); }
