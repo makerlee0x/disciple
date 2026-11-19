@@ -15,7 +15,7 @@ function sample(own: boolean): StatsData {
     season: { n: 1, rank: 12, total: 4210, pts: 1640, league: "gold" },
     lifetime: { pts: 12480, rank: 34 },
     pnlUsd: 4218.55,
-    duel: { rank: 41, w: 38, l: 17, streak: 4, peak: 9 },
+    duel: { rank: 41, w: 38, l: 17, streak: 4 },
     climb: { rank: 7, level: 12, clearMs: 102_000 },
     daily: { best: 3, played: 22, today: 18 },
     rockets: { rank: 23, green: 61, red: 29, orbits: 6 },

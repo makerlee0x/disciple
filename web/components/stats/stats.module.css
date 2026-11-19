@@ -14,6 +14,8 @@
 .seg button { min-height: 34px; padding: 0 14px; border: 0; border-radius: 8px; background: none; color: #9095A0; font: 700 15px / 1 var(--dsc-font-game); letter-spacing: .04em; text-transform: uppercase; cursor: pointer; }
 .seg button.segOn { background: #E8EAEE; color: #121327; }
 
+.out { display: flex; flex-direction: column; align-items: flex-start; gap: 20px; padding-top: 48px; }
+
 /* hero: the screenshot */
 .hero { position: relative; overflow: hidden; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 28px 40px; min-height: 340px; padding: 36px 40px; border-radius: 24px; border: 1px solid rgba(232, 234, 238, .10); background: #0E0F16; box-sizing: border-box; }
 .heroSky { position: absolute; inset: 0; background: url(/art/trophies/room.webp) 70% 50% / cover no-repeat; opacity: .7; }

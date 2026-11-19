@@ -41,7 +41,7 @@ export const DAILY_GRACE_MS = 10 * 60_000;
 export const DAILY_PER_IP = 5;
 export const runIdOf = (device: string) => createHash("sha256").update("disciple:daily:" + device).digest("hex").slice(0, 16);
 export const nameOf = (runId: string) => defaultUsername("0x" + createHash("sha256").update("disciple:pilot:" + runId).digest("hex").slice(0, 40));
-const zkey = (id: number) => `daily:${id}:zp`, rkey = (id: number, run: string) => `daily:${id}:run:${run}`, okey = (id: number, run: string) => `daily:${id}:owner:${run}`,
+export const zkey = (id: number) => `daily:${id}:zp`, rkey = (id: number, run: string) => `daily:${id}:run:${run}`, okey = (id: number, run: string) => `daily:${id}:owner:${run}`,
   fkey = (id: number) => `daily:${id}:zflag`, pkey = (id: number, w: string) => `daily:${id}:pilot:${w}`, ipkey = (id: number, net: string) => `daily:${id}:ip:${net}`;
 /** the hashed network an IP belongs to (see ipBucket) */
 export const netOf = (ip: string) => createHash("sha256").update(ipBucket(ip)).digest("hex").slice(0, 16);
@@ -102,7 +102,7 @@ export async function submitDaily(id: number, device: unknown, inputs: unknown, 
   return { ok: true, run, already: false, ...(await placeOf(id, run, s)) };   // on the board once its pilot signs in (boardRun)
 }
 /** where a run places: on the board, or where it would place if its pilot signed in and saved it */
-async function placeOf(id: number, run: DailyRun, s: Kv) {
+export async function placeOf(id: number, run: DailyRun, s: Kv) {
   const boarded = !!(await ownerOf(id, run.runId, s)), [above, count] = await Promise.all([s.zcountAbove(zkey(id), run.score.pnl), s.zcard(zkey(id))]);
   return { boarded, rank: above + 1, count: boarded ? Math.max(count, above + 1) : count + 1 };
 }

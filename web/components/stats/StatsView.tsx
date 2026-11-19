@@ -2,9 +2,9 @@
 /**
  * Pilot stats (/achievements, nav "Trophies"; public at /u/<name>/stats), maker 2026-11-19: the page a pilot screenshots.
  *   hero: who (pfp, name, level ring, tier), the three numbers that matter (season rank, lifetime points, realized PnL), rocket
- *   trophies, right under the hero (the nav says Trophies)
  *   ranks: one tile per mode (Duel, Climb, Daily mission, Rockets) with its rank and record
  *   career: win rate, trades, best rocket, best trade, orbits, bombs, launched, longest flight
+ *   trophies (maker 2026-11-19: ranks, then career, then trophies)
  *   level rewards + orders (own page only), compact, at the bottom
  * Pure view: every number comes in on `d`. A null number shows "—" (never a made-up 0).
  */
@@ -33,7 +33,7 @@ export type StatsData = {
   season: { n: number; rank: number | null; total: number; pts: number; league: string } | null;
   lifetime: { pts: number; rank: number } | null;
   pnlUsd: number | null;
-  duel: { rank: number | null; w: number; l: number; streak: number; peak: number } | null;
+  duel: { rank: number | null; w: number; l: number; streak: number } | null;
   climb: { rank: number | null; level: number; clearMs: number } | null;
   daily: { best: number | null; played: number; today: number | null } | null;
   rockets: { rank: number | null; green: number; red: number; orbits: number } | null;
@@ -55,23 +55,23 @@ const clock = (ms: number) => { const t = Math.round(ms / 1000); return `${Math.
 export default function StatsView({ d, onShare }: { d: StatsData; onShare?: () => void }) {
   const lg = d.season ? leagueBy(d.season.league) : null;
   return (
-    <div className={s.page} data-testid="stats">
+    <div className={`${s.page} xp-trophies`} data-testid="stats">
       <Hero d={d} lg={lg} onShare={onShare} />
-      <Trophies got={d.trophies} />
       <section className={s.sec} aria-labelledby="st-ranks">
         <div className={s.secHead}><h2 id="st-ranks" className={s.h2}>Ranks</h2><span className={s.tag}>Season {d.season?.n ?? 1}</span></div>
         <div className={s.modes}>
           <Mode id="duel" title="Duel" art="/art/modes/duel.webp" tone="#FF9CC4" href="/leaderboard?tab=duel" rank={d.duel?.rank}
-            rows={d.duel ? [["Record", `${n0(d.duel.w)}–${n0(d.duel.l)}`], ["Win rate", d.duel.w + d.duel.l ? `${Math.round((d.duel.w / (d.duel.w + d.duel.l)) * 100)}%` : "—"], ["Best streak", n0(d.duel.peak)]] : []} />
+            rows={d.duel ? [["Record", `${n0(d.duel.w)}–${n0(d.duel.l)}`], ["Win rate", d.duel.w + d.duel.l ? `${Math.round((d.duel.w / (d.duel.w + d.duel.l)) * 100)}%` : "—"], ["Streak", n0(d.duel.streak)]] : []} />
           <Mode id="climb" title="Climb" art="/art/modes/live.webp" tone="#5FF0A0" href="/leaderboard?tab=climb" rank={d.climb?.rank}
             rows={d.climb ? [["Best level", n0(d.climb.level)], ["Clear", d.climb.clearMs ? clock(d.climb.clearMs) : "—"]] : []} />
           <Mode id="daily" title="Daily mission" art="/art/modes/free.webp" tone="#8FE3FF" href="/flight/sim?daily=1" rank={d.daily?.today}
             rankLabel="Today" rows={d.daily ? [["Best finish", rk(d.daily.best)], ["Played", n0(d.daily.played)]] : []} />
-          <Mode id="rockets" title="Rockets" art="/art/modes/launch.webp" tone="#F3DFA8" href="/leaderboard" rank={d.rockets?.rank}
+          <Mode id="rockets" title="Rockets" art="/art/modes/launch.webp" tone="#F3DFA8" href="/leaderboard?tab=rockets" rank={d.rockets?.rank}
             rows={d.rockets ? [["Green exits", n0(d.rockets.green)], ["Red exits", n0(d.rockets.red)], ["Orbits", n0(d.rockets.orbits)]] : []} />
         </div>
       </section>
       <Career c={d.career} />
+      <Trophies got={d.trophies} />
       {d.own && (
         <div className={s.duo}>
           <Rewards level={d.level} got={d.trophies} />
