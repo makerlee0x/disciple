@@ -444,6 +444,10 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     ///         (REF_BAND_TICKS). Returns liquidity added (0 = skipped).
     function flush(address token) external returns (uint128 liquidity) {
         if (!_positions[token].graduated) revert NotGraduated();
+        // pull this coin's 33% locked-liquidity share out of its hook first (skips when nothing is owed)
+        address h = migration == address(0) ? address(0) : IMigrationHooks(migration).hookOf(token);
+        if (h == address(0)) h = hook;
+        if (h != address(0)) try IHookLockedShare(h).claimLockedLiquidityFees(token) {} catch {}
         bytes memory r = poolManager.unlock(abi.encode(CB_FLUSH, abi.encode(token)));
         liquidity = abi.decode(r, (uint128));
     }
@@ -756,4 +760,8 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
 
 interface IMigrationHooks {
     function hookOf(address token) external view returns (address);
+}
+
+interface IHookLockedShare {
+    function claimLockedLiquidityFees(address token) external returns (uint256 quoteAmount, uint256 tokenAmount);
 }

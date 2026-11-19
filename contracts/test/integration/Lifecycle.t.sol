@@ -183,37 +183,28 @@ contract LifecycleIntegrationTest is IntegrationBase {
             feeRouter.claimCreatorFees(address(tok));
         }
 
-        uint256 treTok0 = (tok.balanceOf(treasury) + feeRouter.treasuryAccrued(address(tok)));
-        uint256 creatorTok0 = tok.balanceOf(creator);
-        uint256 treQ0 = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
-        uint256 creatorQ0 = feeRouter.creatorAccrued(address(tok), creator);
-
-        // quote → token: hook fee in launch token → physical split (creator/treasury get tokens)
+        // quote → token: hook fee in launch token, held by the hook until a claim
         _swapExactInQuoteForToken(tok, trader1, 20 * U);
-        assertTrue(
-            (tok.balanceOf(treasury) + feeRouter.treasuryAccrued(address(tok))) > treTok0 || tok.balanceOf(creator) > creatorTok0,
-            "post-grad buy: 1% hook fee routed in token"
-        );
-        // Must not pollute quote-denominated creatorAccrued
-        assertEq(feeRouter.creatorAccrued(address(tok), creator), creatorQ0);
+        (uint256 cq0, uint256 ct) = hook.claimable(address(tok), 0);
+        (, uint256 tt) = hook.claimable(address(tok), 2);
+        assertGt(ct, 0, "post-grad buy: 1% hook fee held in token");
+        assertGt(tt, 0);
+        assertEq(cq0, 0, "a buy books no quote-side fee");
 
-        // token → quote: hook fee in quote → 33/33/33/1 + treasury auto-push + claimable creator
+        // token → quote: hook fee in quote, 33/33/33/1
         uint256 tBal = tok.balanceOf(trader1);
         require(tBal > 1e18, "trader needs tokens");
         _swapExactInTokenForQuote(tok, trader1, tBal / 10);
-        assertTrue(
-            (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) > treQ0 || feeRouter.creatorAccrued(address(tok), creator) > creatorQ0,
-            "post-grad sell: 1% hook fee routed in quote"
-        );
+        (uint256 cq,) = hook.claimable(address(tok), 0);
+        assertGt(cq, 0, "post-grad sell: 1% hook fee held in quote");
 
-        uint256 accrued = feeRouter.creatorAccrued(address(tok), creator);
-        if (accrued > 0) {
-            uint256 bal0 = quote.balanceOf(creator);
-            vm.prank(creator);
-            feeRouter.claimCreatorFees(address(tok));
-            assertEq(quote.balanceOf(creator), bal0 + accrued);
-            assertEq(feeRouter.creatorAccrued(address(tok), creator), 0);
-        }
+        uint256 bal0 = quote.balanceOf(creator);
+        uint256 tokBal0 = tok.balanceOf(creator);
+        hook.claimCreatorFees(address(tok));
+        assertEq(quote.balanceOf(creator), bal0 + cq);
+        assertEq(tok.balanceOf(creator), tokBal0 + ct);
+        (cq, ct) = hook.claimable(address(tok), 0);
+        assertEq(cq + ct, 0);
 
         // Locked LP must NOT be burned after swaps
         (,,,,,, uint128 liq) = lockedLP.positions(address(tok));

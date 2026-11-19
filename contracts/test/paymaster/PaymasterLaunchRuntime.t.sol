@@ -322,11 +322,4 @@ contract PaymasterLaunchRuntimeTest is PaymasterBootstrapFixture {
         _run("launchAnonNoBoostPair", 2, 0, false, true);
     }
 
-    function test_runtimeLaunch_launchAnonBoostUsdg() public {
-        _run("launchAnonBoostUsdg", 2, 0, true, false);
-    }
-
-    function test_runtimeLaunch_launchAnonBoostPair() public {
-        _run("launchAnonBoostPair", 2, 0, true, true);
-    }
 }

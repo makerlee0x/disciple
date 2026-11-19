@@ -70,14 +70,19 @@ contract MaxModeTest is IntegrationBase {
         assertEq(launchpad.modeOf(r.token), Constants.MODE_PVP);
     }
 
-    function test_curveDeployer_writeOnce() public {
+    /// @dev maker 2026-11-19: the Team may swap the curve code for new coins until lockCurveDeployer.
+    function test_curveDeployer_swappable_thenLocked() public {
         address d = address(new MockFutureCurveDeployer());
-        vm.prank(owner);
-        vm.expectRevert(Launchpad.CurveDeployerUnset.selector);
-        launchpad.setCurveDeployer(d);
         vm.prank(creator);
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
         launchpad.setCurveDeployer(d);
+        vm.startPrank(owner);
+        launchpad.setCurveDeployer(d);
+        assertEq(address(launchpad.curveDeployer()), d);
+        launchpad.lockCurveDeployer();
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
+        launchpad.setCurveDeployer(d);
+        vm.stopPrank();
     }
 
     function test_curveDeployer_rejectsEoa() public {

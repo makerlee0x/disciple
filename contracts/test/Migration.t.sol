@@ -183,8 +183,6 @@ contract MigrationTest is Test {
     function test_postGrad_swap_charges_1pct_via_hook() public {
         (, Token tok, PoolKey memory key) = _launchAndGraduate();
 
-        uint256 treBefore = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
-        uint256 creatorBefore = feeRouter.creatorAccrued(address(tok), alice);
 
         // Swap quote → token (or reverse depending on ordering)
         bool tokenIsC0 = uint160(address(tok)) < uint160(address(quote));
@@ -206,11 +204,12 @@ contract MigrationTest is Test {
 
         swapRouter.swap(key, params, settings, "");
 
-        // Hook took 1% of output and routed — treasury and/or creator accrued should rise
-        assertTrue(
-            (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) > treBefore || feeRouter.creatorAccrued(address(tok), alice) > creatorBefore
-                || (tok.balanceOf(treasury) + feeRouter.treasuryAccrued(address(tok))) > 0,
-            "fees should route"
-        );
+        // Hook took 1% of the output (token side on a buy) and holds it for the four claim shares
+        uint256 held;
+        for (uint8 sh; sh < 4; ++sh) {
+            (uint256 q, uint256 t) = hook.claimable(address(tok), sh);
+            held += q + t;
+        }
+        assertGt(held, 0, "fees should be held by the hook");
     }
 }

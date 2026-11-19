@@ -133,6 +133,7 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         guardKeys.push("USDG");
         guardKeys.push("DEFAULT_QUOTE");
         guardKeys.push("SAFE");
+        guardKeys.push("COMMUNITY_SAFE");
         guardKeys.push("PRICER_POKER");
         guardKeys.push("EXPECT_USDG_DECIMALS");
         guardKeys.push("MIN_LIQUIDITY");
@@ -216,6 +217,7 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         vm.setEnv("USDG", a);
         vm.setEnv("DEFAULT_QUOTE", a);
         vm.setEnv("SAFE", a);
+        vm.setEnv("COMMUNITY_SAFE", a);
         vm.setEnv("PRICER_POKER", a);
         vm.setEnv("EXPECT_USDG_DECIMALS", "6");
         vm.setEnv("MIN_LIQUIDITY", "1");

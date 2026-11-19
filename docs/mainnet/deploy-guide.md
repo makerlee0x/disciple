@@ -58,7 +58,9 @@ maker 2026-11-19: a bug fix in the curve or the hook is one new deploy, nothing 
 
 Coins already launched keep their curve; coins already graduated keep their pool's hook (a v4 pool's hook can never change). `Migration.hookOf(token)` says which hook a coin uses; DiscipleRouter, LockedLP, AnonLauncher and the site read it per coin.
 
-Trust: the Team key can point new launches at any curve or hook it deploys, until locked. A new curve is authorized on FeeRouter like every curve.
+Trust: the Team key can point new launches at any curve or hook it deploys, until locked. A new curve is authorized on FeeRouter like every curve, and FeeRouter and CurveFeeVault hold one shared balance for all coins, so a bad curve or hook could claim fees it never earned out of other coins' money.
+
+**Lock step (maker 2026-11-19: lock later, after it works):** the Team Safe runs `Launchpad.lockCurveDeployer()` and `Migration.lockHook()` once launch is working. Both are permanent; after that a curve or hook change means a new stack.
 
 ### Coin creator changes
 

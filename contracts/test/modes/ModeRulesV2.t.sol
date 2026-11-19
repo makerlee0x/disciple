@@ -594,7 +594,7 @@ contract ModeRulesV2Test is IntegrationBase {
         assertEq(tipLo, 0);
         assertLe(pLo, thr);
         assertGt(pHi, thr);
-        assertEq(tipHi, (outHi + tipHi) * 7770 / 1e6, "0.777% of proceeds");
+        assertEq(tipHi, (outHi + tipHi) * c.crewTipPpm() / 1e6, "holder tip (3.3% default) of proceeds");
 
         uint256 snap = vm.snapshotState();
         uint256 held0 = c.rewardsHeld();
@@ -864,7 +864,7 @@ contract ModeRulesV2Test is IntegrationBase {
         vm.expectRevert(FeeRouter.NothingToClaim.selector);
         router.claimCreatorFeesToUsdg(ru.token, 1);
         vm.prank(bob);
-        vm.expectRevert(FeeRouter.NothingToClaim.selector);
+        vm.expectRevert(CurveFeeVault.NotCurrentCreator.selector);
         router.claimCreatorFeesToUsdg(rs.token, 1);
         // FeeRouter entry is router-only
         vm.prank(alice);

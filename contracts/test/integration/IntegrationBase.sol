@@ -479,4 +479,12 @@ abstract contract IntegrationBase is Test {
         sum += quote.balanceOf(address(manager)) - refPoolQuoteSeed;
         return sum;
     }
+
+    /// @dev Pull the coin's 33% locked-liquidity share out of its hook into LockedLP's bucket (flush does this too).
+    function _pullLpShare(Token tok) internal {
+        DiscipleHook h = DiscipleHook(migration.hookOf(address(tok)));
+        if (address(h) == address(0)) h = hook;
+        (uint256 q, uint256 t) = h.claimable(address(tok), 1);
+        if (q != 0 || t != 0) h.claimLockedLiquidityFees(address(tok));
+    }
 }

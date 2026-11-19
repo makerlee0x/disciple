@@ -93,6 +93,7 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       mainnet): the deployer keeps those roles; run script/HandoverToSafe.s.sol later (mainnet: 2-of-3 Safe, no timelock
 ///                       at launch, maker 2026-11-17). The renounces
 ///                       and the FeeRouter lock still happen at deploy on 4663. Audit 2026-11-17 R461-05 / (g).
+///   GASLESS_FEE_TO      relayer fee wallet that receives the flat $0.01 USDG gasless network fee (unset = no fee)
 ///   PRICER_POKER        QuotePricer keeper (required on 4663): launches revert StalePrice without fresh pokes
 ///   REWARDS_VAULT_OWNER community RewardsVault owner (default deployer): TEMP wallet on testnet, multisig (Safe) on
 ///                       mainnet (lee 2026-11-10). Receives the sniper tax + curve LP fees of coins not graduated
@@ -256,6 +257,9 @@ contract Deploy is NetworkConfig {
         if (poker != address(0)) pricer.setPoker(poker, true);
         // USDG-in/out routing (buyWithUsdg / sellToUsdg): USDG + curve registry, and the USDG/defaultQuote hop pool.
         router.setUsdgRouting(o.usdg, address(launchpad));
+        // maker 2026-11-19: flat $0.01 USDG network fee on gasless trades, paid to the relayer fee wallet (off if unset)
+        address gasFeeTo = vm.envOr("GASLESS_FEE_TO", address(0));
+        if (gasFeeTo != address(0)) router.setGasFee(gasFeeTo, router.gasFee());
         // Curve trades via the router act for the real trader (bonding modes: caps / cost basis / attribution).
         launchpad.setTrustedRouter(address(router), true);
         feeRouter.setClaimRouter(address(router), true); // claimCreatorFeesToUsdg (separate allowlist, audit r121 Low)

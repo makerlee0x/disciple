@@ -493,9 +493,9 @@ contract BondingModesTest is IntegrationBase {
         assertTrue(t.pveHooks());
         assertEq(t.pveCurve(), address(c));
         assertTrue(t.pveLive());
-        (, Token tt) = _launchMode(Constants.MODE_TRENCH);
+        (BondingCurve tc, Token tt) = _launchMode(Constants.MODE_TRENCH);
         assertFalse(tt.pveHooks());
-        assertEq(tt.pveCurve(), address(0));
+        assertEq(tt.pveCurve(), address(tc), "every coin knows its curve (no v4 pool before orbit)");
         vm.expectRevert(Token.OnlyCurve.selector);
         t.endPveHooks();
         vm.expectRevert(BondingCurve.OnlyToken.selector);
