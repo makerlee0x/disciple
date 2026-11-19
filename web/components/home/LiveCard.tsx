@@ -1,7 +1,7 @@
 /**
  * Rocket card, "Live window" (maker's pick, lobby canvas board "Rocket card concepts" C): a window onto the flight. The
  * chrome rocket climbs through its tier's sky (the same tier plates the flight uses) on its own light, with speed
- * streaks and an exhaust trail; LIVE (or IN ORBIT) and the day's climb on top; name, crew, orbit bar, altitude and
+ * streaks and an exhaust trail; base pair (and IN ORBIT) on top; name, crew + market cap, orbit bar, 24h change and
  * difficulty below. Hover shows DROP IN. Used by Climbing now and All rockets.
  */
 import Link from "next/link";
@@ -15,7 +15,7 @@ import CoinRocket from "./CoinRocket";
 import { isClassic, trailRgb } from "@/lib/coinLook";
 import s from "./liveCard.module.css";
 
-/** `seat` (Hangar fleet): the pilot's holding in dollars, shown in place of altitude. */
+/** `seat` (Hangar fleet): the pilot's holding in dollars, shown in place of the 24h change. */
 export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: string; seat?: string }) {
   const t = tierProgress(c.mcapUsd);
   const chg = c.stats?.chg24 ?? null;
@@ -26,7 +26,7 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
   const skinned = !!c.look && !isClassic(c.look);
   const style = { ...lit(c), ["--sky" as string]: `url(${withBase(skySrc(t.index))})`, ...(c.look ? { ["--trail" as string]: trailRgb(c.look.trail) } : {}) };
   return (
-    <Link href={flightHref(c)} prefetch={false} className={s.card} style={style} data-testid={testId} aria-label={`${c.name}, tier ${t.index + 1}${chg != null ? `, ${chg >= 0 ? "up" : "down"} ${pct(Math.abs(chg))} today` : ""}. Drop in`}>
+    <Link href={flightHref(c)} prefetch={false} className={s.card} style={style} data-testid={testId} aria-label={`${c.name}, ${altShort(c.mcapUsd)} market cap${chg != null ? `, ${chg >= 0 ? "up" : "down"} ${pct(Math.abs(chg))} today` : ""}. Drop in`}>
       <span className={s.sky} aria-hidden />
       <span className={s.streaks} aria-hidden />
       <span className={s.glow} aria-hidden />
@@ -43,7 +43,6 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
           {c.pairSym && !c.pairSym.startsWith("0x") && <PairTag sym={c.pairSym} />}
           {c.graduated && <span className={s.live}><i aria-hidden />In orbit</span>}
         </span>
-        {chg != null && <span className={chg >= 0 ? s.up : s.dn}>{chg >= 0 ? "+" : "−"}{pct(Math.abs(chg))}</span>}
       </span>
 
       <span className={s.foot}>
@@ -55,12 +54,14 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
               {crewFaces(c.token, crew).map((col, i) => <i key={i} style={{ background: col }} />)}
             </span>
           ) : <Mark c={c} className={s.mark} />}
-          <span>{crew ? `${crew.toLocaleString("en-US")} aboard · ` : ""}Tier {t.index + 1}{crew ? "" : ` · ${t.title}`}</span>
+          <span>{crew ? `${crew.toLocaleString("en-US")} aboard · ` : ""}<b className={s.mcap}>{altShort(c.mcapUsd)}</b></span>
         </span>
         {/* the bar's row is kept when progress is unknown so names line up across a shelf */}
         <span className={`${s.bar}${orbit == null ? " " + s.barOff : ""}`}><i style={{ width: `${orbit ?? 0}%` }} /></span>
         <span className={s.row}>
-          {seat != null ? <span className={s.seat}>Bag <b>{seat}</b></span> : <span>{altShort(c.mcapUsd)} altitude</span>}
+          {seat != null ? <span className={s.seat}>Bag <b>{seat}</b></span> 
+            // maker 2026-11-19: market cap moved up beside the crew; the foot shows the day's move
+            : chg != null ? <span className={chg >= 0 ? s.up : s.dn}>{chg >= 0 ? "▲" : "▼"} {chgPct(Math.abs(chg))} <i>24h</i></span> : <span>— <i>24h</i></span>}
           {d && <span className={`${s.diff} ${s[d.key]}`}>{d.label}</span>}
         </span>
       </span>
@@ -81,3 +82,6 @@ function PairTag({ sym }: { sym: string }) {
     </span>
   );
 }
+
+/** 24h move: 4.2%, 36%, 36,135% */
+const chgPct = (v: number) => (v >= 10 ? `${Math.round(v).toLocaleString("en-US")}%` : pct(v));
