@@ -79,7 +79,7 @@ export const QUICK_LAUNCH_COPY = {
   rewardsPlaceholder: "You",
   rewardsHelp: "One extra confirmation.",
   creatorTax: "Creator tax",
-  creatorTaxHelp: "An extra cut of every trade, on top of the 0.33%. Up to 7%. Locked at launch. High tax scares off traders.",
+  creatorTaxHelp: "An extra cut of every curve trade, on top of the 0.33%. Up to 7%. Ends at orbit, so it is not for life. Locked at launch. High tax scares off traders.",
   pairCoinHelp: "Your rocket trades against this coin. The list is always 12 coins and rotates over time with interest and activity.",
   creatorTicket: "Creator Ticket",
   howLaunching: "How launching works",
