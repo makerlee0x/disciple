@@ -39,7 +39,10 @@ body:has(.profile-page.hg) { background: var(--dsc3-page-bg); }
 .hg-sech span { font-size: 15px; color: var(--dsc-muted); }
 .hg-chips { display: flex; gap: 8px; }
 .hg-fleet { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
-.hg-fleet[aria-busy="true"] { min-height: 340px; border-radius: var(--dsc3-tile-radius); background: rgba(232, 234, 238, .03); }
+.hg-fleet-sk { display: block; aspect-ratio: 3 / 4; border-radius: var(--dsc3-tile-radius); background: rgba(232, 234, 238, .05); animation: hg-sk 1.2s ease-in-out infinite alternate; }
+.hg-fleet-sk + .hg-fleet-sk { animation-delay: .3s; }
+@keyframes hg-sk { from { opacity: .45; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .hg-fleet-sk { animation: none; } }
 .hg-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 28px; border-radius: 16px;
   border: 1px dashed rgba(232, 234, 238, .16); background: rgba(22, 24, 28, .4); }
 .hg-empty b { font: 800 28px / 1 var(--dsc-font-game); text-transform: uppercase; }

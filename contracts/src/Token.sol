@@ -19,6 +19,7 @@ interface IPveCurveHook {
 /// @dev EIP-2612 permit enabled (single-tx sells via BondingCurve.sellWithPermit).
 ///      Standard CREATE deployment (no vanity). Entire supply minted once to `recipient` (the curve).
 contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
+    address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;
     address public immutable override creator;
     address public immutable override launchpad;
     /// @notice True for PVE coins: pre-graduation wallet→wallet transfers notify the curve. Immutable, so TRENCH /
@@ -38,7 +39,6 @@ contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
     error OnlyCurve();
     error AlreadySet();
     error CreatorLocked();
-    error BurnLocked();
 
     constructor(
         string memory name_,
@@ -91,17 +91,18 @@ contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
     function _update(address from, address to, uint256 value) internal override {
         super._update(from, to, value);
         if (pveHooks && pveLive) {
-            // burns wait for graduation on PVE coins: the curve books NET positions per wallet (rewards, caps)
-            if (to == address(0)) revert BurnLocked();
             // creator lock (mode rules v2): the creator's balance may not drop below the First BOOST pre-graduation
             if (from == creator) {
                 uint256 l = creatorLocked;
                 if (l != 0 && balanceOf(from) < l) revert CreatorLocked();
             }
-            if (from != to && from != address(0) && to != address(0) && value != 0) {
+            if (from != to && from != address(0) && value != 0) {
                 address c = pveCurve;
+                // maker 2026-11-19: Easy coins can be burned any time. A burn is booked like a send to 0x…dEaD: the
+                // burned NET leaves circulation (no cap, rewards or cost basis parked anywhere).
+                address dst = to == address(0) ? DEAD : to;
                 // curve buys/sells/graduation move tokens to/from the curve: the curve books those itself
-                if (from != c && to != c) IPveCurveHook(c).onTokenTransfer(from, to, value);
+                if (from != c && dst != c) IPveCurveHook(c).onTokenTransfer(from, dst, value);
             }
         }
     }

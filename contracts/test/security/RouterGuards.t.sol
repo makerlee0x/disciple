@@ -6,7 +6,7 @@ import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {DiscipleRouter} from "../../src/DiscipleRouter.sol";
 
-/// @notice DiscipleRouter slippage guards: minOut != 0 and a hard per-swap price-impact cap (default 50%).
+/// @notice DiscipleRouter slippage guards: minOut != 0. Pool swaps have no price-impact cap (curve trades only).
 contract RouterGuardsTest is IntegrationBase {
     BondingCurve curve;
     Token tok;
@@ -25,7 +25,6 @@ contract RouterGuardsTest is IntegrationBase {
     }
 
     function test_defaults() public view {
-        assertEq(router.maxImpactBps(), 5000);
         assertTrue(router.owner() != address(0));
     }
 
@@ -38,52 +37,31 @@ contract RouterGuardsTest is IntegrationBase {
         vm.stopPrank();
     }
 
-    function test_smallTradeWithinCap() public {
+    function test_smallTradeFills() public {
         (, uint256 impact,) = router.quoteExactIn(address(tok), true, 10 ether);
         assertLt(impact, 5000);
         vm.prank(whale);
         assertGt(router.buyExactIn(address(tok), 10 ether, 1, whale, block.timestamp + 1), 0);
     }
 
-    function test_hugeBuyRevertsOnImpact() public {
-        (, uint256 impact,) = router.quoteExactIn(address(tok), true, 20_000 ether);
+    /// maker 2026-11-19: no size / price-move cap on pool swaps; a huge buy goes through at its quote.
+    function test_hugeBuyNotCapped() public {
+        (uint256 q, uint256 impact,) = router.quoteExactIn(address(tok), true, 20_000 ether);
         assertGt(impact, 5000);
         vm.prank(whale);
-        vm.expectRevert(abi.encodeWithSelector(DiscipleRouter.PriceImpactTooHigh.selector, impact, 5000));
-        router.buyExactIn(address(tok), 20_000 ether, 1, whale, block.timestamp + 1);
+        assertEq(router.buyExactIn(address(tok), 20_000 ether, 1, whale, block.timestamp + 1), q);
     }
 
-    /// Sells are bounded below -100% and the LP is deep, so test the sell path with a tighter owner-set cap (10%).
-    function test_hugeSellRevertsOnImpact() public {
-        vm.prank(router.owner());
-        router.setMaxImpactBps(1000);
-        uint256 amt = 1_000_000 ether;
-        uint256 impact;
-        while (amt <= 1_000_000_000 ether) {
-            (, impact,) = router.quoteExactIn(address(tok), false, amt);
-            if (impact > 1000) break;
-            amt *= 2;
-        }
-        assertGt(impact, 1000, "no sell size reaches 10% impact");
+    /// Same for sells: a dump of any size fills (minOut is the only guard).
+    function test_hugeSellNotCapped() public {
+        uint256 bal = tok.balanceOf(whale);
         vm.prank(whale);
-        vm.expectRevert(abi.encodeWithSelector(DiscipleRouter.PriceImpactTooHigh.selector, impact, 1000));
-        router.sellExactIn(address(tok), amt, 1, whale, block.timestamp + 1);
-    }
-
-    function test_ownerCanRaiseCapWithinBounds() public {
-        address o = router.owner();
+        uint256 got = router.buyExactIn(address(tok), 20_000 ether, 1, whale, block.timestamp + 1);
+        (uint256 q, uint256 impact,) = router.quoteExactIn(address(tok), false, got);
+        assertGt(impact, 1000);
         vm.prank(whale);
-        vm.expectRevert(DiscipleRouter.OnlyOwner.selector);
-        router.setMaxImpactBps(9000);
-        vm.startPrank(o);
-        vm.expectRevert(DiscipleRouter.BadParam.selector);
-        router.setMaxImpactBps(99);
-        vm.expectRevert(DiscipleRouter.BadParam.selector);
-        router.setMaxImpactBps(100_001);
-        router.setMaxImpactBps(100_000);
-        vm.stopPrank();
-        vm.prank(whale);
-        assertGt(router.buyExactIn(address(tok), 10_000 ether, 1, whale, block.timestamp + 1), 0); // < 1000% impact on the steep-curve pool
+        assertEq(router.sellExactIn(address(tok), got, 1, whale, block.timestamp + 1), q);
+        assertEq(tok.balanceOf(whale), bal);
     }
 
     function test_transferOwnership() public {
@@ -99,6 +77,6 @@ contract RouterGuardsTest is IntegrationBase {
         assertEq(router.owner(), whale);
         vm.prank(o);
         vm.expectRevert(DiscipleRouter.OnlyOwner.selector);
-        router.setMaxImpactBps(1000);
+        router.removeUsdgPool(address(1));
     }
 }

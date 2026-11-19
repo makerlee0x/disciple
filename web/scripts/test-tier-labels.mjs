@@ -29,7 +29,8 @@ console.log("— 2. the rule is unchanged: the tier follows the CURRENT shown mc
   ok(!/graduated[^\n]{0,40}Math\.max\(\s*ti|gradFloor|tierFloor/i.test(eng), "no graduated tier floor anywhere in the engine"); }
 
 console.log("— 3. every surface uses the same helper");
-ok(/ctx\.fillText\(tierText\(ti\),36,108\)/.test(eng) && !/`TIER \$\{ti\} · \$\{t\.name\}`/.test(eng), "desktop HUD line = tierText(ti) (no other 'TIER n · NAME' template left)");
+// maker 2026-11-18: the desktop card's zone line is the zone name only; IN ORBIT lives in the badge (no "IN ORBIT · LAUNCH PAD")
+ok(/ctx\.fillText\(tierName\(ti\),36,108\)/.test(eng) && !/`TIER \$\{ti\} · \$\{t\.name\}`/.test(eng), "desktop HUD line = tierName(ti) (no other 'TIER n · NAME' template left)");
 ok(/b=tierName\(ti\),/.test(block("function drawPhonePill(", "ctx.restore(); }")), "phone pill = $MCAP · tier name (ascended coins too)");
 ok(/const k=S\.tierShown, bn=tierName\(k\);/.test(eng) && !/glowText\(TIERS\[S\.tierShown\]\.name/.test(eng), "tier banner = tierName (the current tier name, ascended coins too)");
 ok(/const tl=tierLabel\(m,nx\), lb=P\.drawer\?'':S\.graduated\?\(tl\?`\$\{ASCENDED\} · \$\{tl\}`:ASCENDED\):tl; S\.phoneTierLabel=lb;/.test(eng) && !/S\.graduated\?GRAD_BADGE:tierLabel/.test(eng), "phone caption under the pill: '+X% to NEXT' on every coin; ascended: 'ASCENDED · +X% to NEXT'");

@@ -320,7 +320,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
     <button type="button" className="hg-ghost" onClick={() => setEdit({ focus: null })} data-testid="edit-profile-btn">{C["profile.action.edit"]}</button>
     <button type="button" className="hg-ghost" onClick={() => setSettingsOpen(true)} data-testid="hangar-settings-btn">Settings</button>
     {points && points.username && <button type="button" className="hg-ghost" onClick={() => setPointsCard(true)} data-testid="hangar-points-share">Share points</button>}
-  </> : null;
+  </> : <Link href={`/u/${encodeURIComponent(username ?? "")}/stats`} className="hg-ghost" data-testid="profile-stats-link"><Icon name="leaderboard" size={16} /> Stats</Link>;
   // the cockpit dash (Hangar banner take A): only numbers we really have
   const dash = [
     points ? { k: `Points · #${points.rank.toLocaleString("en-US")}`, v: points.pts.toLocaleString("en-US") } : null,
@@ -360,7 +360,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
         {isPrivate && <RocketCard col={col} handle={handle} />}
       </div>
       <div className="hg-duo">
-        <TrophyCase got={trophies} />
+        <TrophyCase got={trophies} href={isPrivate ? "/achievements" : `/u/${encodeURIComponent(username ?? "")}/stats`} />
         <Fleet rows={holdings} home={home} launched={launched} isPrivate={isPrivate} owner={ownerName} />
       </div>
       <section className="dsc3-panel hg-panel" aria-labelledby="hg-log">

@@ -5,50 +5,34 @@ section: Reference
 ---
 # Glossary
 
-| Term | Meaning |
+| Term | Means |
 |---|---|
-| **Altitude** | How high a rocket's value has climbed, shown as height. |
-| **Altitude tiers** | The 18 named steps of that climb, from Launch Pad ($3,333) to Seventh Heaven ($7.77 billion). |
-| **Anti-snipe fee** | The sniper tax on BOOSTs in a rocket's first 7 seconds: 99% at launch, 25% at 1 second, 3% at 2 seconds, and nothing from 7 seconds on. |
-| **ATOM BOMB** | A bomb with 25–50% price impact. |
-| **Base** | The coin a rocket is paired with and priced in. STRATEGY by default. |
-| **Board** | To buy into a rocket. |
-| **Bomb** | A DUMP, shown on the chart. Its size is set by price impact. |
-| **Bonding curve** | The starting price path. Each buy costs a little more than the last. The rocket trades on it until it reaches orbit. |
-| **BOOST** | Buy. It lifts the rocket. |
-| **BUNKER BUSTER** | A bomb with 2–5% price impact. |
-| **Call sign** | A rocket's ticker, like $HALO. Locked at launch. |
-| **Creator** | The wallet that launched a rocket, or whoever it was handed to. |
-| **Creator tax** | An optional 0–7% fee set at launch, paid to the creator on trades before orbit only. |
-| **Crew** | Everyone who holds a rocket. Everyone aboard flies together. |
-| **Crew tip** | On Easy rockets: 0.777% of a profitable DUMP, shared with the other holders. |
-| **DUMP** | Sell. It drops a bomb. |
-| **Fee vault** | Where every share of the fees paid before orbit, except the liquidity share, waits until it's claimed. |
-| **First BOOST** | The creator's own buy, made as part of the launch. |
-| **Free play** | The game with practice cash against bots: a daily flight and practice runs. |
-| **GRENADE** | The smallest bomb: under 2% price impact. |
-| **Holding limit** | The most one wallet can hold of a rocket before orbit. Set by the launch mode. |
-| **Launch mode** | Easy, Hard or Expert: a rocket's rules before orbit, picked at launch as its difficulty. |
-| **Launch Pad** | The first named tier for how high a rocket's value has climbed ($3,333 to $12,000). |
-| **Lobby** | The home page that lists live rockets. |
-| **LockedLP** | The contract that holds the liquidity after a rocket reaches orbit. It has no way to remove that liquidity. Liquidity is locked forever in the Uniswap v4 LP. |
-| **MOAB** | A bomb with 12–25% price impact. |
-| **Near orbit** | A Lobby sort for rockets at least 60% of the way to orbit. |
-| **Normie** | The prestige-0 label. |
-| **NUKE** | The biggest bomb: 50% or more price impact. |
-| **Orbit** | The moment the starting price path is finished and the rocket moves to the open market on Uniswap. That is a value of $33,333 with about 84% of the rocket bought. Liquidity is locked forever in the Uniswap v4 LP. |
-| **Outer Space** | The named tier where a rocket reaches orbit, starting at $33,333. |
-| **Pair** | A rocket and its base. |
-| **Pilot** | A trader. |
-| **Price impact** | How far one trade moves the price, in %. |
-| **Private launch** | A launch where your name doesn't show as the creator. |
-| **Rarity** | Common, Rare, Epic, Legendary or Mythic. The scale for milestones. |
-| **Rewards** | In your account menu. It shows what you've earned, including payouts made by hand, and lets you claim it. |
-| **Rocket** | The thing you launch on DISCIPLE. |
-| **Thrust** | The visual force of a BOOST. |
-| **Touch grass** | A calm flight view that shows only how high the rocket's value has climbed. |
-| **Trench** | Nickname for Expert, the launch mode with no guardrails. |
-| **USDG** | A dollar stablecoin on Robinhood Chain. You BOOST with it, and DUMPs pay you in it. |
-| **Verified** | A checkmark the team grants after reviewing a rocket. |
-| **WARHEAD** | A bomb with 5–12% price impact. |
-| **XP** | Off-chain progress from orders and milestones. Levels you up and unlocks rocket looks. Not a token. |
+| **Altitude** | A rocket's mcap, drawn as height. 18 named tiers. |
+| **Anon launch** | A free launch with your name and wallet off the rocket. |
+| **Base / pair coin** | The coin a rocket is priced in. STRATEGY by default. |
+| **Bomb** | A DUMP, sized by price impact. GRENADE to NUKE. |
+| **Bonding curve** | Where a rocket trades before orbit. Each buy costs a bit more. |
+| **BOOST** | Buy. In Turbo, go long. |
+| **Cash** | Your USDG on Robinhood Chain. |
+| **Climb** | Solo Turbo: five levels, one minute each. |
+| **Creator fee** | 0.33% of every trade, to the creator, the locked pool or a burn. |
+| **Creator tax** | Optional 0–7% on curve trades. Ends at orbit. |
+| **Creator Ticket** | The creator's buy inside the launch. |
+| **Crew** | Everyone holding a rocket. |
+| **Crew tip** | Easy only: 0.777% of a big winning sell, to the other holders. |
+| **Daily mission** | One practice market a day, same for everyone. |
+| **Duel** | 1v1 Turbo on BTC, one minute. |
+| **DUMP** | Sell. In Turbo, go short. |
+| **Lighter** | The perps exchange Turbo orders go to. |
+| **Max bag** | The most one wallet can hold on the curve (Easy and Hard). |
+| **NUKE** | The biggest bomb (50%+ impact). In Turbo, getting liquidated. |
+| **Orbit** | $33,333 mcap. The curve sells out and the rocket lists on Uniswap. |
+| **Orders** | Daily and weekly XP tasks. |
+| **Pilot** | A player. |
+| **Relay** | Moves money between Cash and Turbo cash. |
+| **Rocket** | A coin launched on DISCIPLE. |
+| **Trench** | Nickname for Expert. |
+| **Turbo** | Leveraged BTC on Lighter: Duel and Climb. |
+| **Turbo cash** | Your USDC in your Lighter account. |
+| **USDG** | Dollar stablecoin on Robinhood Chain. |
+| **XP** | Off-chain progress. Not a token. |

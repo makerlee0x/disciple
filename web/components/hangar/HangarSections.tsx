@@ -26,7 +26,7 @@ export function ServiceRecord({ pf, isPrivate }: { pf: LivePortfolio | null; isP
   const ok = pf && pf.ok;
   const rockets = ok ? pf.rows.reduce((s, r) => s + r.usd, 0) : null;
   const total = ok ? pf.cashUsd + rockets! + (isPrivate ? turbo : 0) : null;
-  const today = ok ? pf.rows.reduce((s, r) => s + r.tokens * (r.priceNow - r.price24h), 0) : null;
+  const today = ok && pf.rows.every((r) => Number.isFinite(r.price24h)) ? pf.rows.reduce((s, r) => s + r.tokens * (r.priceNow - r.price24h), 0) : null;
   return (
     <section className={`hg-record${isPrivate ? " three" : ""}`} aria-label="Service record" data-testid="profile-portfolio">
       <div>
@@ -71,7 +71,8 @@ export function Fleet({ rows, home, launched, isPrivate, owner }: {
           <button type="button" className="dsc3-chip" aria-pressed={tab === "launched"} onClick={() => setTab("launched")}>Launched</button>
         </div>
       </header>
-      {list == null ? <div className="hg-fleet" aria-busy="true" data-testid="tab-rockets" /> : !list.length ? (
+      {/* still reading the wallet: card-shaped pulses, not one flat grey box (maker 2026-11-19) */}
+      {list == null ? <div className="hg-fleet" aria-busy="true" data-testid="tab-rockets"><i className="hg-fleet-sk" /><i className="hg-fleet-sk" /></div> : !list.length ? (
         <div className="hg-empty" data-testid="tab-rockets">
           {tab === "aboard"
             ? isPrivate ? <><b>No seats yet</b><Link href="/" className="dsc3-btn dsc3-btn-white">Find a flight</Link></> : <p>{owner} isn&apos;t aboard any rockets right now.</p>
@@ -88,13 +89,13 @@ export function Fleet({ rows, home, launched, isPrivate, owner }: {
   );
 }
 
-export function TrophyCase({ got }: { got: Map<string, number> | null }) {
+export function TrophyCase({ got, href = "/achievements" }: { got: Map<string, number> | null; href?: string }) {
   const shown = useMemo(() => [...V1_RULES]
     .sort((a, b) => Number(!!got?.has(b.id)) - Number(!!got?.has(a.id)) || rarityRank(a.rarity) - rarityRank(b.rarity)).slice(0, 6), [got]);
   const n = got ? V1_RULES.filter((r) => got.has(r.id)).length : null;
   return (
     <section className="dsc3-panel hg-panel" aria-labelledby="hg-trophies">
-      <header className="hg-panelh"><h2 id="hg-trophies">Trophy case</h2><Link href="/achievements">All trophies</Link></header>
+      <header className="hg-panelh"><h2 id="hg-trophies">Trophy case</h2><Link href={href}>All trophies</Link></header>
       <p className="hg-sub">{n == null ? " " : `${n} of ${V1_RULES.length} earned`}</p>
       <ul className="hg-trophies">
         {shown.map((m) => {

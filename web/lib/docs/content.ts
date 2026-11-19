@@ -93,6 +93,39 @@ const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replac
 const plain = (s: string) => s.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
 const slugify = (s: string) => plain(s).toLowerCase().replace(/[`*_~]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "section";
 
+/* ---------------------------------------------------------------------------------------------------------------------------
+ * Visual blocks. A fenced block (```cards, ```stats, ```steps, ```flow, ```split, ```ladder) holds one row per line, fields
+ * split by " | ". Every field is escaped; links and art go through withBase. Styles: app/docs/docs.css (.dv-v-*).
+ *   cards   title | tag | art | href | tone        art cards (mode select look)
+ *   stats   value | label | tone                   big number tiles
+ *   steps   title | line                           numbered strip
+ *   flow    title | sub | tone                     boxes joined by arrows (money / order flow)
+ *   split   weight | label | value | tone          one bar cut into shares (fee split)
+ *   ladder  name | from | mark                     tier ladder, low at the bottom; mark "*" highlights a row
+ * ------------------------------------------------------------------------------------------------------------------------- */
+const TONES: Record<string, string> = {
+  easy: "#5FF0A0", hard: "#FF7A3D", expert: "#F0307F", gold: "#F2C14E", champagne: "#F3DFA8",
+  pink: "#FF9CC4", cyan: "#8FE3FF", up: "#5FF0A0", down: "#FF5A6A", mute: "#9095A0", white: "#E8EAEE",
+};
+const tone = (s?: string) => (s && TONES[s]) || (s && /^#[0-9a-f]{3,8}$/i.test(s) ? s : "");
+const toneStyle = (s?: string) => (tone(s) ? ` style="--vt:${tone(s)}"` : "");
+const rows = (text: string) => text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => l.split("|").map((x) => x.trim()));
+const href = (h: string) => (/^https?:\/\//.test(h) ? h : withBase(h));
+const inline = (s: string) => esc(s).replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>");
+const BLOCKS = {
+  cards: (r: string[][]) => `<div class="dv-v dv-v-cards">${r.map(([title, tag, art, link, t]) => {
+    const inner = `<span class="dv-v-art"${art ? ` style="background-image:url('${esc(href(art))}')"` : ""}></span>`
+      + `<span class="dv-v-cardtx"><b>${esc(title)}</b>${tag ? `<span class="dv-v-chip">${esc(tag)}</span>` : ""}</span>`;
+    return link ? `<a class="dv-v-card" href="${esc(href(link))}"${toneStyle(t)}>${inner}</a>` : `<span class="dv-v-card"${toneStyle(t)}>${inner}</span>`;
+  }).join("")}</div>\n`,
+  stats: (r: string[][]) => `<div class="dv-v dv-v-stats">${r.map(([v, label, t]) => `<div class="dv-v-stat"${toneStyle(t)}><b>${esc(v)}</b><span>${inline(label ?? "")}</span></div>`).join("")}</div>\n`,
+  steps: (r: string[][]) => `<ol class="dv-v dv-v-steps">${r.map(([title, line], i) => `<li><span class="dv-v-n">${i + 1}</span><b>${esc(title)}</b>${line ? `<span>${inline(line)}</span>` : ""}</li>`).join("")}</ol>\n`,
+  flow: (r: string[][]) => `<div class="dv-v dv-v-flow">${r.map(([title, sub, t], i) => `${i ? '<span class="dv-v-arrow" aria-hidden="true"></span>' : ""}<div class="dv-v-node"${toneStyle(t)}><b>${esc(title)}</b>${sub ? `<span>${inline(sub)}</span>` : ""}</div>`).join("")}</div>\n`,
+  split: (r: string[][]) => `<div class="dv-v dv-v-split"><div class="dv-v-bar">${r.map(([w, label, , t]) => `<i style="flex:${Math.max(0.6, Number(w) || 1)};${tone(t) ? `--vt:${tone(t)}` : ""}" title="${esc(label ?? "")}"></i>`).join("")}</div><div class="dv-v-legend">${r.map(([, label, v, t]) => `<span${toneStyle(t)}><i></i><b>${esc(v ?? "")}</b>${esc(label ?? "")}</span>`).join("")}</div></div>\n`,
+  ladder: (r: string[][]) => `<ol class="dv-v dv-v-ladder">${[...r].reverse().map(([name, from, mark]) => `<li${mark === "*" ? ' class="is-mark"' : ""}><b>${esc(name)}</b><span>${esc(from ?? "")}</span></li>`).join("")}</ol>\n`,
+};
+type BlockKind = keyof typeof BLOCKS;
+
 export function renderDoc(meta: DocMeta): DocPage {
   const { body: rawBody } = frontMatter(fs.readFileSync(path.join(ROOT, meta.file), "utf8"));
   const body = REAL_PROGRESS_ENABLED ? rawBody : hideSeasonInDocs(rawBody);
@@ -126,6 +159,12 @@ export function renderDoc(meta: DocMeta): DocPage {
       image(t: Tokens.Image) {
         const src = /^https?:\/\//.test(t.href) ? t.href : withBase(t.href);
         return `<img class="dv-figure" src="${esc(src)}" alt="${esc(t.text)}" loading="lazy" decoding="async" />`;
+      },
+      // Visual blocks (show, don't tell): a fenced block whose language is one of BLOCKS renders as site-styled HTML.
+      code(t: Tokens.Code) {
+        const kind = (t.lang || "").trim();
+        if (kind in BLOCKS) return BLOCKS[kind as BlockKind](rows(t.text));
+        return `<pre><code>${esc(t.text)}</code></pre>\n`;
       },
       link(t: Tokens.Link) {
         const inner = this.parser.parseInline(t.tokens);

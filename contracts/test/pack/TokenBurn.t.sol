@@ -8,12 +8,18 @@ import {Constants} from "../../src/libraries/Constants.sol";
 
 /// @dev Stand-in PVE curve: accepts transfer notifications, can lock the creator and end the hooks.
 contract MockPveCurve {
-    function onTokenTransfer(address, address, uint256) external {}
+    address public lastFrom;
+    address public lastTo;
+    uint256 public lastAmt;
+
+    function onTokenTransfer(address f, address t, uint256 a) external {
+        (lastFrom, lastTo, lastAmt) = (f, t, a);
+    }
     function lock(Token t, uint256 a) external { t.lockCreator(a); }
     function graduate(Token t) external { t.endPveHooks(); }
 }
 
-/// @notice Redeploy pack item 5: Token.burn / burnFrom really reduce totalSupply; PVE coins burn only after graduation.
+/// @notice Redeploy pack item 5: Token.burn / burnFrom really reduce totalSupply; PVE coins burn any time too (2026-11-19).
 contract TokenBurnTest is Test {
     address creator = makeAddr("creator");
     address alice = makeAddr("alice");
@@ -60,25 +66,37 @@ contract TokenBurnTest is Test {
         t.burnFrom(alice, 1);
     }
 
-    function test_pve_burnLockedUntilGraduation() public {
+    /// maker 2026-11-19: Easy coins can be burned any time; the curve books the burn as a send to 0x…dEaD.
+    function test_pve_burnAnytime_booksDead() public {
         Token t = _token(true);
         MockPveCurve c = new MockPveCurve();
         t.setPveCurve(address(c));
         t.transfer(alice, 1000e18);
         vm.prank(alice);
-        vm.expectRevert(Token.BurnLocked.selector);
         t.burn(1e18);
-        // approved burnFrom is blocked the same way
+        assertEq(t.totalSupply(), Constants.TOTAL_SUPPLY - 1e18);
+        assertEq(c.lastFrom(), alice);
+        assertEq(c.lastTo(), 0x000000000000000000000000000000000000dEaD);
+        assertEq(c.lastAmt(), 1e18);
         vm.prank(alice);
         t.approve(bob, 1e18);
         vm.prank(bob);
-        vm.expectRevert(Token.BurnLocked.selector);
         t.burnFrom(alice, 1e18);
+        assertEq(t.totalSupply(), Constants.TOTAL_SUPPLY - 2e18);
+    }
 
-        c.graduate(t);
-        vm.prank(alice);
-        t.burn(1e18);
-        assertEq(t.totalSupply(), Constants.TOTAL_SUPPLY - 1e18);
+    /// The Easy creator's locked First BOOST still can't be burned before graduation; anything above it can.
+    function test_pve_creatorBurnKeepsLock() public {
+        Token t = _token(true);
+        MockPveCurve c = new MockPveCurve();
+        t.setPveCurve(address(c));
+        t.transfer(creator, 1000e18);
+        c.lock(t, 500e18);
+        vm.prank(creator);
+        t.burn(500e18);
+        vm.prank(creator);
+        vm.expectRevert(Token.CreatorLocked.selector);
+        t.burn(1);
     }
 
     function test_trench_burnAnytime_creatorToo() public {

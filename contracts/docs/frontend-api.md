@@ -59,7 +59,7 @@ The post-grad paths are on `DiscipleRouter`:
 - `buyExactInWithPermit(...)` / `sellExactInWithPermit(...)` use the same arguments plus `v, r, s`. The permit deadline is the trade deadline.
 - `poolKeyOf(token)` reverts `NotGraduated()` before graduation.
 - Approve the router once per asset.
-- **Slippage guards (PR #44):** `minTokensOut` / `minQuoteOut` must be **non-zero** (reverts `ZeroMinOut()`). Derive it from `quoteExactIn` less your slippage. Every router swap also reverts with `PriceImpactTooHigh(impactBps, maxImpactBps)` if it moves the pool price by more than `maxImpactBps()`. The metric is the same `|Δprice|/price` as `Trade.impactBps`; the default is 5000 = 50%. The owner sets it with `setMaxImpactBps` (bounds `MIN_MAX_IMPACT_BPS` = 100 to `MAX_MAX_IMPACT_BPS` = 100000, i.e. 10x for buys; event `MaxImpactSet`), and ownership moves with `transferOwnership` (event `OwnerTransferred`). Pre-check with `quoteExactIn(...).impactBps` and split or block trades above the cap in the UI. This applies to the router only; the hook, the bonding curve and direct PoolManager/UniversalRouter swaps have no impact cap.
+- **Slippage guards (PR #44):** `minTokensOut` / `minQuoteOut` must be **non-zero** (reverts `ZeroMinOut()`). Derive it from `quoteExactIn` less your slippage. There is no price-impact or size cap on any router trade, curve or pool (maker 2026-11-19: `maxImpactBps`, `setMaxImpactBps`, `MaxImpactSet` and the router's `PriceImpactTooHigh` are gone). `minOut` + deadline are the guards; Easy/Hard holding caps still partial-fill curve buys. The hook and direct PoolManager/UniversalRouter swaps have no impact cap either.
 
 ## Creator buy preview
 

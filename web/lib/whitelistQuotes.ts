@@ -136,3 +136,9 @@ export const whitelistQuoteBySymbol = (symbol: string): WhitelistQuote | undefin
   const needle = symbol.toUpperCase();
   return WHITELIST_QUOTES.find((q) => q.symbol === needle);
 };
+
+/** Pair coin logo by symbol, launch list or optional pairs (mUSDG on testnet = USDG); null for an unlisted quote. */
+export const pairLogoBySymbol = (symbol: string): string | null => {
+  const s = (symbol || "").toUpperCase().replace(/^MUSDG$/, "USDG");
+  return [...WHITELIST_QUOTES, ...OPTIONAL_QUOTES].find((q) => q.symbol === s)?.imagePath ?? null;
+};

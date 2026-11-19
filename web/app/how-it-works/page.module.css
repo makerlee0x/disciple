@@ -10,7 +10,7 @@
   border: 1px solid rgba(243, 223, 168, .2);
   background: linear-gradient(90deg, rgba(4, 5, 10, .94) 0%, rgba(4, 5, 10, .7) 50%, rgba(4, 5, 10, .25) 100%), url(/art/how-to-play/hero.webp) 70% 40% / cover no-repeat #04050A; }
 .h1 { margin: 0; font: 800 clamp(56px, 7vw, 96px) / .86 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
-.tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; max-width: 900px; }
+.tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; max-width: 1180px; }
 .tab { all: unset; box-sizing: border-box; cursor: pointer; position: relative; height: 128px; padding: 14px 16px; border-radius: 16px; overflow: hidden;
   display: flex; flex-direction: column; justify-content: space-between; border: 1.5px solid rgba(232, 234, 238, .14);
   background: #0E1020 50% 30% / cover no-repeat; transition: transform .15s ease, border-color .2s; }
@@ -180,7 +180,7 @@
 @media (max-width: 760px) {
   .page { padding: 24px 16px calc(72px + env(safe-area-inset-bottom)); }
   .head { padding: 24px 16px 18px; gap: 20px; border-radius: 18px; }
-  .tabs { gap: 8px; }
+  .tabs { gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tab { height: 96px; padding: 10px; border-radius: 12px; }
   .tab b { font-size: 26px; }
   .tabTag { font-size: 10px; padding: 4px 7px; }

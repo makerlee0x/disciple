@@ -213,6 +213,12 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   const asideRef = useRef<HTMLElement>(null);
   const card = useDomCard("pnl", asideRef);   // pass 3 #4: movable / minimizable / closable card
   const cardDy = card.dy, cardHidden = card.hidden;
+  // maker 2026-11-18: on desktop Pilot the bag sits right under the market cap card (engine disciple:hudcol hdrB); the
+  // Flight objectives moved to the bottom-left corner where the bag used to be
+  const [hdrB, setHdrB] = useState<number | null>(null);
+  useEffect(() => { const h = (e: Event) => { const b = Number((e as CustomEvent<{ hdrB?: number }>).detail?.hdrB); if (b > 0) setHdrB(Math.round(b)); };
+    addEventListener("disciple:hudcol", h); return () => removeEventListener("disciple:hudcol", h); }, []);
+  const pilotSpot: React.CSSProperties = hdrB != null ? { top: hdrB + 12 } : { bottom: 16 };
   useEffect(() => {
     const el = asideRef.current, w = window as unknown as { __pnlBottom?: number | null };
     if (!el) return;
@@ -300,7 +306,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
       </div>);
     return (
       <aside ref={asideRef} aria-label="Run PnL" className="pnl-hud" data-card="pnl" data-hud={hud} data-testid="run-pnl"
-        style={{ ...(card.hidden ? { display: "none" } : null), transform: card.transform, position: "fixed", bottom: 16, left: "calc(var(--ap-rail-w, 64px) + 20px)", zIndex: 31, width: 340, padding: "14px 16px",
+        style={{ ...(card.hidden ? { display: "none" } : null), transform: card.transform, position: "fixed", ...pilotSpot, left: "calc(var(--ap-rail-w, 64px) + 20px)", zIndex: 31, width: 340, padding: "14px 16px",
           borderRadius: HUD.radius, background: HUD.glass, backdropFilter: "blur(6px)", border: `1px solid ${Math.abs(runPnl) > 0.005 ? (runPnl > 0 ? "rgba(95,240,160,.55)" : "rgba(240,48,127,.55)") : HUD.border}`,
           transition: "border-color .2s", color: HUD.text, font: `13px/1.4 ${HUD.ui}`, boxSizing: "border-box" }}>
         <div style={row}><span data-testid="pnl-title" style={hudLabel}>RUN PNL <span style={{ color: "#8fd8ff" }}>· {modeLabel}</span></span>
@@ -316,7 +322,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
 
   return (
     <aside ref={asideRef} aria-label="Holdings and PnL" className="pnl-hud" data-card="pnl" data-hud={hud}
-      style={{ ...(card.hidden ? { display: "none" } : null), transform: card.transform, position: "fixed", ...(hud === "pro" ? { top: 212 } : { bottom: 16 }), left: "calc(var(--ap-rail-w, 64px) + 20px)", zIndex: 31, width: 300, padding: "14px 16px",
+      style={{ ...(card.hidden ? { display: "none" } : null), transform: card.transform, position: "fixed", ...(hud === "pro" ? { top: 212 } : pilotSpot), left: "calc(var(--ap-rail-w, 64px) + 20px)", zIndex: 31, width: 300, padding: "14px 16px",
         borderRadius: HUD.radius, background: HUD.glass, backdropFilter: "blur(6px)",
         border: `1px solid ${litC ?? HUD.border}`, boxShadow: litC ? `0 0 0 3px ${lit === "up" ? "rgba(95,240,160,.16)" : "rgba(240,48,127,.18)"}` : undefined,
         transition: "border-color .2s, box-shadow .2s", color: HUD.text, font: `13px/1.4 ${HUD.ui}`, boxSizing: "border-box" }} data-lit={lit ?? undefined}>

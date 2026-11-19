@@ -128,8 +128,6 @@ contract UsdgRouterTest is IntegrationBase {
             vm.stopPrank();
         }
         quote.mint(alice, 10_000 * U);
-        vm.prank(router.owner() == address(this) ? address(this) : router.owner());
-        router.setMaxImpactBps(100_000);
         uint256 s0 = strategy.balanceOf(alice);
         uint256 u0 = quote.balanceOf(alice);
         vm.prank(alice);
@@ -175,29 +173,39 @@ contract UsdgRouterTest is IntegrationBase {
         vm.stopPrank();
     }
 
-    function test_impactCapOnUsdgHop() public {
-        // USDG/STRATEGY ref pool is 100k liquidity full-range: a big buy moves it > 50%
-        (, uint256 imp) = router.quoteBuyWithUsdg(address(sTok), 60_000 * U);
+    /// maker 2026-11-19: no price-move cap on v4 pool hops (the USDG/pair-coin leg included); minOut guards it.
+    function test_noImpactCapOnUsdgHop() public {
+        // USDG/STRATEGY ref pool is 100k liquidity full-range: a 60k leg moves it > 50%, and still fills
+        (uint256 q, uint256 imp) = router.quoteUsdgQuoteSwap(address(strategy), true, 60_000 * U);
         assertGt(imp, 5000);
         quote.mint(alice, 100_000 * U);
         vm.prank(alice);
-        vm.expectPartialRevert(DiscipleRouter.PriceImpactTooHigh.selector);
-        router.buyWithUsdg(address(sTok), 60_000 * U, 1, _dl());
+        assertEq(router.swapUsdgToQuote(address(strategy), 60_000 * U, 1, alice, _dl()), q);
     }
 
-    function test_impactCapOnCurveHop() public {
-        router.setMaxImpactBps(100); // 1%
+    /// maker 2026-11-19: no price-move cap on the curve either; a big curve buy fills at its quote.
+    function test_noImpactCapOnCurveHop() public {
+        (uint256 q, uint256 imp) = router.quoteBuyWithUsdg(address(uTok), 5_000 * U);
+        assertGt(imp, 5000);
+        quote.mint(alice, 10_000 * U);
         vm.prank(alice);
-        vm.expectPartialRevert(DiscipleRouter.PriceImpactTooHigh.selector);
-        router.buyWithUsdg(address(uTok), 500 * U, 1, _dl());
+        assertEq(router.buyWithUsdg(address(uTok), 5_000 * U, 1, _dl()), q);
     }
 
-    function test_impactCapOnGraduatedHop() public {
+    /// maker 2026-11-19: "there should be no limit to buying post bonding curve".
+    function test_noImpactCapOnGraduatedHop() public {
         _graduateWith(uCurve, quote);
         quote.mint(alice, 100_000 * U);
+        (uint256 q, uint256 imp) = router.quoteBuyWithUsdg(address(uTok), 20_000 * U);
+        assertGt(imp, 5000);
         vm.prank(alice);
-        vm.expectPartialRevert(DiscipleRouter.PriceImpactTooHigh.selector);
-        router.buyWithUsdg(address(uTok), 20_000 * U, 1, _dl());
+        uint256 out = router.buyWithUsdg(address(uTok), 20_000 * U, 1, _dl());
+        assertEq(out, q);
+        // and the whole bag sells back in one go
+        vm.startPrank(alice);
+        (uint256 qs,) = router.quoteSellToUsdg(address(uTok), out);
+        assertEq(router.sellToUsdg(address(uTok), out, 1, _dl()), qs);
+        vm.stopPrank();
     }
 
     function test_registryOwnerOnlyAndValidated() public {

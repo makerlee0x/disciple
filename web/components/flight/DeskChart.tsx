@@ -7,6 +7,7 @@
  */
 import { useEffect, useState } from "react";
 import PhoneChart from "./PhoneChart";
+import CoinStats, { COIN_STATS_H } from "./CoinStats";
 import { useHudMode } from "@/lib/game/hudMode";
 import { isPhoneUI } from "@/lib/game/cardLayoutStore";
 
@@ -30,11 +31,14 @@ export default function DeskChart({ ticker }: { ticker: string }) {
     addEventListener("disciple:pnlview", h); return () => removeEventListener("disciple:pnlview", h);
   }, []);
   const on = !phone && hud === "pilot";
-  const h = big ? DESK_CHART_BIG_H : DESK_CHART_H;
+  // a live coin page: the stats pills (Price · 24H · Vol · Liquidity · Holders) sit inside the chart card, along its bottom
+  const [coin, setCoin] = useState("");
+  useEffect(() => { setCoin((/^\/coin\/(0x[0-9a-fA-F]{40})/.exec(location.pathname)?.[1] ?? "").toLowerCase()); }, []);
+  const h = (big ? DESK_CHART_BIG_H : DESK_CHART_H) + (coin ? COIN_STATS_H : 0);
   // the Pilot crew feed starts under this card
   useEffect(() => { const root = document.documentElement; root.style.setProperty("--ap-pilot-chart-h", on ? `${h + 14}px` : "0px");
     root.style.setProperty("--ap-pilot-feed-w", on ? `min(${DESK_CHART_W}px, 34vw)` : "300px");
-    if (on) root.dataset.deskChart = "1"; else delete root.dataset.deskChart;   // the feed under the chart shows its 4 newest rows
+    if (on) root.dataset.deskChart = "1"; else delete root.dataset.deskChart;
     return () => { root.style.removeProperty("--ap-pilot-chart-h"); root.style.removeProperty("--ap-pilot-feed-w"); delete root.dataset.deskChart; }; }, [on, h]);
   if (!on) return null;
   return (
@@ -49,9 +53,10 @@ export default function DeskChart({ ticker }: { ticker: string }) {
         .dsk-chart .pc-tf button { all: unset; box-sizing: border-box; min-width: 34px; height: 26px; padding: 0 9px; border-radius: 8px; text-align: center; background: rgba(255,255,255,.08); color: rgba(215,217,228,.85); font: 800 14px/26px 'Barlow Condensed', 'Arial Narrow', sans-serif; letter-spacing: .4px; cursor: pointer; }
         .dsk-chart .pc-tf button.on { background: #F2F3F7; color: #121327; }
         .dsk-chart .pc-tf button:focus-visible { outline: 2px solid #F2C14E; }
-        html[data-desk-chart="1"] [data-testid="chat-dock"][data-hud="pilot"] [data-testid="chat-list"] > :nth-child(n+5) { display: none !important; }
       `}</style>
-      <PhoneChart tf={tf} onTf={setTf} big={big} onBig={() => setBig((b) => !b)} entry={entry} ticker={ticker} badge={null} />
+      <PhoneChart tf={tf} onTf={setTf} big={big} onBig={() => setBig((b) => !b)} entry={entry} ticker={ticker} badge={null} bottom={coin ? COIN_STATS_H : 0}>
+        {coin && <CoinStats coin={coin} />}
+      </PhoneChart>
     </div>
   );
 }
