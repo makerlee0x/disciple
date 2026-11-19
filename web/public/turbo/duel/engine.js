@@ -1267,7 +1267,11 @@ function mount(root,host){
     x.fillStyle="rgba(7,8,12,.5)"; x.fillRect(0,0,W,H);
     const g=x.createLinearGradient(0,0,W,0); g.addColorStop(0,"rgba(7,8,12,.92)"); g.addColorStop(.62,"rgba(7,8,12,.35)"); g.addColorStop(1,"rgba(7,8,12,0)"); x.fillStyle=g; x.fillRect(0,0,W,H);
     // your rocket: the hull + skin you fly (Hangar loadout), drawn at game size and scaled up so its flame keeps its shape
-    { const me=G&&G.me, base=120, k=820/base, rw=820*(me&&me.hull?me.hull.a:221/609); x.save(); x.translate(Math.min(850,W-rw/2-24),700); x.scale(k,k);   // wide hulls slide left to stay whole
+    { const me=G&&G.me, hull=me&&me.hull, src=hull&&(hull.cv||hull.img), nh=src&&(src.naturalHeight||src.height)||609;
+      // Hangar skins are game-size art (~320 px tall): cap the upscale at 2x so edges stay clean (maker 2026-11-18: "tracing")
+      const rh=Math.min(820,nh*2), base=120, k=rh/base, rw=rh*(hull?hull.a:221/609);
+      x.imageSmoothingEnabled=true; x.imageSmoothingQuality="high";
+      x.save(); x.translate(Math.min(850,W-rw/2-24),700-(820-rh)*.15); x.scale(k,k);   // wide hulls slide left to stay whole
       try{ drawShip(x,me&&me.hull,imgs.rocket,base,1.5,me&&me.flameC||"242,193,78",0,null,0); }catch(e){}
       x.restore(); }
     const L=80, fit=(t,font,px,max)=>{ let s=px; x.font=font.replace("#",s); while(s>40&&x.measureText(t).width>max){ s-=4; x.font=font.replace("#",s); } return s; };
