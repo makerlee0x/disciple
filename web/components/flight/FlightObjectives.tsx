@@ -1,7 +1,7 @@
 "use client";
 /**
  * In-flight objective card (approved prototype "Flight feel", maker Nov 13): today's and this week's missions from /api/xp,
- * under the ALTITUDE card, the next unfinished one highlighted. Progress comes from the server (the cron scores the fills);
+ * bottom-left (maker 2026-11-18: the bag moved up under the market cap card), the next unfinished one highlighted. Progress comes from the server (the cron scores the fills);
  * the engine adds live hints for the two missions that play out in seconds (disciple:objlive): "Start a run" counts the
  * pilots who boosted after you, "Hold through a bomb" counts down the 10 minutes. A hint never pays: the card says
  * "confirming" until the server agrees. Pilot HUD on desktop only (Pro keeps YOUR BAG in this slot; phones have the pill).
@@ -54,19 +54,17 @@ export default function FlightObjectives({ replay, practice }: { replay: boolean
   const { xp } = useXp(wallet);
   const [live, setLive] = useState<Live>({ run: null, hold: null });
   const [aboard, setAboard] = useState(false);
-  const [top, setTop] = useState(160);
   const [narrow, setNarrow] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     const onLive = (e: Event) => { const d = (e as CustomEvent<Live>).detail; if (d) setLive({ run: d.run ?? null, hold: d.hold ?? null }); };
     const onPos = (e: Event) => setAboard(((e as CustomEvent<{ size?: number }>).detail?.size ?? 0) > 0);
-    const onCol = (e: Event) => { const b = Number((e as CustomEvent<{ hdrB?: number }>).detail?.hdrB); if (b > 0) setTop(Math.round(b) + 12); };
     const onSize = () => setNarrow(innerWidth <= NARROW);
     onSize();
-    addEventListener("disciple:objlive", onLive); addEventListener("disciple:position", onPos); addEventListener("disciple:hudcol", onCol); addEventListener("resize", onSize);
+    addEventListener("disciple:objlive", onLive); addEventListener("disciple:position", onPos); addEventListener("resize", onSize);
     const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => { removeEventListener("disciple:objlive", onLive); removeEventListener("disciple:position", onPos); removeEventListener("disciple:hudcol", onCol); removeEventListener("resize", onSize); clearInterval(t); };
+    return () => { removeEventListener("disciple:objlive", onLive); removeEventListener("disciple:position", onPos); removeEventListener("resize", onSize); clearInterval(t); };
   }, []);
 
   // today's + this week's missions; signed out = the same draw at zero progress
@@ -95,7 +93,7 @@ export default function FlightObjectives({ replay, practice }: { replay: boolean
   // +XP, a hairline bar); only the one you're on shows its hint.
   return (
     <aside aria-label="Flight objectives" data-testid="flight-objectives"
-      style={{ position: "fixed", top, left: "calc(var(--ap-rail-w, 64px) + 24px)", zIndex: 30, width: 260, display: "flex", flexDirection: "column", gap: 9, pointerEvents: "none",
+      style={{ position: "fixed", bottom: "calc(18px + var(--ap-duelchip-h, 0px))", left: "calc(var(--ap-rail-w, 64px) + 24px)", zIndex: 30, width: 260, display: "flex", flexDirection: "column", gap: 9, pointerEvents: "none",
         color: HUD.text, textShadow: "0 1px 3px rgba(0,0,0,.65)" }}>
       {shown.map(({ m, kind, sub, f, localDone }) => {
         const done = m.done || !!localDone, isMain = main?.m.id === m.id;

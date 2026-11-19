@@ -970,9 +970,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
     </div>}
     <div ref={barRef} aria-label="trade bar" data-testid="trade-bar" data-hud={hud} className="ap-bc" style={{ bottom: "calc(14px + var(--ap-safe-bottom))", zIndex: 31, width: pro ? 560 : 700, maxWidth: "calc(100vw - var(--ap-rail-w, 64px) - 40px)", boxSizing: "border-box",
       display: "flex", flexDirection: "column", gap: 8, padding: 12, borderRadius: 20, background: "rgba(18,19,39,.82)", border: `1px solid ${HUD.borderGold}`, color: HUD.text, fontFamily: HUD.ui }}>
+      {/* maker 2026-11-18: no BOOST AMOUNT / DUMP AMOUNT labels (the chips say it); the PAPER / FREE PLAY money tag rides the bar's top edge */}
+      {!pro && modeTag && <span data-testid="trade-mode-tag" style={{ position: "absolute", top: -9, left: 16, display: "inline-flex", borderRadius: 5, background: "rgba(18,19,39,.95)" }}>{modeTag}</span>}
       <div style={{ display: "flex", gap: 12 }}>
         <div style={{ flex: pro ? 1.2 : 1.25, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
-          {!pro && <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}><span style={hudLabel}>Boost amount</span>{modeTag}</div>}
           {!pro && <div role="radiogroup" aria-label="boost amount" style={{ display: "flex", gap: 5 }}>{boostChips}{customBuyInput}</div>}
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} {...hoverSide("buy")} title={boostTitle} aria-disabled={short || full || allIn} disabled={short || allIn} data-inflight={full ? "1" : "0"} onClick={() => shoot("buy")}
@@ -994,7 +995,6 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
                   font: `800 24px/1 ${HUD.game}`, opacity: has && !full ? 1 : 0.45, cursor: has && !full ? "pointer" : "not-allowed" }}>CASH OUT{cap("ENTER", true)}</button>
             </div>
           </> : <>
-          {!pro && <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}><span style={hudLabel}>Dump amount</span></div>}
           {!pro && <div role="radiogroup" aria-label="dump amount" style={{ display: "flex", gap: 5 }}>{dumpChips}</div>}
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} {...hoverSide("sell")} title={dumpTitle} aria-disabled={!has || full} disabled={!has} data-inflight={full ? "1" : "0"} onClick={() => dumpRef.current?.()}

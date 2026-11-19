@@ -5,7 +5,7 @@
  * fills the screen, and inside the iPhone app, which has Duel on its home. Dismiss hides it for the rest of the visit.
  */
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isNativeApp } from "@/lib/native";
 import { isTurboEnabled } from "@/lib/turbo/flag";
 
@@ -18,10 +18,19 @@ export default function DuelChip() {
     try { off = sessionStorage.getItem(KEY) === "1"; } catch { /* private mode */ }
     setOn(!off && !isNativeApp() && isTurboEnabled());
   }, []);
+  // the Flight objectives stack above this chip in the lower left (--ap-duelchip-h)
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = document.documentElement, el = ref.current;
+    if (!on || !el) { root.style.removeProperty("--ap-duelchip-h"); return; }
+    const pub = () => root.style.setProperty("--ap-duelchip-h", `${Math.ceil(el.getBoundingClientRect().height) + 10}px`);
+    pub(); const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(pub) : null; ro?.observe(el);
+    return () => { ro?.disconnect(); root.style.removeProperty("--ap-duelchip-h"); };
+  }, [on]);
   if (!on) return null;
   const close = () => { try { sessionStorage.setItem(KEY, "1"); } catch { /* private mode */ } setOn(false); };
   return (
-    <div className="duel-chip" data-testid="duel-chip">
+    <div ref={ref} className="duel-chip" data-testid="duel-chip">
       <style>{`
         .duel-chip { position: fixed; left: 16px; bottom: 16px; z-index: 30; display: flex; align-items: center; gap: 4px;
           border-radius: 14px; border: 1px solid rgba(255,156,196,.5); background: rgba(18,19,39,.88); backdrop-filter: blur(8px);

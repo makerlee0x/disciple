@@ -1,6 +1,6 @@
 "use client";
 /**
- * Coin stats strip under the desktop chart (maker 2026-11-18, the DEX-site row; market cap stays the big number in the
+ * Coin stats pills along the bottom of the desktop chart card (maker 2026-11-18, the DEX-site row; market cap stays the big number in the
  * top card): Price · 24H · 24H Vol. · Liquidity · Holders. Data: /api/coin/stats (lib/server/coinStats), refreshed every
  * 15 s and shortly after a trade on this coin; price and 24H follow the live mark between reads.
  */
@@ -9,7 +9,7 @@ import { fmtCount, fmtPrice, fmtUsdShort, type CoinStats as Stats } from "@/lib/
 import { HUD } from "@/lib/game/hudStyle";
 
 const REFRESH_MS = 15_000;
-export const COIN_STATS_H = 52;
+export const COIN_STATS_H = 32;
 /** 43.61 · 760 · 12.4K (fits a fifth of the card) */
 const pct = (a: number) => (a >= 10_000 ? `${(a / 1000).toFixed(0)}K` : a >= 1000 ? `${(a / 1000).toFixed(1)}K` : a >= 100 ? a.toFixed(0) : a.toFixed(2));
 
@@ -47,14 +47,16 @@ export default function CoinStats({ coin }: { coin: string }) {
     { k: "liq", l: "Liquidity", v: fmtUsdShort(s?.liquidityUsd) },
     { k: "holders", l: "Holders", v: fmtCount(s?.holders) },
   ];
+  // maker 2026-11-18: subtle pills inside the chart card, not separate tiles (label over value, so nothing truncates)
   return (
-    <div data-testid="coin-stats" style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 6, height: COIN_STATS_H }}>
+    <div data-testid="coin-stats" onClick={(e) => e.stopPropagation()}
+      style={{ position: "absolute", left: 10, right: 10, bottom: 8, display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 4, cursor: "default" }}>
       {cells.map((c) => (
-        <div key={c.k} data-testid={`coin-stat-${c.k}`} style={{ minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 3, padding: "0 4px",
-          borderRadius: 10, background: "rgba(12,13,28,.92)", border: "1px solid rgba(255,255,255,.10)", boxSizing: "border-box" }}>
-          <span style={{ font: `500 11px/1 ${HUD.ui}`, color: HUD.dim, whiteSpace: "nowrap" }}>{c.l}</span>
-          <span style={{ font: `700 14px/1 ${HUD.ui}`, color: c.c ?? HUD.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%", fontVariantNumeric: "tabular-nums" }}>{c.v}</span>
-        </div>
+        <span key={c.k} data-testid={`coin-stat-${c.k}`} style={{ minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1, height: COIN_STATS_H, padding: "0 4px",
+          borderRadius: 8, background: "rgba(255,255,255,.05)", boxSizing: "border-box", whiteSpace: "nowrap", overflow: "hidden" }}>
+          <span style={{ font: `500 9.5px/1 ${HUD.ui}`, color: "rgba(215,217,228,.6)" }}>{c.l}</span>
+          <span style={{ font: `600 12px/1.1 ${HUD.ui}`, color: c.c ?? HUD.text, fontVariantNumeric: "tabular-nums", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}>{c.v}</span>
+        </span>
       ))}
     </div>
   );
