@@ -27,6 +27,7 @@ import PortfolioBlock from "./PortfolioBlock";
 import { ChestGlyph } from "./Glyphs";
 import { agoLabel, usd2 } from "./money";
 import RewardsPopup from "@/components/claims/RewardsPopup";
+import { shareInvite } from "@/lib/invite";
 import { useRewards } from "@/components/claims/useRewards";
 import InvitesCard from "@/components/invites/InvitesCard";
 import Icon, { type IconName } from "@/components/icons/Icon";
@@ -224,6 +225,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   }, []);
   const [edit, setEdit] = useState<{ focus: "bio" | null } | null>(null);
   const [rewardsOpen, setRewardsOpen] = useState(false);
+  const [invited, setInvited] = useState(false);
   // the account menu's Rewards row links to /profile#rewards: open the popup on load and on hashchange
   useEffect(() => {
     if (!isPrivate) return;
@@ -312,6 +314,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
     {rewards.canClaim
       ? <button type="button" className="dsc3-btn dsc3-btn-primary hg-claim" onClick={() => setRewardsOpen(true)} data-testid="claim-now"><ChestGlyph size={18} /> Claim rewards</button>
       : <button type="button" className="hg-ghost" onClick={() => setRewardsOpen(true)} data-testid="rewards-chest"><ChestGlyph size={18} /> Rewards</button>}
+    <button type="button" className="hg-ghost" onClick={() => void shareInvite(wallet, me).then((h) => { if (h === "copied") { setInvited(true); setTimeout(() => setInvited(false), 1400); } })} data-testid="invite-btn"><Icon name="share" size={16} /> {invited ? "Link copied" : "Invite"}</button>
     <button type="button" className="hg-ghost" onClick={() => setEdit({ focus: null })} data-testid="edit-profile-btn">{C["profile.action.edit"]}</button>
     <button type="button" className="hg-ghost" onClick={() => setSettingsOpen(true)} data-testid="hangar-settings-btn">Settings</button>
     {points && points.username && <button type="button" className="hg-ghost" onClick={() => setPointsCard(true)} data-testid="hangar-points-share">Share points</button>}

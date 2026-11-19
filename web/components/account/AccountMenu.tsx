@@ -6,7 +6,8 @@
  */
 import { CREW_ENABLED, LOGBOOK_ENABLED } from "@/lib/features";
 import Link from "next/link";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { shareInvite } from "@/lib/invite";
 import { useXp } from "@/lib/xpClient";
 import { MAX_LEVEL, levelInfo } from "@/lib/xp";
 import { SETTINGS_HREF, onSettingsClick } from "@/lib/cashLink";
@@ -22,6 +23,8 @@ export const ACCOUNT_COPY = {
   crew: "Crew",
   cash: "Cash",
   rewards: "Rewards",
+  invite: "Invite",
+  copied: "Link copied",
   ready: (v: string) => `${v} ready`,
   settings: "Settings",
   signOut: "Sign out",
@@ -41,6 +44,7 @@ const I = {
   cash: <><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></>,
   rewards: <><rect x="3" y="9" width="18" height="11" rx="2" /><path d="M3 13h18M12 9v11M7 9a3 3 0 0 1 5-3 3 3 0 0 1 5 3" /></>,
   settings: <><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z" /></>,
+  invite: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M19 8v6M16 11h6" /></>,
   out: <path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10" />,
 };
 const Ico = ({ d }: { d: ReactNode }) => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>{d}</svg>;
@@ -52,6 +56,8 @@ export default function AccountMenu({ wallet, name, initial, onClose, onSignOut 
   const pfp = usePilotPfp(wallet);
   const L = xp?.level ?? levelInfo(0);
   const r = useRewards(true);
+  const [copied, setCopied] = useState(false);
+  const invite = async () => { const how = await shareInvite(wallet); if (how === "copied") { setCopied(true); setTimeout(() => setCopied(false), 1400); } else if (how === "shared") onClose(); };
   const ready = useMemo(() => {
     const k = r.data?.claimableByKind;
     return k ? k.referral + k.creator + k.crew : 0;
@@ -81,6 +87,7 @@ export default function AccountMenu({ wallet, name, initial, onClose, onSignOut 
         {LOGBOOK_ENABLED && <Link role="menuitem" className="am-i" href="/logbook" onClick={onClose}><Ico d={I.logbook} />{ACCOUNT_COPY.logbook}</Link>}
         {CREW_ENABLED && <Link role="menuitem" className="am-i" href="/crew" onClick={onClose}><Ico d={I.crew} />{ACCOUNT_COPY.crew}</Link>}
         <a role="menuitem" className="am-i" href={REWARDS_HREF} onClick={onClose} data-testid="account-rewards"><Ico d={I.rewards} />{ACCOUNT_COPY.rewards}{ready > 0.004 && <span className="am-r gold">{ACCOUNT_COPY.ready(usd2(ready))}</span>}</a>
+        <button role="menuitem" type="button" className="am-i" onClick={() => void invite()} data-testid="account-invite"><Ico d={I.invite} />{copied ? ACCOUNT_COPY.copied : ACCOUNT_COPY.invite}</button>
         <Link role="menuitem" className="am-i" href={SETTINGS_HREF} scroll={false} onClick={(e) => { onClose(); onSettingsClick(e); }}><Ico d={I.settings} />{ACCOUNT_COPY.settings}</Link>
         <span className="am-sep" />
         <button role="menuitem" type="button" className="am-i dim" onClick={() => { onClose(); onSignOut(); }} data-testid="account-signout"><Ico d={I.out} />{ACCOUNT_COPY.signOut}</button>
