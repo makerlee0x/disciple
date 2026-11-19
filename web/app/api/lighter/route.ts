@@ -24,6 +24,7 @@
  *   open / close / warm answer with ms: { auth, read, send, server, total } (server-side timings)
  */
 import { kv } from "@/lib/server/kv";
+import { TURBO_BLOCKED_NOTE, turboBlockedReq } from "@/lib/turbo/region";
 import { after } from "next/server";
 import { getRoom } from "@/lib/server/duel/store";
 import { OT_MS } from "@/lib/duel/rules";
@@ -87,6 +88,9 @@ export async function POST(req: Request) {
       const pid = await fastPilot(req);
       return out(200, { ok: true, ...(await armGuarded(pid, b)) });
     }
+    // real-money Turbo is off where Lighter refuses the player (lib/turbo/region): no new orders from there; close still
+    // runs so an open position can always be exited
+    if ((b.op === "open" || b.op === "presign" || b.op === "relay") && turboBlockedReq(req)) return out(451, { ok: false, reason: TURBO_BLOCKED_NOTE });
     if (b.op === "open" || b.op === "close" || b.op === "warm" || b.op === "presign" || b.op === "relay") {
       const pid = await fastPilot(req);
       const authMs = Math.round(performance.now() - t0);

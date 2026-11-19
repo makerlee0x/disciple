@@ -101,7 +101,7 @@ export function parseLighterStats(json: unknown, ids: Map<number, RoyaleCoin>): 
 }
 
 /** Lighter's market ids for the four coins (public order book list) */
-async function lighterIds(host: string): Promise<Map<number, RoyaleCoin>> {
+export async function lighterIds(host: string): Promise<Map<number, RoyaleCoin>> {
   const ids = new Map<number, RoyaleCoin>();
   try {
     const r = await fetch(`https://${host}/api/v1/orderBookDetails?filter=perp`);
@@ -181,5 +181,70 @@ export function royaleMerge() {
       for (const c of ROYALE_COINS) { const p = lit[c] ?? hl[c]; if (p) out[c] = p; }
       return out;
     },
+  };
+}
+
+/**
+ * Lighter's live BTC (or any coin) mid from its order book (maker 2026-11-19: "we need live chart and live price"):
+ * `order_book/{market_id}` sends the book, then changed levels (size 0 = gone); the mid of the best bid and ask goes to
+ * `cb` on every change. market_stats' mark price only moves every second or two, which drew the chart as stairs.
+ * Returns stop.
+ */
+export function streamLighterBook(coin: RoyaleCoin, cb: (mid: number) => void, host: string = LIGHTER_PRICE_HOST): () => void {
+  let ws: WebSocket | null = null, stopped = false, backoff = 500, id: number | null = null;
+  let retry: ReturnType<typeof setTimeout> | null = null, ping: ReturnType<typeof setInterval> | null = null;
+  const bids = new Map<string, number>(), asks = new Map<string, number>();
+  const apply = (side: Map<string, number>, rows: unknown) => {
+    if (!Array.isArray(rows)) return;
+    for (const r of rows) {
+      if (!r || typeof r !== "object") continue;
+      const o = r as { price?: unknown; size?: unknown };
+      const px = String(o.price ?? ""), sz = Number(o.size);
+      if (!px || !(Number(px) > 0)) continue;
+      if (!(sz > 0)) side.delete(px); else side.set(px, sz);
+    }
+  };
+  const mid = () => {
+    let b = 0, a = Infinity;
+    for (const k of bids.keys()) { const v = Number(k); if (v > b) b = v; }
+    for (const k of asks.keys()) { const v = Number(k); if (v < a) a = v; }
+    return b > 0 && Number.isFinite(a) && a > b ? (a + b) / 2 : null;
+  };
+  const connect = () => {
+    if (stopped || id == null) return;
+    let sock: WebSocket;
+    try { sock = new WebSocket(`wss://${host}/stream`); } catch { reconnect(); return; }
+    ws = sock;
+    sock.onopen = () => {
+      backoff = 500; bids.clear(); asks.clear();
+      sock.send(JSON.stringify({ type: "subscribe", channel: `order_book/${id}` }));
+      ping = setInterval(() => { try { sock.send(JSON.stringify({ type: "ping" })); } catch { /* closed */ } }, 20_000);
+    };
+    sock.onmessage = (ev) => {
+      if (typeof ev.data !== "string") return;
+      try {
+        const j = JSON.parse(ev.data) as { type?: string; order_book?: { asks?: unknown; bids?: unknown } };
+        const ob = j.order_book; if (!ob) return;
+        if (typeof j.type === "string" && j.type.startsWith("subscribed")) { bids.clear(); asks.clear(); }
+        apply(bids, ob.bids); apply(asks, ob.asks);
+        const m = mid(); if (m) cb(m);
+      } catch { /* not JSON */ }
+    };
+    sock.onclose = () => {
+      if (ping) { clearInterval(ping); ping = null; }
+      if (ws === sock) ws = null;
+      reconnect();
+    };
+  };
+  const reconnect = () => {
+    if (stopped || retry) return;
+    retry = setTimeout(() => { retry = null; connect(); }, backoff);
+    backoff = Math.min(backoff * 2, 15_000);
+  };
+  void lighterIds(host).then((m) => { for (const [k, c] of m) if (c === coin) id = k; connect(); });
+  return () => {
+    stopped = true;
+    if (retry) clearTimeout(retry); if (ping) clearInterval(ping);
+    if (ws) { ws.onclose = null; try { ws.close(); } catch { /* ignore */ } ws = null; }
   };
 }

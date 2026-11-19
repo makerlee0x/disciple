@@ -9,6 +9,7 @@
 import { withBase } from "@/lib/base-path";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import { isNativeApp } from "@/lib/native";
+import { turboBlockedCached, turboRegion } from "@/lib/turbo/region";
 import { LighterTaps, lighterClose, lighterStatus, type TapKind } from "./client";
 
 const FLAG = "disciple.lighter";
@@ -19,8 +20,16 @@ export function lighterWanted(): boolean {
     const q = new URLSearchParams(location.search).get("lighter");
     if (q === "1") localStorage.setItem(FLAG, "1");
     if (q === "0") localStorage.removeItem(FLAG);
-    return localStorage.getItem(FLAG) === "1";
+    if (localStorage.getItem(FLAG) !== "1") return false;
   } catch { return false; }
+  // Lighter refuses US connections: real-money Turbo is off there (lib/turbo/region). The first call in a tab asks
+  // /api/geo; Climb waits for that answer before it starts, the other modes use the last one and the server's own check
+  void turboRegion();
+  return !turboBlockedCached();
+}
+/** the ?lighter= switch is on but this visitor's country blocks real-money Turbo (say so, don't fail silently) */
+export function lighterBlockedHere(): boolean {
+  try { return typeof window !== "undefined" && !isNativeApp() && localStorage.getItem(FLAG) === "1" && turboBlockedCached(); } catch { return false; }
 }
 
 let tok: { t: string; at: number } | null = null;
