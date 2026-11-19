@@ -48,9 +48,9 @@ export default function DevCreatorPanel() {
         xp={null} actions={actions} spend={false} stats={[{ k: "Points · #12", v: "48,210" }, { k: "Rockets launched", v: "3" }]} />
       <section className="hg-record four" aria-label="Service record">
         <div><span className="l">Hangar value</span><b>$6,084.85</b><span className="s down">−$104.49 today</span></div>
-        <div><span className="l">Cash</span><b>$5,789.35</b><a href="#" className="s">Add cash</a></div>
-        <div><span className="l">Turbo cash</span><b>$0.01</b><a href="#" className="s">Add to Turbo</a></div>
-        <div className="rw"><span className="l">Rewards</span><b>$1,284.52</b><a href="#" className="s">Claim</a></div>
+        <div className="act"><span className="rw-tx"><span className="l">Cash</span><b>$5,789.35</b></span><a href="#" className="hg-act white">Deposit</a></div>
+        <div className="act"><span className="rw-tx"><span className="l">Turbo cash</span><b>$0.01</b></span><a href="#" className="hg-act">Transfer</a></div>
+        <div className="act rw"><span className="rw-tx"><span className="l">Rewards</span><b>$1,284.52</b></span><a href="#" className="hg-act gold">Claim</a></div>
       </section>
       {view !== "strip" && <CreatorPanel d={D} view={view} coin="a" />}
     </div>

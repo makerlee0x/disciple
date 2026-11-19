@@ -446,9 +446,27 @@ button.cp-prow:hover .n b { color: #FFFFFF; }
 
 /* Hangar strip with the fourth tile (Rewards), owner only */
 .hg-record.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.hg-record .rw b { color: #FFE7A3; text-shadow: 0 0 24px rgba(242,193,78,.35); }
+.hg-record > div.act { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+.hg-record > div.rw { position: relative; overflow: hidden;
+  background: radial-gradient(120% 160% at 90% 0%, rgba(242,193,78,.38) 0%, rgba(242,193,78,.10) 50%, rgba(8,9,14,.5) 100%);
+  box-shadow: inset 0 0 0 1px rgba(242,193,78,.55), -1px 0 0 var(--dsc3-panel-border); }
+.hg-record > div.rw::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(115deg, transparent 30%, rgba(255,240,200,.16) 45%, transparent 60%); background-size: 250% 100%; animation: rw-shine 3.2s ease-in-out infinite; }
+@keyframes rw-shine { 0% { background-position: 120% 0; } 60%, 100% { background-position: -120% 0; } }
+@media (prefers-reduced-motion: reduce) { .hg-record > div.rw::before { animation: none; background-position: 40% 0; } }
+.hg-record .rw-tx { display: flex; flex-direction: column; gap: 6px; min-width: 0; position: relative; }
+.hg-record .rw .l { color: #F3DFA8; }
+.hg-record .rw b { color: #FFE7A3; overflow: visible; text-shadow: 0 0 18px rgba(242,193,78,.4); }
+.hg-record .hg-act { position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; height: 48px; padding: 0 20px; border-radius: 12px; text-decoration: none;
+  border: 1px solid #3A3F4A; background: rgba(22,24,28,.8); color: #F2F3F7; font: 800 20px/1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .03em; }
+.hg-record .hg-act.white { background: #FFFFFF; border-color: #FFFFFF; color: #121327; }
+.hg-record .hg-act.gold { border: 0; background: linear-gradient(180deg, #F3DFA8, #F2C14E); color: #121327; font-size: 22px; padding: 0 22px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 6px 20px rgba(242,193,78,.35); }
+.hg-record .hg-act:hover { filter: brightness(1.06); }
 @media (max-width: 760px) {
   .hg-record.four { grid-template-columns: 1fr 1fr; }
+  .hg-record > div.act { flex-direction: column; align-items: stretch; }
+  .hg-record .hg-act, .hg-record .hg-act.gold { height: 40px; padding: 0 10px; font-size: 17px; }
   .hg-record.four > div:first-child { grid-column: auto; box-shadow: -1px 0 0 var(--dsc3-panel-border); }
   .hg-record.four > div:nth-child(n+3) { box-shadow: -1px 0 0 var(--dsc3-panel-border), 0 -1px 0 var(--dsc3-panel-border); }
 }
