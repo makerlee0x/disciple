@@ -10,9 +10,9 @@ test("the pad preview follows what you type and pick", async ({ page, pilot }) =
   await page.getByTestId("mode-card-hard").click();
   await expect(page.getByTestId("mode-card-hard")).toHaveAttribute("aria-checked", "true");
   await expect(page.getByTestId("pad-mode")).toContainText(/hard/i);
-  // a hidden launch always flies on Expert
+  // testnet (no all-difficulty anon contracts): an anon launch flies on Expert, with no line saying so
   await page.getByTestId("private-launch").click();
-  await expect(page.getByTestId("private-launch-help")).toHaveText("Hidden launches fly on Expert for now.");
+  await expect(page.getByTestId("private-launch")).toContainText("Anon launch");
   await expect(page.getByTestId("pad-mode")).toContainText(/expert/i);
 });
 
