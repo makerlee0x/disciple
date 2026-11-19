@@ -1,7 +1,7 @@
 /**
  * Rocket card, "Live window" (maker's pick, lobby canvas board "Rocket card concepts" C): a window onto the flight. The
  * chrome rocket climbs through its tier's sky (the same tier plates the flight uses) on its own light, with speed
- * streaks and an exhaust trail; base pair (and IN ORBIT) on top; name, crew + market cap, orbit bar, 24h change and
+ * streaks and an exhaust trail; base pair on top; name, crew + market cap, orbit bar, 24h change and
  * difficulty below. Hover shows DROP IN. Used by Climbing now and All rockets.
  */
 import Link from "next/link";
@@ -39,9 +39,8 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
 
       <span className={s.top}>
         <span className={s.tags}>
-          {/* maker 2026-11-19: every rocket is live, so the base pair takes the LIVE pill's spot; IN ORBIT stays for graduated */}
+          {/* maker 2026-11-19: the base pair replaces the LIVE / IN ORBIT pill */}
           {c.pairSym && !c.pairSym.startsWith("0x") && <PairTag sym={c.pairSym} />}
-          {c.graduated && <span className={s.live}><i aria-hidden />In orbit</span>}
         </span>
       </span>
 
