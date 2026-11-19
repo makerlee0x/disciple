@@ -47,7 +47,7 @@ import {
   QUICK_LAUNCH_COPY as C, QUICK_LAUNCH_MODE_CARD, CREATOR_TICKET_TIP, DIFFICULTY_TIP, seatLabel, CREATOR_FEE_COPY, CREATOR_FEE_DESTINATION,
   CREATOR_FEE_DESTINATIONS, DEFAULT_CREATOR_FEE_DESTINATION,
   HARVEST_USDG_BOOST_LIVE, buildLaunchSocials, creatorFeeRoutingAvailable, launchNeedsSignIn, liveCreatorFeeDestination,
-  normalizeTelegram, normalizeTwitter, normalizeWebsite, privateLaunchHelp,
+  normalizeTelegram, normalizeTwitter, normalizeWebsite,
   readStoredCreatorFeeDestination, readStoredCreatorTax, readStoredUpload, snapCreatorTax,
   storeCreatorFeeDestination, storeCreatorTax, storeUpload, type CreatorFeeDestination,
 } from "@/lib/quickLaunch";
@@ -671,7 +671,6 @@ export default function LaunchRocketPage() {
               <span className={L.tog} aria-hidden />
               <span className={L.hideTx}>
                 <b>{C.anonLaunch}</b>
-                {privateLaunch && <span>{privateLaunchHelp(boost, gameMode)}</span>}
               </span>
             </button>
             <button type="button" className={L.adv} data-testid="advanced-open" onClick={() => setAdvanced(true)}>
