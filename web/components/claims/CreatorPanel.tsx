@@ -188,8 +188,8 @@ export default function CreatorPanel({ open = true, onClose = () => {}, d, view:
           <span className="t"><b>@lunadev</b><span className="mono">0xC3e0…77a2</span></span>
           <Icon name="check" size={18} className="ok" />
         </div>
-        <div className="cp-warn bad" role="note"><Icon name="warning" size={16} /><span>Future fees, coin info and creator rights move to @lunadev. You can&apos;t undo this.</span></div>
-        <span className="cx-fine left cp-fee">{usd2(c.ready)} ready now stays yours · Network fee ~$0.01</span>
+        <div className="cp-warn bad" role="note"><Icon name="warning" size={16} /><span>Unclaimed and future fees, coin info and creator rights move to @lunadev. You can&apos;t undo this.</span></div>
+        <span className="cx-fine left cp-fee">{usd2(c.ready)} unclaimed goes with it · Network fee ~$0.01</span>
         <button type="button" className="p5-btn wide cp-danger">Hold to transfer</button>
       </>}
     </Sheet>
