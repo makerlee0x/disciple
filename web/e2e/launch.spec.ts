@@ -10,7 +10,7 @@ test("the pad preview follows what you type and pick", async ({ page, pilot }) =
   await page.getByTestId("mode-card-hard").click();
   await expect(page.getByTestId("mode-card-hard")).toHaveAttribute("aria-checked", "true");
   await expect(page.getByTestId("pad-mode")).toContainText(/hard/i);
-  // Hide my name (maker 2026-11-19): off until hidden launches are live here (lib/quickLaunch PRIVATE_FEE_ROUTING_LIVE);
+  // Anon launch (maker 2026-11-19): off until hidden launches are live here (lib/quickLaunch PRIVATE_FEE_ROUTING_LIVE);
   // when on, the pad wears the anon tag, the Ticket is $0 and a hidden launch flies on Expert until every mode is live
   const hide = page.getByTestId("private-launch");
   if (await hide.isDisabled()) return;
