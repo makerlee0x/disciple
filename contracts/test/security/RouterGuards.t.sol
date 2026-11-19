@@ -6,7 +6,7 @@ import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
 import {DiscipleRouter} from "../../src/DiscipleRouter.sol";
 
-/// @notice DiscipleRouter slippage guards: minOut != 0. Pool swaps have no price-impact cap (curve trades only).
+/// @notice DiscipleRouter slippage guards: minOut != 0. No price-impact or size cap on any trade, curve or pool (maker 2026-11-19).
 contract RouterGuardsTest is IntegrationBase {
     BondingCurve curve;
     Token tok;
@@ -44,7 +44,7 @@ contract RouterGuardsTest is IntegrationBase {
         assertGt(router.buyExactIn(address(tok), 10 ether, 1, whale, block.timestamp + 1), 0);
     }
 
-    /// maker 2026-11-19: no size / price-move cap on pool swaps; a huge buy goes through at its quote.
+    /// maker 2026-11-19: no size / price-move cap on any trade; a huge buy goes through at its quote.
     function test_hugeBuyNotCapped() public {
         (uint256 q, uint256 impact,) = router.quoteExactIn(address(tok), true, 20_000 ether);
         assertGt(impact, 5000);

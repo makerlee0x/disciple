@@ -723,7 +723,8 @@ contract DiscipleSessionPolicyV144 is IValidationHookModule, IExecutionHookModul
 
     /// @dev Quotes are read at execution-hook time, i.e. against the state the trade will execute on (same tx).
     ///      This blocks zero / absurd minOut from the session key; it does NOT defend against a price already
-    ///      moved by an earlier tx (a sandwich front-run) — the router's maxImpactBps bounds that leg.
+    ///      moved by an earlier tx (a sandwich front-run); there is no router impact cap, so maxSlippageBps vs. this
+    ///      same-tx quote is the only bound (audit delta: the old cap measured the victim's own move, not the front-run).
     function _checkMinOut(SessionConfig storage c, uint256 minOut, uint256 quoted, address target) internal view {
         if (minOut == 0) revert ZeroMinOut();
         if (quoted == 0) revert QuoteFailed(target);

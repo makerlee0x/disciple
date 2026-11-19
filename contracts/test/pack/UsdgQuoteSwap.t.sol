@@ -102,7 +102,7 @@ contract UsdgQuoteSwapTest is IntegrationBase {
         fresh.quoteUsdgQuoteSwap(address(strategy), true, 1 ether);
     }
 
-    /// maker 2026-11-19: pool swaps have no price-move cap (only bonding-curve trades are capped).
+    /// maker 2026-11-19: no price-move cap on any trade, pool or bonding curve (holding caps still apply on the curve).
     function test_no_price_impact_cap() public {
         (uint256 q, uint256 imp) = router.quoteUsdgQuoteSwap(address(strategy), false, 500_000_000 ether);
         assertGt(imp, 5000);

@@ -99,6 +99,23 @@ contract TokenBurnTest is Test {
         t.burn(1);
     }
 
+    /// Audit delta T2-I1: burnFrom by an approved spender hits the same creator lock.
+    function test_pve_creatorBurnFromKeepsLock() public {
+        Token t = _token(true);
+        MockPveCurve c = new MockPveCurve();
+        t.setPveCurve(address(c));
+        t.transfer(creator, 1000e18);
+        c.lock(t, 500e18);
+        address spender = makeAddr("spender");
+        vm.prank(creator);
+        t.approve(spender, type(uint256).max);
+        vm.prank(spender);
+        t.burnFrom(creator, 500e18);
+        vm.prank(spender);
+        vm.expectRevert(Token.CreatorLocked.selector);
+        t.burnFrom(creator, 1);
+    }
+
     function test_trench_burnAnytime_creatorToo() public {
         Token t = _token(false);
         t.transfer(creator, 5e18);
