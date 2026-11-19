@@ -82,3 +82,22 @@
   .foot { padding: 36px 10px 10px; gap: 6px; }
   .row { font-size: 11px; }
 }
+
+/* compact strip (Hangar fleet): ~1/4 of the card's height, rocket on the left, name / crew + cap / bag on the right */
+.compact { height: 88px; }
+.compact:hover { transform: translateY(-2px); }
+.compact .glow { left: 30px; top: -10px; width: 110px; height: 110px; margin-left: -55px; }
+.compact .flight { left: 14px; top: 8px; width: 30px; height: 74px; margin-left: 0; }
+.compact .trail { top: 60px; width: 10px; height: 26px; margin-left: -5px; }
+.compact .top, .compact .bar, .compact .mates, .compact .drop { display: none; }
+.compact .foot { top: 0; left: 52px; padding: 10px 14px 10px 12px; justify-content: center; gap: 4px;
+  background: linear-gradient(90deg, rgba(11, 12, 14, 0), rgba(11, 12, 14, .88) 22%); }
+.compact .name { font-size: 20px; }
+.compact .meta { font-size: 11px; }
+.compact .faces i { width: 16px; height: 16px; }
+.compact .mark { width: 16px; height: 16px; font-size: 9px; }
+.compact .seat b { font-size: 16px; }
+@media (max-width: 760px) {
+  .compact { height: 80px; }
+  .compact .name { font-size: 18px; }
+}

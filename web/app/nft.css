@@ -13,6 +13,9 @@
 .nft-tag { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 6px; font: 800 14px / 1 var(--dsc-font-game);
   letter-spacing: .02em; text-transform: uppercase; }
 .nft-tag.founder { background: linear-gradient(160deg, #FFF6DC, #F2C14E 55%, #B9862A); color: #121327; }
+a.nft-tag { text-decoration: none; cursor: pointer; transition: filter 120ms; }
+a.nft-tag:hover { filter: brightness(1.08); }
+a.nft-tag:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
 .nft-tag.disciple { background: rgba(243, 223, 168, .12); color: #F3DFA8; border: 1px solid rgba(243, 223, 168, .45); }
 
 /* ---------- edit profile: Connect NFT + holder wallets ---------- */
