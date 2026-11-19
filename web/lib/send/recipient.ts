@@ -1,9 +1,9 @@
 "use client";
 /**
  * Who you're sending to (maker 2026-11-19: "send usdg and any disciple holdings to other disciple users ... with @").
- * One recipient model for every send and redirect: Cash (USDG), rocket tokens, tradable items, and the creator rewards
+ * One recipient model for every send and redirect: Cash (USDG), rocket tokens and the creator rewards
  * redirect. An @username resolves to the one wallet behind it (/api/profile/username?resolve=, one wallet per Privy
- * login); a plain 0x address is allowed where the caller says so (Cash out, rewards redirect), never for items.
+ * login); a plain 0x address is allowed where the caller says so (Cash transfer, rewards redirect). Items never send: market only.
  * Recent recipients are a per-browser convenience in localStorage.
  */
 import { USERNAME_STORED_RE, normalizeUsername } from "@/lib/profile";
