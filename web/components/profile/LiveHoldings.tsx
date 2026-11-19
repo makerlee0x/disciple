@@ -24,6 +24,9 @@ export function useLivePortfolio(wallet: string | null): LivePortfolio | null {
   useEffect(() => {
     setPf(null);
     if (!wallet || IS_STATIC_PREVIEW || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) return;
+    // dev only (screenshots): window.__portfolioDev = { cashUsd, rows } shows a made-up fleet with no chain read
+    const dev = process.env.NODE_ENV !== "production" ? (window as unknown as { __portfolioDev?: LivePortfolio }).__portfolioDev : undefined;
+    if (dev) { setPf(dev); return; }
     let alive = true;
     const pc = publicClient();
     // SITE #137: right after our own fill (coin page → profile) read at/after its receipt block, and show the booked

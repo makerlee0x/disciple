@@ -30,6 +30,8 @@ import { DEPOSIT_COPY } from "@/lib/deposit";
 import { onTurboCash, refreshTurboCash, setTurboWallet, turboCashDev, type TurboCash } from "@/lib/turbo/turboCash";
 import SendCrypto from "./SendCrypto";
 import SignInMarks from "@/components/SignInMarks";
+import UserPicker, { RecipientCard } from "@/components/ui/UserPicker";
+import { rememberRecipient, type Recipient } from "@/lib/send/recipient";
 
 const erc20 = parseAbi(["function transfer(address to, uint256 amount) returns (bool)"]);
 
@@ -40,7 +42,7 @@ export const CASH_COPY = {
   moveBack: "To cash",
   moving: "Moving…",
   moveFailed: "Couldn't move it right now. Your fuel is still in Turbo.",
-  tabs: { add: "Add cash", turbo: "Turbo", out: "Cash out" },
+  tabs: { add: "Deposit", turbo: "Turbo", out: "Transfer" },
   dirs: { in: "To Turbo", back: "To Cash" },
   toCash: (v: string) => `Move ${v} to Cash`,
   landsCash: "Lands in Cash",
@@ -63,26 +65,24 @@ export const CASH_COPY = {
   warnPhone: "Only USDG on Robinhood Chain counts as cash.",
   howMuch: "How much",
   youHave: (v: string) => `You have ${v}`,
-  sendTo: "Send to",
-  paste: "Paste",
   receive: "You receive",
+  theyGet: "They get",
   fee: "Network fee",
-  cashOut: (v: string) => `Cash out ${v}`,
+  cashOut: (v: string) => `Send ${v}`,
   sending: "Sending…",
   fine: "Can't be undone",
   sent: (v: string) => `${v} sent`,
-  sentTo: (to: string, left: string) => <>To <span className="r2-mono cx-sentaddr">{to}</span>. Your cash is now {left}.</>,
+  sentTo: (left: string) => `Your cash is now ${left}.`,
   receipt: "View receipt",
   done: "Done",
   badAddr: "That address doesn't look right. It starts with 0x and has 42 characters.",
   down: "Cash out is down for a moment. Nothing was sent. Try again in a few minutes.",
   tooMuch: (v: string) => `That's more than you have. You can cash out up to ${v}.`,
-  tooLittle: (v: string) => `That's below the smallest cash out. Try more than ${v}.`,
+  tooLittle: (v: string) => `That's below the smallest send. Try more than ${v}.`,
   signInTitle: "Sign in to add cash",
   signIn: "Sign in",
 } as const;
 
-const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const PICKS = [["25%", 0.25], ["40%", 0.4], ["Half", 0.5], ["All", 1]] as const;
 
 function Amount({ v, big }: { v: number; big?: boolean }) {
@@ -262,11 +262,12 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
   const [addr, setAddr] = useState<Address | null>(null);
   const [bal, setBal] = useState<{ raw: bigint; dec: number; token: Address } | null>(null);
   const [tab, setTab] = useState<CashTab>(initialTab);
-  const [to, setTo] = useState("");
+  const [rcpt, setRcpt] = useState<Recipient | null>(null);
+  const to = rcpt?.address ?? "";
   const [amt, setAmt] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [sent, setSent] = useState<{ recv: number; to: string; left: number; tx: Hex | null } | null>(null);
+  const [sent, setSent] = useState<{ recv: number; to: Recipient; left: number; tx: Hex | null } | null>(null);
   const [sendView, setSendView] = useState(false);
   const [turbo, setTurbo] = useState<TurboCash | null>(null);
   const [dir, setDir] = useState<"in" | "back">("in");
@@ -279,6 +280,9 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
   useEffect(() => { setTurboWallet(addr); }, [addr]);
 
   const refresh = useCallback(async (a: Address) => {
+    // dev only (screenshots): window.__portfolioDev.cashUsd stands in for the USDG read
+    const dev = process.env.NODE_ENV !== "production" ? (window as unknown as { __portfolioDev?: { cashUsd: number } }).__portfolioDev : undefined;
+    if (dev) { setBal({ raw: BigInt(Math.round(dev.cashUsd * 1e6)), dec: 6, token: a }); return; }
     if (!isDeployed()) return;
     try {
       const pc = publicClient();
@@ -342,10 +346,10 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
         const req = await signGaslessWithdraw(publicClient() as never, owner, { amount, destination: to as Address, quote: q });
         const res = await submitGaslessWithdraw(req, "/api/gasless", fetch, await tokenP);
         const recv = Number(formatUnits(amount - q.fee, q.usdgDecimals));
-        setSent({ recv, to, left: Math.max(0, balUsd - amtNum), tx: res.txHash });
+        setSent({ recv, to: rcpt!, left: Math.max(0, balUsd - amtNum), tx: res.txHash }); rememberRecipient(rcpt!);
       } else {
         const tx = await execCalls([{ to: bal.token, data: encodeFunctionData({ abi: erc20, functionName: "transfer", args: [to as Address, amount] }) }]);
-        setSent({ recv: amtNum, to, left: Math.max(0, balUsd - amtNum), tx: tx.txHash });
+        setSent({ recv: amtNum, to: rcpt!, left: Math.max(0, balUsd - amtNum), tx: tx.txHash }); rememberRecipient(rcpt!);
       }
       setAmt("");
       void refresh(addr);
@@ -373,7 +377,8 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
       <div className="r2-body cx-sent" data-testid="cash-sent" role="status">
         <div className="r2-ok"><Check /></div>
         <div className="r2-g cx-senth">{CASH_COPY.sent(usd2(sent.recv))}</div>
-        <span className="cx-p14">{CASH_COPY.sentTo(short(sent.to), usd2(sent.left))}</span>
+        <div className="cx-sentto"><RecipientCard r={sent.to} /></div>
+        <span className="cx-p14">{CASH_COPY.sentTo(usd2(sent.left))}</span>
         <div className="cx-row2">
           {base && sent.tx
             ? <a className="r2-btn" href={`${base}/tx/${sent.tx}`} target="_blank" rel="noreferrer noopener">{CASH_COPY.receipt}</a>
@@ -447,20 +452,13 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
                 ))}
               </div>
             </div>
-            <div>
-              <label className="r2-lbl" htmlFor="cx-to">{CASH_COPY.sendTo}</label>
-              <div className="cx-inrow">
-                <input id="cx-to" className="r2-field r2-mono cx-addr" placeholder="0x… on Robinhood Chain" value={to} autoComplete="off" spellCheck={false} data-testid="cash-to"
-                  onChange={(e) => { setErr(null); setTo(e.target.value.trim()); }} />
-                <button type="button" className="r2-btn cx-copy" onClick={async () => { try { const t = await navigator.clipboard.readText(); if (t) { setErr(null); setTo(t.trim()); } } catch { /* no clipboard read */ } }}>{CASH_COPY.paste}</button>
-              </div>
-            </div>
+            <UserPicker id="cx-to" value={rcpt} onChange={(r) => { setErr(null); setRcpt(r); }} me={addr} allowAddress />
             <div className="r2-box">
-              <div className="r2-r"><div className="t"><b>{CASH_COPY.receive}</b>{gasless && quote && <span className="cx-p">{CASH_COPY.fee} {usd2(feeUsd)}</span>}</div><span className="r2-g cx-recv">{usd2(recvUsd)}</span></div>
+              <div className="r2-r"><div className="t"><b>{rcpt?.username ? CASH_COPY.theyGet : CASH_COPY.receive}</b>{gasless && quote && <span className="cx-p">{CASH_COPY.fee} {usd2(feeUsd)}</span>}</div><span className="r2-g cx-recv">{usd2(recvUsd)}</span></div>
               {gasless && quote && <div className="r2-r cx-d"><div className="t"><span>{CASH_COPY.fee}</span></div><span className="cx-fee">{usd2(feeUsd)}</span></div>}
             </div>
             {err && <div className="r2-note err" role="alert"><ErrIcon /><span>{err}</span></div>}
-            <button type="button" className="r2-gold" disabled={busy || amtNum <= 0} onClick={cashOut} data-testid="cash-out-btn">
+            <button type="button" className="r2-gold" disabled={busy || amtNum <= 0 || !rcpt} onClick={cashOut} data-testid="cash-out-btn">
               {busy ? CASH_COPY.sending : amtNum > 0 ? CASH_COPY.cashOut(usd2(amtNum)) : CASH_COPY.tabs.out}
             </button>
             <span className="cx-fine cx-final"><Warn />{CASH_COPY.fine}</span>

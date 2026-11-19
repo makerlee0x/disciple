@@ -16,6 +16,11 @@ import { signedUsd2, usd2 } from "@/components/profile/money";
 import { DEPOSIT_HREF, onDepositClick, openCash } from "@/lib/cashLink";
 import Tooltip from "@/components/ui/Tooltip";
 import { onTurboCash } from "@/lib/turbo/turboCash";
+import { openSend } from "@/lib/send/open";
+
+export function SendIcon({ size = 16 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden><path d="M21 3L10 14" /><path d="M21 3l-7 18-4-7-7-4z" /></svg>;
+}
 
 /** Service record strip (maker 2026-11-18): Hangar value, Cash, Turbo cash. Flights aboard / Rockets launched are gone
  *  (Your fleet below already shows them). Turbo cash is the owner's own trading balance, so only the private Hangar has it. */
@@ -37,7 +42,13 @@ export function ServiceRecord({ pf, isPrivate }: { pf: LivePortfolio | null; isP
       <div>
         <span className="l">Cash</span>
         <b data-testid="portfolio-cash">{ok ? usd2(pf.cashUsd) : "—"}</b>
-        {isPrivate ? <Link href={DEPOSIT_HREF} onClick={onDepositClick} className="s">Add cash</Link> : <span className="s" />}
+        {/* maker 2026-11-19: a clear Deposit and a Transfer (to an @user or a 0x address: the Cash popup's Transfer tab) */}
+        {isPrivate ? (
+          <span className="hg-cashacts">
+            <Link href={DEPOSIT_HREF} onClick={onDepositClick} className="dsc3-btn dsc3-btn-primary" data-testid="hangar-deposit">Deposit</Link>
+            <a href={DEPOSIT_HREF} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); openCash("out"); }} className="dsc3-btn" data-testid="hangar-transfer">Transfer</a>
+          </span>
+        ) : <span className="s" />}
       </div>
       {isPrivate && (
         <div>
@@ -81,7 +92,21 @@ export function Fleet({ rows, home, launched, isPrivate, owner }: {
       ) : (
         <div className="hg-fleet" data-testid="tab-rockets">
           {tab === "aboard"
-            ? (list as LiveHolding[]).map((h) => <LiveCard key={h.coin} c={asCoin(h, home)} seat={usd2(h.usd)} testId="fleet-card" compact />)
+            ? (list as LiveHolding[]).map((h) => {
+              const c = asCoin(h, home);
+              const card = <LiveCard key={h.coin} c={c} seat={usd2(h.usd)} testId="fleet-card" compact />;
+              if (!isPrivate) return card;
+              // send this bag to another pilot by @username (maker 2026-11-19)
+              return (
+                <div key={h.coin} className="sd-fleet">
+                  {card}
+                  <button type="button" className="sd-fleetbtn" aria-label={`Send ${c.ticker || c.name}`} data-testid="fleet-send"
+                    onClick={() => openSend({ kind: "rocket", coin: h.coin, name: c.name, symbol: (h.symbol || c.ticker.replace(/^\$/, "")) || "ROCKET", icon: c.icon, tokens: h.tokens, priceUsd: h.priceNow })}>
+                    <SendIcon />
+                  </button>
+                </div>
+              );
+            })
             : (list as HomeCoin[]).map((c) => <LiveCard key={c.token} c={c} testId="fleet-card" compact />)}
         </div>
       )}
