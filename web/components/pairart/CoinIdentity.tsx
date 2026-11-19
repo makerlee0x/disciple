@@ -77,9 +77,6 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
   const pair = sp.get("pair") || chain?.pair || (demo ? "ETH" : "STRATEGY");
   const tk = sp.get("cs") || chain?.symbol || (demo ? "AI" : "");
   const name = sp.get("nm") || chain?.name || (demo && tk === "AI" ? "Artificial Inu" : tk);
-  // the engine's header card draws the name (window.__coinName, worker-mirrored), the desktop row itself stays hidden
-  useEffect(() => { const w = window as unknown as { __coinName?: string }; w.__coinName = name || ""; return () => { w.__coinName = ""; }; }, [name]);
-  if (!icon && !tk) return null;
   const bp = basePair(pair);
   // Dollars-only rule (no ETH / gas wording on player surfaces): an ETH / WETH pair gets no pair badge or pair label;
   // the chip is the coin's own art + name. Other pairs keep their badge.
@@ -89,6 +86,9 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
   const ticker = String(tk || "").replace(/^\$/, "").trim().toUpperCase();
   const quote = String(pairSym || "").replace(/^\$/, "").trim().toUpperCase();
   const sub = ticker && quote ? `${ticker}/${quote}` : ticker;
+  // the engine's header card draws the name + TICKER/PAIR (window.__coinName / __coinPair, worker-mirrored); the desktop row stays hidden
+  useEffect(() => { const w = window as unknown as { __coinName?: string; __coinPair?: string }; w.__coinName = name || ""; w.__coinPair = quote; return () => { w.__coinName = ""; w.__coinPair = ""; }; }, [name, quote]);
+  if (!icon && !tk) return null;
   return (
     <div ref={ref} className="coin-id" data-testid="coin-name" style={hc ? { transform: hc.dx || hc.dy ? `translate(${hc.dx}px, ${hc.dy}px)` : undefined, display: hc.min || hc.closed ? "none" : undefined } : undefined} title={sub ? `${name} · ${sub}` : name} aria-label={pairSym ? `${name} paired with ${pairSym}` : name}>
       <PairArt src={icon} pair={ethPair ? null : pair} tk={tk} size="list" px={38} eager />

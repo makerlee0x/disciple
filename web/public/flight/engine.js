@@ -2319,7 +2319,8 @@ function drawHud(){
   { const bw=diffBadge()?(ctx.font=GF(14,700),ctx.measureText(diffBadge().txt).width+30):0, maxX=384-bw-10, tk=coinTicker(), nm=coinName();
     const fit=(t,w)=>{ if(ctx.measureText(t).width<=w) return t; while(t.length>1&&ctx.measureText(t+'…').width>w) t=t.slice(0,-1); return t+'…'; };
     let x=36; if(nm){ ctx.fillStyle='#F2F3F7'; ctx.font=GF(20,700); if('letterSpacing' in ctx) ctx.letterSpacing='0.5px'; const t=fit(nm,maxX-x); ctx.fillText(t,x,42); x+=ctx.measureText(t).width+10; if('letterSpacing' in ctx) ctx.letterSpacing='0px'; }
-    if(tk&&tk!==String(nm||'').toUpperCase()&&x+40<maxX){ ctx.fillStyle='rgba(215,217,228,.72)'; ctx.font=GF(15,600); if('letterSpacing' in ctx) ctx.letterSpacing='1.5px'; ctx.fillText(fit('$'+tk,maxX-x),x,42); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; }
+    const pr=coinPair(), sub=tk?(pr?tk+'/'+pr:'$'+tk):'';   /* maker 2026-11-18: show the base pair (TICKER/QUOTE, like the coin header row) */
+    if(sub&&(pr||tk!==String(nm||'').toUpperCase())&&x+40<maxX){ ctx.fillStyle='rgba(215,217,228,.72)'; ctx.font=GF(15,600); if('letterSpacing' in ctx) ctx.letterSpacing='1.5px'; ctx.fillText(fit(sub,maxX-x),x,42); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; }
     else if(!nm&&tk){ ctx.fillStyle='#F2F3F7'; ctx.font=GF(20,700); ctx.fillText('$'+tk,36,42); } }
   drawBadge(diffBadge(),384,36);   /* brand v3 difficulty badge: EASY / HARD / EXPERT, IN ORBIT after graduation */
   ctx.fillStyle='#fff'; ctx.font=GF(46,800); { const big=S.pro?fmtFull(m):fmtShort(m); glowText(big,34,86,'rgb(243,223,168)',8,0.22);   /* Pro: exact dollars "$7,312"; Pilot "$7.3K" */
@@ -3573,6 +3574,7 @@ addEventListener('disciple:grass',e=>{ const d=e.detail||{}; S.grass=!!d.on; S.c
 /* $TICKER for the HUD: the coin's own symbol (disciple:coinrules, read onchain by TradeBridge) else grassTicker() */
 function coinTicker(){ const r=S.coinRules, t=r&&typeof r.ticker==='string'?r.ticker.replace(/^\$/,'').trim().toUpperCase():''; return /^[A-Z0-9]{1,10}$/.test(t)?t:grassTicker(); }
 function coinName(){ const n=typeof window!=='undefined'&&typeof window.__coinName==='string'?window.__coinName.trim():''; return n.slice(0,40); }
+function coinPair(){ const p=typeof window!=='undefined'&&typeof window.__coinPair==='string'?window.__coinPair.replace(/^\$/,'').trim().toUpperCase():''; return /^[A-Z0-9]{1,12}$/.test(p)?p:''; }
 function grassTicker(){ const t=String(source.ticker||Q.get('ticker')||Q.get('cs')||'').replace(/^\$/,'').split(/\s*\/\s*/)[0].trim().toUpperCase(); return /^[A-Z0-9]{1,10}$/.test(t)?t:''; }
 function grassLine(m){ const tk=grassTicker(); return (tk?'$'+tk+' · ':'')+fmtUsd(m)+' MCAP'; }
 function drawGrass(dt){ const m=shownMcap(); S._grassA=Math.min(1,(S._grassA||0)+dt*0.8);
