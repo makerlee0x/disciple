@@ -1,9 +1,9 @@
 "use client";
 /**
- * Send sheet (maker 2026-11-19): give a rocket bag or an item copy to another pilot by @username. Same round 2 popup as
+ * Send sheet (maker 2026-11-19): give a rocket bag to another pilot by @username. Same round 2 popup as
  * Cash: centred on desktop, full screen with a back arrow on phones. Opens on OPEN_SEND_EVENT (lib/send/open).
  *  - Rocket: dollars with 25% / 40% / Half / All, the token count they get, the network fee, "Can't be undone".
- *  - Item: the copy (art, serial, burn grade), "Free", "Can't be undone". Only tradable copies get here.
+ *  - Items never send here: they only change hands on the market, which takes its fee (maker 2026-11-19).
  * Cash (USDG) sends live in the Cash popup's Send tab with the same picker.
  */
 import { useEffect, useState } from "react";
@@ -15,8 +15,6 @@ import { OPEN_SEND_EVENT, type SendAsset } from "@/lib/send/open";
 import { rememberRecipient, type Recipient } from "@/lib/send/recipient";
 import { onWallet } from "@/lib/wallet";
 import { fmtTokens } from "@/lib/pnl";
-import { RARITY_COLOR, RARITY_NAME, burnGrade, itemById, itemTitle, ITEMS } from "@/lib/collection";
-import { itemArt } from "@/components/hangar/Collection";
 import { withBase } from "@/lib/base-path";
 import { playerError } from "@/lib/playerError";
 
@@ -39,7 +37,7 @@ const PICKS = [["25%", 0.25], ["40%", 0.4], ["Half", 0.5], ["All", 1]] as const;
 // dev only (screenshots): a send that "lands" with no chain
 const devSend = () => process.env.NODE_ENV !== "production" && typeof window !== "undefined" && !!(window as unknown as { __sendDev?: unknown }).__sendDev;
 
-function RocketSend({ a, me, onSent }: { a: Extract<SendAsset, { kind: "rocket" }>; me: string | null; onSent: (what: string, to: Recipient) => void }) {
+function RocketSend({ a, me, onSent }: { a: SendAsset; me: string | null; onSent: (what: string, to: Recipient) => void }) {
   const bagUsd = a.tokens * a.priceUsd;
   const [amt, setAmt] = useState("");
   const [to, setTo] = useState<Recipient | null>(null);
@@ -96,43 +94,6 @@ function RocketSend({ a, me, onSent }: { a: Extract<SendAsset, { kind: "rocket" 
   );
 }
 
-function ItemSend({ a, me, onSent }: { a: Extract<SendAsset, { kind: "item" }>; me: string | null; onSent: (what: string, to: Recipient) => void }) {
-  const [to, setTo] = useState<Recipient | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const g = burnGrade(a.copy.burn);
-  const name = itemTitle(a.item);
-  const go = async () => {
-    if (!to) return;
-    setErr(null); setBusy(true);
-    try {
-      if (!devSend()) throw new Error("Sending items is coming soon.");
-      await new Promise((r) => setTimeout(r, 500));
-      onSent(name, to);
-    } catch (e) { setErr(playerError(e)); } finally { setBusy(false); }
-  };
-  return (
-    <>
-      <div className="sd-item" style={{ ["--sw" as string]: RARITY_COLOR[a.item.rar] }}>
-        <span className="sd-art">{itemArt(a.item, 72, false, "YOU", a.copy)}</span>
-        <span className="sd-at">
-          <b>{name}</b>
-          <span><em>{RARITY_NAME[a.item.rar]}</em> · #{a.copy.serial.toLocaleString("en-US")} · {g.name}</span>
-        </span>
-      </div>
-      <UserPicker id="sd-to" value={to} onChange={setTo} me={me} />
-      <div className="r2-box">
-        <div className="r2-r"><div className="t"><span>{SEND_COPY.fee}</span></div><span className="cx-fee">{SEND_COPY.free}</span></div>
-      </div>
-      {err && <div className="r2-note err" role="alert"><ErrIcon /><span>{err}</span></div>}
-      <button type="button" className="r2-gold" disabled={busy || !to} onClick={go} data-testid="send-btn">
-        {busy ? SEND_COPY.sending : SEND_COPY.send(a.item.kind === "skin" ? "skin" : a.item.kind)}
-      </button>
-      <span className="cx-fine cx-final"><Warn />{SEND_COPY.fine}</span>
-    </>
-  );
-}
-
 export default function SendHost() {
   const [a, setA] = useState<SendAsset | null>(null);
   const [me, setMe] = useState<string | null>(null);
@@ -145,14 +106,6 @@ export default function SendHost() {
     return () => window.removeEventListener(OPEN_SEND_EVENT, f);
   }, []);
   useEffect(() => { setA(null); }, [path]);
-  // dev only (screenshots): window.__sendItemDev("skin id") opens the sheet for a made-up copy of that item
-  useEffect(() => {
-    if (process.env.NODE_ENV === "production") return;
-    (window as unknown as { __sendItemDev?: (id?: string) => void }).__sendItemDev = (id) => {
-      const item = id ? itemById(id) : ITEMS.find((i) => i.kind === "skin" && i.rar === "legendary");
-      if (item) { setSent(null); setA({ kind: "item", item, copy: { uid: "dev", item: item.id, serial: 142, burn: 0.21, seed: 377, trak: 4, fe: true, origin: "crate", at: Date.now(), bound: false } }); }
-    };
-  }, []);
   const close = () => { setA(null); setSent(null); };
   return (
     <Sheet open={a != null} onClose={close} label="Send" className="r2-modal cx-sheet" testId="send-popup">
@@ -167,9 +120,7 @@ export default function SendHost() {
         <>
           <CashHead title={SEND_COPY.title} onClose={close} />
           <div className="r2-body">
-            {a.kind === "rocket"
-              ? <RocketSend key={a.coin} a={a} me={me} onSent={(what, to) => { rememberRecipient(to); setSent({ what, to }); }} />
-              : <ItemSend key={a.copy.uid} a={a} me={me} onSent={(what, to) => { rememberRecipient(to); setSent({ what, to }); }} />}
+            <RocketSend key={a.coin} a={a} me={me} onSent={(what, to) => { rememberRecipient(to); setSent({ what, to }); }} />
           </div>
         </>
       ))}

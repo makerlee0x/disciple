@@ -1148,17 +1148,14 @@ html:not([data-you]) .lb-tabs a.lb-you-only, html[data-you] .lb-tabs a.lb-out-on
 .cx-sentto .up-card { margin-top: 0; }
 
 /* ── Send sheet (components/send/SendHost, maker 2026-11-19) ─────────────── */
-.sd-asset, .sd-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(232,234,238,0.10);
+.sd-asset { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(232,234,238,0.10);
   background: linear-gradient(160deg, #1F2433, #14161D); }
-.sd-item { background: radial-gradient(220px 140px at 15% 50%, color-mix(in srgb, var(--sw) 22%, transparent), transparent 70%), linear-gradient(160deg, #1F2433, #14161D); }
 .sd-coin { width: 44px; height: 44px; flex: none; border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center;
   background: #2A2F3B; font: 800 20px/1 var(--dsc-font-game); color: #F3DFA8; }
 .sd-coin img { width: 100%; height: 100%; object-fit: cover; }
-.sd-art { flex: none; display: flex; align-items: center; justify-content: center; width: 96px; height: 72px; }
 .sd-at { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
 .sd-at b { font: 800 22px/1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sd-at > span { font-size: 12px; color: #9095A0; }
-.sd-at em { font-style: normal; font-weight: 700; color: var(--sw, #E8EAEE); }
 .sd-bag { flex: none; font: 700 16px/1 var(--dsc-font-game); text-transform: uppercase; color: #5FF0A0; }
 .sd-sym { font-size: 15px; color: #BCC0CA; }
 .sd-senth { font-size: 36px; }

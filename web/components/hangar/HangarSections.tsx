@@ -47,7 +47,7 @@ export function ServiceRecord({ pf, isPrivate, rewards }: {
         <span className="l">Cash</span>
         <b data-testid="portfolio-cash">{ok ? usd2(pf.cashUsd) : "—"}</b>
         {/* maker 2026-11-19 (pins on the rewards mockup): Cash gets a clear Deposit, Turbo cash a Transfer */}
-        {isPrivate ? <span className="hg-cashacts"><Link href={DEPOSIT_HREF} onClick={onDepositClick} className="dsc3-btn dsc3-btn-primary" data-testid="hangar-deposit">Deposit</Link></span> : <span className="s" />}
+        {isPrivate ? <span className="hg-cashacts"><Link href={DEPOSIT_HREF} onClick={onDepositClick} className="dsc3-btn dsc3-btn-white" data-testid="hangar-deposit">Deposit</Link></span> : <span className="s" />}
       </div>
       {isPrivate && (
         <div>
