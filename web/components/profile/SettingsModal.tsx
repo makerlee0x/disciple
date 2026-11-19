@@ -5,7 +5,7 @@ import PushSettings from "@/components/push/PushSettings";
 import { disconnect, onWallet } from "@/lib/wallet";
 import type { Address } from "@/lib/protocol";
 import { LEAVE_COPY, LEAVE_PREFS, loadLeavePref, onLeavePref, saveLeavePref, type LeavePref } from "@/lib/turbo/leave";
-import { ONE_TAP_SLIPPAGE_CHOICES_BPS, onPrivy, onSessionChange, oneTapSlippageBps, privyAccount, privySecurity, setOneTapSlippageBps, type PrivyAccountInfo, type PrivyMfaMethod, type PrivySecurity } from "@/lib/aa/session";
+import { ONE_TAP_SLIPPAGE_CHOICES_BPS, slippageLabel, onPrivy, onSessionChange, oneTapSlippageBps, privyAccount, privySecurity, setOneTapSlippageBps, type PrivyAccountInfo, type PrivyMfaMethod, type PrivySecurity } from "@/lib/aa/session";
 import { playerError } from "@/lib/playerError";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import Icon from "@/components/icons/Icon";
@@ -27,7 +27,7 @@ export const SETTINGS_COPY = {
   on: "ON",
   maxMove: "Price protection",
   maxMoveHelp: "Cancels a trade if the price moves more than this.",
-  choice: (bps: number) => `${bps / 100}%`,
+  choice: (bps: number) => slippageLabel(bps),
   security: "Security",
   exportKey: "Export key",
   exportBtn: "Export",

@@ -64,7 +64,7 @@ BROADCAST=1 ./script/redeploy/redeploy.sh   # real deploy
 - TrampWallManager: the min hold is **removed** (cancel anytime, pull immediately) and `claimFees`/`pendingFees` are removed. Keeper tip and hook LP-add gate stay.
 
 **Revision 4 (2026-10-16, router slippage guards):**
-- `DiscipleRouter`: `buyExactIn`/`sellExactIn` (and the permit variants) revert `ZeroMinOut()` when `minOut == 0`, and revert `PriceImpactTooHigh(impactBps, maxImpactBps)` above `maxImpactBps` (default 5000; owner `setMaxImpactBps` in [100, 100000]; `owner`, `transferOwnership`; events `MaxImpactSet`, `OwnerTransferred`). The owner is the deployer, so hand it to the protocol multisig after deploy.
+- `DiscipleRouter`: `buyExactIn`/`sellExactIn` (and the permit variants) revert `ZeroMinOut()` when `minOut == 0`, and (2026-11-19) no longer revert on price impact: `maxImpactBps` / `setMaxImpactBps` were removed (default 5000; owner `setMaxImpactBps` in [100, 100000]; `owner`, `transferOwnership`; events `MaxImpactSet`, `OwnerTransferred`). The owner is the deployer, so hand it to the protocol multisig after deploy.
 - The hook, LockedLP and BondingCurve have **no** impact cap (by decision).
 - ABI: `web-bundle/abi/DiscipleRouter.json`, `web-bundle/index.ts` and `web/lib/abi/DiscipleRouter.ts` were regenerated. Clients that send `minOut = 0` must change.
 
@@ -79,7 +79,7 @@ BROADCAST=1 ./script/redeploy/redeploy.sh   # real deploy
 | Migration | **yes** | immutable `hook` |
 | LockedLP | **yes** | single migration slot (see above) |
 | TrampWallManager | **yes** | immutable `hook`/`lockedLP`; keeper tip, new `owner`, no fees/hold |
-| DiscipleRouter | **yes** | immutable `hook`/`lockedLP`; new `owner` (deployer), `minOut != 0`, `maxImpactBps` (default 50%) |
+| DiscipleRouter | **yes** | immutable `hook`/`lockedLP`; new `owner` (deployer), `minOut != 0`, no impact cap (removed 2026-11-19) |
 | QuotePricer | **yes** | TWAP + `poke` (state layout change) |
 | Launchpad, CurveDeployer (→ BondingCurve) | **yes** | #35 wallet cap, pricer poke on launch, curve altitude events |
 | AntiSnipe, AnonLauncher, MarketLens | **yes** | immutable `launchpad` (MarketLens code itself is unchanged) |

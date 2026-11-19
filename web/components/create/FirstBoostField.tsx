@@ -212,6 +212,8 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
             <button type="button" className={c(isCustom, true)} data-testid="first-boost-custom-open" onClick={() => { setCustomOpen(true); if (value === "" || isAmt(0) || isAmt(5) || isAmt(20) || isMaxSel) onChange(""); }}>{QUICK_LAUNCH_COPY.custom}</button>
           )}
         </div>
+        {/* Easy: the ticket is locked until orbit (maker 2026-11-19: show it as a visual, not a sublabel) */}
+        {pve && Number.isFinite(amount) && amount > 0 && <EasyLockTrack />}
         {/* one short line under the chips (the launch builder fits on one screen): the error, else the cap + Easy rules */}
         {error ? <span role="alert" className={`${L.help} ${L.bad}`}>{error}</span> : seatNote ? (
           <span className={L.note} data-testid="seat-note">{seatNote}</span>
@@ -296,6 +298,27 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
         <p className="first-boost-note first-boost-mode">{!me ? COPY.pveLoginUnknown : pveVerified === false ? COPY.pveLoginAttest : COPY.pveLogin}</p>
       )}
       {error && <p role="alert" className="first-boost-error">{error}</p>}
+    </div>
+  );
+}
+
+/** Easy First BOOST lock, drawn: your ticket (bag + closed lock) on a dashed track to orbit (ring + open lock). */
+function EasyLockTrack() {
+  return (
+    <div className={L.lockTrack} data-testid="easy-lock-track" role="img" aria-label="Ticket locked until orbit">
+      <span className={L.lockEnd}>
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <rect x="5" y="11" width="14" height="10" rx="2.5" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /><circle cx="12" cy="16" r="1.3" fill="currentColor" stroke="none" />
+        </svg>
+        <b>TICKET</b>
+      </span>
+      <span className={L.lockLine} aria-hidden />
+      <span className={`${L.lockEnd} ${L.lockOpen}`}>
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <rect x="5" y="11" width="14" height="10" rx="2.5" /><path d="M8 11V8a4 4 0 0 1 7.6-1.7" /><circle cx="12" cy="16" r="1.3" fill="currentColor" stroke="none" />
+        </svg>
+        <b>ORBIT</b>
+      </span>
     </div>
   );
 }

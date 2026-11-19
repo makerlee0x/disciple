@@ -20,7 +20,6 @@ contract SecurityFuzzTest is IntegrationBase {
         super.setUp();
         // whale stress trades intentionally exceed the router default 50% impact cap
         vm.prank(router.owner());
-        router.setMaxImpactBps(router.MAX_MAX_IMPACT_BPS());
         twm = new TrampWallManager(manager, lockedLP, address(hook));
         twm.setKeeperTipBps(0); // legacy owner-gets-all assertions; tip covered in test/security/JitTwap.t.sol
         (curve, tok) = _launch(0, 0);
@@ -44,7 +43,7 @@ contract SecurityFuzzTest is IntegrationBase {
     function testFuzz_hook_fee_split_33_33_33_1(uint256 amt, bool isBuy) public {
         vm.recordLogs();
         if (isBuy) {
-            amt = bound(amt, 1 ether, 5_000 ether); // <= router MAX_MAX_IMPACT_BPS (10x)
+            amt = bound(amt, 1 ether, 5_000 ether); 
             vm.prank(whale);
             router.buyExactIn(address(tok), amt, 1, whale, block.timestamp + 1);
         } else {

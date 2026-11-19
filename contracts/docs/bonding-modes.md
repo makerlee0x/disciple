@@ -128,8 +128,8 @@ PVP/TRENCH: transfers still dodge NET caps (accepted, unchanged).
   the fee/referral to the router. Now they hit the real trader.
 * The router delivers funds straight to the curve (v4 `take` → curve, or USDG `transferFrom` user → curve; tokens
   user → curve). No router custody, no approvals; graduation refunds go to the trader.
-* The router's 50% impact cap is passed in and enforced by the curve on its exact quote (same
-  `PriceImpactTooHigh(impactBps, maxImpactBps)` error).
+* The curve still takes an impact-cap argument, but the router always passes uint256.max (no cap, maker
+  2026-11-19). Direct curve calls never had one.
 * Direct curve calls are unchanged: `buy(…, recipient)` applies all rules to `recipient`; `sell` to `msg.sender`.
 
 ## Quotes

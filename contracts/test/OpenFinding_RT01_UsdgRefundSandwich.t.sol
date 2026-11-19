@@ -28,7 +28,6 @@ contract RT01_UsdgRefundSandwich is IntegrationBase {
         router.setUsdgRouting(address(quote), address(launchpad)); // test contract deployed the router (owner)
         router.setUsdgPool(address(strategy), strategyUsdgKey);
         // Same setting as UsdgRouter.t.sol::test_graduatingBuyThroughRouter (the curve hop near graduation).
-        router.setMaxImpactBps(100_000);
         _warmQuote(address(strategy)); // pair-coin launches need a warm, fresh TWAP
         (sCurve, sTok) = _launchWithQuote(address(strategy), 0, 0);
         _warpPastSnipe();
