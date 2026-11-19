@@ -68,11 +68,11 @@ export function parseFreeAnonLaunchRequest(x: unknown): FreeAnonLaunchRequest {
 /** Every rule before any RPC. The player's wallet can never be the stealth owner (it would be on-chain). */
 export function checkFreeAnonLaunch(q: FreeAnonLaunchRequest, o: { harvest: Address | null; launcher: Address; anyMode: boolean; nowSec: number }): void {
   const l = q.launch;
-  if (!o.harvest) throw new GaslessReject("hidden launches aren't switched on here yet");
+  if (!o.harvest) throw new GaslessReject("anon launches aren't switched on here yet");
   const tooLong = anonLaunchTooLong(l);
   if (tooLong) throw new GaslessReject(tooLong);
   if ((l.ephemeralPubKey.length - 2) / 2 > ANON_LAUNCH_LIMITS.ephemeralPubKey) throw new GaslessReject("bad ephemeralPubKey");
-  if (!o.anyMode && l.mode) throw new GaslessReject("hidden launches are Expert only for now");
+  if (!o.anyMode && l.mode) throw new GaslessReject("anon launches are Expert only for now");
   if (eq(l.stealthOwner, q.wallet)) throw new GaslessReject("your wallet can't be the hidden creator");
   if (eq(l.stealthOwner, o.harvest) || eq(l.stealthOwner, o.launcher)) throw new GaslessReject("bad stealthOwner");
   const now = BigInt(o.nowSec);

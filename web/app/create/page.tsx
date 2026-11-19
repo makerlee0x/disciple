@@ -24,12 +24,8 @@ import { LAUNCH_ABI_SHAPE, LaunchMode } from "@/lib/launchAbi";
 import { DEFAULT_MODE, MODE_LABEL, MODE_ORDER } from "@/lib/modeRules";
 import { ACTIVE_CHAIN, deployment, isDeployed } from "@/lib/chains";
 import { nextTicker, randomRocketName, tickerVariants } from "@/lib/rocketNames";
-import { activeAddress, aaAvailable, canTransact, connectWallet, execCalls, onWallet } from "@/lib/wallet";
+import { activeAddress, aaAvailable, canTransact, connectWallet, onWallet } from "@/lib/wallet";
 import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
-import { clientGaslessMode } from "@/lib/aa/sponsorshipMode";
-import { blockedActionMessage } from "@/lib/trade/gaslessAction";
-import { launchpadAbi } from "@/lib/abi";
-import { encodeFunctionData } from "viem";
 import { useRouter } from "next/navigation";
 import { createViemProtocol } from "@/lib/protocol-viem";
 import { trackFunnel } from "@/lib/funnelClient";
@@ -360,7 +356,7 @@ export default function LaunchRocketPage() {
       setMsg(C.creatorFeesNotHere);
       return;
     }
-    if (privateLaunch && (keepFees || !sendFeeDest)) { setMsg("Hidden launches burn or lock their creator fees."); return; }
+    if (privateLaunch && (keepFees || !sendFeeDest)) { setMsg("Anon launches burn or lock their creator fees."); return; }
     if (sendFeeDest && !HARVEST_USDG_BOOST_LIVE && boostState.usdgIn != null && boostState.usdgIn > BigInt(0)) { setMsg(C.creatorFeesNoBoost); return; }
     const web = normalizeWebsite(website) ?? "";
     if (web !== website.trim()) setWebsite(web);
@@ -415,8 +411,10 @@ export default function LaunchRocketPage() {
           setLaunched("Launched. Assigning the fee receiver (one more confirmation)…");
           await lookSaved;
           try {
-            if (clientGaslessMode()) throw new Error(blockedActionMessage("Launchpad.transferCreator(address,address)"));
-            await execCalls([{ to: deployment().launchpad, data: encodeFunctionData({ abi: launchpadAbi, functionName: "transferCreator", args: [res.token, fr as Address] }) }]);
+            // gasless: signed Launchpad.transferCreatorBySig, sent by the relayer (players hold no ETH)
+            const { transferCreatorTo } = await import("@/lib/claims/coinAdmin");
+            const { publicClient } = await import("@/lib/protocol-viem");
+            await transferCreatorTo(publicClient(), me, { token: res.token } as Parameters<typeof transferCreatorTo>[2], fr as Address);
           } catch (err) {
             console.warn("[disciple] fee receiver assignment failed", { token: res.token, feeReceiver: fr, message: String((err as Error)?.message ?? err).slice(0, 300) });
             note = "Launched, but setting the fee receiver didn't go through. You can retry from the rocket page later.";
@@ -668,7 +666,7 @@ export default function LaunchRocketPage() {
 
           <div className={`${L.sec} ${L.aSeat}`}>
             <div className={L.sh}><span className={L.num}>4</span><span className={L.st}>{C.creatorTicket}</span>
-              {privateLaunch && <span className={L.anonTag} aria-label="Anon launches are free" data-testid="ticket-anon"><AnonGlyph size={15} /></span>}
+              {privateLaunch && <span className={L.anonTag} aria-label="Anon launch" data-testid="ticket-anon"><AnonGlyph size={15} /></span>}
               <Info label="What the Creator Ticket is" testId="creator-ticket-info" tip={
                 <div className={L.tipRows}><p>{CREATOR_TICKET_TIP.lead}</p><p>{CREATOR_TICKET_TIP.byMode[modeLabel === "Trench" ? "Expert" : modeLabel]}</p></div>} /></div>
             <FirstBoostField
@@ -710,6 +708,7 @@ export default function LaunchRocketPage() {
           </button>
           <div className={L.ctaFoot} ref={howRef}>
             <span className={privateLaunch ? L.feeFoot : undefined} data-testid="creator-fee-split">{privateLaunch && <AnonGlyph size={15} />}<FeeLine text={feeSplitLine(feeDestination)} /></span>
+            {privateLaunch && <span className={L.feeFoot} data-testid="anon-network-fee">Network fee paid from Cash</span>}
             <button type="button" className={L.linkBtn} data-testid="how-launching" aria-expanded={howOpen} onClick={() => setHowOpen((v) => !v)}>{C.howLaunching}</button>
             {howOpen && (
               <div className={L.how} data-testid="how-launching-steps">

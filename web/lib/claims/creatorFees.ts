@@ -15,7 +15,7 @@ import { scanEventHistory } from "./eventHistory";
  * Claims go through lib/wallet.execCalls (smart account userOp, owner-signed; or the legacy EOA path), the same sender
  * the trade flow uses. Balances are always read live on-chain.
  */
-import { decodeEventLog, encodeFunctionData, type Address, type Hex, type PublicClient } from "viem";
+import { decodeEventLog, encodeFunctionData, parseAbi, type Address, type Hex, type PublicClient } from "viem";
 import { anonLauncherAbi, bondingCurveAbi, feeRouterAbi, launchpadAbi, tokenAbi } from "../abi";
 import { deployment } from "../chains";
 import type { Call } from "../aa/core";
@@ -408,13 +408,24 @@ export async function referralSink(pc: PublicClient): Promise<Address | null> {
   const a = await (pc.readContract({ address: deployment().feeRouter, abi: feeRouterAbi, functionName: "referralSink" }) as Promise<Address>).catch(() => null);
   return a && !/^0x0{40}$/i.test(a) ? a : null;
 }
-export function referralClaimCalls(rows: ReferralBalance[]): Call[] {
+/** Gasless claims on behalf of a referrer (rebuilt contracts, maker 2026-11-19): anyone sends, the referrer is paid. */
+const referrerForAbi = parseAbi([
+  "function claimReferrerFeesFor_2143(address referrer, address quote) returns (uint256)",
+  "function claimReferrerFeesFor(address referrer, address quote, address[] settleTokens) returns (uint256)",
+]);
+/** `me` in gasless mode: the For variants (the relayer sends them; players hold no ETH). */
+export function referralClaimCalls(rows: ReferralBalance[], me?: Address): Call[] {
   const fr = deployment().feeRouter;
+  const forMe = clientGaslessMode() && !!me;
   const calls: Call[] = [];
   for (const r of rows) {
     const inVault = r.vault ? r.vaultClaimable ?? ZERO : ZERO;
-    if (r.claimable - inVault > ZERO) calls.push({ to: fr, data: encodeFunctionData({ abi: feeRouterAbi, functionName: "claimReferrerFees", args: [r.asset.address] }) });
-    if (inVault > ZERO) calls.push({ to: r.vault!, data: encodeFunctionData({ abi: curveFeeVaultAbi, functionName: "claimReferrerFees", args: [r.asset.address, []] }) });
+    if (r.claimable - inVault > ZERO) calls.push({ to: fr, data: forMe
+      ? encodeFunctionData({ abi: referrerForAbi, functionName: "claimReferrerFeesFor_2143", args: [me!, r.asset.address] })
+      : encodeFunctionData({ abi: feeRouterAbi, functionName: "claimReferrerFees", args: [r.asset.address] }) });
+    if (inVault > ZERO) calls.push({ to: r.vault!, data: forMe
+      ? encodeFunctionData({ abi: referrerForAbi, functionName: "claimReferrerFeesFor", args: [me!, r.asset.address, []] })
+      : encodeFunctionData({ abi: curveFeeVaultAbi, functionName: "claimReferrerFees", args: [r.asset.address, []] }) });
   }
   return calls;
 }

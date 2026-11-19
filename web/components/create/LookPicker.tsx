@@ -105,7 +105,7 @@ export default function LookPicker({ opts, signedIn, value, onPick, onClose, hid
         })}
       </ul>
       <p className={s.lookNote} data-testid="look-note">
-        {hidden ? "Hidden launch: your rocket keeps this look, but none of your serials go on it."
+        {hidden ? "Anon launch: your rocket keeps this look, but none of your serials go on it."
           : !signedIn ? "Any skin that's out can go on your rocket. Sign in to put your own copies on it."
           : mine === 0 ? "Any skin that's out can go on your rocket. Skins you find in crates show first, with your serial."
           : "Yours come first, with your serial on the rocket. Your copy stays in your Hangar."}

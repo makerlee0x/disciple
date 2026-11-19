@@ -4,8 +4,8 @@ import "server-only";
  * revoke/strike/blocklist, H1/M1/M2 identity), same strike policy (only sender-caused validation failures), same
  * relayer pool / exact simulation / budget-after-sim / breaker. Does not touch the trade path.
  *
- * Fee: estimated gas × live base fee (what Robinhood Chain bills) × the old USDG paymaster rate (rateFromEnv +
- * unmarkedRate from usdgEthRate, 1.0x; same helpers formerly in paymasterCore). Quoted fee is kept. feeTo is the configured relayer EOA (stable across the pool: a pool key
+ * Fee: estimated gas × live base fee (what Robinhood Chain bills) × the live USDG-per-ETH price of the refill pool plus a
+ * small markup (usdgEthRate.liveUsdgPerEth; env rate only where there is no pool). Quoted fee is kept. feeTo is the configured relayer EOA (stable across the pool: a pool key
  * may broadcast, the fee still lands on the relayer address the player was shown).
  */
 import { createPublicClient, encodeFunctionData, parseAbi, recoverTypedDataAddress, type Address, type Hex } from "viem";
@@ -19,7 +19,7 @@ import {
 } from "../trade/gaslessWithdraw";
 import { relaySpender, withdrawTypedData } from "../trade/permitForwarder";
 import { PERMIT2 } from "../trade/gaslessPermit2";
-import { rateFromEnv, unmarkedRate } from "./usdgEthRate";
+import { feeFloor, liveUsdgPerEth, rateFromEnv, unmarkedRate } from "./usdgEthRate";
 import { requireGaslessMode, type GaslessConfirmed, type GaslessDeps } from "./gaslessRelay";
 import { shouldStrikeIncludedRevert } from "./gaslessStrike";
 import { relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";
@@ -81,7 +81,7 @@ export async function quoteGaslessWithdraw(raw: unknown = {}, opts: QuoteOpts = 
   const gas = withdrawGas(needsPermit) + BigInt(opts.extraWithdraws ?? 0) * withdrawGas(false);
   const feeTo = opts.feeTo ?? withdrawFeeTo();
   const baseFee = opts.baseFee ?? (await directRelayer()).fee;
-  const rate = opts.rate ?? withdrawUsdgPerEth();
+  const rate = opts.rate ?? await liveUsdgPerEth();
   const fee = withdrawFeeRaw(gas, baseFee, rate, decimals);
   return {
     fee: fee.toString(), feeTo, gas: gas.toString(), gasPrice: baseFee.toString(), rate: rate.toString(),
@@ -147,11 +147,12 @@ export async function relayGaslessWithdraw(raw: unknown, d: GaslessDeps = {}): P
     if (isForwarderWithdraw(q) !== (spender.kind === "forwarder"))
       throw new GaslessReject(spender.kind === "forwarder" ? "please update the app and try again" : "this network does not take forwarder withdrawals yet");
     const feeTo = withdrawFeeTo();
-    const rate = withdrawUsdgPerEth();
+    const rate = await liveUsdgPerEth();
     const needsPermit = !!(q.approval && q.approval.value > BigInt(0));
     const gas = withdrawGas(needsPermit);
-    // Live re-quote: the signed fee must cover today's estimate; the player still pays the quoted (signed) fee.
-    const current = withdrawFeeRaw(gas, (await directRelayer()).fee, rate, dep.usdgDecimals);
+    // Live re-quote: the signed fee must cover today's estimate (less FEE_SLACK_BPS: the cached live price can roll
+    // between quote and send); the player still pays the quoted (signed) fee.
+    const current = feeFloor(withdrawFeeRaw(gas, (await directRelayer()).fee, rate, dep.usdgDecimals));
     if (q.fee < current) throw new GaslessReject("fee changed, please retry");
     const nowSec = d.nowSec ?? Math.floor(Date.now() / 1000);
     if (isForwarderWithdraw(q)) {
@@ -214,7 +215,7 @@ export async function relayMarketBuy(raw: unknown, d: GaslessDeps = {}): Promise
     const feeTo = withdrawFeeTo();
     const needsPermit = !!(q.pay.approval && q.pay.approval.value > BigInt(0));
     const gas = withdrawGas(needsPermit) + withdrawGas(false);
-    const current = withdrawFeeRaw(gas, (await directRelayer()).fee, withdrawUsdgPerEth(), dep.usdgDecimals);
+    const current = feeFloor(withdrawFeeRaw(gas, (await directRelayer()).fee, await liveUsdgPerEth(), dep.usdgDecimals));
     if (q.pay.fee < current) throw new GaslessReject("fee changed, please retry");
     const nowSec = d.nowSec ?? Math.floor(Date.now() / 1000);
     checkForwarderWithdrawRequest(q.pay, { usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, nowSec, feeTo, minFee: current });

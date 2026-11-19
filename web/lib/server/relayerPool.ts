@@ -7,7 +7,7 @@
  * Pure (store, env, clock and id injected) so it is unit-testable; logs names + addresses only, never key material.
  */
 import { privateKeyToAccount } from "viem/accounts";
-import type { Hex } from "viem";
+import { concatHex, keccak256, numberToHex, stringToHex, type Hex } from "viem";
 
 /** The subset of lib/server/kv the lease needs. */
 export interface LeaseStore {
@@ -28,9 +28,31 @@ const NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
 export const ROLE_KEY_NAMES = ["RELAYER_PRIVATE_KEY", "PAYMASTER_SIGNER_KEY", "DRIP_FAUCET_KEY"] as const;
 const MAX_POOL = 32;
 
-/** RELAYER_KEY_POOL → env-var names (deduped, invalid names dropped). [] ⇒ pool disabled. */
+/**
+ * Derived pool (maker 2026-11-19: no hand-made wallets): RELAYER_POOL_SIZE=n (1–32) adds n relayer keys derived on the server
+ * from RELAYER_POOL_SEED (a 32-byte hex secret), or from RELAYER_PRIVATE_KEY when no seed is set. Nobody creates or holds
+ * them by hand; they live only where the main key already lives. Names RELAYER_POOL_1..n (not env vars).
+ * key_i = keccak256(seed ‖ "disciple-relayer-pool" ‖ i).
+ */
+const DERIVED = /^RELAYER_POOL_([1-9][0-9]?)$/;
+const seedOf = (env: Record<string, string | undefined>): Hex | undefined => {
+  const k = norm(env.RELAYER_POOL_SEED) ?? norm(env.RELAYER_PRIVATE_KEY);
+  return k && /^0x[0-9a-fA-F]{64}$/.test(k) ? (k as Hex) : undefined;
+};
+export function derivedPoolKey(seed: Hex, i: number): Hex {
+  return keccak256(concatHex([seed, stringToHex("disciple-relayer-pool"), numberToHex(i, { size: 32 })]));
+}
+function derivedNames(env: Record<string, string | undefined>): string[] {
+  const n = Number(env.RELAYER_POOL_SIZE);
+  if (!Number.isInteger(n) || n < 1 || !seedOf(env)) return [];
+  return Array.from({ length: Math.min(n, MAX_POOL) }, (_, i) => `RELAYER_POOL_${i + 1}`);
+}
+
+/** RELAYER_KEY_POOL → env-var names (deduped, invalid names dropped), plus the derived pool. [] ⇒ pool disabled. */
 export function poolNames(env: Record<string, string | undefined>): string[] {
+  const derived = derivedNames(env);
   const raw = (env.RELAYER_KEY_POOL ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (derived.length) return Array.from(new Set([...derived, ...raw.filter((n) => NAME.test(n) && !(ROLE_KEY_NAMES as readonly string[]).includes(n) && !DERIVED.test(n))])).slice(0, MAX_POOL);
   const ok = Array.from(new Set(raw.filter((n) => NAME.test(n) && !(ROLE_KEY_NAMES as readonly string[]).includes(n)))).slice(0, MAX_POOL);
   if (ok.length !== raw.length) console.warn(`[relayer-pool] ignored ${raw.length - ok.length} invalid / duplicate / role-key name(s) in RELAYER_KEY_POOL`);
   return ok;
@@ -39,6 +61,14 @@ const norm = (v: string | undefined) => { const t = v?.trim(); return t ? (t.sta
 const addrOf = (k: string | undefined) => { try { return k ? privateKeyToAccount(k as Hex).address.toLowerCase() : undefined; } catch { return undefined; } };
 /** The key behind `name`, or undefined when it is unset, malformed, or a role key's address (ROLE_KEY_NAMES). */
 export function poolKey(env: Record<string, string | undefined>, name: string): Hex | undefined {
+  const d = DERIVED.exec(name);
+  if (d) {
+    const seed = seedOf(env);
+    if (!seed || Number(d[1]) > Math.min(Number(env.RELAYER_POOL_SIZE) || 0, MAX_POOL)) return undefined;
+    const k = derivedPoolKey(seed, Number(d[1]));
+    const a = addrOf(k);
+    return a && !ROLE_KEY_NAMES.some((r) => a === addrOf(norm(env[r]))) ? k : undefined;
+  }
   const v = env[name]?.trim();
   if (!v) return undefined;
   const k = (v.startsWith("0x") ? v : `0x${v}`) as Hex;

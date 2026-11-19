@@ -44,10 +44,19 @@ export async function requireNotRevokedOrStruck(sender: string, now = Date.now()
   const ev = extras.map((_, i) => vals[ids.length * 3 + i] ?? null);
   return Array.isArray(extraKey) ? ev : ev[0] ?? null;
 }
-export const RELAY_SENDER_CAP = 20, RELAY_GLOBAL_CAP = 60, RELAY_BUDGET_WINDOW_SEC = 60;
+/** Positive integer env override within [lo, hi], else the default. */
+const capEnv = (v: string | undefined, d: number, lo: number, hi: number) => { const n = Number(v); return Number.isInteger(n) && n >= lo && n <= hi ? n : d; };
+/**
+ * Paid sends per minute (maker 2026-11-19: 60 a minute for the whole site was "way too slow"). Sized for launch-day bursts:
+ * 60 per player (one a second, rapid taps) and 30,000 site-wide (500 a second). RELAY_SENDER_CAP / RELAY_GLOBAL_CAP override.
+ * The global cap is a spend guard on relayer ETH, not a throughput limit: add relayer keys (RELAYER_KEY_POOL) for more.
+ */
+export const RELAY_SENDER_CAP = capEnv(process.env.RELAY_SENDER_CAP, 60, 1, 1_000);
+export const RELAY_GLOBAL_CAP = capEnv(process.env.RELAY_GLOBAL_CAP, 30_000, 10, 1_000_000);
+export const RELAY_BUDGET_WINDOW_SEC = 60;
 export const RELAY_GLOBAL_KEY = "relay:paid:global";
 /**
- * Paid-send budget (caps unchanged: 20/sender/min, 60 global/min; a store error throws ⇒ fail closed).
+ * Paid-send budget (RELAY_SENDER_CAP per sender, RELAY_GLOBAL_CAP site-wide, per minute; a store error throws ⇒ fail closed).
  * Vercel Security finding 1: one atomic EVAL checks the sender cap FIRST and charges the global counter only when the
  * sender is under its cap (and refunds it when the global cap is hit), so one sender's over-cap replays can't burn
  * everyone's global quota. Returns a refund for the global unit: the caller calls it when the op is rejected before

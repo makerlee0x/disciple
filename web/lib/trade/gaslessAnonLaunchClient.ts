@@ -74,24 +74,43 @@ export type { AnonLaunch, GaslessAnonLaunchRequest };
 export { PERMIT2 };
 
 /**
- * Free anon launch (maker 2026-11-19: "if your wallet is connected thats not anon"). No Ticket buy and creator fees burned or
- * locked in the pool, so nothing is paid and nothing is ever claimed. The player signs nothing for the chain: the relayer calls
- * CreatorFeeHarvest.launchAnon(WithMode) itself, so the launch tx holds the relayer, the harvest, AnonLauncher and the stealth
- * owner only. `wallet` is sent only for the relay's sign-in check (Privy session); it is not part of the launch.
+ * Anon launch (maker 2026-11-19: "if your wallet is connected thats not anon"). No Ticket buy and creator fees burned or
+ * locked in the pool, so nothing is ever claimed. The relayer calls CreatorFeeHarvest.launchAnon(WithMode) itself, so the
+ * launch tx holds the relayer, the harvest, AnonLauncher and the stealth owner only. The player pays the launch's gas in
+ * USDG (maker 2026-11-19): one silent signed cash-out to the relayer, which the relay sends as its own tx just before the
+ * launch. `wallet` is also sent for the relay's sign-in check (Privy session).
  */
 export type { FreeAnonLaunch };
 
+export type AnonLaunchFee = { launchGasFee: bigint; feeTo: Address };
+
+/** POST disciple_anonFreeLaunchQuote: the launch's gas in USDG base units and who it's paid to. No signature. */
+export async function quoteAnonFreeLaunch(wallet: Address, launch: FreeAnonLaunch, url = "/api/gasless", fetchFn: typeof fetch = fetch): Promise<AnonLaunchFee> {
+  const r = await fetchFn(url, { method: "POST", headers: { "content-type": "application/json" }, body: `{"jsonrpc":"2.0","id":1,"method":"disciple_anonFreeLaunchQuote","params":[${JSON.stringify({ wallet, launch }, bigintToDecimal)}]}` });
+  const j = await r.json().catch(() => ({})) as { result?: { launchGasFee: string; feeTo: Address }; error?: { message?: string; data?: GaslessError["data"] } };
+  if (!j.result) throw new GaslessError(j.error?.message ?? `anon launch quote HTTP ${r.status}`, j.error?.data ?? {}, r.status);
+  return { launchGasFee: BigInt(j.result.launchGasFee), feeTo: j.result.feeTo };
+}
+
 export async function sendFreeAnonLaunch(
-  wallet: Address,
+  pc: PublicClient,
+  owner: LocalAccount,
   launch: FreeAnonLaunch,
   url = "/api/gasless",
   fetchFn: typeof fetch = fetch,
 ): Promise<GaslessSendResult> {
   const tooLong = anonLaunchTooLong(launch);
   if (tooLong) throw new GaslessError(tooLong, { notSent: true });
-  const idToken = await privyIdentityToken().catch(() => null);
+  const wallet = owner.address;
+  const tokenP = privyIdentityToken().catch(() => null);
+  const { quoteGaslessWithdraw, signGaslessWithdraw } = await import("./gaslessWithdrawClient");
+  const [fee, wq] = await Promise.all([quoteAnonFreeLaunch(wallet, launch, url, fetchFn), quoteGaslessWithdraw({ signer: wallet }, url, fetchFn)]);
+  if (fee.feeTo.toLowerCase() !== wq.feeTo.toLowerCase()) throw new GaslessError("The network fee didn't read right. Try again.", { notSent: true });
+  const amount = fee.launchGasFee + wq.fee;
+  const payment = await signGaslessWithdraw(pc, owner, { amount, destination: fee.feeTo, quote: wq });
+  const idToken = await tokenP;
   const headers: Record<string, string> = { "content-type": "application/json", ...(idToken ? { "privy-id-token": idToken } : {}) };
-  const r = await fetchFn(url, { method: "POST", headers, body: `{"jsonrpc":"2.0","id":1,"method":"disciple_anonFreeLaunch","params":[${JSON.stringify({ wallet, launch }, bigintToDecimal)}]}` });
+  const r = await fetchFn(url, { method: "POST", headers, body: `{"jsonrpc":"2.0","id":1,"method":"disciple_anonFreeLaunch","params":[${JSON.stringify({ wallet, launch, payment }, bigintToDecimal)}]}` });
   const j = await r.json().catch(() => ({})) as { result?: { txHash: Hex; success: boolean; receipt: { logs: GaslessSendResult["logs"] }; gasUsed: number; server?: unknown }; error?: { message?: string; data?: GaslessError["data"] } };
   if (!j.result) throw new GaslessError(j.error?.message ?? `anon launch HTTP ${r.status}`, j.error?.data ?? {}, r.status);
   if (!j.result.success) throw new GaslessError("The launch didn't go through.", { notSent: false, txHash: j.result.txHash }, r.status);

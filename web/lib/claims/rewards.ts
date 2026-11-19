@@ -156,9 +156,9 @@ export type TaggedCall = Call & { kind: RewardKind };
 export function claimAllCalls(input: ClaimAllInput, caps: Caps, me: Address): TaggedCall[] {
   const tag = (kind: RewardKind) => (c: Call): TaggedCall => ({ ...c, kind });
   return [
-    ...(caps.referrerFees ? referralClaimCalls(input.referral).map(tag("referral")) : []),
+    ...(caps.referrerFees ? referralClaimCalls(input.referral, me).map(tag("referral")) : []),
     ...creatorClaimCalls(input.creator, caps, me).map(tag("creator")),
-    ...(caps.crew ? input.crew.filter((c) => c.pending > ZERO).map((c) => tag("crew")(crewClaimCall(c.token))) : []),
+    ...(caps.crew ? input.crew.filter((c) => c.pending > ZERO).map((c) => tag("crew")(crewClaimCall(c.token, me))) : []),
   ];
 }
 

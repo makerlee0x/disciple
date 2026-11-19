@@ -34,7 +34,7 @@ export async function GET(req: Request) {
   if (!s && isProd()) return NextResponse.json({ error: "cron_not_configured" }, { status: 503 });
   if (s && !same(req.headers.get("authorization") || "", `Bearer ${s}`)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (process.env.BOOST_RELEASE_DISABLED === "1") return NextResponse.json({ ok: true, skipped: "disabled" });
-  if (!ANON_ANY_MODE_LIVE) return NextResponse.json({ ok: true, skipped: "hidden launches are Expert only" });
+  if (!ANON_ANY_MODE_LIVE) return NextResponse.json({ ok: true, skipped: "anon launches are Expert only" });
   const launcher = ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher;
   if (!launcher || launcher === ZERO) return NextResponse.json({ ok: true, skipped: "no anon launcher" });
   let key: `0x${string}`;

@@ -15,6 +15,7 @@ export function tokenCost(weiAmount: bigint, rate: bigint): bigint {
   return (weiAmount * rate + E - BigInt(1)) / E;
 }
 import { GAS } from "../config";
+import { usdgPerEthRate } from "../gas/liveRate";
 import { DEPLOYMENTS } from "../chains";
 
 export type GasOpKind = "trade" | "gradBuy";
@@ -28,7 +29,8 @@ export const CONFIG_GAS_PRICE_WEI = BigInt(Math.ceil(GAS.robinhoodGwei * 1e9));
 /** Deployment decimals before the token is read; current RH testnet USDG is 6-decimal. */
 export const fallbackUsdgDecimals = (chainId: number) => DEPLOYMENTS[chainId]?.usdgDecimals ?? 6;
 /** Config ETH→USDG rate (USDG base units per 1 ETH) at `decimals`. */
-export const configRate = (decimals: number) => BigInt(Math.round(GAS.ethUsd * 1e6)) * BigInt(10) ** BigInt(decimals) / BigInt(1e6);
+/** USDG base units per 1 ETH: the live pool rate from the last gasless quote (lib/gas/liveRate), else config GAS.ethUsd. */
+export const configRate = (decimals: number) => usdgPerEthRate(decimals);
 
 /** maxFeePerGas the paymaster allowance is signed with at gas price `gp` (same formula as paymasterCore.allowanceQuote). */
 export const allowanceMaxFee = (gp: bigint) => clientFees(gp).maxFeePerGas * ALLOWANCE_FEE_MULT;

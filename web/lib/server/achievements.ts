@@ -404,7 +404,7 @@ export async function claimAnonHost(coinIn: string, walletIn: string, sig: Hex, 
   const coin = coinIn.toLowerCase(), w = walletIn.toLowerCase();
   if (!/^0x[0-9a-f]{40}$/.test(coin) || !/^0x[0-9a-f]{40}$/.test(w)) return { ok: false, reason: "bad request", status: 400 };
   const creator = (await serverPc().readContract({ address: deployment().launchpad, abi: launchpadAbi, functionName: "creatorOf", args: [coin as `0x${string}`] }).catch(() => null) as string | null)?.toLowerCase() ?? "";
-  if (!anonLaunchers(ACTIVE_CHAIN.id).some((a) => a.toLowerCase() === creator)) return { ok: false, reason: "not a hidden launch", status: 400 };
+  if (!anonLaunchers(ACTIVE_CHAIN.id).some((a) => a.toLowerCase() === creator)) return { ok: false, reason: "not an anon launch", status: 400 };
   const owner = await stealthOwnerOf(coin, creator);
   const a = await recoverMessageAddress({ message: anonHostMessage(coin, w, ACTIVE_CHAIN.id), signature: sig }).catch(() => null);
   if (!owner || !a || a.toLowerCase() !== owner) return { ok: false, reason: "not the host", status: 403 };

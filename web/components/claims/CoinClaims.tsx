@@ -76,7 +76,7 @@ export default function CoinClaims({ token }: { token: string }) {
         if (me) await preflight(pc(), calls, me);
         setDone((await sendCreatorClaims(calls)).txHash);
       }
-      if (sheet === "crew") { if (me) await preflight(pc(), [crewClaimCall(token as Address)], me); setDone((await claimCrew([token as Address])).txHash); }
+      if (sheet === "crew") { if (me) await preflight(pc(), [crewClaimCall(token as Address, me)], me); setDone((await claimCrew([token as Address], me ?? undefined)).txHash); }
       void load();
     } catch (e) { setErr(claimErrorText(e)); } finally { setBusy(false); }
   };
