@@ -35,6 +35,7 @@ function mount(root,host){
   // ranked = real money only (maker 2026-11-17): until real-money duels are live the online queue is unranked, no rating shown
   const RL=!!host.rankedLive;
   let dead=false; const offs=[];
+  let CLIP=null;   // the duel's 2x share clip while it records (clipStart below)
   const track=k=>{ try{ host.track&&host.track(k); }catch(e){} };   // funnel counter (lib/funnel TURBO_STEPS), once per browser
   const on=(t,ev,f,o)=>{ t.addEventListener(ev,f,o); offs.push(()=>t.removeEventListener(ev,f,o)); };
   // result card fits one screen (maker 2026-11-17: "cropped weird"): tighter blocks, the card scrolls inside the overlay
@@ -185,7 +186,7 @@ function mount(root,host){
   const PL=()=>G.bot?[G.me,G.bot]:[G.me];   // the pilots in this run (Climb: just you)
   function newPlayer(name,me){return {name,me,fuel:FUEL0,pos:null,fees:0,trades:0,up:0,dn:0,green:0,best:0,y:0,vy:0,flame:0,flameC:"255,200,120",sq:0,lastTrade:-1e9,next:0,moments:[]};}
   function newGame(){
-    optim=0;
+    optim=0; clipDrop();
     FUEL0=curFuel(); LEV=CLR?CLR.gear:DUEL_LEV; FEE=CLR?CL.fee:DUEL_FEE; SIZES=PCTS; if(CLR&&CLR.free) stake=cPct>=100?0:cPct; else if(!SIZES.includes(stake)) stake=25; paintSizes(); resizeK();
     const startAt=M&&M.startAt||Date.now()+3500, h=host.history(), BCFG=botCfg();
     G={t:now_()-startAt,startAt,solo:!!CLR,len:CLR?CLR.len:(M&&M.endAt?M.endAt-startAt:LEN),ot:false,over:false,price:h.length?h[h.length-1].p:0,ticks:[],marks:[],
@@ -386,7 +387,7 @@ function mount(root,host){
       ui();
     }
     if(G&&!G.started) G.t=now_()-G.startAt;
-    if(preEl.hidden||preEl.classList.contains("out")){ drawSky(dt,now); if(!G||!G.chartAt||now-G.chartAt>60){ drawChart(); if(G)G.chartAt=now; } }
+    if(preEl.hidden||preEl.classList.contains("out")){ drawSky(dt,now); if(!G||!G.chartAt||now-G.chartAt>60){ drawChart(); if(G)G.chartAt=now; } if(CLIP&&CLIP.on&&G&&G.started&&!G.over) clipFrame(now,dt); }
     if(!dead) requestAnimationFrame(frame);
   }
 
@@ -937,7 +938,7 @@ function mount(root,host){
       if(left>0){ if(n!==shown){ shown=n; pc.textContent=n; pc.style.animation="none"; void pc.offsetWidth; pc.style.animation=""; if(n<=3) sfx("count"); } return; }
       if(!priceReady()){ if(shown!=="wait"){ shown="wait"; pc.textContent="\u2026"; $("lSub").textContent="Waiting for the live BTC price. GO as soon as it lands."; } return; }
       clearInterval(iv); const pre=$("pre"); pre.classList.add("out"); setTimeout(()=>{ if(pre.classList.contains("out")) pre.hidden=true; },380);
-      c.hidden=false; c.textContent="GO"; sfx("go"); buzz(30); G.started=true; track("duel_start"); music(true); if(coachStep()!=="done") coach(coachStep()==="out"?"out":"boost"); setTimeout(()=>c.hidden=true,450);
+      c.hidden=false; c.textContent="GO"; sfx("go"); buzz(30); G.started=true; clipStart(); track("duel_start"); music(true); if(coachStep()!=="done") coach(coachStep()==="out"?"out":"boost"); setTimeout(()=>c.hidden=true,450);
       if(!G.solo&&!(M&&M.net)&&Math.random()<.6) botSay(pick(["glhf","let's go","you're going down","\ud83e\udee1"]),1500);
       if(G.solo){ let seen=false; try{ seen=localStorage.getItem("climb.keysTip")==="1"; localStorage.setItem("climb.keysTip","1"); }catch(e){}   // first run only (copy rule)
         if(!seen) toast(SW>=900?"Space boost \u00b7 Shift dump \u00b7 Enter cash out":"Tap boost or dump \u00b7 tap the pill to cash out"); } else toast(SW>=900?"WASD to fly \u00b7 Space boost \u00b7 Shift dump \u00b7 Enter cash out \u00b7 T chat \u00b7 Q spin \u00b7 E flip":"Drag the sky to steer \u00b7 swipe up to spin \u00b7 double-tap to flip"); },100);
@@ -961,6 +962,7 @@ function mount(root,host){
     if(net&&net.rating) { rec.rating=net.rating; if((M.ranked||M.casual)&&!tie){ if(win){rec.w++;rec.streak++;} else {rec.l++;rec.streak=0;} } REC=rec; }
     if(M&&!M.net&&!tie&&!host.first) botAdjBy(win?.06:-.08);   // bots ease off after a loss, push after a win
     LAST={pm,pb,win:win&&!tie,tie,opp:G.bot.name,bot:!!(M&&!M.net),sat:G.me.up+G.me.dn===0,len:lenTxt()};
+    clipEnd(LAST);
     { const x=host.climbing&&host.climbing(), a=$("rClimb"); a.hidden=!x;   // cross-link (maker 2026-11-16): a real rocket climbing right now
       if(x){ a.href=x.href; a.innerHTML=`<b>\u25b2 $${esc(x.sym)}</b><span>${esc(x.line)}</span><em>BOOST IT \u2192</em>`; } }
     { const el=$("rSeason"), sp=net&&net.sp, st=net&&net.streak!=null?net.streak:0, L=sp&&host.league?host.league(sp.league):null;   // season ladder (lib/duel/season)
@@ -1160,6 +1162,77 @@ function mount(root,host){
   resize(); newGame(); ui(); requestAnimationFrame(frame);
   show("intro");
 
+  /* ---------- 2x share clip (maker 2026-11-18): the whole duel at double speed, 720x1280, + the share card at the end.
+     host.clip() hands back lib/share/duelClip's createDuelClip (WebCodecs); no host.clip or no encoder = PNG card only.
+     Trading never waits on this: orders go out over the network on tap. The recorder only drops its OWN frames: it skips a
+     capture when the page is already behind (a long frame), and it stops for the match if composing averages over 4 ms. */
+  const CW=720, CH=1280;
+  function clipStart(){
+    clipDrop();
+    if(!G||G.solo||!host.clip||dead) return;
+    const c={on:false,rec:null,cv:null,x:null,cost:0,n:0,cxs:null,sw:null,blob:null,done:null,res:null,want:false};
+    CLIP=c;
+    Promise.resolve().then(()=>host.clip()).then(make=>make?make({width:CW,height:CH}):null).then(rec=>{
+      if(CLIP!==c||!rec){ if(rec) rec.abort(); if(CLIP===c) CLIP=null; return; }
+      c.rec=rec; c.cv=document.createElement("canvas"); c.cv.width=CW; c.cv.height=CH; c.x=c.cv.getContext("2d");
+      c.on=!(G&&G.over);
+      if(!c.on){ c.rec.abort(); CLIP=null; }
+    }).catch(()=>{ if(CLIP===c) CLIP=null; });
+  }
+  function clipDrop(){ if(CLIP&&CLIP.rec&&!CLIP.blob) CLIP.rec.abort(); CLIP=null; }
+  function clipFrame(now,dt){
+    const c=CLIP; if(dt>.026) return;   // the page is already behind this frame: the game keeps it, we skip ours
+    const t0=performance.now();
+    clipPaint(c);
+    c.rec.add(c.cv,now);
+    const ms=performance.now()-t0; c.cost=c.n?c.cost*.95+ms*.05:ms; c.n++;
+    if(c.n>45&&c.cost>(window.__duelClipMaxMs||4)){ c.on=false; c.rec.abort(); CLIP=null; try{ window.__duelClipStats={stopped:true,composeMs:+c.cost.toFixed(2)}; }catch(e){} }   // too slow on this device: no clip this match, the card still shares
+  }
+  function clipPaint(c){
+    const x=c.x; x.setTransform(1,0,0,1,0,0); x.globalAlpha=1; x.fillStyle="#07080c"; x.fillRect(0,0,CW,CH);
+    // sky: crop around both rockets (desktop rockets roam the full width), smoothed so the frame doesn't jitter
+    if(SW&&SH&&G&&G.bot){
+      const ar=CW/CH, la=lane(G.me), lb=lane(G.bot), span=Math.abs(la-lb)+RH()*1.6;
+      const cxT=(la+lb)/2, swT=Math.min(SW,Math.max(SH*ar,span));
+      c.cxs=c.cxs==null?cxT:c.cxs+(cxT-c.cxs)*.12; c.sw=c.sw==null?swT:c.sw+(swT-c.sw)*.08;
+      const sw=Math.min(SW,c.sw), sh=Math.min(SH,sw/ar), k=Math.min(CW/sw,CH/sh);
+      const band=LAY?(LAY.under+LAY.barTop)/2:SH/2, sxp=Math.max(0,Math.min(SW-sw,c.cxs-sw/2)), syp=Math.max(0,Math.min(SH-sh,band-sh*.62));
+      const dw=sw*k, dh=sh*k;
+      x.drawImage(sky,sxp*DPR,syp*DPR,sw*DPR,sh*DPR,(CW-dw)/2,(CH-dh)/2,dw,dh);
+    }
+    const g=x.createLinearGradient(0,0,0,CH); g.addColorStop(0,"rgba(7,8,12,.85)"); g.addColorStop(.3,"rgba(7,8,12,0)"); g.addColorStop(.88,"rgba(7,8,12,0)"); g.addColorStop(1,"rgba(7,8,12,.85)");
+    x.fillStyle=g; x.fillRect(0,0,CW,CH);
+    // chart card
+    if(cc.width&&cc.height){ const px=24, py=150, pw=CW-48, ph=Math.min(300,pw*cc.height/cc.width);
+      x.fillStyle="rgba(18,19,39,.82)"; x.beginPath(); if(x.roundRect) x.roundRect(px,py,pw,ph,18); else x.rect(px,py,pw,ph); x.fill();
+      const k=Math.min(pw/cc.width,ph/cc.height), w=cc.width*k, h=cc.height*k; x.drawImage(cc,px+(pw-w)/2,py+(ph-h)/2,w,h); }
+    // HUD: you vs them, $ each, clock
+    if(G&&G.bot){
+      const pm=profitOf(G.me), pb=profitOf(G.bot), left=Math.max(0,(G.len-G.t)/1000), mm=Math.floor(left/60), ss=Math.floor(left%60);
+      x.textBaseline="alphabetic";
+      x.textAlign="left"; x.font=`800 30px ${GF},sans-serif`; x.fillStyle="#F2C14E"; x.fillText("YOU",28,58);
+      x.font=`800 44px ${GF},sans-serif`; x.fillStyle=pm>=0?"#5FF0A0":"#FF8FBD"; x.fillText(usd(pm,true),28,108);
+      x.textAlign="right"; x.font=`800 30px ${GF},sans-serif`; x.fillStyle="#FF8FBD"; x.fillText(String(G.bot.name||"RIVAL").toUpperCase().slice(0,14),CW-28,58);
+      x.font=`800 44px ${GF},sans-serif`; x.fillStyle=pb>=0?"#5FF0A0":"#FF8FBD"; x.fillText(usd(pb,true),CW-28,108);
+      x.textAlign="center"; x.font=`800 54px ${GF},sans-serif`; x.fillStyle=G.ot?"#FF8FBD":"#F2F3F7"; x.fillText(`${mm}:${String(ss).padStart(2,"0")}`,CW/2,90);
+      x.font=`800 22px ${GF},sans-serif`; x.fillStyle="#F2C14E"; x.fillText(G.ot?"OVERTIME · 2X":"2X",CW/2,124);
+    }
+    x.textAlign="center"; x.font=`italic 800 34px ${GF},sans-serif`; x.fillStyle="rgba(242,243,247,.92)"; x.fillText("DISCIPLE",CW/2,CH-56);
+    x.font=`800 22px ${GF},sans-serif`; x.fillStyle="rgba(215,217,228,.8)"; x.fillText("DISCIPLE.VIP",CW/2,CH-24);
+  }
+  // match over: stop capturing and build the MP4 (last frame, then the share card fading in) while the result card shows
+  function clipEnd(r){
+    const c=CLIP; if(!c) return;
+    if(!c.rec||!c.on){ clipDrop(); return; }
+    c.on=false;
+    const card=shareCard(r), k=CW/card.width, ch=card.height*k, y=(CH-ch)/2;
+    clipPaint(c); const last=document.createElement("canvas"); last.width=CW; last.height=CH; last.getContext("2d").drawImage(c.cv,0,0);
+    const paint=t=>{ const x=c.x, a=Math.min(1,t/.35); x.globalAlpha=1; x.drawImage(last,0,0); x.globalAlpha=a; x.fillStyle="#07080c"; x.fillRect(0,0,CW,CH); x.drawImage(card,0,y,CW,ch); x.globalAlpha=1; };
+    c.done=c.rec.finish(c.cv,paint).then(b=>{ c.blob=b; try{ window.__duelClipStats=Object.assign(c.rec.stats(),{composeMs:+c.cost.toFixed(2),bytes:b?b.size:0}); }catch(e){} return b; }).catch(()=>null);
+  }
+  async function clipBlob(r){ const c=CLIP; if(!c||!c.done) return null; return await Promise.race([c.done,new Promise(res=>setTimeout(()=>res(null),6000))]); }
+  function saveFile(f){ try{ const u=URL.createObjectURL(f), a=document.createElement("a"); a.href=u; a.download=f.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),4000); }catch(e){} }
+
   /* ---------- share the result (maker 2026-11-15: share card + rematch link; bragging rights only, never rewards) ---------- */
   let LAST=null;
   function shareLine(r){
@@ -1200,7 +1273,10 @@ function mount(root,host){
       let url=location.origin+(host.guest?"/duel":"/");
       if((SIGNED||host.guest)&&host.challengeLink){ try{ const u=await host.challengeLink(botKey,LEN,M&&M.fuel||undefined); if(u) url=u; }catch(e){} }
       const text=shareLine(LAST)+((url.includes("?c=")||url.includes("/vs/"))?" 1v1 me:":"");
-      let file=null; try{ const blob=await new Promise(res=>shareCard(LAST).toBlob(res,"image/png")); if(blob) file=new File([blob],"disciple-duel.png",{type:"image/png"}); }catch(e){}
+      let file=null; const vid=await clipBlob(LAST);
+      if(vid) file=new File([vid],"disciple-duel.mp4",{type:"video/mp4"});
+      if(vid&&!(navigator.share&&navigator.canShare&&navigator.canShare({files:[file]}))){ saveFile(file); try{ await navigator.clipboard.writeText(text+" "+url); }catch(e){} toast("Clip saved. Post text copied."); return; }
+      if(!file){ try{ const blob=await new Promise(res=>shareCard(LAST).toBlob(res,"image/png")); if(blob) file=new File([blob],"disciple-duel.png",{type:"image/png"}); }catch(e){} }
       if(navigator.share){
         const d=file&&navigator.canShare&&navigator.canShare({files:[file]})?{files:[file],text:text+" "+url}:{text,url};
         try{ await navigator.share(d); return; }catch(e){ if(e&&e.name==="AbortError") return; }
@@ -1452,7 +1528,7 @@ function mount(root,host){
     climbFill:(entry)=>{ if(!CLR||!G||G.over||!G.me.pos||!(entry>0)) return; G.me.pos.entry=entry; ui(); },
     climbRefresh:()=>{ if(!CL) return; if(!cFreeSet&&LVS.length) cFree.fuel=LVS[LVS.length-1].fuel; if(!$("climb").hidden) climbHome(); },
     _state:()=>G,
-    destroy:()=>{ dead=true; if(CL&&CL.lighter) CL.lighter.end(); offs.forEach(f=>f()); removeEventListener("storage",onStore); removeEventListener("disciple:audio",onLvl); try{ if(ac) ac.close(); }catch(e){} root.innerHTML=""; root.classList.remove("duel-root"); },
+    destroy:()=>{ dead=true; clipDrop(); if(CL&&CL.lighter) CL.lighter.end(); offs.forEach(f=>f()); removeEventListener("storage",onStore); removeEventListener("disciple:audio",onLvl); try{ if(ac) ac.close(); }catch(e){} root.innerHTML=""; root.classList.remove("duel-root"); },
   };
 }
 window.DuelEngine={mount};

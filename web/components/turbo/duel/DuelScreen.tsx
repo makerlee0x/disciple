@@ -226,6 +226,8 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
 
     const host = {
       climbing: () => climb,
+      // the result SHARE's 2x clip (engine clipStart; lib/share/duelClip): only where WebCodecs can encode, loaded on the first match
+      clip: () => (typeof VideoEncoder === "undefined" ? null : import("@/lib/share/duelClip").then((m) => m.createDuelClip)),
       league: (id: string) => LEAGUES.find((l) => l.id === id) ?? null,
       assets: { ...Object.fromEntries(["rocket", ...SKIES].map((k) => [k, `/turbo/duel/${k}.webp`])), ...EXTRA_SKIES, art: "/art/modes/duel.webp" },
       history: () => hist.filter((h) => h.ts > Date.now() - 60_000),
