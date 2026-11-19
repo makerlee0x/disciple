@@ -18,6 +18,9 @@ import Tooltip from "@/components/ui/Tooltip";
 import { onTurboCash } from "@/lib/turbo/turboCash";
 import { openSend } from "@/lib/send/open";
 
+/** Rocket bag send (fleet card icon → components/send/SendHost): off until the gasless token transfer is wired. */
+const SEND_ROCKETS = false;
+
 export function SendIcon({ size = 16 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden><path d="M21 3L10 14" /><path d="M21 3l-7 18-4-7-7-4z" /></svg>;
 }
@@ -100,7 +103,7 @@ export function Fleet({ rows, home, launched, isPrivate, owner }: {
             ? (list as LiveHolding[]).map((h) => {
               const c = asCoin(h, home);
               const card = <LiveCard key={h.coin} c={c} seat={usd2(h.usd)} testId="fleet-card" compact />;
-              if (!isPrivate) return card;
+              if (!isPrivate || !SEND_ROCKETS) return card;
               // send this bag to another pilot by @username (maker 2026-11-19)
               return (
                 <div key={h.coin} className="sd-fleet">
