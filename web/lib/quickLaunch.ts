@@ -34,7 +34,7 @@ export const DIFFICULTY_TIP = {
 
 /** Creator Ticket ⓘ, per difficulty (on-chain: Launchpad.firstBoostMaxBps + Easy Token.lockCreator). */
 export const CREATOR_TICKET_TIP = {
-  lead: "First dibs: your buy goes in with the launch, before anyone else. No sniper tax.",
+  lead: "First dibs: your buy goes in with the launch, before anyone else.",
   byMode: {
     Easy: "Up to 1.2% of supply. Locked in your wallet until orbit.",
     Hard: "Up to 3.33% of supply. Not locked.",
