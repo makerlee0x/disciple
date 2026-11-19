@@ -48,11 +48,11 @@ export async function requireNotRevokedOrStruck(sender: string, now = Date.now()
 const capEnv = (v: string | undefined, d: number, lo: number, hi: number) => { const n = Number(v); return Number.isInteger(n) && n >= lo && n <= hi ? n : d; };
 /**
  * Paid sends per minute (maker 2026-11-19: 60 a minute for the whole site was "way too slow"). Sized for launch-day bursts:
- * 60 per player (one a second, rapid taps) and 3,000 site-wide (50 a second). RELAY_SENDER_CAP / RELAY_GLOBAL_CAP override.
+ * 60 per player (one a second, rapid taps) and 30,000 site-wide (500 a second). RELAY_SENDER_CAP / RELAY_GLOBAL_CAP override.
  * The global cap is a spend guard on relayer ETH, not a throughput limit: add relayer keys (RELAYER_KEY_POOL) for more.
  */
 export const RELAY_SENDER_CAP = capEnv(process.env.RELAY_SENDER_CAP, 60, 1, 1_000);
-export const RELAY_GLOBAL_CAP = capEnv(process.env.RELAY_GLOBAL_CAP, 3_000, 10, 100_000);
+export const RELAY_GLOBAL_CAP = capEnv(process.env.RELAY_GLOBAL_CAP, 30_000, 10, 1_000_000);
 export const RELAY_BUDGET_WINDOW_SEC = 60;
 export const RELAY_GLOBAL_KEY = "relay:paid:global";
 /**
