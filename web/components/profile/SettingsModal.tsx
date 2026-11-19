@@ -11,6 +11,7 @@ import { privyAccessToken } from "@/lib/aa/sessionState";
 import Icon from "@/components/icons/Icon";
 import { setGameSettings, useGameSettings } from "@/lib/game/settings";
 import SoundRow from "./SoundRow";
+import { isNativeApp } from "@/lib/native";
 
 /** Settings copy (profile r3 README copy list). */
 export const SETTINGS_COPY = {
@@ -24,6 +25,7 @@ export const SETTINGS_COPY = {
   sound: "Sound",
   music: "Music",
   sfx: "Sound effects",
+  menuMusic: "Menu music",
   on: "ON",
   maxMove: "Price protection",
   maxMoveHelp: "Cancels a trade if the price moves more than this.",
@@ -74,6 +76,8 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
   const [bps, setBps] = useState(1500);
   const [busy, setBusy] = useState(false);
   const gs = useGameSettings();
+  const [app, setApp] = useState(false);   // Menu music is an iPhone app setting (lib/game/menuMusic); read after mount, not on the server
+  useEffect(() => { setApp(isNativeApp()); }, []);
   const [err, setErr] = useState("");
   const [sec, setSec] = useState<PrivySecurity | null>(null);
   const [view, setView] = useState<"main" | "2fa" | "delete">("main");
@@ -270,6 +274,12 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                 <span className="gh">{SETTINGS_COPY.sound}</span>
                 <div className="p5-sbox">
                   <SoundRow music={SETTINGS_COPY.music} sfx={SETTINGS_COPY.sfx} />
+                  {app && <div className="p5-srow" data-testid="settings-menu-music">
+                    <span className="p5-sic"><Icon name="play" size={18} /></span>
+                    <div className="tx"><b>{SETTINGS_COPY.menuMusic}</b></div>
+                    <button type="button" role="switch" aria-checked={gs.menuMusic} aria-label={SETTINGS_COPY.menuMusic} className={`p5-switch sm${gs.menuMusic ? " on" : ""}`} data-testid="settings-menu-music-switch"
+                      onClick={() => setGameSettings((g) => ({ ...g, menuMusic: !g.menuMusic }))}><span /></button>
+                  </div>}
                 </div>
               </section>
               <PushSettings wallet={addr ? addr.toLowerCase() : null} />
