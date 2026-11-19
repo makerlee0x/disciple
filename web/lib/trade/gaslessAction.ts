@@ -18,7 +18,14 @@ import { callsHash, encodeForwarderAction, type ForwarderAction, type ForwarderC
 
 export { MULTICALL3, transferTypedData, withdrawFeeRaw, minWithdrawAmount } from "./gaslessWithdraw";
 
-export const ACTION_KINDS = ["anonClaim", "anonTransferCreator", "anonCreatorMeta", "trampPull"] as const;
+/**
+ * anonClaim: every relayable claim (name kept for old clients): the anon claimManyBySig variants plus, maker 2026-11-19
+ * (players hold USDG only), the public claims on the rebuilt contracts. Those pay the coin creator's Pays to / the
+ * referrer / the holder whoever sends them, so the relayer can.
+ * creatorEdit: a wallet coin's creator signs (Launchpad transferCreatorBySig / updateMetadataBySig, CreatorFeeHarvest
+ * setCreatorFeeRecipientBySig) and the relayer sends it.
+ */
+export const ACTION_KINDS = ["anonClaim", "anonTransferCreator", "anonCreatorMeta", "trampPull", "creatorEdit"] as const;
 export type ActionKind = (typeof ACTION_KINDS)[number];
 
 export const SEL = {
@@ -29,22 +36,37 @@ export const SEL = {
   /** Rewards panel coin info (private coins): AnonLauncher.updateMetadataBySig, signed by the stealth owner. */
   updateMetadataBySig: toFunctionSelector("updateMetadataBySig(address,string,string,string,uint256,bytes)"),
   pull: toFunctionSelector("pull(uint256)"),
+  // public claims (rebuilt contracts, maker 2026-11-19)
+  claimCreatorFees: toFunctionSelector("claimCreatorFees(address)"),
+  claimCreatorTokenFees: toFunctionSelector("claimCreatorTokenFees(address)"),
+  claimReferrerFeesFor_2143: toFunctionSelector("claimReferrerFeesFor_2143(address,address)"),
+  vaultClaimReferrerFeesFor: toFunctionSelector("claimReferrerFeesFor(address,address,address[])"),
+  claimFor: toFunctionSelector("claimFor(address,address)"),
+  setCreatorFeeRecipientBySig: toFunctionSelector("setCreatorFeeRecipientBySig(address,address,uint256,bytes)"),
 } as const;
+
+/** Public claim selectors (anyone may send; the money goes where the contract says). */
+export const PUBLIC_CLAIM_SELECTORS: readonly Hex[] = [
+  SEL.claimCreatorFees, SEL.claimCreatorTokenFees, SEL.claimReferrerFeesFor_2143, SEL.vaultClaimReferrerFeesFor, SEL.claimFor,
+];
 
 /** Conservative gas units for the quoted USDG fee (quoted fee is kept; unused gas is not refunded). */
 export const ACTION_GAS = {
   anonClaim: BigInt(250_000),
-  anonClaimPerExtra: BigInt(80_000),
+  anonClaimPerExtra: BigInt(150_000),
   anonTransferCreator: BigInt(120_000),
   /** image + description + socials strings land in Launchpad storage (≤ ~1.2 KB): sized for the longest allowed text */
   anonCreatorMeta: BigInt(420_000),
   trampPull: BigInt(550_000),
+  /** the longest edit: Launchpad.updateMetadataBySig with the longest allowed text */
+  creatorEdit: BigInt(450_000),
 } as const;
 export const ACTION_TX_GAS_LIMIT = {
-  anonClaim: BigInt(800_000),
+  anonClaim: BigInt(3_000_000),
   anonTransferCreator: BigInt(300_000),
   anonCreatorMeta: BigInt(900_000),
   trampPull: BigInt(900_000),
+  creatorEdit: BigInt(900_000),
 } as const;
 
 export type ActionCall = { to: Address; data: Hex };
@@ -68,12 +90,17 @@ export function actionGas(kind: ActionKind, callCount = 1, needsPermit = false):
   const body = kind === "anonClaim" ? ACTION_GAS.anonClaim + ACTION_GAS.anonClaimPerExtra * (n - 1n)
     : kind === "anonTransferCreator" ? ACTION_GAS.anonTransferCreator
     : kind === "anonCreatorMeta" ? ACTION_GAS.anonCreatorMeta
+    : kind === "creatorEdit" ? ACTION_GAS.creatorEdit
     : ACTION_GAS.trampPull;
   return body + (needsPermit ? WITHDRAW_GAS_PERMIT : 0n) + WITHDRAW_GAS_PAD;
 }
 
-export function actionTxGasLimit(kind: ActionKind): bigint {
-  return ACTION_TX_GAS_LIMIT[kind];
+export function actionTxGasLimit(kind: ActionKind, callCount = 1): bigint {
+  if (kind !== "anonClaim") return ACTION_TX_GAS_LIMIT[kind];
+  // Claim all: one tx for every row; a pool claim pays out both sides, so room per call
+  const n = BigInt(Math.max(1, callCount | 0));
+  const g = ACTION_TX_GAS_LIMIT.anonClaim + BigInt(400_000) * (n - 1n);
+  return g > BigInt(12_000_000) ? BigInt(12_000_000) : g;
 }
 
 const eq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -113,12 +140,37 @@ export function blockedCallsMessage(calls: ActionCall[]): string {
   return blockedActionMessage(fns.join(", "));
 }
 
-export function isRelayableCall(kind: ActionKind, c: ActionCall): boolean {
+const isSet = (a?: string) => !!a && !/^0x0{40}$/i.test(a);
+/** Contracts a public claim may go to. `extra`: a coin's own vault / hook the server read on-chain (older coins). */
+function isClaimTarget(s: Hex, to: Address, extra?: ReadonlySet<string>): boolean {
+  const d = deployment();
+  const known = (a?: string) => isSet(a) && eq(a!, to);
+  if (extra?.has(to.toLowerCase())) return s === SEL.claimCreatorFees || s === SEL.vaultClaimReferrerFeesFor;
+  if (s === SEL.claimCreatorFees) return known(d.feeRouter) || known(d.curveFeeVault) || known(d.hook);
+  if (s === SEL.claimCreatorTokenFees || s === SEL.claimReferrerFeesFor_2143) return known(d.feeRouter);
+  if (s === SEL.vaultClaimReferrerFeesFor) return known(d.curveFeeVault);
+  if (s === SEL.claimFor) return known(d.launchpad);
+  return false;
+}
+
+export function isRelayableCall(kind: ActionKind, c: ActionCall, extra?: ReadonlySet<string>): boolean {
   const s = selOf(c.data);
-  if (kind === "anonClaim") return s === SEL.claimManyBySig || s === SEL.claimManyAsStealthBySig;
+  if (kind === "anonClaim") return s === SEL.claimManyBySig || s === SEL.claimManyAsStealthBySig || isClaimTarget(s, c.to, extra);
   if (kind === "anonTransferCreator") return s === SEL.transferCreatorBySig;
   if (kind === "anonCreatorMeta") return s === SEL.updateMetadataBySig && isAnonLauncher(c.to);
+  if (kind === "creatorEdit") {
+    const d = deployment();
+    if (s === SEL.transferCreatorBySig || s === SEL.updateMetadataBySig) return isSet(d.launchpad) && eq(c.to, d.launchpad);
+    return s === SEL.setCreatorFeeRecipientBySig && isSet(d.creatorFeeHarvest) && eq(c.to, d.creatorFeeHarvest);
+  }
   return s === SEL.pull && eq(c.to, deployment().trampWallManager);
+}
+
+/** A public claim's coin (first address argument), for the server's own-vault / own-hook read. */
+export function claimTokenArg(c: ActionCall): Address | null {
+  const s = selOf(c.data);
+  if (s !== SEL.claimCreatorFees || c.data.length < 74) return null;
+  return (`0x${c.data.slice(34, 74)}`) as Address;
 }
 
 export function partitionRelayableCalls(kind: ActionKind, calls: ActionCall[]): { relayable: ActionCall[]; blocked: ActionCall[] } {
@@ -177,13 +229,15 @@ export function parseGaslessActionRequest(x: unknown): GaslessActionRequest {
   };
 }
 
-export function checkGaslessActionRequest(q: GaslessActionRequest, o: { usdg: Address; usdgDecimals: number; nowSec: number; feeTo: Address; minFee?: bigint }): void {
+export function checkGaslessActionRequest(q: GaslessActionRequest, o: { usdg: Address; usdgDecimals: number; nowSec: number; feeTo: Address; minFee?: bigint; extraTargets?: ReadonlySet<string> }): void {
   if (!q.calls.length) throw new GaslessReject("no calls");
   for (const c of q.calls) {
-    if (!isRelayableCall(q.kind, c)) throw new GaslessReject(`call is not a relayable ${q.kind} (${describeBlockedCall(c.data)})`);
+    if (!isRelayableCall(q.kind, c, o.extraTargets)) throw new GaslessReject(`call is not a relayable ${q.kind} (${describeBlockedCall(c.data)})`);
   }
   if (q.kind === "anonClaim") {
     for (const c of q.calls) {
+      const s = selOf(c.data);
+      if (s !== SEL.claimManyBySig && s !== SEL.claimManyAsStealthBySig) continue; // public claims pay where the contract says
       if (!eq(claimPayoutOf(c.data), q.signer)) throw new GaslessReject("claim payout must be the signer's wallet");
     }
   }

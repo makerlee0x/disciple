@@ -3,6 +3,7 @@
  * withdrawal, an EIP-2612 permit of USDG to PERMIT2) silently, then POSTs /api/gasless. No ETH, no approve tx.
  */
 import { type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
+import { rememberUsdgPerEth } from "../gas/liveRate";
 import { ACTIVE_CHAIN } from "../chains";
 import { bigintToDecimal, GASLESS_MAX_DEADLINE_SEC, jsonSafe, PERMIT2, type Permit } from "./gaslessPermit2";
 import { permitFor, permit2NonceBook, GaslessError, type GaslessSendResult } from "./gaslessClient";
@@ -25,6 +26,7 @@ export type WithdrawQuote = {
 export function parseWithdrawQuote(x: unknown): WithdrawQuote {
   const o = (x ?? {}) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
   const b = (v: unknown) => (typeof v === "bigint" ? v : BigInt(String(v)));
+  try { rememberUsdgPerEth(b(o.rate), Number(o.usdgDecimals)); } catch { /* no rate */ }
   return {
     fee: b(o.fee), feeTo: o.feeTo, gas: b(o.gas), gasPrice: b(o.gasPrice), rate: b(o.rate),
     usdg: o.usdg, usdgDecimals: Number(o.usdgDecimals), minAmount: b(o.minAmount),

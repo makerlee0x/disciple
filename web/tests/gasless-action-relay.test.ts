@@ -90,9 +90,14 @@ afterEach(() => vi.unstubAllEnvs());
 
 describe("quote (no signature)", () => {
   it("anonClaim fee is gas × base fee × 1.0x, trampPull fee is 0 and reports keeperTipBps", async () => {
+    h.read.mockResolvedValueOnce(10n ** 12n); // USDG balance: enough to pay
     const q = await quoteGaslessAction({ kind: "anonClaim", signer: user.address }, { baseFee: BASE, needsPermit: false });
     expect(BigInt(q.fee)).toBe(feeNow());
     expect(q.feeTo).toBe(actionFeeTo());
+    // maker 2026-11-19: a claim from a wallet whose USDG can't cover the fee goes free (claims pay out in the pair coin)
+    h.read.mockResolvedValueOnce(0n);
+    const free = await quoteGaslessAction({ kind: "anonClaim", signer: user.address }, { baseFee: BASE, needsPermit: false });
+    expect(free.fee).toBe("0");
     h.read.mockResolvedValueOnce(10); // keeperTipBps
     const p = await quoteGaslessAction({ kind: "trampPull" }, { baseFee: BASE });
     expect(p.fee).toBe("0");

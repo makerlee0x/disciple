@@ -45,6 +45,8 @@ import type {
 import { ZERO_ADDRESS } from "./protocol";
 import { activeAddress, connectedAddress, execCalls, execGasless, gaslessSigner, isSmartMode, type ExecResult } from "./wallet";
 import { sendFreeAnonLaunch } from "./trade/gaslessAnonLaunchClient";
+import { sendWalletLaunch } from "./trade/gaslessWalletLaunchClient";
+import { clientGaslessMode } from "./aa/sponsorshipMode";
 import { ANON_ANY_MODE_LIVE } from "./anonModes";
 import { GaslessError } from "./trade/gaslessClient";
 import { pnlKey, seedCreatorBuyPosition } from "./pnl";
@@ -1247,6 +1249,10 @@ export function createViemProtocol(): ProtocolClient {
       const usdg = usdgIn > B(0) ? await launchUsdg(pc) : null;
       if (usdgIn > B(0) && !usdg) throw new ProtocolError("NoRouter", "Paying the First BOOST in dollars isn't available on this network yet.");
       const creatorBuy = usdg ? B(0) : lp.creatorBuyQuoteIn ?? B(0);
+      // maker 2026-11-19: players hold USDG only, so in gasless mode a wallet launch is signed (Permit2) and the relayer
+      // sends CreatorFeeHarvest.launchWithPermit2; this wallet is still the creator and pays First BOOST + gas in USDG.
+      const gaslessWallet = !lp.private && clientGaslessMode();
+      if (gaslessWallet && creatorBuy > B(0)) throw new ProtocolError("LaunchFailed", "Pay the First BOOST in dollars.");
       // Private launches: the relayer calls CreatorFeeHarvest.launchAnon(WithMode) (AnonLauncher is the creator). Any difficulty
       // once the modes contracts are live (lib/anonModes); before that Expert (TRENCH) only.
       const anonL = lp.private ? ANON_ADDONS[ACTIVE_CHAIN.id]?.anonLauncher : undefined;
@@ -1258,7 +1264,7 @@ export function createViemProtocol(): ProtocolClient {
       const harvest = feeDest ? deployment().creatorFeeHarvest : undefined;
       if (feeDest && (!harvest || harvest === ZERO_ADDRESS)) throw new ProtocolError("NotDeployed", "Sending creator fees to the pool or the burn isn't available on this network yet.");
       // Deployed harvest's launchWithUsdg reverts when usdgIn > 0 (audit CH-02): refuse before anything is signed.
-      if (feeDest && !lp.private && usdgIn > B(0) && !HARVEST_USDG_BOOST_LIVE) throw new ProtocolError("LaunchFailed", QUICK_LAUNCH_COPY.creatorFeesNoBoost);
+      if (feeDest && !lp.private && !gaslessWallet && usdgIn > B(0) && !HARVEST_USDG_BOOST_LIVE) throw new ProtocolError("LaunchFailed", QUICK_LAUNCH_COPY.creatorFeesNoBoost);
       const params = {
         name: lp.name, ticker: lp.ticker, imageURI: lp.imageUri,
         description: lp.description || "", socialsURI: lp.socials ? JSON.stringify(lp.socials) : "",
@@ -1300,6 +1306,7 @@ export function createViemProtocol(): ProtocolClient {
           }
         }
         let launchCall: Call | null = null;
+        let boostMinQuoteIn = B(0);
         if (usdg && usdgIn > B(0)) {
           const router = deployment().router;
           const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken
@@ -1324,6 +1331,7 @@ export function createViemProtocol(): ProtocolClient {
             params.creatorBuyMinTokensOut = applySlippage(cq.tokensOut, slip);
             minQuoteIn = applySlippage(quoteAmt, slip);
           }
+          boostMinQuoteIn = minQuoteIn;
           params.quote = q;
           if (have < usdgIn) throw new ProtocolError("InsufficientBalance", FIRST_BOOST_CASH_MSG(usdgRawToUsd(usdgIn), usdgRawToUsd(have)));
           // Exact USDG approve to the router (it pulls exactly usdgIn); the swap leg is guarded by minQuoteIn.
@@ -1349,7 +1357,17 @@ export function createViemProtocol(): ProtocolClient {
         }
         const sentAt = Date.now();
         let r: Pick<ExecResult, "txHash" | "logs">;
-        if (lp.private) {
+        if (gaslessWallet) {
+          const owner = gaslessSigner();
+          if (!owner) throw new ProtocolError("LaunchFailed", "Sign in first.");
+          if (!deployment().creatorFeeHarvest || deployment().creatorFeeHarvest === ZERO_ADDRESS) throw new ProtocolError("NotDeployed", "Launching isn't available on this network yet.");
+          try {
+            r = await sendWalletLaunch(pc as never, owner, { params, mode, usdgIn, minQuoteIn: boostMinQuoteIn, creatorFeeDestination: feeDest ?? 0 });
+          } catch (e) {
+            if (e instanceof GaslessError) throw new ProtocolError("LaunchFailed", e.message);
+            throw e;
+          }
+        } else if (lp.private) {
           const { stealthOwner, ephemeralPubKey, viewTag } = lp.private;
           try {
             // the session wallet goes to the relay only (off-chain sign-in check); it is not part of the launch
@@ -1390,7 +1408,7 @@ export function createViemProtocol(): ProtocolClient {
             if (ev.eventName !== "Trade" || !ev.args.isBuy) continue;
             const quoteIn = ev.args.quoteAmt as bigint, tokens = ev.args.tokenAmt as bigint;
             // (hidden launches have no First BOOST.) public launchWithUsdg: Launchpad.launchFor(me, …) buys for the creator (this account).
-            const recipient = usdg || harvest ? me : (ev.args.trader as Address);
+            const recipient = usdg || harvest || gaslessWallet ? me : (ev.args.trader as Address);
             launched.creatorBuy = { recipient, tokens, quoteIn, usd: quoteRawToUsd(quoteIn, qp) };
             if (recipient.toLowerCase() === me.toLowerCase()) {
               seedCreatorBuyPosition(pnlKey("disciple.pnl.", me, launched.token), Number(tokens) / 1e18, launched.creatorBuy.usd, supply || undefined);

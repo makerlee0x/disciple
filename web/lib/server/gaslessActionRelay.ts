@@ -11,8 +11,8 @@ import { privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, deployment } from "../chains";
 import { GaslessReject, PERMIT2 } from "../trade/gaslessPermit2";
 import {
-  MULTICALL3, actionGas, actionTxGasLimit, actionWitness, checkGaslessActionRequest, encodeActionCall, encodeForwarderActionCall,
-  parseGaslessActionRequest, transferTypedData, withdrawFeeRaw, type ActionKind, type GaslessActionRequest,
+  MULTICALL3, actionGas, actionTxGasLimit, actionWitness, checkGaslessActionRequest, claimTokenArg, encodeActionCall, encodeForwarderActionCall,
+  isActionKind, parseGaslessActionRequest, transferTypedData, withdrawFeeRaw, type ActionKind, type GaslessActionRequest,
 } from "../trade/gaslessAction";
 import { feeFloor, liveUsdgPerEth, rateFromEnv, unmarkedRate } from "./usdgEthRate";
 import { requireGaslessMode, type GaslessConfirmed, type GaslessDeps } from "./gaslessRelay";
@@ -27,7 +27,16 @@ import { relayReadTransport } from "./relayReadTransport";
 
 const timed = <T>(m: RelayMetrics | undefined, stage: string, task: () => Promise<T>) => m ? m.span(stage, task) : task();
 const notSent = (e: unknown) => Object.assign(e as Error, { notSent: true });
-const erc20 = parseAbi(["function allowance(address owner, address spender) view returns (uint256)"]);
+const erc20 = parseAbi([
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function balanceOf(address owner) view returns (uint256)",
+]);
+const coinHomeAbi = parseAbi([
+  "function hookOf(address token) view returns (address)",
+  "function curveOf(address token) view returns (address)",
+  "function feeVault() view returns (address)",
+]);
+const isZeroAddr = (a?: string | null) => !a || /^0x0{40}$/i.test(a);
 const ENOUGH = BigInt(2) ** BigInt(255);
 const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: relayReadTransport(5000, 0) });
 
@@ -54,8 +63,39 @@ export type ActionQuoteOpts = {
 
 function kindOf(raw: unknown): ActionKind {
   const k = (raw ?? {}) as { kind?: unknown };
-  if (k.kind === "anonClaim" || k.kind === "anonTransferCreator" || k.kind === "anonCreatorMeta" || k.kind === "trampPull") return k.kind;
+  if (isActionKind(k.kind)) return k.kind;
   throw notSent(new GaslessReject("unknown gasless action"));
+}
+
+/**
+ * Claims the relayer pays for (maker 2026-11-19: creators, referrers and holders hold USDG only, and a claim pays out in
+ * the pair coin): when the wallet's USDG can't cover the quoted fee, the claim goes with no fee. Safe to give away:
+ * every public claim reverts when there is nothing to claim (simulated before sending), so it can't be repeated for free.
+ */
+async function sponsoredClaim(kind: ActionKind, signer: Address | undefined, fee: bigint): Promise<boolean> {
+  if (kind !== "anonClaim" || fee === 0n || !signer) return false;
+  const bal = await pc.readContract({ address: deployment().usdg, abi: erc20, functionName: "balanceOf", args: [signer] }).catch(() => null);
+  return bal !== null && bal < fee;
+}
+
+/** A coin's own curve fee vault and pool hook (older coins can sit on an older one), read on-chain for each claimed coin. */
+async function claimHomes(q: Pick<GaslessActionRequest, "kind" | "calls">): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (q.kind !== "anonClaim") return out;
+  const dep = deployment();
+  const tokens = [...new Set(q.calls.map(claimTokenArg).filter((t): t is Address => !!t).map((t) => t.toLowerCase() as Address))];
+  await Promise.all(tokens.map(async (t) => {
+    const [hook, curve] = await Promise.all([
+      isZeroAddr(dep.migration) ? null : pc.readContract({ address: dep.migration, abi: coinHomeAbi, functionName: "hookOf", args: [t] }).catch(() => null),
+      isZeroAddr(dep.launchpad) ? null : pc.readContract({ address: dep.launchpad, abi: coinHomeAbi, functionName: "curveOf", args: [t] }).catch(() => null),
+    ]);
+    if (!isZeroAddr(hook)) out.add(hook!.toLowerCase());
+    if (!isZeroAddr(curve)) {
+      const v = await pc.readContract({ address: curve!, abi: coinHomeAbi, functionName: "feeVault" }).catch(() => null);
+      if (!isZeroAddr(v)) out.add(v!.toLowerCase());
+    }
+  }));
+  return out;
 }
 
 /** disciple_gaslessActionQuote: no signature, no Privy session. trampPull quotes fee 0 (keeper tip pays the relayer). */
@@ -78,7 +118,9 @@ export async function quoteGaslessAction(raw: unknown = {}, opts: ActionQuoteOpt
   const feeTo = opts.feeTo ?? actionFeeTo();
   const baseFee = opts.baseFee ?? (await directRelayer()).fee;
   const rate = opts.rate ?? await liveUsdgPerEth();
-  const fee = kind === "trampPull" ? 0n : withdrawFeeRaw(gas, baseFee, rate, decimals);
+  const quoted = kind === "trampPull" ? 0n : withdrawFeeRaw(gas, baseFee, rate, decimals);
+  const sponsored = await sponsoredClaim(kind, typeof o.signer === "string" ? o.signer as Address : undefined, quoted);
+  const fee = sponsored ? 0n : quoted;
   let keeperTipBps = 0;
   if (kind === "trampPull") {
     try { keeperTipBps = Number(await pc.readContract({ address: dep.trampWallManager, abi: parseAbi(["function keeperTipBps() view returns (uint16)"]), functionName: "keeperTipBps" })); }
@@ -144,9 +186,12 @@ export async function relayGaslessAction(raw: unknown, d: GaslessDeps = {}): Pro
     const needsPermit = !!(q.approval && q.approval.value > BigInt(0));
     const gas = actionGas(q.kind, q.calls.length, needsPermit);
     const rate = await liveUsdgPerEth();
-    const current = q.kind === "trampPull" ? 0n : feeFloor(withdrawFeeRaw(gas, (await directRelayer()).fee, rate, dep.usdgDecimals));
+    let current = q.kind === "trampPull" ? 0n : feeFloor(withdrawFeeRaw(gas, (await directRelayer()).fee, rate, dep.usdgDecimals));
+    // a no-fee claim only when the wallet's USDG really can't cover it (re-read now)
+    if (q.fee === 0n && current > 0n && await sponsoredClaim(q.kind, q.signer, current)) current = 0n;
     if (q.fee < current) throw new GaslessReject("fee changed, please retry");
-    checkGaslessActionRequest(q, { usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, nowSec: d.nowSec ?? Math.floor(Date.now() / 1000), feeTo, minFee: current });
+    const extraTargets = await claimHomes(q);
+    checkGaslessActionRequest(q, { usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, nowSec: d.nowSec ?? Math.floor(Date.now() / 1000), feeTo, minFee: current, extraTargets });
     if (q.fee > 0n && q.feePermit && q.feeSignature) {
       // a signed fee: the forwarder when deployed; Multicall3 only on testnet (relaySpender throws on mainnet without it)
       const spender = relaySpender(ACTIVE_CHAIN.id);
@@ -160,8 +205,9 @@ export async function relayGaslessAction(raw: unknown, d: GaslessDeps = {}): Pro
     }
   } catch (e) { throw notSent(e); }
   const data = forwarder ? encodeForwarderActionCall(q) : encodeActionCall(q, dep.usdg);
-  const { relayer, did } = await admitAction(q.signer, target, data, actionTxGasLimit(q.kind), d);
-  return commitAction(q.signer, target, data, actionTxGasLimit(q.kind), relayer, d, t0, Date.now() - t0, did);
+  const limit = actionTxGasLimit(q.kind, q.calls.length);
+  const { relayer, did } = await admitAction(q.signer, target, data, limit, d);
+  return commitAction(q.signer, target, data, limit, relayer, d, t0, Date.now() - t0, did);
 }
 
 export type { OnPending };

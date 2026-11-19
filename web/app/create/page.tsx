@@ -24,12 +24,8 @@ import { LAUNCH_ABI_SHAPE, LaunchMode } from "@/lib/launchAbi";
 import { DEFAULT_MODE, MODE_LABEL, MODE_ORDER } from "@/lib/modeRules";
 import { ACTIVE_CHAIN, deployment, isDeployed } from "@/lib/chains";
 import { nextTicker, randomRocketName, tickerVariants } from "@/lib/rocketNames";
-import { activeAddress, aaAvailable, canTransact, connectWallet, execCalls, onWallet } from "@/lib/wallet";
+import { activeAddress, aaAvailable, canTransact, connectWallet, onWallet } from "@/lib/wallet";
 import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
-import { clientGaslessMode } from "@/lib/aa/sponsorshipMode";
-import { blockedActionMessage } from "@/lib/trade/gaslessAction";
-import { launchpadAbi } from "@/lib/abi";
-import { encodeFunctionData } from "viem";
 import { useRouter } from "next/navigation";
 import { createViemProtocol } from "@/lib/protocol-viem";
 import { trackFunnel } from "@/lib/funnelClient";
@@ -415,8 +411,10 @@ export default function LaunchRocketPage() {
           setLaunched("Launched. Assigning the fee receiver (one more confirmation)…");
           await lookSaved;
           try {
-            if (clientGaslessMode()) throw new Error(blockedActionMessage("Launchpad.transferCreator(address,address)"));
-            await execCalls([{ to: deployment().launchpad, data: encodeFunctionData({ abi: launchpadAbi, functionName: "transferCreator", args: [res.token, fr as Address] }) }]);
+            // gasless: signed Launchpad.transferCreatorBySig, sent by the relayer (players hold no ETH)
+            const { transferCreatorTo } = await import("@/lib/claims/coinAdmin");
+            const { publicClient } = await import("@/lib/protocol-viem");
+            await transferCreatorTo(publicClient(), me, { token: res.token } as Parameters<typeof transferCreatorTo>[2], fr as Address);
           } catch (err) {
             console.warn("[disciple] fee receiver assignment failed", { token: res.token, feeReceiver: fr, message: String((err as Error)?.message ?? err).slice(0, 300) });
             note = "Launched, but setting the fee receiver didn't go through. You can retry from the rocket page later.";

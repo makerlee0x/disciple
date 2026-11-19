@@ -517,7 +517,7 @@ function PayToView({ coin, me, demo, icon, onBack, onClose }: CoinProps) {
     if (!me && !demo) return;
     setBusy(true); setErr(null);
     try {
-      if (!demo) { const tx = await setPayTo(me!, coin, self ? null : (to!.address as Address)); console.warn("[disciple] rewards: pays to set", { token: coin.token, tx }); }
+      if (!demo) { const tx = await setPayTo(me!, coin, self ? null : (to!.address as Address), pc()); console.warn("[disciple] rewards: pays to set", { token: coin.token, tx }); }
       onBack();
     } catch (e) { setErr(claimErrorText(e)); } finally { setBusy(false); }
   };

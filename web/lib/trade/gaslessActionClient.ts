@@ -15,6 +15,7 @@ import {
   actionWitness, parseGaslessActionRequest, transferTypedData, type ActionCall, type ActionKind, type GaslessActionRequest,
 } from "./gaslessAction";
 import type { Permit } from "./gaslessPermit2";
+import { rememberUsdgPerEth } from "../gas/liveRate";
 
 export type ActionQuote = {
   kind: ActionKind;
@@ -33,6 +34,7 @@ export type ActionQuote = {
 export function parseActionQuote(x: unknown): ActionQuote {
   const o = (x ?? {}) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
   const b = (v: unknown) => (typeof v === "bigint" ? v : BigInt(String(v)));
+  try { rememberUsdgPerEth(b(o.rate ?? 0), Number(o.usdgDecimals)); } catch { /* no rate */ }
   return {
     kind: o.kind, fee: b(o.fee ?? 0), feeTo: o.feeTo, gas: b(o.gas ?? 0), gasPrice: b(o.gasPrice ?? 0), rate: b(o.rate ?? 0),
     usdg: o.usdg, usdgDecimals: Number(o.usdgDecimals), spender: o.spender, permit2: o.permit2 ?? PERMIT2,
@@ -46,6 +48,7 @@ export function formatActionFeeNote(q: ActionQuote): string {
     const pct = (bps / 100).toFixed(bps % 100 === 0 ? 0 : 2);
     return `A ${pct}% keeper tip comes out of the proceeds (no extra USDG network fee).`;
   }
+  if (q.fee === 0n) return "No network fee.";
   return `Network fee $${formatUsdgFee(q.fee, q.usdgDecimals)} in USDG.`;
 }
 

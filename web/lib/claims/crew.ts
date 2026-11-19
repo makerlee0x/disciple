@@ -9,13 +9,12 @@ import { scanEventHistory } from "./eventHistory";
  * NEXT_PUBLIC_INDEXER_URL points at indexer/ (#100: /users/:addr/rewards, /coins/:token/profit-tax).
  */
 import { withBase } from "../base-path";
-import { encodeFunctionData, type Address, type Hex, type PublicClient } from "viem";
+import { encodeFunctionData, parseAbi, type Address, type Hex, type PublicClient } from "viem";
 import { bondingCurveAbi, launchpadAbi } from "../abi";
 import { deployment } from "../chains";
 import type { Call } from "../aa/core";
 import { execCalls } from "../wallet";
 import { clientGaslessMode } from "../aa/sponsorshipMode";
-import { blockedActionMessage } from "../trade/gaslessAction";
 import { assetMeta, indexerGet, lc, type Asset } from "./common";
 import { coinFacts, curveOf, MODE } from "../protocol-viem";
 
@@ -55,11 +54,23 @@ export async function crewPositions(pc: PublicClient, holder: Address): Promise<
   return rows.filter((x): x is NonNullable<typeof x> => !!x).sort((a, b) => (a.pending > b.pending ? -1 : 1));
 }
 
-export const crewClaimCall = (token: Address): Call => ({ to: deployment().launchpad, data: encodeFunctionData({ abi: launchpadAbi, functionName: "claim", args: [token] }) });
-export async function claimCrew(tokens: Address[]) {
+const claimForAbi = parseAbi(["function claimFor(address token, address holder) returns (uint256)"]);
+/** Gasless (players hold no ETH, maker 2026-11-19): Launchpad.claimFor(token, me), which anyone may send and always pays
+ *  `me`; the relayer sends it. Otherwise Launchpad.claim(token) from the wallet. */
+export const crewClaimCall = (token: Address, me?: Address): Call => clientGaslessMode() && me
+  ? { to: deployment().launchpad, data: encodeFunctionData({ abi: claimForAbi, functionName: "claimFor", args: [token, me] }) }
+  : { to: deployment().launchpad, data: encodeFunctionData({ abi: launchpadAbi, functionName: "claim", args: [token] }) };
+export async function claimCrew(tokens: Address[], me?: Address) {
   if (!tokens.length) throw new Error("Nothing to claim yet.");
-  if (clientGaslessMode()) throw new Error(blockedActionMessage("Launchpad.claim(address)"));
-  return execCalls(tokens.map(crewClaimCall));
+  if (clientGaslessMode()) {
+    const { gaslessSigner } = await import("../wallet");
+    const who = me ?? gaslessSigner()?.address;
+    if (!who) throw new Error("Sign in to continue.");
+    const { sendGaslessAction } = await import("../trade/gaslessActionClient");
+    const { publicClient } = await import("../protocol-viem");
+    return sendGaslessAction("anonClaim", tokens.map((t) => crewClaimCall(t, who)), publicClient() as never);
+  }
+  return execCalls(tokens.map((t) => crewClaimCall(t)));
 }
 
 export type CrewFeedRow = { seller: Address; tax: bigint; grossQuote: bigint; tx: Hex; block: bigint; ts?: number };

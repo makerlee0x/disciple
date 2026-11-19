@@ -16,11 +16,12 @@ import type { Address, PublicClient } from "viem";
  *   gasLimit: trade ~2.62M (STATIC_GAS 1.8M + 350k + 60k + paymaster 250k + 160k), gradBuy 6M (GRAD_GAS_CAPS.total);
  *   allowanceMaxFee(gp) = clientFees(gp).maxFeePerGas × 2 = (2·gp + tip·1.1) × 1.5 × 2 (the server's allowance math);
  *   gas price: live eth_gasPrice (warmGasPrice, 30 s TTL), config 0.0207 gwei until then;
- *   rate: the last allowance's signed rate, else config GAS.ethUsd at the USDG decimals.
+ *   rate: the last allowance's signed rate, else the live pool rate (lib/gas/liveRate), else config GAS.ethUsd.
  *   ≈ 0.36 USDG / trade and 0.90 / grad buy at today's 0.01 gwei; 0.73 / 1.81 on the config constants (no RPC yet).
  *   (The old GAME-only ~$0.21 used the wrong limits + fee and was below what the paymaster charges: dropped.)
  */
 import { GAS } from "@/lib/config";
+import { usdgPerEthRate } from "@/lib/gas/liveRate";
 import { clientFees } from "@/lib/aa/gasPolicy";
 import { usdgDecimals } from "@/lib/usdg";
 import { isSmartMode } from "@/lib/wallet";
@@ -46,7 +47,8 @@ export const gasLimitFor = (k: GasOpKind) => (k === "gradBuy" ? GRAD_GAS_LIMIT :
 /** Config fallbacks (lib/config GAS) used only until the first live read. */
 export const CONFIG_GAS_PRICE_WEI = BigInt(Math.ceil(GAS.robinhoodGwei * 1e9));
 /** Config ETH→USDG rate (USDG base units per 1 ETH) at `decimals`. */
-export const configRate = (decimals: number) => BigInt(Math.round(GAS.ethUsd * 1e6)) * BigInt(10) ** BigInt(decimals) / BigInt(1e6);
+/** USDG base units per 1 ETH: the live pool rate from the last gasless quote (lib/gas/liveRate), else config GAS.ethUsd. */
+export const configRate = (decimals: number) => usdgPerEthRate(decimals);
 /** maxFeePerGas the paymaster allowance is signed with at gas price `gp` (same formula as paymasterCore.allowanceQuote). */
 export const allowanceMaxFee = (gp: bigint) => clientFees(gp).maxFeePerGas * ALLOWANCE_FEE_MULT;
 /** COLD per-op reserve (raw USDG), rounded up like DisciplePaymaster.tokenCost. */
