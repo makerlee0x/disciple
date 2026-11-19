@@ -592,7 +592,7 @@ const S = {
   x:W/2, vx:0, tilt:0, tradeUsd:10, mode:0, lane:1, balance:250, promoLeft:50, slowUntil:0, mult:1, multUntil:0, simF:1, simT:1, simV:0, fwd:60, fwdV:0, fwdN:0, vyS:0, ry:H*0.58, anch:null, ammoHover:-1, floaters:[], heading:Math.PI/2, toasts:[], ach:{}, streak:0, collected:0, obstacles:[], fuelers:{'you':0}, cooldownUntil:0,
   status:{source:'',ok:true,msg:''}, score:0, motes:[], particles:[], shards:[], flashes:[],
   orbsOn:false, lastOrbT:-99,   // orbs retired (maker 2026-11-13): crew wingmen replace them
-  tierShown:-1, tierBanner:0, keys:{}, t:0, turbo:false,
+  tierShown:-1, tierBest:null, tierBanner:0, keys:{}, t:0, turbo:false,
   altVel:0, flatSince:0, cruise:0, bank:0, bob:0, sway:0, roll:1, glint:0,
   trail:[], bgScrollX:0, speedBits:[],
   aimDeg:0, thrustT:-99, lastTrailAlt:null,
@@ -1444,11 +1444,17 @@ cv.addEventListener('pointerup',dragEnd); cv.addEventListener('pointercancel',dr
 const FREE_FLY=!!(source&&source.isSim);
 S.lift={yt:0,yo:0};
 function liftRange(){ const P=phoneHud(W,CLEAN), bottom=P&&P.hudTop?P.hudTop:H-60, ay=S.anch==null?ROCKET_Y:S.anch;
-  const top=P?H*0.42:200;   // the nozzle: keeps the nose under the chart card (phone) and the top HUD (desktop)
+  // the nozzle: keeps the nose under the chart card (phone) and well under the top HUD + clock (desktop). Was 200 px on desktop:
+  // the nose hit the HUD row and the rocket looked stuck against a ceiling on a big climb (maker 2026-11-18)
+  const top=P?H*0.42:Math.max(HUD_BOTTOM+220,H*0.4);
   return [Math.min(0,top-ay), Math.max(0,bottom-60-ay)]; }
 function liftTo(y){ const [lo,hi]=liftRange(); S.lift.yt=clamp(y,lo,hi); }
 function freeFlyStep(dt){ const K=S.keys||{}, L=S.lift;
   if(!S.menuOpen){ if(K.KeyW||K.ArrowUp) liftTo(L.yt-200*dt); if(K.KeyS||K.ArrowDown) liftTo(L.yt+200*dt); }   // calmer (was 380 px/s, follow 8)
+  /* soft ceiling: let go in the top half of the range and the rocket eases back down to the half-way line, faster while the
+     price climbs, so a big pump reads as the camera catching up with the rocket, never as a rocket pinned to the top */
+  const held=!S.menuOpen&&(K.KeyW||K.ArrowUp)||(S.drag&&S.drag.on), [lo]=liftRange(), knee=lo*0.5;
+  if(!held&&L.yt<knee){ const climb=Math.max(0,(S.altVel||0)*PX_PER_ALT); L.yt=Math.min(knee,L.yt+(40+Math.min(360,0.9*climb))*dt); }
   liftTo(L.yt); L.yo+=(L.yt-L.yo)*Math.min(1,dt*4); S.ry+=L.yo; }
 /* @tricks (maker 2026-11-14: bring the Trading duel's spin + flip into the main flight, phone and browser). Cosmetic only:
    nothing trades, the altitude / PnL never move. Phone: a quick swipe UP on the sky = SPIN (barrel roll), a double-tap on the
@@ -3078,7 +3084,11 @@ function simStep(stepDt){
   if(S.t>S.multUntil) S.mult=1;
   for (const f of S.floaters){ f.y-=40*dt; f.life-=dt*0.9; } keepIf(S.floaters,ALIVE);
   // tier change banner
-  const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){ if(S.tierShown>=0){ S.tierBanner=2.2; S.tierUp=ti>S.tierShown; if(S.tierUp){ S.zoneWash=S.t; sfx('zone',{tier:ti}); } if(ti>S.tierShown){ S.grassCard=4.5; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); } /* only a CLIMB is a crossing */ } S.tierShown=ti; HOOK('tier',{tier:ti,name:TIERS[ti].name}); }
+  const ti=clamp(Math.floor(target),0,TIERS.length-1); if (ti!==S.tierShown){
+    /* zone card only on a NEW high for this flight (maker 2026-11-18: cards flashing back and forth on every wobble across a
+       line were "so annoying and distracting"). A drop, or a climb back into a zone already reached, just updates the HUD. */
+    if(S.tierShown>=0&&ti>(S.tierBest==null?S.tierShown:S.tierBest)){ S.tierBanner=2.2; S.tierUp=true; S.zoneWash=S.t; sfx('zone',{tier:ti}); S.grassCard=4.5; award('tier'+ti,'TIER WITNESS','crossed into '+TIERS[ti].name); }
+    S.tierBest=Math.max(S.tierBest==null?ti:S.tierBest,ti); S.tierShown=ti; HOOK('tier',{tier:ti,name:TIERS[ti].name}); }
   S.tierBanner=Math.max(0,S.tierBanner-dt); S.grassCard=Math.max(0,(S.grassCard||0)-dt);
   // particles
   { const P=S.particles; for (let i=P.n-1;i>=0;i--){ const p=P.a[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=dt*(p.dk||2.2); if(p.life<=0) P.kill(i); } }   // dk: launch stat (plume lifetime)
@@ -3182,7 +3192,7 @@ function drawOrbitCard(){ const age=S.orbitFx!=null?S.t-S.orbitFx:99; if(age>4.5
   ctx.restore(); }
 /* ZONE ARRIVAL CARD (phase 1): a game location reveal on every zone change, Barlow Condensed. A climb gets the gold
    kicker 'ZONE 06 / 18', a rule that draws out, a sound sting and a soft gold wash from the top (drawPost); a drop reads
-   'DROPPED TO' in the dump colour, no sting. S.tierBanner counts down from 2.2 s (simStep). */
+   'DROPPED TO' in the dump colour, no sting. S.tierBanner counts down from 2.2 s (simStep); only a new high for the flight sets it. */
 function drawZoneCard(){ const k=S.tierShown, bn=tierName(k); if(!bn) return;
   const age=2.2-S.tierBanner, inA=clamp(age/0.25,0,1), a=Math.min(inA,clamp(S.tierBanner/0.6,0,1)), up=S.tierUp!==false, PB=phBand(), BY=PB?PB.top+48:BANNER_Y+10;
   ctx.save(); ctx.globalAlpha=a; ctx.textAlign='center';

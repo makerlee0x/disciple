@@ -36,7 +36,7 @@ export function dailyStreak(today: number): number {
 
 const Flame = ({ size = 18 }: { size?: number }) => <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden><defs><linearGradient id="fpFlame" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stopColor="#FF7A3D" /><stop offset="1" stopColor="#F2C14E" /></linearGradient></defs><path d="M12 2.5c1.2 3.6 5.5 5.4 5.5 10.6A5.5 5.5 0 0 1 6.5 13c0-3 1.8-4.4 2.2-7.2 1.9 1 3 2.6 3.1 4.6.9-1.6 1-4.6.2-7.9z" fill="url(#fpFlame)" /><path d="M12 21a2.6 2.6 0 0 1-2.6-2.6c0-1.9 1.6-2.6 2.1-4.4 1.6 1.2 3.1 2.4 3.1 4.4A2.6 2.6 0 0 1 12 21z" fill="#FFF1C9" /></svg>;
 
-export type Board = { count: number; top: { runId: string; name: string; multiple: number; pnl: number }[] } | null;
+export type Board = { count: number; top: { runId: string; name: string; pfp?: string; multiple: number; pnl: number }[] } | null;
 /** today's board (GET /api/daily): the top 10 and how many pilots are on it */
 export const fetchDailyBoard = (id: number): Promise<NonNullable<Board>> =>
   fetch(`/api/daily?id=${id}`).then((r) => (r.ok ? r.json() : null)).then((j) => (j && Array.isArray(j.top) ? { count: j.count ?? 0, top: j.top } : { count: 0, top: [] })).catch(() => ({ count: 0, top: [] }));

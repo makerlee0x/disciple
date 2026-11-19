@@ -138,8 +138,12 @@
 .goals { display: flex; flex-direction: column; gap: 6px; }
 .goal { display: flex; align-items: center; gap: 8px; font: 700 14px var(--dsc-font-game); letter-spacing: .5px; color: #D7D9E4; }
 .goalOn { color: #F2F3F7; }
-.alert { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px; background: rgba(240,48,127,.16); border: 1px solid #F0307F; font-size: 13px; color: #FFE1EC; line-height: 1.3; }
-.alertGood { background: rgba(95,240,160,.1); border-color: rgba(95,240,160,.6); color: #E2FFEF; }
+/* a tell / ghost line in the HUD's own type (maker 2026-11-18: the old pink boxed toast looked off): a dot + one caps line */
+.alert { display: flex; align-items: center; gap: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.08); font: 700 13px/1.25 var(--dsc-font-game); letter-spacing: .5px; text-transform: uppercase; color: #FF7FB2; animation: fpAlertIn .22s ease-out; }
+.alert::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+.alertGood { color: #5FF0A0; }
+@keyframes fpAlertIn { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .alert { animation: none; } }
 .stripTune { display: flex; gap: 4px; flex-wrap: wrap; }
 .stripTune button { height: 28px; padding: 0 8px; border-radius: 8px; border: 1px solid #2E323A; background: rgba(11,12,14,.6); color: #F2F3F7; font: 700 13px var(--dsc-font-game); cursor: pointer; }
 .stripTune button[aria-pressed="true"] { background: #F2F3F7; color: #121327; }
