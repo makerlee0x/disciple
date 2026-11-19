@@ -153,7 +153,7 @@
 .hideTx span { font-size: 12px; line-height: 1.35; color: #9095A0; }
 .adv { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; overflow: hidden; min-height: 42px; padding: 6px 12px; border-radius: 12px; border: 1px solid #2E323A; background: rgba(10, 12, 18, .55); color: #BCC0CA; font: 400 14px / 1.2 var(--dsc-font-ui, Inter, sans-serif); text-align: left; cursor: pointer; box-sizing: border-box; }
 .adv:hover { border-color: #4A4F5A; }
-.adv b { color: #FFFFFF; font: 800 17px / 1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .02em; }
+.adv b { color: #FFFFFF; font: 800 17px / 1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .02em; white-space: nowrap; }
 .pill { flex: none; white-space: nowrap; padding: 3px 8px; border-radius: 6px; background: rgba(232, 234, 238, .08); font-size: 12px; color: #BCC0CA; }
 .pillOn { background: rgba(243, 223, 168, .16); color: #F3DFA8; }
 .advGo { margin-left: auto; }
@@ -386,3 +386,23 @@
 .sh .lockTag { margin-left: 2px; }
 .moTitle:has(.lockTag) { flex-direction: row; align-items: center; gap: 10px; }
 .moTitle span.lockTag { font: inherit; color: #F3DFA8; }
+
+/* ── hidden launch (maker 2026-11-19): free, fees burned or locked, said with the mark and the state, never a sentence ── */
+.anonTag { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; flex: none;
+  background: rgba(95, 240, 160, .1); border: 1px solid rgba(95, 240, 160, .35); color: #5FF0A0; }
+.sh .anonTag { margin-left: 2px; }
+.padTags { display: flex; gap: 8px; align-items: center; }
+.anonPadTag { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px; border: 1px solid #5FF0A0; color: #5FF0A0;
+  background: rgba(10, 12, 18, .7); font: 800 16px / 1 var(--dsc-font-game); text-transform: uppercase; white-space: nowrap; }
+.hide .hideMark { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; flex: none; color: #6B7080;
+  background: rgba(232, 234, 238, .05); border: 1px solid #2E323A; transition: color .15s, border-color .15s, background .15s; margin-left: auto; }
+.hide[aria-checked="true"] { border-color: rgba(95, 240, 160, .55); background: rgba(95, 240, 160, .05); }
+.hide[aria-checked="true"] .hideMark { color: #5FF0A0; border-color: rgba(95, 240, 160, .45); background: rgba(95, 240, 160, .1); }
+.hide:disabled { cursor: default; opacity: .5; }
+.hide { width: 100%; box-sizing: border-box; }
+.diffAnonOff { opacity: .42; }
+.diffAnonOff .anonCorner, .fee .anonCorner { position: absolute; right: 10px; top: 10px; color: #5FF0A0; }
+.fee .anonCorner { top: 50%; margin-top: -9px; right: 13px; }
+.chips.anonChips .chip:not(.on) { opacity: .3; }
+.feeFoot { display: inline-flex; align-items: center; gap: 8px; color: #E8EAEE; }
+.feeFoot svg { color: #5FF0A0; }

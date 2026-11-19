@@ -14,9 +14,10 @@ import { createPublicClient, parseAbi, recoverTypedDataAddress, type Address, ty
 import { ACTIVE_CHAIN, deployment } from "../chains";
 import { encodeForwarderLaunch, relaySpender, type RelaySpender } from "../trade/permitForwarder";
 import { ANON_ADDONS } from "../anon";
-import { anonPoolAddress } from "../anonPool";
 import { GaslessReject } from "../trade/gaslessPermit2";
 import { creatorFeeRoutingAvailable } from "../quickLaunch";
+import { ANON_ANY_MODE_LIVE } from "../anonModes";
+import { checkFreeAnonLaunch, encodeFreeAnonLaunch, parseFreeAnonLaunchRequest, type FreeAnonLaunchRequest } from "../trade/freeAnonLaunch";
 import {
   ANON_LAUNCH_TX_GAS_LIMIT, anonLaunchTypedData, checkGaslessAnonLaunchRequest,
   parseGaslessAnonLaunchRequest, type GaslessAnonLaunchRequest,
@@ -83,7 +84,7 @@ async function commitLaunch(signer: Address, to: Address, data: Hex, gas: bigint
  * disciple_gaslessAnonLaunch: one signed Permit2 witness → DisciplePermitForwarder.launchAnon (it runs the signed launch itself
  * and returns leftovers to the signed refund address). No Multicall3 fallback: without the forwarder this refuses, nothing sent.
  */
-export async function relayGaslessAnonLaunch(raw: unknown, d: GaslessDeps = {}): Promise<GaslessConfirmed> {
+export async function relayGaslessAnonLaunch(raw: unknown, d: GaslessDeps & { allowWalletPaidAnon?: boolean } = {}): Promise<GaslessConfirmed> {
   const t0 = Date.now();
   let q: GaslessAnonLaunchRequest;
   let spender: RelaySpender;
@@ -92,9 +93,9 @@ export async function relayGaslessAnonLaunch(raw: unknown, d: GaslessDeps = {}):
   try {
     requireGaslessMode();
     relayBreaker.assertClosed();
-    // With the anon pool live this path is closed: it pulls the First BOOST from the player's wallet, so the launch tx
-    // names that wallet (maker 2026-11-19). Private launches go through disciple_anonPoolLaunch.
-    if (anonPoolAddress(ACTIVE_CHAIN.id)) throw new GaslessReject("private launches now pay from your anon balance; reload and try again");
+    // maker 2026-11-19: this path pulls the payment from the player's wallet, so the launch tx names that wallet. Hidden
+    // launches go through relayAnonFreeLaunch now; this one stays only for its tests.
+    if (!d.allowWalletPaidAnon) throw new GaslessReject("hidden launches are free now; reload and try again");
     q = parseGaslessAnonLaunchRequest(raw);
     spender = relaySpender(ACTIVE_CHAIN.id, { legacy: false });
     const [launchFee, feeToken] = await Promise.all([
@@ -111,4 +112,37 @@ export async function relayGaslessAnonLaunch(raw: unknown, d: GaslessDeps = {}):
   const data = encodeForwarderLaunch({ permit: q.permit, l: q.launch, owner: q.signer, signature: q.signature, approval: q.approval });
   const { relayer, did } = await admitLaunch(q.signer, spender.address, data, d);
   return commitLaunch(q.signer, spender.address, data, ANON_LAUNCH_TX_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did);
+}
+
+const harvestAbi = parseAbi(["function anon() view returns (address)"]);
+
+/**
+ * disciple_anonFreeLaunch (maker 2026-11-19): a hidden launch with no Ticket buy and creator fees burned or locked in the pool.
+ * The relayer calls CreatorFeeHarvest.launchAnon(WithMode) itself: nothing is pulled from anyone (launchFee is 0 and there is
+ * no First BOOST), coins go only to the stealth owner, and the fees can never be claimed. The launch tx holds the relayer,
+ * the harvest, AnonLauncher and the stealth owner. `wallet` is used off-chain only (sign-in check, send budget, strikes).
+ */
+export async function relayAnonFreeLaunch(raw: unknown, d: GaslessDeps = {}): Promise<GaslessConfirmed> {
+  const t0 = Date.now();
+  let q: FreeAnonLaunchRequest;
+  const dep = deployment();
+  const launcher = deployedLauncher();
+  let harvest: Address;
+  try {
+    requireGaslessMode();
+    relayBreaker.assertClosed();
+    q = parseFreeAnonLaunchRequest(raw);
+    const h = creatorFeeRoutingAvailable({ private: true, harvest: dep.creatorFeeHarvest }) ? dep.creatorFeeHarvest : null;
+    checkFreeAnonLaunch(q, { harvest: h, launcher, anyMode: ANON_ANY_MODE_LIVE, nowSec: d.nowSec ?? Math.floor(Date.now() / 1000) });
+    harvest = h!;
+    const [launchFee, anon] = await Promise.all([
+      pc.readContract({ address: launcher, abi: launcherAbi, functionName: "launchFee" }),
+      pc.readContract({ address: harvest, abi: harvestAbi, functionName: "anon" }),
+    ]);
+    if (launchFee !== BigInt(0)) throw new GaslessReject("hidden launches are free; this launcher charges a fee");
+    if (anon.toLowerCase() !== launcher.toLowerCase()) throw new GaslessReject("launcher mismatch");
+  } catch (e) { throw notSent(e); }
+  const data = encodeFreeAnonLaunch(q.launch, ANON_ANY_MODE_LIVE);
+  const { relayer, did } = await admitLaunch(q.wallet, harvest, data, d);
+  return commitLaunch(q.wallet, harvest, data, ANON_LAUNCH_TX_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did);
 }

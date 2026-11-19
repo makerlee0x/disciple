@@ -1,7 +1,7 @@
 /**
  * Private launches (AnonLauncher add-on; core stack unchanged).
- * UI copy says "private", never "anonymous" / "fully anonymous": the wallet that pays the launch fee and the creator
- * buy is still visible on-chain, and bundlers / our backend see request metadata.
+ * Hidden launches (maker 2026-11-19) are free and the relayer sends them (lib/trade/freeAnonLaunch), so no player wallet is
+ * in the launch tx; creator fees are burned or locked, so nothing is ever claimed to a wallet. Our backend still sees who asked.
  *
  * Launchers on RH testnet 46630 (contracts/deployments/rh-testnet-46630.json contracts.AnonLauncher / legacyAnonLaunchers):
  *   v6 (default)  0x5267…2c6b  new private launches on the v6 stack (launchAnon(…, maxFee)); claimMany / claimManyBySig pay
@@ -37,8 +37,8 @@ export const isLegacyLauncher = (chainId: number, addr: string) =>
   !!ANON_ADDONS[chainId] && [ANON_ADDONS[chainId].anonLauncherLegacy, ...ANON_ADDONS[chainId].olderLaunchers].some((x) => x.toLowerCase() === addr.toLowerCase());
 
 export const PRIVATE_COPY =
-  "Private launch: the coin's creator on-chain is a one-time stealth address, not your wallet. " +
-  "Only you can claim its creator fees. The wallet that pays the launch fee and First BOOST is still visible on-chain.";
+  "Hidden launch: the coin's creator on-chain is a one-time stealth address, and no wallet of yours is in the launch. " +
+  "It's free, and the creator fees are burned or locked in the pool.";
 /** Back-compat alias (old name). */
 export const PSEUDONYMOUS_COPY = PRIVATE_COPY;
 

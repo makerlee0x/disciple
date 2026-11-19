@@ -15,6 +15,7 @@ import {
   type AnonLaunch, type GaslessAnonLaunchRequest,
 } from "./gaslessAnonLaunch";
 import type { Permit } from "./gaslessPermit2";
+import type { FreeAnonLaunch } from "./freeAnonLaunch";
 
 export async function signAnonLaunch(
   pc: PublicClient,
@@ -71,3 +72,28 @@ export async function sendPrivateLaunchRelayer(
 
 export type { AnonLaunch, GaslessAnonLaunchRequest };
 export { PERMIT2 };
+
+/**
+ * Free anon launch (maker 2026-11-19: "if your wallet is connected thats not anon"). No Ticket buy and creator fees burned or
+ * locked in the pool, so nothing is paid and nothing is ever claimed. The player signs nothing for the chain: the relayer calls
+ * CreatorFeeHarvest.launchAnon(WithMode) itself, so the launch tx holds the relayer, the harvest, AnonLauncher and the stealth
+ * owner only. `wallet` is sent only for the relay's sign-in check (Privy session); it is not part of the launch.
+ */
+export type { FreeAnonLaunch };
+
+export async function sendFreeAnonLaunch(
+  wallet: Address,
+  launch: FreeAnonLaunch,
+  url = "/api/gasless",
+  fetchFn: typeof fetch = fetch,
+): Promise<GaslessSendResult> {
+  const tooLong = anonLaunchTooLong(launch);
+  if (tooLong) throw new GaslessError(tooLong, { notSent: true });
+  const idToken = await privyIdentityToken().catch(() => null);
+  const headers: Record<string, string> = { "content-type": "application/json", ...(idToken ? { "privy-id-token": idToken } : {}) };
+  const r = await fetchFn(url, { method: "POST", headers, body: `{"jsonrpc":"2.0","id":1,"method":"disciple_anonFreeLaunch","params":[${JSON.stringify({ wallet, launch }, bigintToDecimal)}]}` });
+  const j = await r.json().catch(() => ({})) as { result?: { txHash: Hex; success: boolean; receipt: { logs: GaslessSendResult["logs"] }; gasUsed: number; server?: unknown }; error?: { message?: string; data?: GaslessError["data"] } };
+  if (!j.result) throw new GaslessError(j.error?.message ?? `anon launch HTTP ${r.status}`, j.error?.data ?? {}, r.status);
+  if (!j.result.success) throw new GaslessError("The launch didn't go through.", { notSent: false, txHash: j.result.txHash }, r.status);
+  return { txHash: j.result.txHash, logs: j.result.receipt.logs, gasUsed: j.result.gasUsed, server: j.result.server };
+}
