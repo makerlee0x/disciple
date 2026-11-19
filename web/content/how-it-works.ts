@@ -30,8 +30,8 @@ export type HiwGame = {
   id: HiwMode; tab: string; tag: string; art: string; tone: string;
   steps: HiwStep[];
   win: { ok: string; bad: string };
-  keys: { k: string; keys: string[]; tone: "up" | "down" | "gold" }[];
-  phone: string;
+  /** each key is [key, what it does]; the caption sits under the key */
+  keys: { k: string; keys: [string, string][]; tone: "up" | "down" | "gold" }[];
   cta: { label: string; href: string };
 };
 
@@ -39,60 +39,59 @@ export const HIW_GAMES: HiwGame[] = [
   {
     id: "launch", tab: "Launch", tag: "Your own coin", art: "/art/modes/launch.webp", tone: "#F3DFA8",
     steps: [
-      { art: "board", title: "Boost", line: "Buy in. The rocket lifts off." },
-      { art: "climb", title: "Climb", line: "Every boost pushes it higher." },
-      { art: "cash", title: "Dump", line: "Sell when you want. Profit is cash." },
+      { art: "board", title: "Boost", line: "Buy on the bonding curve. Early is cheap." },
+      { art: "climb", title: "Climb", line: "Every buy pumps the mcap. $33.3K is Orbit." },
+      { art: "cash", title: "Dump", line: "Sell any time. Take profit or take the L." },
     ],
-    win: { ok: "Sell higher than you bought", bad: "Sell lower and you lose" },
+    win: { ok: "Sell above your entry", bad: "Sell below it and you eat the loss" },
     keys: [
-      { k: "Boost", keys: ["1", "2", "3", "4", "Space"], tone: "up" },
-      { k: "Dump", keys: ["Z", "X", "C", "V", "Shift"], tone: "down" },
+      { k: "Boost", keys: [["1", "$10"], ["2", "$25"], ["3", "$50"], ["4", "$100"], ["Space", "Buy"]], tone: "up" },
+      { k: "Dump", keys: [["Z", "10%"], ["X", "25%"], ["C", "50%"], ["V", "100%"], ["Shift", "Sell"]], tone: "down" },
     ],
-    phone: "Phone: tap an amount, then BOOST or DUMP",
     cta: { label: "Find a flight", href: "/live" },
   },
   {
     id: "duel", tab: "Duel", tag: "1v1", art: "/art/modes/duel.webp", tone: "#FF9CC4",
     steps: [
-      { art: "versus", title: "1v1 duel", line: "Best trader wins." },
-      { art: "call", title: "Lock in", line: "Boost LONGS. Dump SHORTS." },
-      { art: "clock", title: "Beat the clock", line: "Most profit before time runs out wins." },
+      { art: "versus", title: "1v1 on BTC", line: "Same coin, same fuel, one minute." },
+      { art: "call", title: "Long or short", line: "Boost to long. Dump to short. Leverage on." },
+      { art: "clock", title: "Out-PnL them", line: "Bigger PnL at the bell wins." },
     ],
-    win: { ok: "More profit than your rival", bad: "Less profit, or liquidated" },
+    win: { ok: "More PnL than your rival", bad: "Less PnL, or you get liquidated" },
     keys: [
-      { k: "Boost", keys: ["Space"], tone: "up" },
-      { k: "Dump", keys: ["Shift"], tone: "down" },
-      { k: "Cash out", keys: ["Enter"], tone: "gold" },
+      { k: "Boost", keys: [["Space", "Long"]], tone: "up" },
+      { k: "Dump", keys: [["Shift", "Short"]], tone: "down" },
+      { k: "Cash out", keys: [["Enter", "Close"]], tone: "gold" },
     ],
-    phone: "Phone: tap BOOST, DUMP or CASH OUT",
     cta: { label: "Play a duel", href: "/turbo/duel" },
   },
   {
     id: "climb", tab: "Climb", tag: "Solo", art: "/art/modes/live.webp", tone: "#5FF0A0",
     steps: [
-      { art: "level", title: "Pick a level", line: "Each level sets your fuel and gear." },
+      { art: "level", title: "Pick a level", line: "Each level sets your fuel and leverage." },
       { art: "target", title: "Hit the target", line: "Make the % before the minute ends." },
       { art: "ladder", title: "Level up", line: "Clear 5 levels to unlock free mode." },
     ],
-    win: { ok: "Hit the target in time", bad: "Miss it and try again" },
+    win: { ok: "Hit the target in time", bad: "Miss it or get liquidated" },
     keys: [
-      { k: "Boost", keys: ["Space"], tone: "up" },
-      { k: "Dump", keys: ["Shift"], tone: "down" },
-      { k: "Cash out", keys: ["Enter"], tone: "gold" },
+      { k: "Boost", keys: [["Space", "Long"]], tone: "up" },
+      { k: "Dump", keys: [["Shift", "Short"]], tone: "down" },
+      { k: "Cash out", keys: [["Enter", "Close"]], tone: "gold" },
     ],
-    phone: "Phone: tap BOOST, DUMP or CASH OUT",
     cta: { label: "Play Climb", href: "/turbo/climb" },
   },
 ];
 
-/** Launch only: the three difficulties a host picks (caps in contracts/src/libraries/Constants.sol). */
+/** Launch only: the three difficulties a host picks (caps in contracts/src/libraries/Constants.sol). The max bag grows with
+ *  mcap and only holds on the bonding curve; it lifts at Orbit (maker 2026-11-18: "that's important for people to know"). */
 export const HIW_DIFFS = [
-  { id: "easy", badge: "Easy", stat: "Max bag 1%" },
-  { id: "hard", badge: "Hard", stat: "Max bag 3.33%" },
+  { id: "easy", badge: "Easy", stat: "Max bag 1% → 3.33%" },
+  { id: "hard", badge: "Hard", stat: "Max bag 3.33% → 7.77%" },
   { id: "expert", badge: "Expert", stat: "No cap" },
 ];
+export const HIW_DIFFS_TAG = "Bonding curve only · lifts at Orbit";
 export const HIW_ORBIT = { k: "Orbit", v: "$33,333", line: "The crew's goal. The rocket lists for good." };
-export const HIW_HOST = { text: "Hosts earn 33% of every trade fee.", link: "Launch one" };
+export const HIW_HOST = { text: "Hosts earn 0.33% of every trade.", link: "Launch one" };
 
 export const HIW_PRO = {
   eyebrow: "",
@@ -164,6 +163,5 @@ export const HIW_FINAL = {
   sim: "Try Free play",
   explore: "Find a flight",
   launch: "Launch a rocket",
-  footer: "DISCIPLE runs on Robinhood Chain. Nothing here is financial advice.",
   logoAlt: "DISCIPLE",
 };
