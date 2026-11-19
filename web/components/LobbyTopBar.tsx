@@ -15,6 +15,7 @@ import { WALLET_ID_EVENT, walletId } from "@/lib/walletCta";
 import LevelChip from "@/components/xp/LevelChip";
 import Icon, { type IconName } from "@/components/icons/Icon";
 import HelpButton from "@/components/HelpButton";
+import SiteSearch from "@/components/search/SiteSearch";
 import { QUICK_PLAY_EVENT } from "@/components/app/events";
 import { CLIMB_HREF, DUEL_HREF, FLIGHTS_HREF, MARKET_ENABLED, ROYALE_ENABLED } from "@/lib/features";
 import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
@@ -157,6 +158,8 @@ export default function LobbyTopBar() {
         <img className="lb-lockup" src="/brand/disciple-lockup-horizontal-light.svg" alt="DISCIPLE" width={141} height={30} />
       </Link>
       {nav(false)}
+      {/* site search (maker 2026-11-19): a field on wide desktops, a magnifier that opens a full-screen search elsewhere */}
+      <SiteSearch />
       {!you && <HelpButton className="lb-help-out" />}
       <Link href="/create" className="lb-playnow" data-testid="topbar-launch" data-sfx="primary">Launch now</Link>
       <LevelChip toastOnly />

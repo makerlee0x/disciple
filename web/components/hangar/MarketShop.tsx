@@ -18,6 +18,7 @@ import {
 } from "@/lib/collection";
 import { isNativeApp } from "@/lib/native";
 import { usd, type Listing, type Sale } from "@/lib/market";
+import { SEARCH_NAV_EVENT } from "@/lib/search";
 import { buyListing, buyQuote, useMarket } from "@/lib/marketClient";
 import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
 import { itemArt } from "./Collection";
@@ -318,6 +319,20 @@ export function MarketShop({ wallet, crates }: { wallet: string | null; crates?:
   const set = (p: Partial<F>) => setF((x) => ({ ...x, ...p }));
   const [sel, setSel] = useState<string | null>(null);
   const [showF, setShowF] = useState(false);
+  // site search links (components/search/SiteSearch): ?listing=<id> opens that copy, ?q= fills the search
+  useEffect(() => {
+    const read = () => {
+      const p = new URLSearchParams(window.location.search);
+      const l = p.get("listing"), q = p.get("q");
+      if (l && /^[a-f0-9]{12,16}$/.test(l)) setSel(l);
+      if (q) setF((x) => ({ ...x, q: q.slice(0, 60) }));
+    };
+    read();
+    // a search pick while already on /market changes the URL without remounting this page
+    const again = () => window.setTimeout(read, 60);
+    addEventListener(SEARCH_NAV_EVENT, again);
+    return () => removeEventListener(SEARCH_NAV_EVENT, again);
+  }, []);
   const live = liveSeries(Date.now()) ?? SERIES[0];
   const last = useMemo(() => lastSales(sales), [sales]);
   const shown = useMemo(() => apply(rows ?? [], f, last), [rows, f, last]);
