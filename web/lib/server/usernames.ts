@@ -7,6 +7,7 @@ import "server-only";
  * NOTE: still trusts the posted address (no signature yet) — same as the old stub.
  */
 import { kv } from "./kv";
+import { indexUsername } from "./searchIndex";
 
 const nameKey = (u: string) => `user:name:${u}`;
 const addrKey = (a: string) => `user:addr:${a.toLowerCase()}`;
@@ -24,6 +25,7 @@ export async function claim(username: string, wallet: string): Promise<{ ok: tru
   const prev = await s.get(addrKey(a));
   if (prev && prev !== username && (await s.get(nameKey(prev))) === a) await s.del(nameKey(prev));
   await s.set(addrKey(a), username);
+  await indexUsername(s, username, prev && prev !== username && (await s.get(nameKey(prev))) == null ? prev : null);
   return { ok: true };
 }
 
@@ -40,5 +42,6 @@ export async function bindReserved(username: string, wallet: string): Promise<{ 
   if (mine && mine !== username && (await s.get(nameKey(mine))) === a) await s.del(nameKey(mine));
   await s.set(nameKey(username), a);
   await s.set(addrKey(a), username);
+  await indexUsername(s, username, mine && mine !== username && (await s.get(nameKey(mine))) == null ? mine : null);
   return { moved: true, from: holder && holder !== a ? holder : null };
 }
