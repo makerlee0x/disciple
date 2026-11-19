@@ -14,6 +14,7 @@ import { createPublicClient, parseAbi, recoverTypedDataAddress, type Address, ty
 import { ACTIVE_CHAIN, deployment } from "../chains";
 import { encodeForwarderLaunch, relaySpender, type RelaySpender } from "../trade/permitForwarder";
 import { ANON_ADDONS } from "../anon";
+import { anonPoolAddress } from "../anonPool";
 import { GaslessReject } from "../trade/gaslessPermit2";
 import { creatorFeeRoutingAvailable } from "../quickLaunch";
 import {
@@ -91,6 +92,9 @@ export async function relayGaslessAnonLaunch(raw: unknown, d: GaslessDeps = {}):
   try {
     requireGaslessMode();
     relayBreaker.assertClosed();
+    // With the anon pool live this path is closed: it pulls the First BOOST from the player's wallet, so the launch tx
+    // names that wallet (maker 2026-11-19). Private launches go through disciple_anonPoolLaunch.
+    if (anonPoolAddress(ACTIVE_CHAIN.id)) throw new GaslessReject("private launches now pay from your anon balance; reload and try again");
     q = parseGaslessAnonLaunchRequest(raw);
     spender = relaySpender(ACTIVE_CHAIN.id, { legacy: false });
     const [launchFee, feeToken] = await Promise.all([

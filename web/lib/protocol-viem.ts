@@ -46,6 +46,8 @@ import { ZERO_ADDRESS } from "./protocol";
 import { activeAddress, connectedAddress, execCalls, execGasless, gaslessSigner, isSmartMode, type ExecResult } from "./wallet";
 import { clientGaslessMode } from "./aa/sponsorshipMode";
 import { sendPrivateLaunchRelayer } from "./trade/gaslessAnonLaunchClient";
+import { launchFromAnonPool } from "./trade/anonPoolClient";
+import { anonPoolAddress } from "./anonPool";
 import { ANON_ANY_MODE_LIVE, anonLauncherModesAbi } from "./anonModes";
 import { GaslessError } from "./trade/gaslessClient";
 import { pnlKey, seedCreatorBuyPosition } from "./pnl";
@@ -1302,6 +1304,10 @@ export function createViemProtocol(): ProtocolClient {
         let launchCall: Call | null = null;
         let privateBoostTo: Address | undefined;
         let privateRelay: { fee: bigint; minQuoteIn: bigint } | undefined;
+        // Anon launch pool (lib/anonPool, maker 2026-11-19): when live, every private launch is paid from the anon balance
+        // and sent by the relayer, so this wallet is never in the launch tx (no permit, no refund, no msg.sender).
+        let privatePool: { minQuoteIn: bigint } | undefined;
+        const anonPool = lp.private && anonL ? anonPoolAddress(ACTIVE_CHAIN.id) : null;
         if (usdg && (usdgIn > B(0) || (anonL && lp.private))) {
           const router = deployment().router;
           const q = lp.quoteToken !== ZERO_ADDRESS ? lp.quoteToken
@@ -1337,11 +1343,13 @@ export function createViemProtocol(): ProtocolClient {
               pc.readContract({ address: anonL, abi: anonLauncherAbi, functionName: "launchFee" }) as Promise<bigint>,
             ]);
             const need = fee + usdgIn;
-            if (have < need) throw new ProtocolError("InsufficientBalance", FIRST_BOOST_CASH_MSG(usdgRawToUsd(need), usdgRawToUsd(have)));
+            if (!anonPool && have < need) throw new ProtocolError("InsufficientBalance", FIRST_BOOST_CASH_MSG(usdgRawToUsd(need), usdgRawToUsd(have)));
             if (feeToken.toLowerCase() !== usdg.toLowerCase()) throw new ProtocolError("NoRouter", "Private First BOOST expects the launch fee to be charged in USDG.");
             const { stealthOwner, ephemeralPubKey, viewTag } = lp.private;
             privateBoostTo = stealthOwner;
-            if (clientGaslessMode()) {
+            if (anonPool) {
+              privatePool = { minQuoteIn };
+            } else if (clientGaslessMode()) {
               if (!gaslessSigner()) throw new ProtocolError("NotSignedIn", "Sign in to launch this private rocket.");
               privateRelay = { fee, minQuoteIn };
             } else if (harvest && feeDest) {
@@ -1407,7 +1415,24 @@ export function createViemProtocol(): ProtocolClient {
         }
         const sentAt = Date.now();
         let r: Pick<ExecResult, "txHash" | "logs">;
-        if (privateRelay && anonL && lp.private && usdg) {
+        if (privatePool && lp.private) {
+          const { stealthOwner, ephemeralPubKey, viewTag } = lp.private;
+          try {
+            // the session wallet only (off-chain admission); it is not part of the launch
+            r = await launchFromAnonPool(gaslessSigner()?.address ?? me, usdgIn, {
+              p: {
+                name: params.name, ticker: params.ticker, imageURI: params.imageURI, description: params.description,
+                socialsURI: params.socialsURI, quote: params.quote, creatorTaxBps: params.creatorTaxBps,
+                creatorBuyQuoteIn: params.creatorBuyQuoteIn, creatorBuyMinTokensOut: params.creatorBuyMinTokensOut, deadline: params.deadline,
+              },
+              mode, stealthOwner, buyRecipient: stealthOwner, ephemeralPubKey, viewTag,
+              minQuoteIn: privatePool.minQuoteIn, creatorFeeDestination: feeDest ?? 0,
+            });
+          } catch (e) {
+            if (e instanceof GaslessError) throw new ProtocolError("LaunchFailed", e.message);
+            throw e;
+          }
+        } else if (privateRelay && anonL && lp.private && usdg) {
           const { stealthOwner, ephemeralPubKey, viewTag } = lp.private;
           try {
             r = await sendPrivateLaunchRelayer(pc, usdg, {
