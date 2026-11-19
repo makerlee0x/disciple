@@ -16,13 +16,14 @@ import { CLIMB_FEE, CLIMB_FEE_LABEL, CLIMB_LEVELS, CLIMB_MAX_GEAR, climbLevelsFo
 import { readClimbLevel, saveClimbLevel } from "@/lib/climb/progress";
 import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "@/components/turbo/duel/engineLoader";
 import { PCTS, pctUsd } from "@/lib/duel/rules";
-import { LighterMatch, lighterFetcher, lighterWanted, type MatchAction } from "@/lib/lighter/duel";
+import { LighterMatch, lighterBlockedHere, lighterFetcher, lighterWanted, type MatchAction } from "@/lib/lighter/duel";
+import { TURBO_BLOCKED_NOTE, turboRegion } from "@/lib/turbo/region";
 import { lighterStatus } from "@/lib/lighter/client";
-import { LIGHTER_PRICE_HOST, streamLighterMids } from "@/lib/turbo/royalePrices";
+import { LIGHTER_PRICE_HOST, streamLighterBook, streamLighterMids } from "@/lib/turbo/royalePrices";
 import { onWallet } from "@/lib/walletState";
 
 type Tick = { ts: number; p: number };
-interface EngineApi { price(p: number, ts: number): void; error?(t: string): void; climbRefresh?(): void; climbFill?(entry: number): void; destroy(): void }
+interface EngineApi { price(p: number, ts: number): void; error?(t: string): void; climbRefresh?(): void; climbFill?(entry: number): void; climbNote?(t: string): void; climbCash?(delta: number): void; destroy(): void }
 /** the buzzer's longest clock (app/api/lighter arm): free mode has none, so its position closes then */
 const LIGHTER_ARM_MAX = 270_000;
 
@@ -31,6 +32,12 @@ export default function ClimbScreen() {
   const [gear, setGear] = useState(false);
   useTurboMusic();
   useEffect(() => {
+    // real-money Turbo is off where Lighter refuses (lib/turbo/region), so the country is known before the run is set up
+    let gone = false, off = () => {};
+    void turboRegion().then(() => { if (!gone) off = boot(); });
+    return () => { gone = true; off(); };
+  }, []);
+  function boot() {
     let dead = false, api: EngineApi | null = null;
     const hist: Tick[] = [];
     // levels scale with the pilot's Turbo balance (lib/climb/rules climbLevelsFor). The engine holds this array, so it
@@ -51,20 +58,24 @@ export default function ClimbScreen() {
     };
     // On Lighter the chart is Lighter's own BTC from the first frame (public stream, no account needed), swapped for the
     // pilot's exchange once the account is read; before, it waited on that read and Climb "froze on 3" (maker
-    // 2026-11-18). Same source rule as Royale (lib/turbo/royalePrices): Hyperliquid's BTC only until Lighter has priced
-    // it, then Lighter for good (no jumps between venues), and a quiet Lighter holds its last price.
+    // 2026-11-18). Only Lighter's price under real orders, so the chart, the fills and the PnL are one venue (maker
+    // 2026-11-19: "the chart and price need to match"); a quiet Lighter holds its last price.
     let lastLx = 0, lastP = 0;
     const lxTick = (p: number) => {
       if (!lastLx) console.info("[climb] Lighter BTC price live");
       lastLx = Date.now(); lastP = p; tick(p, lastLx);
     };
-    let stopPrice = onLighter
-      ? streamLighterMids((m) => { if (m.BTC) lxTick(m.BTC); })
-      : ad.subscribePrice("BTC", (t) => tick(t.price, t.ts));
-    const stopHl = onLighter ? ad.subscribePrice("BTC", (t) => { if (!lastLx) tick(t.price, Date.now()); }) : () => {};
+    // the live order book's mid drives the chart; market_stats' mark price only fills a gap when the book is quiet
+    let lastBook = 0;
+    const lxStreams = (h?: string) => {
+      const a = streamLighterBook("BTC", (m) => { lastBook = Date.now(); lxTick(m); }, h);
+      const b = streamLighterMids((m) => { if (m.BTC && Date.now() - lastBook > 3_000) lxTick(m.BTC); }, h);
+      return () => { a(); b(); };
+    };
+    let stopPrice = onLighter ? lxStreams() : ad.subscribePrice("BTC", (t) => tick(t.price, t.ts));
     const hold = onLighter ? setInterval(() => { if (lastP > 0 && Date.now() - lastLx > 2_000) tick(lastP, Date.now()); }, 1_000) : null;
-    const noLx = onLighter ? setTimeout(() => { if (!lastLx) console.warn("[climb] no Lighter BTC price after 8 s; charting Hyperliquid's"); }, 8_000) : null;
-    const stopBackup = () => { stopHl(); if (hold) clearInterval(hold); if (noLx) clearTimeout(noLx); };
+    const noLx = onLighter ? setTimeout(() => { if (!lastLx) console.warn("[climb] no Lighter BTC price after 8 s"); }, 8_000) : null;
+    const stopBackup = () => { if (hold) clearInterval(hold); if (noLx) clearTimeout(noLx); };
     let lf: ReturnType<typeof lighterFetcher> | null = null;
     /** the Lighter account now: cash, and the BTC position's real entry */
     const readLighter = async () => {
@@ -94,7 +105,7 @@ export default function ClimbScreen() {
           const min = Math.max(Number(d?.min_base_amount) * px || 0, Number(d?.min_quote_amount) || 0);
           if (!dead && min > 0 && lighter) { lighter.minUsd = min; api?.climbRefresh?.(); }
         }).catch(() => {});
-        if (h && h !== LIGHTER_PRICE_HOST) { stopPrice(); stopPrice = streamLighterMids((m) => { if (m.BTC) lxTick(m.BTC); }, h); }
+        if (h && h !== LIGHTER_PRICE_HOST) { stopPrice(); stopPrice = lxStreams(h); }
       }).catch(() => {});
     });
     let startCash: number | null = null, ended: Promise<void> = Promise.resolve();
@@ -120,6 +131,14 @@ export default function ClimbScreen() {
         const r = await lx.press(action, i, fuelAfter);
         // the fill lands a moment after Lighter takes the order: read the real entry back for the chart and the PnL
         if (!("error" in r) && action !== "close") setTimeout(() => { void readLighter().then((x) => { if (x?.entry) api?.climbFill?.(x.entry); }).catch(() => {}); }, 700);
+        // a cash out: once Lighter shows the position gone, the cash it moved since the run began is the real result so far
+        if (!("error" in r) && action === "close") void (async () => {
+          for (let k = 0; k < 8 && !dead; k++) {
+            await new Promise((ok) => setTimeout(ok, k ? 500 : 700));
+            const x = await readLighter().catch(() => null);
+            if (x && x.cash != null && x.entry == null && startCash != null) { api?.climbCash?.(x.cash - startCash); return; }
+          }
+        })();
         return r;
       }),
       fuel: (fuel: number) => { void lxP.then((lx) => lx?.fuel(fuel)); },
@@ -161,8 +180,9 @@ export default function ClimbScreen() {
     loadDuelEngine().then(() => {
       if (dead || !ref.current || !w.DuelEngine) return;
       api = w.DuelEngine.mount(ref.current, host);
+      if (lighterBlockedHere()) api?.climbNote?.(TURBO_BLOCKED_NOTE);
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load Climb. Refresh to try again."; });
     return () => { dead = true; stopPrice(); stopBackup(); offWallet(); offFuel(); api?.destroy(); };
-  }, []);
+  }
   return <><div ref={ref} /><LobbySettings mode="climb" open={gear} onClose={() => setGear(false)} /></>;
 }

@@ -218,7 +218,8 @@ function mount(root,host){
     G.marks.push({t:G.t,p:price,me:pl.me,k:"x"});
     moment(pl,`${pl.me?"you":esc(pl.name)} cashed out a ${side>0?"BOOST":"DUMP"}`,net);
     popAt(pl,usd(net,true),net>=0?"#5FF0A0":"#FF8FBD");
-    feed(pl,net>=0?"g":"r",`${pl.me?"you":esc(pl.name)} banked <b>${usd(net,true)}</b>`);
+    const fe=feed(pl,net>=0?"g":"r",`${pl.me?"you":esc(pl.name)} banked <b>${usd(net,true)}</b>`);
+    if(pl.me&&G.solo) G.lastBank={el:fe,net};   // Climb on Lighter: climbCash swaps in the real amount once Lighter books it
     if(pl.me){ sfx(net>=0?"win":"lose"); buzz(net>=0?[12,30,12]:[30]); }
     pl.lastTrade=G.t;
     // Climb: banking the goal is the finish line, the run ends there (maker 2026-11-18)
@@ -428,8 +429,9 @@ function mount(root,host){
     const bg={b:"var(--gold)",d:"var(--pink)",g:"var(--green)",r:"var(--pink)",t:"#8FE3FF",c:pl.me?"var(--gold)":"var(--pink)"}[k], ic={b:"\u25b2",d:"\u25bc",g:"$",r:"!",t:"\u2605",c:"\u201c"}[k];
     d.innerHTML=`<i style="background:${bg};color:${k==="d"||k==="r"?"#fff":"#121327"}">${ic}</i><span>${html}</span>`;
     f.prepend(d); while(f.children.length>3) f.lastChild.remove();
-    if(M&&M.net) return;
+    if(M&&M.net) return d;
     if(G&&G.bot&&!G.over&&pl===G.bot&&k==="g"&&Math.random()<.35) botSay(pick(["ez","too slow","thanks for the liquidity","\ud83d\udcc8","read that one"]),900);
+    return d;
     if(G&&G.bot&&!G.over&&pl===G.me&&k==="g"&&Math.random()<.2) botSay(pick(["lucky","ok ok","nice one","won't happen again"]),1200);
     if(G&&G.bot&&!G.over&&pl===G.me&&k==="t"&&Math.random()<.5) botSay(pick(["lol","show off","\ud83d\ude02","spin all you want"]),900);
   }
@@ -644,10 +646,14 @@ function mount(root,host){
   const SPACE=new Set(["sky3","sky4"]);
   // where the journey is: f = position in the theme's layers (0 = ground), fin = 0..1 fade into the final sky
   function skyStage(pan){ const N=SKY_ORDER.length; if(!G||!G.started) return {f:0,fin:0};
+    // Climb level runs (maker 2026-11-19: "the sky tier should be the length of the 60 second like in duel"): the pad,
+    // then every sky tier on the clock, reaching the moon for the last FINAL_MS like a duel; climbing toward the goal
+    // runs it ahead, and clearing the goal brings the moon in early. Ending early just stops wherever it got to.
     if(G.solo&&CLR&&CLR.goal!=null){ const u=Math.min(1.4,soloProg()); G.sp=G.sp==null?u:G.sp+(u-G.sp)*.05;
-      const tp=Math.max(0,Math.min(1,G.t/G.len)), up=1-Math.pow(1-tp,1.6), j=Math.min(1,.55*up+.55*Math.min(1,G.sp));
+      const run=Math.max(1,G.len-FINAL_MS), tp=Math.max(0,Math.min(1,G.t/run)), j=Math.min(1,tp+.25*Math.max(0,Math.min(1,G.sp)));
       G.lift=Math.max(0,Math.min(1,G.t/SOLO_LIFT));
-      return {f:Math.max(0,Math.min(N-1,1+j*(N-2))),fin:Math.max(0,Math.min(1,(G.sp-1)/.3)),solo:1}; }
+      const finT=G.t>=run?Math.min(1,(G.t-run)/1500):0;
+      return {f:Math.max(0,Math.min(N-1,1+j*(N-2))),fin:Math.max(finT,Math.max(0,Math.min(1,(G.sp-1)/.3))),solo:1}; }
     const run=Math.max(1,G.len-FINAL_MS), p=Math.max(0,Math.min(1,G.t/run));
     if(G.finalAt==null&&G.t>=run&&!G.over){ G.finalAt=G.t; toast("Final 12 seconds"); }   // latched: overtime stays on the moon
     const fin=G.finalAt!=null?Math.min(1,(G.t-G.finalAt)/1500):0;
@@ -1458,6 +1464,13 @@ function mount(root,host){
     toLobby:()=>{ M=null; show("intro"); },
     firstCrate:(d)=>firstCrate(d),
     // Climb on Lighter: the real average entry Lighter filled at replaces the game's entry (same side and size)
+    // Climb on Lighter, flat after a cash out: delta = the Lighter cash moved since the run began (real fills and fees).
+    // Fuel and the last "banked" line become Lighter's numbers (maker 2026-11-19: "it needs to be the actual fills")
+    climbCash:(delta)=>{ if(!CLR||!G||G.over||G.me.pos||!isFinite(delta)) return; const was=G.me.fuel; G.me.fuel=Math.max(0,FUEL0+delta);
+      const b=G.lastBank; if(b&&b.el&&b.el.isConnected){ b.net+=G.me.fuel-was; const v=b.el.querySelector("b"), i=b.el.querySelector("i"); if(v) v.textContent=usd(b.net,true);
+        if(i){ const up=b.net>=0; i.style.background=up?"var(--green)":"var(--pink)"; i.style.color=up?"#121327":"#fff"; i.textContent=up?"$":"!"; } }
+      ui(); },
+    climbNote:(t)=>{ if(CL&&!$("climb").hidden) climbHome(t); else toast(t); },
     climbFill:(entry)=>{ if(!CLR||!G||G.over||!G.me.pos||!(entry>0)) return; G.me.pos.entry=entry; ui(); },
     climbRefresh:()=>{ if(!CL) return; if(!cFreeSet&&LVS.length) cFree.fuel=LVS[LVS.length-1].fuel; if(!$("climb").hidden) climbHome(); },
     _state:()=>G,
