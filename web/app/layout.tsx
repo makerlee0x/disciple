@@ -18,6 +18,7 @@ import { barlowCondensed, geist, instrumentSerif } from "./fonts";
 import AppShell from "@/components/AppShell";
 import ChatBridge from "@/components/chat/ChatBridge";
 import AppSounds from "@/components/AppSounds";
+import MenuMusic from "@/components/MenuMusic";
 import LevelUpFlash from "@/components/xp/LevelUpFlash";
 import PrivyProviders from "@/components/PrivyProviders";
 import IconSprite from "@/components/icons/IconSprite";
@@ -99,6 +100,7 @@ export default function RootLayout({
         <IconSprite />
         <IosZoomLock />
         <AppSounds />
+        <MenuMusic />
         <PrivyProviders>
           <AppShell>{children}</AppShell>
           <ChatBridge />

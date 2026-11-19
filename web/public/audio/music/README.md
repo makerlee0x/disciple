@@ -1,3 +1,5 @@
 # Music
 
 `victory_loop.m4a` / `victory_loop.wav` is the Turbo Royale podium bed, which plays under the results screen after the champion braams sting (`../sfx/champion_01.m4a`). It is "Epic Main Menu Theme ~ Loop" (Übermensch) by CleytonKauffman from OpenGameArt, CC0. The source is 16 bars at 110 BPM, built with drums, percussion and a full band. The loop is 34.894 s long (1,674,916 samples at 48 kHz stereo); a 15 ms equal-power crossfade at the seam removes the click. Loudness is -20.0 LUFS integrated, with a -8.5 dBTP true peak. Use the 16-bit WAV for gapless Web Audio looping (`loop = true` on an AudioBufferSourceNode). The AAC file is for plain `<audio>` playback; it carries encoder priming, so it will not loop sample-accurately.
+
+`menu_loop.m4a` is the iPhone app's menu music (lib/game/menuMusic.ts, `MENU_TRACK`): maker's voice memo loop song, looping under the lobby and menus in the app only. Its loop points (`loopStart` / `loopEnd`, seconds) are set in `MENU_TRACK` so the AAC padding never lands in the loop.
