@@ -15,7 +15,8 @@ interface IPveCurveHook {
 /// @title DISCIPLE ERC-20 launch token
 /// @notice Fixed 1M supply at launch, 18 decimals, no further mint (§2 / LOCKED #7, #10). Holders may burn their own
 ///         tokens (`burn`) or an approved holder's (`burnFrom`): `totalSupply()` really drops (redeploy pack, lee
-///         2026-10-24). PVE coins block burns until graduation so the curve's NET positions stay exact.
+///         2026-10-24). PVE (Easy) coins can burn before graduation too:
+///         the curve books a burn as a send to 0x…dEaD, so the burned NET leaves circulation (maker 2026-11-19).
 /// @dev EIP-2612 permit enabled (single-tx sells via BondingCurve.sellWithPermit).
 ///      Standard CREATE deployment (no vanity). Entire supply minted once to `recipient` (the curve).
 contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {

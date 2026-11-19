@@ -128,4 +128,30 @@ contract DeltaEasyBurn is IntegrationBase {
         assertEq(c.tokensSold() - s0, bought, "burned tokens stay sold on the curve");
         assertFalse(c.graduated());
     }
+
+    /// Audit delta T2-I1: a burn on a real curve settles only the burner. Other holders' pending rewards don't move,
+    /// totalNet falls by exactly the burned NET, and the burner's NET/cost basis drop pro rata.
+    function test_easyBurn_othersRewardsUnchanged() public {
+        (BondingCurve c, Token t) = _easy();
+        vm.warp(vm.getBlockTimestamp() + 61);
+        _buyQ(c, alice, 1_000 ether);
+        _buyQ(c, bob, 1_000 ether);
+        _buyQ(c, carol, 1_000 ether);
+        for (uint256 i; i < 40; ++i) {
+            _buyQ(c, makeAddr(string(abi.encodePacked("p", vm.toString(i)))), 200 ether);
+        }
+        _sellT(c, t, carol, t.balanceOf(carol)); // profit tax -> crew tip accrues to alice + bob + pumpers
+        uint256 pendB = c.pendingRewards(bob);
+        uint256 pendA = c.pendingRewards(alice);
+        uint256 netA = c.balanceOnCurve(alice);
+        uint256 tn = c.totalNet();
+        uint256 burnAmt = netA / 3;
+        vm.prank(alice);
+        t.burn(burnAmt);
+        assertEq(c.pendingRewards(bob), pendB, "other holder untouched");
+        assertEq(c.pendingRewards(alice), pendA, "burner keeps accrued");
+        assertEq(c.balanceOnCurve(alice), netA - burnAmt, "burner NET");
+        assertEq(c.totalNet(), tn - burnAmt, "totalNet by exactly the burned NET");
+        assertEq(c.balanceOnCurve(0x000000000000000000000000000000000000dEaD), 0, "nothing parked on dEaD");
+    }
 }

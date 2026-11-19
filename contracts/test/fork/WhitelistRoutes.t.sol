@@ -29,7 +29,6 @@ contract WhitelistRoutesForkTest is Test {
     address internal constant PM = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
     address internal constant USDG = 0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168;
     address internal constant LONG_HOOK = 0x4e3468951D49f2EEa976eD0D6e75fFCb44a9a544;
-    address internal constant SESSION_FEE_HOOK = 0xC15b155a3094934171A15625d1a80Aba267B6080;
     address internal constant GLD_USDG_HOOK = 0xB608a78761f179f7C56f15E7D13921B92F00a080;
     address internal constant PONS_USDG_HOOK = 0x08E52564Bad99E05a694b4809F397edcA417A080;
     address internal constant PRIORS_USDG_HOOK = 0xE5e702641Ea86F4ae6cC3cDaeD2B886f976Be044;

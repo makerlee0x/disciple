@@ -75,8 +75,8 @@ contract DevToken is ERC20, ERC20Permit {
 ///   DEFAULT_QUOTE       default launch quote (RH: STRATEGY 0x168661C52E5922288dFb2b3f323b6Cf90eb21e18)
 ///   DEFAULT_QUOTE_POOL_FEE / DEFAULT_QUOTE_POOL_TICK_SPACING / DEFAULT_QUOTE_POOL_HOOKS (not read on 4663: there all
 ///                       12 pair coins, the default quote included, get the script/whitelist/MainnetRoutes.sol routes)
-///                       reference DEFAULT_QUOTE/USDG v4 pool for the QuotePricer
-///                       (RH STRATEGY/USDG deepest pool: 36900 / 369 / 0x0 → id 0x816b…245b)
+///                       reference DEFAULT_QUOTE/USDG v4 pool for the QuotePricer (testnet / other chains only;
+///                       mainnet STRATEGY routes USDG → MSTR → STRATEGY, see MainnetRoutes)
 ///   MIN_LIQUIDITY       QuotePricer minimum in-range liquidity (default: the constructor floor)
 ///   RENOUNCE_HARVEST    renounce CreatorFeeHarvest ownership at the end of deploy (always on mainnet 4663)
 ///   RENOUNCE_HOOK_ADMIN drop the DiscipleHook admin once wired (always on 4663)
@@ -329,6 +329,7 @@ contract Deploy is NetworkConfig {
         }
         require(router.usdg() == o.usdg, "verify: router.usdg"); // round 5: the write-once USDG half
         _verify(mainnet, feeRouter, hook, lockedLP, harvest, launchpad, router, AnonLauncher(o.anonLauncher));
+        if (mainnet) _verifyMainnetRoutes(pricer, router);
 
         vm.stopBroadcast();
 
@@ -423,6 +424,20 @@ contract Deploy is NetworkConfig {
             // so a listed pair coin that can't launch fails the deploy instead of failing its first launch.
             require(pricer.quotePriceUsd(q[i]) > 0, "Deploy: pair route unpriced");
             console2.log("PairRoute", q[i], keys.length);
+        }
+    }
+
+    /// @dev Audit delta D3-L1: read back every stored route (router + pricer) against MainnetRoutes, and the listing,
+    ///      at the end of the broadcast, so a mis-wire or a later MainnetRoutes edit that skips the wiring fails here.
+    function _verifyMainnetRoutes(QuotePricer pricer, DiscipleRouter router) internal view {
+        address[12] memory q = MainnetRoutes.quotes();
+        for (uint256 i; i < 12; ++i) {
+            (PoolKey[] memory keys,,,) = MainnetRoutes.routeOf(q[i]);
+            bytes32 want = keccak256(abi.encode(keys));
+            require(pricer.isAllowedQuote(q[i]), "verify: pair not listed");
+            require(keccak256(abi.encode(router.usdgRouteOf(q[i]))) == want, "verify: router route");
+            require(keccak256(abi.encode(pricer.priceRouteOf(q[i]))) == want, "verify: price route");
+            require(pricer.quotePriceUsd(q[i]) > 0, "verify: pair unpriced");
         }
     }
 
