@@ -35,8 +35,11 @@ export function useHiddenLaunches(enabled: boolean): Set<string> {
     if (!enabled || IS_STATIC_PREVIEW) { setS(new Set()); return; }
     let alive = true;
     void Promise.all([import("@/lib/privateLaunch"), import("@/components/claims/ui")])
-      .then(([pl, ui]) => pl.myHiddenCoins(ui.pc()))
-      .then((cs) => { if (alive) setS(new Set(cs.map((c) => c.token.toLowerCase()))); })
+      .then(async ([pl, ui]) => {
+        const cs = await pl.myHiddenCoins(ui.pc());
+        if (alive) setS(new Set(cs.map((c) => c.token.toLowerCase())));
+        void pl.creditHiddenLaunches(cs);   // their trophies (First launch, Blessed Dev) count for you, privately
+      })
       .catch(() => {});
     return () => { alive = false; };
   }, [enabled]);

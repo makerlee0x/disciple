@@ -70,5 +70,29 @@ export async function myHiddenCoins(pc: PublicClient): Promise<MyStealthCoin[]> 
   return p.catch(() => []);
 }
 
+/**
+ * Credit our hidden launches to this account's trophies (POST /api/achievements): the stealth owner key signs that it's
+ * ours, so the server never has to guess. Once per coin per browser; best effort, never throws.
+ */
+export async function creditHiddenLaunches(coins: readonly MyStealthCoin[]): Promise<void> {
+  if (!coins.length) return;
+  try {
+    const [{ privyAccessToken }, { privateKeyToAccount }, { anonHostMessage }, { withBase }] = await Promise.all([
+      import("./aa/sessionState"), import("viem/accounts"), import("./coinLook"), import("./base-path"),
+    ]);
+    const acct = (await aaAddress())?.toLowerCase();
+    const t = await privyAccessToken();
+    if (!acct || !t) return;
+    const keys = await myStealthKeys();
+    for (const c of coins) {
+      const flag = `disciple:anonhost:${ACTIVE_CHAIN.id}:${c.token.toLowerCase()}:${acct}`;
+      try { if (localStorage.getItem(flag)) continue; } catch { /* blocked: send anyway */ }
+      const sig = await privateKeyToAccount(stealthKeyFor(keys, c.ephemeralPubKey) as Hex).signMessage({ message: anonHostMessage(c.token, acct, ACTIVE_CHAIN.id) });
+      const r = await fetch(withBase("/api/achievements"), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${t}`, "x-wallet": acct }, body: JSON.stringify({ coin: c.token, sig }) }).catch(() => null);
+      if (r && (r.ok || r.status === 409)) { try { localStorage.setItem(flag, "1"); } catch { /* blocked */ } }
+    }
+  } catch { /* retried on the next Hangar visit */ }
+}
+
 /** Stealth private key for one of our coins (signs its EIP-712 Claim). */
 export const stealthKeyFor = (keys: StealthKeys, eph: Hex) => stealthPrivateKey(keys.spendPriv, keys.viewPriv, eph);
