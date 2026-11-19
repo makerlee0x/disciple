@@ -41,7 +41,7 @@ import { RocketCard } from "@/components/hangar/Collection";
 import { useCollection } from "@/lib/collectionClient";
 import type { Progress } from "@/lib/unlocks";
 import { Fleet, ServiceRecord, TrophyCase } from "@/components/hangar/HangarSections";
-import { useHomeCoins, useLoadout, useTrophies } from "@/components/hangar/hangarData";
+import { useHiddenLaunches, useHomeCoins, useLoadout, useTrophies } from "@/components/hangar/hangarData";
 
 const PAGE = { activity: 12 } as const;
 /** The app's Hangar jump row: section heading id → label. */
@@ -261,6 +261,8 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const pf = useLivePortfolio(wallet);
   const { xp } = useXp(wallet);
   const home = useHomeCoins();
+  // your own anon launches: found in this browser with your keys, shown on your Hangar only (never on the public profile)
+  const hidden = useHiddenLaunches(isPrivate && !!wallet);
   const trophies = useTrophies(wallet);
   const progress = useMemo<Progress | null>(() => (xp && trophies ? { level: xp.level.level, prestige: xp.level.prestige, trophies: new Set(trophies.keys()) } : null), [xp, trophies]);
   const looks = useLoadout(isPrivate, progress, wallet || null);
@@ -303,7 +305,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const noWallet = !isPrivate && resolved && !wallet;
   const holdings = pf ? (pf.ok ? pf.rows : []) : noWallet ? [] : null;
 
-  const launched = home && (wallet || slugAddr) ? [...home.values()].filter((c) => c.creatorAddr === (wallet || slugAddr)).sort((x, y) => y.block - x.block) : null;
+  const launched = home && (wallet || slugAddr) ? [...home.values()].filter((c) => c.creatorAddr === (wallet || slugAddr) || (isPrivate && hidden.has(c.token))).sort((x, y) => y.block - x.block) : null;
   const avatar = img
     // eslint-disable-next-line @next/next/no-img-element
     ? <img src={withBase(img)} alt="" width={72} height={72} fetchPriority="high" />

@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { gateState, type GateState } from "@/lib/claims/referralGate";
 import { hasClaimable, loadRewards, type RewardsData } from "@/lib/claims/rewardsData";
 import { demoGate, demoRewards } from "@/lib/claims/demo";
-import { myStealthCoins, myStealthKeys } from "@/lib/privateLaunch";
+import { myHiddenCoins } from "@/lib/privateLaunch";
 import { fetchUsernameStatus, localUsername } from "@/lib/profile";
 import { pc, useCaps, useWalletAddr } from "./ui";
 
@@ -36,7 +36,7 @@ export function useRewards(enabled = true) {
     if (!p) {
       p = (async () => {
         // private launches announced to this account's stealth keys (same silent signature the creator dashboard uses)
-        const stealth = caps.anonClaims ? await myStealthKeys().then((k) => myStealthCoins(c, k)).catch(() => []) : [];
+        const stealth = caps.anonClaims ? await myHiddenCoins(c) : [];
         try { const d = await loadRewards(c, me, caps, stealth); cache.set(key, d); return d; }
         catch (e) { console.warn("[disciple] rewards: load failed", (e as Error)?.message ?? e); return cache.get(key) ?? null; }
       })().finally(() => inflight.delete(key));

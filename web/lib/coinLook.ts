@@ -107,4 +107,6 @@ export function shuffleLook(pool: { skins: readonly { id: string }[]; trails: re
   return { skin: pick(pool.skins.filter((x) => x.id !== CLASSIC), prev?.skin) ?? CLASSIC, trail: pick(pool.trails, prev?.trail) ?? "trail-gold" };
 }
 /** What a hidden host signs with the coin's stealth owner key to paint it (checked against Launchpad.creatorOf). */
+/** What a hidden coin's stealth owner signs to have its launch credited to this account's trophies (kept private). */
+export const anonHostMessage = (token: string, wallet: string, chainId: number) => `Disciple: credit my hidden launch ${token.toLowerCase()}\nto ${wallet.toLowerCase()}\nchain ${chainId}`;
 export const coinLookMessage = (token: string, skin: string, trail: string) => `Disciple: paint rocket ${token.toLowerCase()}\nskin ${skin}\ntrail ${trail}`;

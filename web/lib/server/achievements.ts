@@ -16,7 +16,9 @@ import "server-only";
  * Reorgs: RH testnet blocks are effectively final at our cadence; a reorged fill still in KV would stay counted (same as
  * /api/trades today). Revisit with the indexer's head−N guard before mainnet.
  */
-import { decodeEventLog, getAbiItem, type Hex, type Log } from "viem";
+import { decodeEventLog, getAbiItem, recoverMessageAddress, type Hex, type Log } from "viem";
+import { anonHostMessage } from "@/lib/coinLook";
+import { stealthOwnerOf } from "./coinLooks";
 import { bondingCurveAbi, launchpadAbi } from "@/lib/abi";
 import { ACTIVE_CHAIN, deployment, ZERO } from "@/lib/chains";
 import { anonLaunchers } from "@/lib/anon";
@@ -71,14 +73,24 @@ export function fillEvent(f: Fill): AchEvent {
     side: f.side, venue: f.venue, tokens: f.tokens, usd: playerUsd(f), impactBps: typeof f.impactBps === "number" ? Math.abs(f.impactBps) : undefined,
   };
 }
-/** Pure: coin metas → launch/graduation events. */
-export function coinEvents(metas: Map<string, CoinMeta>): AchEvent[] {
+/** Pure: coin metas → launch/graduation events. `hosted`: hidden coins credited to `host` (their launch counts as the host's). */
+export function coinEvents(metas: Map<string, CoinMeta>, host?: { wallet: string; coins: ReadonlySet<string> }): AchEvent[] {
   const out: AchEvent[] = [];
   for (const [coin, m] of Array.from(metas.entries())) {
-    out.push({ kind: "launch", coin, creator: m.creator, anon: m.anon, ...m.launch });
+    const mine = !!host && m.anon && host.coins.has(coin);
+    out.push({ kind: "launch", coin, creator: mine ? host!.wallet : m.creator, anon: mine ? false : m.anon, ...m.launch });
     if (m.grad) out.push({ kind: "graduation", coin, ...m.grad });
   }
   return out;
+}
+
+/**
+ * Pure: an unlock earned from a hidden coin is kept apart from that coin. No coin, tx or block, and its time is when the
+ * host credited it, so a public trophy never points at the hidden launch.
+ */
+export function hideHosted(u: AchievementUnlockRecord, hostedAt: ReadonlyMap<string, number>): AchievementUnlockRecord {
+  const at = u.coin ? hostedAt.get(u.coin.toLowerCase()) : undefined;
+  return at === undefined ? u : { id: u.id, wallet: u.wallet, tx: "", block: 0, logIndex: 0, ts: at };
 }
 
 /** API item for one rule (GET /api/achievements). */
@@ -190,6 +202,7 @@ export async function scanCoinEvents(budgetMs = 15_000, s: Kv = kv()): Promise<{
       await s.set(ACH.coin(coin), JSON.stringify(meta));
       const traders = await tradersOf(coin, s);
       if (!meta.anon) traders.add(meta.creator);
+      else { const h = parse<{ w: string }>(await s.get(ACH.anonHost(coin))); if (h?.w) traders.add(h.w); }
       if (traders.size) await s.zadd(ACH.dirty(), Array.from(traders).map((w) => ({ score: Date.now(), member: `${w}|grad:${coin}` })));
       out.graduations++;
     }
@@ -215,12 +228,17 @@ export async function scoreWallet(walletIn: string, o: { dryRun?: boolean; s?: K
   const fills: Fill[] = [];
   for (const c of coins) fills.push(...(await tradesOf(c, w, TRADES_MAX_LIMIT)));
   const launched = (await s.smembers(ACH.coins())).length ? await launchedBy(w, s) : [];
-  const metas = await coinMetas(Array.from(new Set([...coins, ...launched])), s);
+  // hidden launches this account proved it hosts (claimAnonHost); private, read only here
+  const hosted = (await s.smembers(ACH.anonOf(w)).catch(() => [] as string[])).map((c) => c.toLowerCase());
+  const hostedAt = new Map<string, number>();
+  for (const c of hosted) { const h = parse<{ w: string; at: number }>(await s.get(ACH.anonHost(c))); if (h?.w === w) hostedAt.set(c, h.at); }
+  const metas = await coinMetas(Array.from(new Set([...coins, ...launched, ...hostedAt.keys()])), s);
   // Chain isolation (lee 9:24 AM CDT, Oct 26: "achievements reset at mainnet"): fill keys (`trades:*`) are per coin
   // address, not per chain, so only fills on coins launched by THIS chain's launchpad (meta under ach:<chainId>:coin:)
   // count. A shared Upstash DB can never leak testnet fills into mainnet unlocks.
   const onChain = fills.filter((f) => metas.has(f.coin.toLowerCase()));
-  const r = evaluateWallet(w, [...onChain.map((f) => fillEvent(f)), ...coinEvents(metas)], V1_RULES);
+  const raw = evaluateWallet(w, [...onChain.map((f) => fillEvent(f)), ...coinEvents(metas, { wallet: w, coins: new Set(hostedAt.keys()) })], V1_RULES);
+  const r = { ...raw, unlocks: raw.unlocks.map((u) => hideHosted(u, hostedAt)) };
   const fresh: string[] = [];
   if (!o.dryRun) {
     for (const u of r.unlocks) {
@@ -228,7 +246,7 @@ export async function scoreWallet(walletIn: string, o: { dryRun?: boolean; s?: K
       fresh.push(u.id);
       await s.zadd(ACH.unlocks(w), [{ score: u.ts, member: JSON.stringify(u) }]);
       await s.incrEx(ACH.count(u.id), TEN_YEARS);
-      if (now - u.ts <= FEED_FRESH_MS) {
+      if (now - u.ts <= FEED_FRESH_MS && u.tx) {   // hidden-launch credits stay off the live feed
         const rule = V1_RULES.find((x) => x.id === u.id)!;
         const row: FeedRow = { wallet: w, id: u.id, name: rule.name, rarity: rule.rarity, unlockedAt: u.ts, tx: u.tx, recordedAt: now };
         await s.zadd(ACH.feed(), [{ score: now, member: JSON.stringify(row) }]);
@@ -374,4 +392,26 @@ export async function runAchievements(o: { budgetMs?: number; dryRun?: boolean }
   } finally {
     if (!o.dryRun) await s.del(ACH.lock()).catch(() => {});
   }
+}
+
+export type AnonHostResult = { ok: true } | { ok: false; reason: string; status: number };
+/**
+ * Credit a hidden launch to the signed-in account's trophies. `sig` is the coin's stealth owner signing anonHostMessage
+ * (only the host holds that key). The link is stored server side only and never served; the unlock it gives carries no
+ * coin (hideHosted). Once per coin.
+ */
+export async function claimAnonHost(coinIn: string, walletIn: string, sig: Hex, s: Kv = kv(), now = Date.now()): Promise<AnonHostResult> {
+  const coin = coinIn.toLowerCase(), w = walletIn.toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(coin) || !/^0x[0-9a-f]{40}$/.test(w)) return { ok: false, reason: "bad request", status: 400 };
+  const creator = (await serverPc().readContract({ address: deployment().launchpad, abi: launchpadAbi, functionName: "creatorOf", args: [coin as `0x${string}`] }).catch(() => null) as string | null)?.toLowerCase() ?? "";
+  if (!anonLaunchers(ACTIVE_CHAIN.id).some((a) => a.toLowerCase() === creator)) return { ok: false, reason: "not a hidden launch", status: 400 };
+  const owner = await stealthOwnerOf(coin, creator);
+  const a = await recoverMessageAddress({ message: anonHostMessage(coin, w, ACTIVE_CHAIN.id), signature: sig }).catch(() => null);
+  if (!owner || !a || a.toLowerCase() !== owner) return { ok: false, reason: "not the host", status: 403 };
+  const prev = parse<{ w: string }>(await s.get(ACH.anonHost(coin)));
+  if (prev) return prev.w === w ? { ok: true } : { ok: false, reason: "already credited", status: 409 };
+  if (!(await s.setNX(ACH.anonHost(coin), JSON.stringify({ w, at: now })))) return { ok: false, reason: "already credited", status: 409 };
+  await s.sadd(ACH.anonOf(w), coin);
+  await s.zadd(ACH.dirty(), [{ score: now, member: `${w}|anonhost:${coin}` }]);
+  return { ok: true };
 }

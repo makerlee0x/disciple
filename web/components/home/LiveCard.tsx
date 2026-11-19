@@ -12,6 +12,7 @@ import { pairLogoBySymbol } from "@/lib/whitelistQuotes";
 import { altShort, crewFaces, flightHref, lit, Mark, orbitPct, pct } from "./rocketBits";
 import { useCrewAboard } from "@/components/crew/CrewAboard";
 import CoinRocket from "./CoinRocket";
+import { isStoreSrc } from "@/lib/coinImages";
 import { isClassic, trailRgb } from "@/lib/coinLook";
 import s from "./liveCard.module.css";
 
@@ -21,6 +22,7 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
   const chg = c.stats?.chg24 ?? null;
   const crew = c.stats?.crew ?? null;
   const mates = useCrewAboard(c.token);
+  // once a rocket graduates its difficulty no longer matters (maker 2026-11-19): the foot says In orbit instead
   const d = difficultyOf(c.mode, c.graduated);
   const orbit = c.progressBps == null && !c.graduated ? null : orbitPct(c);
   const skinned = !!c.look && !isClassic(c.look);
@@ -32,7 +34,8 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
       <span className={s.glow} aria-hidden />
       <span className={s.flight} aria-hidden>
         <span className={s.trail} />
-        {skinned ? <CoinRocket look={c.look!} icon={c.icon} />
+        {/* the coin's badge rides on the hull (the chrome rocket's too), like the launch pad */}
+        {skinned || isStoreSrc(c.icon) ? <CoinRocket look={c.look} icon={c.icon} />
           // eslint-disable-next-line @next/next/no-img-element
           : <img className={s.rocket} src={withBase(ROCKET_SRC)} alt="" loading="lazy" decoding="async" />}
       </span>

@@ -31,4 +31,8 @@ export const ACH = {
   /** seeding progress for a rules version: index into the coins list */
   seed: (v: number) => `${ns()}:seed:${v}`,
   lock: () => `${ns()}:lock`,
+  /** JSON { w, at } — the account a hidden coin's stealth owner credited its launch to (private: never served) */
+  anonHost: (c: string) => `${ns()}:anonhost:${c.toLowerCase()}`,
+  /** set of hidden coins credited to this account */
+  anonOf: (w: string) => `${ns()}:anonof:${w.toLowerCase()}`,
 };

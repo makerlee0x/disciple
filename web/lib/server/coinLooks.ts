@@ -8,7 +8,8 @@ import "server-only";
  */
 import { createPublicClient, http, recoverMessageAddress, type Address, type Hex } from "viem";
 import { ACTIVE_CHAIN, deployment, isDeployed } from "@/lib/chains";
-import { launchpadAbi } from "@/lib/abi";
+import { anonLauncherAbi, launchpadAbi } from "@/lib/abi";
+import { anonLaunchers } from "@/lib/anon";
 import { CLASSIC, coinLookMessage, lookFromCopy, parseLook, type CoinLook } from "@/lib/coinLook";
 import { lookCopies } from "./collection";
 import { kv, type Kv } from "./kv";
@@ -27,6 +28,18 @@ export let creatorOf = async (token: string): Promise<string | null> => {
   return c && isAddr(c) && !/^0x0{40}$/.test(c) ? c : null;
 };
 export function setCreatorOfForTests(f: typeof creatorOf) { creatorOf = f; }
+
+/**
+ * A hidden coin's on-chain creator is the AnonLauncher, not the host: the host is the coin's one-time stealth owner
+ * (AnonLauncher.stealthOwnerOf). Lower case; null for a public coin or when the chain didn't answer. Tests swap it.
+ */
+export let stealthOwnerOf = async (token: string, creator: string): Promise<string | null> => {
+  if (!anonLaunchers(ACTIVE_CHAIN.id).some((a) => a.toLowerCase() === creator)) return null;
+  const r = await client().readContract({ address: creator as Address, abi: anonLauncherAbi, functionName: "stealthOwnerOf", args: [token as Address] }).catch(() => null);
+  const o = r ? String(r).toLowerCase() : null;
+  return o && isAddr(o) && !/^0x0{40}$/.test(o) ? o : null;
+};
+export function setStealthOwnerOfForTests(f: typeof stealthOwnerOf) { stealthOwnerOf = f; }
 
 /** Stored looks for up to 200 coins (lower case). Coins with none are left out (they fly the chrome rocket). */
 export async function coinLooksOf(tokens: readonly string[], s: Kv = kv()): Promise<Record<string, CoinLook>> {
@@ -51,7 +64,9 @@ export async function setCoinLook(tokenIn: string, by: { wallets: readonly strin
   let host: string | null = null, hidden = false;
   if ("sig" in by) {
     const a = await recoverMessageAddress({ message: coinLookMessage(token, skin, trail), signature: by.sig }).catch(() => null);
-    if (!a || a.toLowerCase() !== creator) return { ok: false, reason: "Only the rocket's host can paint it.", status: 403 };
+    // hidden launches: the signer is the stealth owner the AnonLauncher (the on-chain creator) recorded for this coin
+    const owner = a ? await stealthOwnerOf(token, creator) : null;
+    if (!a || (a.toLowerCase() !== creator && a.toLowerCase() !== owner)) return { ok: false, reason: "Only the rocket's host can paint it.", status: 403 };
     hidden = true;
   } else {
     host = by.wallets.map((x) => x.toLowerCase()).find((x) => x === creator) ?? null;
