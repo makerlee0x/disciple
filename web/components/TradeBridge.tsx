@@ -8,7 +8,7 @@ import { useIsPhoneHud } from "./flight/PhoneHud";
 import { deployment, isDeployed, usdgRouters } from "@/lib/chains";
 import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
-import { tradeErrorKind, balanceHint, balanceNow, coldClient, createViemProtocol, decimalsOf, publicClient, readQuote, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, shotAmountNow, bumpBalance, peekReceiptBalance, syncReceiptBalance } from "@/lib/protocol-viem";
+import { tradeErrorKind, balanceHint, balanceNow, coldClient, createViemProtocol, decimalsOf, publicClient, readQuote, quoteOutUsd, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, shotAmountNow, bumpBalance, peekReceiptBalance, syncReceiptBalance } from "@/lib/protocol-viem";
 import { withinBudget, COLD_READ_BUDGET_MS } from "@/lib/rpc/readTransport";
 import { decodeTradeFill, units, type LogLike } from "@/lib/flight/fills";
 import { OpMarks, blockOfLogs, boostHoverMs, doneLine, ownReceipt, takeReceipt, tradeClick, tradeMs, tradeStart, setTradeClickMark, type TradeMs } from "@/lib/flight/tradeSpeed";
@@ -17,7 +17,7 @@ import { beginFlowTiming, flowClick, flowFill, takeFlowClick, flowTimingReady, f
 import { freshSellBalance, sellAmount, sellAmountFor, tapSellBalance } from "@/lib/flight/liveSell";
 import { OWN, RECONCILE_MIN_MS, ownRead } from "@/lib/flight/ownLedger";
 import { DEFAULT_SUPPLY } from "@/lib/pnl";
-import { activeAddress, isSmartMode, onWallet } from "@/lib/wallet";
+import { activeAddress, isSmartMode, onWallet, warmGaslessSell } from "@/lib/wallet";
 import { aaWarm, sessionMaxSlippageBps } from "@/lib/aa/session";
 import { plainText } from "@/lib/aa/relayOp";
 import { isSentUnknown } from "@/lib/trade/pendingWatch";
@@ -42,7 +42,7 @@ import { warmGasCredit, warmGasPrice } from "@/lib/flight/gasReserve";
 const gasUsd = () => { try { return rawToUsd(ownWalletGasRaw()); } catch { return 0; } };   // display / engine pre-check only: gas the hidden credit can't cover
 /** the last real USDG balance, RAW (reservation math stays bigint; decimals from config) */
 const CASH_RAW: { v: bigint | null } = { v: null };
-import { activeWarning, chipTag, moveWarnings, plainTradeMessage, type MoveWarn, type TradeSide } from "@/lib/flight/tradeGate";
+import { activeWarning, chipTag, maxBuyUnderCap, moveWarnings, plainTradeMessage, type MoveWarn, type TradeSide } from "@/lib/flight/tradeGate";
 import { graduationStatus, liveMaxImpactBps } from "@/lib/flight/gradAdapter";
 import { longHidden, onTabVisible } from "@/lib/tabIdle";
 import { pctBuyLabel, pctBuyUsd } from "@/lib/sim/daily";
@@ -135,8 +135,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
     return () => removeEventListener("disciple:ammo", h);
   }, []);
   const [addr, setAddr] = useState<string | null>(null);
-  const [preview, setPreview] = useState("");
-  const [buyImpact, setBuyImpact] = useState<number | null>(null);   // the selected BOOST's price move (%), Pro loadout info line
+  const [buyImpact, setBuyImpact] = useState<number | null>(null);
+  // what each DUMP preset (+ custom %) really pays, from its on-chain sell quote (price move + fees in), [] until quoted
+  const [sellOutUsd, setSellOutUsd] = useState<(number | null)[]>([]);   // the selected BOOST's price move (%), Pro loadout info line
   const [last, setLast] = useState("");
   // RAPID TAP status (SITE diag 9:29 CT): one row PER PRESS (pressId), so close-together fills don't overwrite each other in
   // the single `last` line (8 taps → 6 ops on chain, the UI showed 4). Finished rows linger ROW_LINGER_MS, newest last.
@@ -188,6 +189,10 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
   const liveTokens = useRef(0);   // last real balanceOf (whole tokens) of the trading account
   // SITE trade alerts (wallet limit, > 10 % price impact): cached reads only, so a tap never waits on them
   const rulesRef = useRef<{ capBps: number | null } | null>(null);
+  // biggest BOOST the router's per-trade price cap lets through right now ($, from the impact quotes; null = no cap in play).
+  // A bigger BOOST is cut to this instead of failing (maker 2026-11-18: "i cant buy a certain amount?? even after it graduated").
+  const maxBuyRef = useRef<number | null>(null);
+  const [maxBuyUsd, setMaxBuyUsd] = useState<number | null>(null);
   const impRef = useRef<{ buyUsd: number[]; b: ({ bps: number; out: bigint } | null)[]; fracs: number[]; s: ({ bps: number; out: bigint } | null)[]; bal: bigint }>({ buyUsd: [], b: [], fracs: [], s: [], bal: BigInt(0) });
   const pendingBuyUsd = useRef(0);   // sent buys not yet in liveTokens (wallet-limit room)
   const [alert, setAlert] = useState<{ a: TradeAlert; side: "buy" | "sell"; usd: number; o?: TradeOpts } | null>(null);
@@ -314,6 +319,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
       }
       // RAPID TAP: this press's reservation, SYNC at entry (no await): buy $ + one op's gas now; a sell's tokens once sized.
       // Released on the result (slow path: once its receipt is booked) ⇒ the next press sizes from what is really left.
+      // over the router's live price cap: buy the most it allows instead of a revert ("Too big for this rocket")
+      const capUsd = maxBuyRef.current;
+      if (side === "buy" && capUsd != null && capUsd >= 1 && usd > capUsd) usd = Math.floor(capUsd * 100) / 100;
       const pressId = nextPressId(); reservePress(pressId, side, token, side === "buy" ? usd : undefined, kind);
       pressMeta.current.set(pressId, { side, amt: usd > 0 ? fmtShot(usd) : "" });
       o?.onPress?.(pressId);
@@ -507,7 +515,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
   // signs and sends with no chain reads. Optimistic UI: "sent" the moment the op is submitted (disciple:op).
   useEffect(() => {
     if (!live) return;
-    let alive = true, probeN = 0, warming: Promise<void> | undefined; const pc = publicClient();
+    let alive = true, probeN = 0, warming: Promise<void> | undefined, sellPermitWarm: Promise<void> | undefined; const pc = publicClient();
     const tick = (): Promise<void> => {
       if (!alive || document.hidden) return Promise.resolve();
       if (warming) return warming; // one bounded set of reads; no interval overlap
@@ -523,6 +531,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
           const me = await activeAddress();
           const bal = me ? await ownHint(pc, token as Address, me, 4000).catch(() => BigInt(0)) : BigInt(0);
           if (!alive || bal <= BigInt(0)) return;
+          if (!sellPermitWarm) sellPermitWarm = warmGaslessSell(token as Address).catch(() => { sellPermitWarm = undefined; });   // once per flight
           // Warm exact visible preset amounts, including 100%, rather than just the
           // selected 25% and a downscaled hint. TTL/quote/minOut checks are unchanged.
           const fractions = cfgRef.current.sells.map((pct) => pct / 100);
@@ -570,10 +579,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
         const pc = publicClient();
         const b = await readQuote(pc, token as Address, "buy", await usdToAmountIn(pc, token as Address, "buy", usd));
         if (alive) gradRef.current = { usd, graduates: b.graduates, mcapAfterUsd: b.mcapAfterUsd, venue: b.venue };   // gas kind
-        const s = await readQuote(pc, token as Address, "sell", await usdToAmountIn(pc, token as Address, "sell", usd));
         if (alive) setBuyImpact(b.impactPct);
-        if (alive) setPreview(`price move: buy ▲${b.impactPct.toFixed(2)}% · sell ▼${Math.abs(s.impactPct).toFixed(2)}%${b.snipeFee > BigInt(0) ? " · anti-snipe fee" : ""}`);
-      } catch { if (alive) { setPreview(""); setBuyImpact(null); } }
+      } catch { if (alive) setBuyImpact(null); }
     })();
     return () => { alive = false; };
   }, [mode, token, valid, ammo.usd]);
@@ -764,7 +771,14 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
           Promise.all(fracs.map((f) => (bal > BigInt(0) && f > 0 ? imp("sell", Promise.resolve(sellAmount(bal, Math.min(1, f)))) : Promise.resolve(null)))),
         ]);
         if (alive) impRef.current = { buyUsd, b, fracs, s, bal };
+        // real payouts: each DUMP preset, and the whole bag for YOUR BAG (PnlHud values the bag at this, not tokens × spot)
+        const usdOf = (x: { out: bigint } | null) => (x ? quoteOutUsd(pc, tk, x.out).catch(() => null) : Promise.resolve(null));
+        const [outs, all] = await Promise.all([Promise.all(s.map(usdOf)), bal > BigInt(0) ? imp("sell", Promise.resolve(bal)).then(usdOf) : Promise.resolve(null)]);
+        if (alive) setSellOutUsd(outs);
+        if (alive) dispatchEvent(new CustomEvent("disciple:dumpquote", { detail: { tokens: Number(bal) / 1e18, usd: all, at: Date.now() } }));
         const wb = moveWarnings("buy", b.map((x) => x?.signed ?? null), max), wsl = moveWarnings("sell", s.map((x) => x?.signed ?? null), max);
+        const cut = maxBuyUnderCap(buyUsd, b.map((x) => x?.bps ?? null), max);
+        maxBuyRef.current = cut; if (alive) setMaxBuyUsd(cut);
         if (alive) setWarns({ max, buy: wb.slice(0, 4), sell: wsl.slice(0, 4), customBuy: customUsd ? wb[4] : null, customSell: customSellPct ? wsl[4] : null });
       } catch { /* keep last */ }
     };
@@ -822,7 +836,11 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
   const buyWarn = customUsd ? warns.customBuy : warns.buy[mode] ?? null;
   const sellWarn = customSellPct ? warns.customSell : customSellUsd ? null : warns.sell[sellSel] ?? null;
   // only the side being tapped / previewed (post-grad fix 3): phone = last touched side, desktop = hovered / focused side, else none
-  const { text: warnText, over: warnOver } = activeWarning(phone ? phoneSide : deskSide, buyWarn, sellWarn, has);
+  const aw = activeWarning(phone ? phoneSide : deskSide, buyWarn, sellWarn, has);
+  // over the router's price cap: the BOOST is cut to the max it allows (runTrade), and the bar says the new size, not "too big"
+  const capped = maxBuyUsd != null && maxBuyUsd >= 1 && shotUsd > maxBuyUsd;
+  const fireUsd = capped ? Math.floor(maxBuyUsd! * 100) / 100 : shotUsd;
+  const warnText = capped && aw.text.startsWith("BOOST") ? `Max BOOST ${fmtMoney(fireUsd)} right now` : aw.text, warnOver = capped ? false : aw.over;
   const hoverSide = (side: TradeSide) => ({ onMouseEnter: () => setDeskSide(side), onMouseLeave: () => setDeskSide((x) => (x === side ? null : x)),
     onFocus: () => setDeskSide(side), onBlur: () => setDeskSide((x) => (x === side ? null : x)) });
   const dumpTitle = has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET";
@@ -874,7 +892,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
     <>
     <AmmoTierNotice />
     {alertStrip}
-    <PhoneThrottle buyLabel={allIn ? "ALL IN" : pctMode && !customUsd ? presetLabel(mode) : chipUsd(shotUsd)} sellLabel={freePlay ? "HALF" : phoneDumpAll ? "ALL" : customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
+    <PhoneThrottle buyLabel={allIn ? "ALL IN" : pctMode && !customUsd ? presetLabel(mode) : chipUsd(fireUsd)} sellLabel={freePlay ? "HALF" : phoneDumpAll ? "ALL" : customSellUsd ? chipUsd(customSellUsd) : dumpLabel}
       onBoost={() => shoot("buy")} onDump={() => dumpRef.current?.()}
       dumpAll={phoneDumpAll} dumpSub={has ? (phoneDumpUsd > 0 ? `≈ ${chipUsd(+phoneDumpUsd.toFixed(2))}` : "") : "no bag yet"}
       boostDisabled={short} dumpDisabled={!has} inFlightFull={full} boostTitle={boostTitle} dumpTitle={dumpTitle}
@@ -898,7 +916,9 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
   // (a DOM card top centre, mockup "Desktop · Pro HUD"), so its bar keeps only the two buttons.
   const pro = hud === "pro";
   const sellFracNow = customSellPct ? customSellPct / 100 : customSellUsd ? (pos.valueUsd > 0 ? Math.min(1, customSellUsd / pos.valueUsd) : 0) : selSellPreset.frac;
-  const dumpBack = pos.valueUsd > 0 && sellFracNow > 0 ? pos.valueUsd * sellFracNow * (1 - TRADE_FEE) : 0;   // ≈ what this DUMP pays back after the 1% fee (price move not included)
+  // ≈ what this DUMP pays back: its on-chain sell quote (price move + fees) when we have one, else bag × share after the 1% fee
+  const quotedBack = customSellUsd ? null : customSellPct ? sellOutUsd[4] : sellOutUsd[sellSel];
+  const dumpBack = quotedBack != null && quotedBack > 0 ? quotedBack : pos.valueUsd > 0 && sellFracNow > 0 ? pos.valueUsd * sellFracNow * (1 - TRADE_FEE) : 0;
   const chip = (on: boolean, side: TradeSide): React.CSSProperties => ({ all: "unset", cursor: "pointer", flex: 1, minHeight: 32, padding: "0 6px", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
     font: `700 16px/1 ${HUD.game}`, boxSizing: "border-box",
     ...(on ? (side === "buy" ? { background: "#F2F3F7", color: HUD.ink } : { background: "rgba(240,48,127,.22)", color: "#FFC2DA", border: `1px solid ${HUD.down}` })
@@ -933,12 +953,11 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
       style={{ all: "unset", cursor: "pointer", minHeight: 32, padding: "0 8px", borderRadius: 10, display: "inline-flex", alignItems: "center", font: `700 14px ${HUD.game}`, background: "rgba(240,48,127,.14)", color: HUD.downSoft }}>{sellUnit}</button>
   </span>;
   // the always-on "price move: buy … · sell …" line is gone (maker 2026-11-18: subtitle clutter); a money fact stays
-  const snipeNote = preview.includes("anti-snipe") ? "Anti-snipe fee on this coin" : "";
   const statusLine = (hint || shortLine) ? <div data-testid="trade-hint" style={{ fontSize: 12, color: "#FFC2DA" }}>{hint || shortLine}</div>
     : warnText ? <div data-testid="trade-warn" style={{ fontSize: 12, color: warnOver ? "#FFC2DA" : HUD.champagne }}>{warnText}</div>
     : rows.length > 1 ? <div data-testid="press-rows" style={{ fontSize: 12, opacity: 0.9, color: HUD.champagne, display: "flex", flexDirection: "column", gap: 1 }}>
         {rows.map((r) => <div key={r.id} data-press={r.id} data-done={r.done ? "1" : "0"} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", opacity: r.done ? 0.75 : 1 }}>{r.txt}</div>)}</div>
-    : (last || snipeNote) ? <div style={{ fontSize: 12, opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: last ? HUD.champagne : HUD.dim }}>{last || snipeNote}</div> : null;
+    : last ? <div style={{ fontSize: 12, opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: HUD.champagne }}>{last}</div> : null;
   const modeTag = live ? null : <span title={valid ? "paper trades: connect a wallet to trade" : "practice market"} style={{ padding: "1px 6px", borderRadius: 5, font: `700 12px ${HUD.game}`, letterSpacing: ".06em", background: "rgba(243,223,168,.14)", color: HUD.champagne }}>{token === "SIMULATOR" ? "FREE PLAY" : "PAPER"}</span>;
   return (
     <>
@@ -956,7 +975,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
         {dumpChips}{customSellInput}
       </div>
       <div data-testid="loadout-info" style={{ display: "flex", gap: 8, fontSize: 12, color: HUD.dim, whiteSpace: "nowrap" }}>
-        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>Fee 1%{buyImpact != null && isFinite(buyImpact) ? ` · ${fmtShot(shotUsd)} boost moves altitude +${buyImpact.toFixed(1)}%` : ""}{cashUsd != null ? ` · Cash ${fmtShot(Math.max(0, cashUsd))}` : ""}</span>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>Fee 1%{buyImpact != null && isFinite(buyImpact) ? ` · ${fmtShot(shotUsd)} boost moves altitude +${buyImpact.toFixed(1)}%` : ""}</span>
         <button type="button" data-testid="loadout-settings" onClick={() => setShowCfg(true)} style={{ all: "unset", cursor: "pointer", color: HUD.champagne }}>Settings</button>
       </div>
     </div>}
@@ -964,13 +983,13 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
       display: "flex", flexDirection: "column", gap: 8, padding: 12, borderRadius: 20, background: "rgba(18,19,39,.82)", border: `1px solid ${HUD.borderGold}`, color: HUD.text, fontFamily: HUD.ui }}>
       <div style={{ display: "flex", gap: 12 }}>
         <div style={{ flex: pro ? 1.2 : 1.25, minWidth: 0, display: "flex", flexDirection: "column", gap: 8 }}>
-          {!pro && <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}><span style={hudLabel}>Boost amount</span><span style={{ fontSize: 12, color: HUD.dim }}>{modeTag} {cashUsd != null ? `Cash ${fmtShot(Math.max(0, cashUsd))}` : ""}</span></div>}
+          {!pro && <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}><span style={hudLabel}>Boost amount</span>{modeTag}</div>}
           {!pro && <div role="radiogroup" aria-label="boost amount" style={{ display: "flex", gap: 5 }}>{boostChips}{customBuyInput}</div>}
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} {...hoverSide("buy")} title={boostTitle} aria-disabled={short || full || allIn} disabled={short || allIn} data-inflight={full ? "1" : "0"} onClick={() => shoot("buy")}
               style={{ all: "unset", flex: 1, minHeight: 56, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, whiteSpace: "nowrap", background: HUD.gold, color: HUD.ink,
                 font: `800 27px/1 ${HUD.game}`, letterSpacing: ".02em", opacity: short || full || allIn ? 0.45 : 1, cursor: short || full || allIn ? "not-allowed" : "pointer" }}>
-              {full ? COPY.inFlight : allIn ? "ALL IN" : <>{t("tb.boost")} {fmtShot(shotUsd)}{cap("SPACE", true)}</>}</button>
+              {full ? COPY.inFlight : allIn ? "ALL IN" : <>{t("tb.boost")} {fmtShot(fireUsd)}{capped && <span data-testid="boost-max" title="the most this rocket takes in one BOOST right now" style={{ font: `700 13px/1 ${HUD.game}`, padding: "2px 6px", borderRadius: 6, background: "rgba(18,19,39,.85)", color: HUD.gold }}>MAX</span>}{cap("SPACE", true)}</>}</button>
           </div>
         </div>
         <div aria-hidden="true" style={{ width: 1, background: HUD.border }} />
@@ -992,7 +1011,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
             <button type="button" aria-label="sell" data-testid="sell-btn" {...noKeyActivate} {...hoverSide("sell")} title={dumpTitle} aria-disabled={!has || full} disabled={!has} data-inflight={full ? "1" : "0"} onClick={() => dumpRef.current?.()}
               style={{ all: "unset", flex: 1, minHeight: 56, boxSizing: "border-box", borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, whiteSpace: "nowrap", border: `1.5px solid ${HUD.down}`, background: "rgba(240,48,127,.12)", color: HUD.downSoft,
                 font: `800 25px/1 ${HUD.game}`, opacity: has && !full ? 1 : 0.45, cursor: has && !full ? "pointer" : "not-allowed" }}>
-              {full && has ? COPY.inFlight : <>{t("tb.dump")} {dumpLabel}{dumpBack > 0 && <span data-testid="dump-back" title="≈ payout after the 1% fee" style={{ font: `600 15px ${HUD.game}`, opacity: 0.85 }}>≈ {fmtShot(dumpBack)}</span>}{cap("SHIFT")}</>}</button>
+              {full && has ? COPY.inFlight : <>{t("tb.dump")} {dumpLabel}{dumpBack > 0 && <span data-testid="dump-back" title="≈ what this dump pays, fees and price move included" style={{ font: `600 15px ${HUD.game}`, opacity: 0.85 }}>≈ {fmtShot(dumpBack)}</span>}{cap("SHIFT")}</>}</button>
           </div>
           </>}
         </div>

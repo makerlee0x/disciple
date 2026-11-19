@@ -687,6 +687,17 @@ export async function usdToAmountIn(pc: PublicClient, token: Address, side: "buy
 }
 
 /**
+ * $ a sell's quote really pays (quote raw → USD at the curve's launch-fixed quotePriceUsd), price move and fees included.
+ * The flight's bag value and DUMP preview use this, not tokens × spot: on a thin post-orbit pool the two can be 5× apart
+ * (maker 2026-11-18 $MOON: bag read $31K, the dump paid $5.9K).
+ */
+export async function quoteOutUsd(pc: PublicClient, token: Address, quoteOutRaw: bigint): Promise<number> {
+  const curve = await curveOf(pc, token);
+  const qp = await COIN.get(ckey("qp", curve), () => pc.readContract({ address: curve, abi: bondingCurveAbi, functionName: "quotePriceUsd" }), undefined, isTapClient(pc)) as bigint;
+  return quoteRawToUsd(quoteOutRaw, qp);
+}
+
+/**
  * balanceOf, written to the hot cache. Within ~20 s of our own fill (lib/fillBook floor = the relay receipt's block) the
  * read is pinned AT or after that block (a lagging public-RPC node errors on it ⇒ brief retry), so it can't write the
  * pre-fill balance over the one bumpBalance booked from the receipt logs (SITE #137). Retries exhausted ⇒ `latest`.

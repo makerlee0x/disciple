@@ -414,7 +414,12 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
       const k = String(txHash || "").toLowerCase();
       if (k && busyTx.has(k)) return;
       if (k) busyTx.add(k);
-      void pollUntilFill(pollers, blockOf(b) ?? txBlock(txHash), txHash).finally(() => { if (k) busyTx.delete(k); });
+      const at = blockOf(b) ?? txBlock(txHash);
+      // speed (maker 2026-11-18: "the delay on the chart and execution is horrendous"): read the price AT the receipt's
+      // block right away (one call) so the rocket and chart move now. The Trade row still comes from the logs below;
+      // it can't move the mcap back (the orderer keys this State after every log of that block).
+      if (at !== undefined) void readMcapAt(pc, token, at, { tries: 4, delayMs: 120 }).then((m) => { if (m) order.state(m, at); }).catch(() => undefined);
+      void pollUntilFill(pollers, at, txHash).finally(() => { if (k) busyTx.delete(k); });
     };
     const onOp = (e: Event) => { const d = (e as CustomEvent<{ phase?: string; txHash?: string; blockNumber?: BlockLike }>).detail; if (d?.phase === "confirmed" && d.blockNumber !== undefined) ownFill(d.txHash, d.blockNumber); };
     const onFill = (e: Event) => { const d = (e as CustomEvent<{ txHash?: string; blockNumber?: BlockLike }>).detail; ownFill(d?.txHash, d?.blockNumber); };

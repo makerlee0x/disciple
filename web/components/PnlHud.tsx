@@ -224,6 +224,20 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
     return () => { ro?.disconnect(); removeEventListener("resize", pub); w.__pnlBottom = null; };
   }, [cardDy, cardHidden]);
   const price = mark.mcap / mark.supply;
+  // LIVE exit price (maker 2026-11-18 $MOON: the bag read $31K at spot, the dump paid $5.9K): TradeBridge quotes selling the
+  // whole wallet every ~4 s ('disciple:dumpquote'); its payout ÷ (tokens × spot at that moment) is the exit factor, carried
+  // with the live mark between quotes. YOUR BAG and its PnL stay at spot (maker 2026-11-18); "Dump all now" is the real payout.
+  const [exit, setExit] = useState<{ tokens: number; k: number; at: number } | null>(null);
+  const priceRef = useRef(price); priceRef.current = price;
+  useEffect(() => {
+    if (syncEvent) return;
+    const on = (e: Event) => { const d = (e as CustomEvent<{ tokens?: number; usd?: number | null; at?: number }>).detail || {};
+      const p = priceRef.current;
+      if (!(typeof d.tokens === "number" && d.tokens > 0 && typeof d.usd === "number" && d.usd > 0 && p > 0)) { setExit(null); return; }
+      setExit({ tokens: d.tokens, k: Math.min(1, d.usd / (d.tokens * p)), at: d.at || Date.now() }); };
+    addEventListener("disciple:dumpquote", on); return () => removeEventListener("disciple:dumpquote", on);
+  }, [syncEvent, coin, account]);
+  const exitK = wallet && exit && Date.now() - exit.at < 20_000 && Math.abs(exit.tokens - wallet.tokens) <= Math.max(1e-6, wallet.tokens * 0.002) ? exit.k : null;
   // LIVE: holdings = the wallet's real balance × mark; PnL only on the tracked (known-cost) part. Paper / sim: the ledger.
   const wv: WalletView | null = wallet ? walletView(pos, wallet.tokens, price, mark.supply) : null;
   const v: PositionView = wv ?? view(pos, price, mark.supply);
@@ -266,7 +280,7 @@ export default function PnlHud({ coin, storagePrefix = DEFAULT_KEY, modeLabel, s
   const putIn = tracked ? basis : 0;
   const gainShare = holding && v.valueUsd > 0 ? Math.max(0, Math.min(1, (v.valueUsd - putIn) / v.valueUsd)) : 0;
   const lossShare = holding && putIn > 0 ? Math.max(0, Math.min(1, (putIn - v.valueUsd) / putIn)) : 0;
-  const dumpAll = holding ? v.valueUsd * (1 - TRADE_FEE) : 0;
+  const dumpAll = holding ? (exitK != null ? v.valueUsd * exitK : v.valueUsd * (1 - TRADE_FEE)) : 0;   // the exit quote already has fees + price move in
   const supplyPct = holding && mark.supply > 0 ? (v.size / mark.supply) * 100 : 0;
   // board C (2026-11-14, desktop): while you hold, the card lights green / pink and the PnL sits in a solid chip next to the value
   const lit = holding && !isPhone() && Math.abs(v.uPnl) > 0.005 ? (v.uPnl > 0 ? "up" : "down") : null;

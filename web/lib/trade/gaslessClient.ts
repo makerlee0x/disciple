@@ -34,6 +34,15 @@ export class GaslessError extends Error {
   constructor(message: string, public data: { notSent?: boolean; txHash?: Hex; unclear?: boolean; revert?: Hex } = {}, public status = 0) { super(message); }
 }
 
+/** Warm-up, off the tap (speed, maker 2026-11-18: sells felt ~1 s slower than buys): learn that `asset` already lets
+ *  PERMIT2 pull, so the first DUMP after a load skips the allowance / nonce / domain reads. Never signs. */
+export async function primePermit(pc: PublicClient, owner: Address, asset: Address): Promise<void> {
+  const k = `${asset.toLowerCase()}:${owner.toLowerCase()}`;
+  if (approved.get(k)) return;
+  const a = await pc.readContract({ address: asset, abi: erc20, functionName: "allowance", args: [owner, PERMIT2] });
+  if (a >= ENOUGH) approved.set(k, true);
+}
+
 /** EIP-2612 permit(owner → PERMIT2, max) signature, or undefined when the allowance is already there. */
 export async function permitFor(pc: PublicClient, owner: LocalAccount, asset: Address, deadline: bigint): Promise<Erc2612 | undefined> {
   const k = `${asset.toLowerCase()}:${owner.address.toLowerCase()}`;

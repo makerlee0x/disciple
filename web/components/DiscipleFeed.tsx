@@ -17,24 +17,26 @@ export default function DiscipleFeed({ token }: { token: string }) {
       try {
         const pc = publicClient();
         const gradP = fetchGrad(token); // server graduation state (cached once graduated) — in parallel with the chain reads
-        const curve = await curveOf(pc, token as Address);
+        // speed (maker 2026-11-18: "even when you get to flying the rocket, its still waiting and the rocket isnt there"):
+        // the reads run side by side, and the first State goes out the moment the price is known. It used to wait up to
+        // 2.5 s for the server's graduation record; that now lands later and re-sends the State (the curve read already
+        // says whether the coin graduated).
         // b0 BEFORE the state read: the first State is labelled with a block its data is not older than (was: read the
         // curve, then up to 2.5 s later label it with a newer block ⇒ a stale first mcap could outrank newer Trades)
-        const b0 = await pc.getBlockNumber();
-        const st = await readCurveState(pc, token as Address);
-        const m0 = await readMcapAt(pc, token as Address, b0, { tries: 2 }).catch(() => null);   // pinned at b0 (null ⇒ unlabelled)
+        const [curve, b0] = await Promise.all([curveOf(pc, token as Address), pc.getBlockNumber()]);
+        const [st, m0] = await Promise.all([
+          readCurveState(pc, token as Address),
+          readMcapAt(pc, token as Address, b0, { tries: 2 }).catch(() => null),   // pinned at b0 (null ⇒ unlabelled)
+        ]);
         // One orderer for live + reconcile: the engine's mcap only ever moves forward in chain order.
         const order = mcapOrderer(toEngine);
         // GAME contract (SITE job 7): every engine update — this first State included — carries { graduated, poolId,
-        // graduatedAt } next to mcapUsd (lib/protocol GradState; stamped by the orderer). Curve read first, the server's
-        // poolId / graduatedAt on top (waited for briefly; if it lands later the State is re-sent with them).
+        // graduatedAt } next to mcapUsd (lib/protocol GradState; stamped by the orderer).
         order.setGrad({ graduated: st.graduated });
-        const g0 = await Promise.race([gradP, new Promise<undefined>((r) => setTimeout(() => r(undefined), 2500))]);
-        order.setGrad(g0);
         // No history replay here: the engine draws past fills from /api/trades (engine.js liveHistory). Replaying every
         // Trade as a "live" event stacked old fills into the current candle and re-fed buys/sells the chart already had.
         if (!(m0 !== null && order.state(m0, b0)) && !(order.mcap > 0)) toEngine({ type: "State", mcapUsd: m0 ?? st.mcapUsd, ...order.grad } as never);
-        if (g0 === undefined) void gradP.then((g) => { if (alive && g) { order.setGrad(g); order.resend(); } });
+        void gradP.then((g) => { if (alive && g) { order.setGrad(g); order.resend(); } });
         // stream from the block after the state read: nothing between the read and the first poll is skipped
         const u = await watchCurve(token as Address, curve, toEngine, pc, order, b0 + BigInt(1));
         const r = reconcileMcap(token as Address, order, pc);

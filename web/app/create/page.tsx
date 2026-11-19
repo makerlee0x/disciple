@@ -15,7 +15,7 @@ import { useCollection } from "@/lib/collectionClient";
 import { CLASSIC, lookFromCopy, shuffleLook, type CoinLook } from "@/lib/coinLook";
 import { STARTER_SKIN } from "@/lib/collection";
 import { saveCoinLook } from "@/lib/coinLookClient";
-import { LIFTOFF_MS, LaunchIgnition, type LaunchPhase } from "@/components/create/LaunchLive";
+import { LaunchIgnition, type LaunchPhase } from "@/components/create/LaunchLive";
 import { saveLaunchHandoff } from "@/lib/launchHandoff";
 import FirstBoostField, { type FirstBoostState } from "@/components/create/FirstBoostField";
 import { exceedsQuoteFirstBoostCap, exceedsUsdgFirstBoostCap } from "@/lib/firstBoost";
@@ -413,9 +413,8 @@ export default function LaunchRocketPage() {
       const ticker = callSign.trim().toUpperCase();
       const dest = `/coin/${res.token}?cs=${encodeURIComponent(ticker)}`;
       saveLaunchHandoff(res.token, { name: name.trim(), ticker, mode: MODE_LABEL[launchMode] ?? "Easy", note });
-      router.prefetch(dest);
+      // no wait for the liftoff clip (maker 2026-11-18: too many screens): it plays while the flight route loads
       setPhase("lifting");
-      await new Promise((r) => window.setTimeout(r, LIFTOFF_MS));
       router.push(dest);
     } catch (err) {
       setPhase(null);
