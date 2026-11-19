@@ -66,7 +66,7 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
   const [gear, setGear] = useState(false);
   useTurboMusic();
   useEffect(() => {
-    let dead = false, api: EngineApi | null = null, me: string | null = null, roomId: string | null = null;
+    let dead = false, api: EngineApi | null = null, me: string | null = null, myName: string | null = null, roomId: string | null = null;
     let rematchT: ReturnType<typeof setTimeout> | null = null;
     let fol: Follow | null = null, qTimer: ReturnType<typeof setTimeout> | null = null, queued: { tier: TierId; len: LengthMs; casual: boolean } | null = null;
     let pendingCode = parseCode(new URLSearchParams(location.search).get("c"));
@@ -173,7 +173,7 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
       const r = await duelApi.me();
       if (dead) return;
       if (!r.ok) { me = null; api?.setMe(null, false); return; }
-      me = r.pid; void loadShips([r.pid]); if (fwGet() === "1") void claimFirstWin(); api?.setMe({ w: r.rating.w, l: r.rating.l, rating: r.rating.r, streak: r.rating.streak }, true);
+      me = r.pid; myName = r.name; void loadShips([r.pid]); if (fwGet() === "1") void claimFirstWin(); api?.setMe({ w: r.rating.w, l: r.rating.l, rating: r.rating.r, streak: r.rating.streak }, true);
       if (r.active) follow(r.active.id);
       else if (pendingCode) { const c = pendingCode; pendingCode = null; const j = await duelApi.join(c); if (j.ok) { trackFunnel("duel_join"); follow(j.room.id); } else api?.error(j.reason); }
       else if (pendingRequest) {
@@ -226,6 +226,8 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
 
     const host = {
       climbing: () => climb,
+      // the share card's "@NAME WON" (engine shareCard); null signed out
+      myName: () => (me ? myName : null),
       league: (id: string) => LEAGUES.find((l) => l.id === id) ?? null,
       assets: { ...Object.fromEntries(["rocket", ...SKIES].map((k) => [k, `/turbo/duel/${k}.webp`])), ...EXTRA_SKIES, art: "/art/modes/duel.webp" },
       history: () => hist.filter((h) => h.ts > Date.now() - 60_000),
