@@ -2320,12 +2320,18 @@ function drawHud(){
   const PROH=S.pro&&!PH&&!S.graduated&&!IS_POOL?28:0;   /* Pro: + the orbit / holders line (curve coins; a DEX pool has no orbit) */
   if (cardBegin('header',20,18,380,130+HY+PROH)){   /* @cards */
   panel(20,18,380,130+HY+PROH); ctx.save(); ctx.translate(0,HY);
-  { const lbl=(coinTicker()?'$'+coinTicker()+' · ':'')+(S.pro?'MARKET CAP':'ALTITUDE');   /* approved mockup: "$LUNA · ALTITUDE" (Pilot) / "$LUNA · MARKET CAP" (Pro); no PRICE label, no identity row (maker Nov 12) */
-    if(lbl){ ctx.fillStyle='rgba(215,217,228,.72)'; ctx.font=GF(14,600); if('letterSpacing' in ctx) ctx.letterSpacing='2px'; ctx.fillText(lbl,36,40); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; } }
+  /* maker 2026-11-18: the coin's NAME tops the card (was "$MOON · ALTITUDE"; the ALTITUDE / MARKET CAP label is gone), then the
+     dim $TICKER; both clipped clear of the badge. Name = window.__coinName (CoinIdentity: ?nm= or the token's name()). */
+  { const bw=diffBadge()?(ctx.font=GF(14,700),ctx.measureText(diffBadge().txt).width+30):0, maxX=384-bw-10, tk=coinTicker(), nm=coinName();
+    const fit=(t,w)=>{ if(ctx.measureText(t).width<=w) return t; while(t.length>1&&ctx.measureText(t+'…').width>w) t=t.slice(0,-1); return t+'…'; };
+    let x=36; if(nm){ ctx.fillStyle='#F2F3F7'; ctx.font=GF(20,700); if('letterSpacing' in ctx) ctx.letterSpacing='0.5px'; const t=fit(nm,maxX-x); ctx.fillText(t,x,42); x+=ctx.measureText(t).width+10; if('letterSpacing' in ctx) ctx.letterSpacing='0px'; }
+    const pr=coinPair(), sub=tk?(pr?tk+'/'+pr:'$'+tk):'';   /* maker 2026-11-18: show the base pair (TICKER/QUOTE, like the coin header row) */
+    if(sub&&(pr||tk!==String(nm||'').toUpperCase())&&x+40<maxX){ ctx.fillStyle='rgba(215,217,228,.72)'; ctx.font=GF(15,600); if('letterSpacing' in ctx) ctx.letterSpacing='1.5px'; ctx.fillText(fit(sub,maxX-x),x,42); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; }
+    else if(!nm&&tk){ ctx.fillStyle='#F2F3F7'; ctx.font=GF(20,700); ctx.fillText('$'+tk,36,42); } }
   drawBadge(diffBadge(),384,36);   /* brand v3 difficulty badge: EASY / HARD / EXPERT, IN ORBIT after graduation */
   ctx.fillStyle='#fff'; ctx.font=GF(46,800); { const big=S.pro?fmtFull(m):fmtShort(m); glowText(big,34,86,'rgb(243,223,168)',8,0.22);   /* Pro: exact dollars "$7,312"; Pilot "$7.3K" */
     const ch=S.pro?change24h(m):null; if(ch!=null){ const bw=ctx.measureText(big).width; ctx.font=GF(18,700); ctx.fillStyle=ch>=0?'#5FF0A0':'#FF7FB3'; ctx.fillText(`${ch>=0?'▲':'▼'} ${Math.abs(ch)>=100?Math.round(Math.abs(ch)):Math.abs(ch).toFixed(1)}% 24H`,34+bw+10,86); } }
-  ctx.fillStyle='#F3DFA8'; ctx.font=GF(20,700); ctx.fillText(tierText(ti),36,108);
+  ctx.fillStyle='#F3DFA8'; ctx.font=GF(20,700); ctx.fillText(tierName(ti),36,108);   /* zone only: IN ORBIT is the badge (maker 2026-11-18: 'IN ORBIT · LAUNCH PAD' next to '+760% to Ozone' read as a contradiction) */
   // pass 3 #2 (lee): no mode / cap text ('TRENCH · no cap') on the TIER line — the tier name (ASCENDED once, when ascended) only
   // progress to next tier
   const tierEnd=tierLineEnd(ti,t);   // @tier-label: the right-hand label never runs into the TIER line
@@ -3174,7 +3180,7 @@ function tierProgress(m,ti){ const nx=TIERS[ti+1]||null;
   return { f:nx?clamp((m>0?m:0)/nx.lo,0,1):1, next:nx }; }
 function tierUpPct(m,nx){ return nx&&m>0?Math.max(0,(nx.lo/m-1)*100):null; }
 function fmtUpPct(p){ return p>=9.95?String(Math.round(p)):Math.max(0.1,Math.ceil(p*10)/10).toFixed(1); }   // ≥10: whole %, else 1 dp rounded UP (never "+0%")
-function tierLineEnd(ti){ ctx.save(); ctx.font=GF(20,700); const e=36+ctx.measureText(tierText(ti)).width; ctx.restore(); return e; }   // tier text only (no rules text, pass 3 #2)
+function tierLineEnd(ti){ ctx.save(); ctx.font=GF(20,700); const e=36+ctx.measureText(tierName(ti)).width; ctx.restore(); return e; }   // tier text only (no rules text, pass 3 #2)
 /* GRADUATION SET PIECE (phase 1): the coin leaves the curve live (not on load) → a pearl flash, a gold shock ring off the
    rocket, the 'IN ORBIT' card for 4.5 s and the orbit sting. window.__flightOrbit() plays it for previews / tests. */
 function startOrbitFx(){ S.orbitFx=S.t; S.tierBanner=0; S.screenFlash={t0:S.t,dur:0.6,a:0.3,c:'255,246,220'}; sfx('orbit'); haptic([20,40,60]);   // soft flash: the rocket stays visible through it
@@ -3577,6 +3583,8 @@ addEventListener('disciple:grass',e=>{ const d=e.detail||{}; S.grass=!!d.on; S.c
 /* readout: "$TICKER · $8.8K MCAP" (ticker from the source, ?ticker or the coin page's ?cs call sign; "$8.8K MCAP" without one) */
 /* $TICKER for the HUD: the coin's own symbol (disciple:coinrules, read onchain by TradeBridge) else grassTicker() */
 function coinTicker(){ const r=S.coinRules, t=r&&typeof r.ticker==='string'?r.ticker.replace(/^\$/,'').trim().toUpperCase():''; return /^[A-Z0-9]{1,10}$/.test(t)?t:grassTicker(); }
+function coinName(){ const n=typeof window!=='undefined'&&typeof window.__coinName==='string'?window.__coinName.trim():''; return n.slice(0,40); }
+function coinPair(){ const p=typeof window!=='undefined'&&typeof window.__coinPair==='string'?window.__coinPair.replace(/^\$/,'').trim().toUpperCase():''; return /^[A-Z0-9]{1,12}$/.test(p)?p:''; }
 function grassTicker(){ const t=String(source.ticker||Q.get('ticker')||Q.get('cs')||'').replace(/^\$/,'').split(/\s*\/\s*/)[0].trim().toUpperCase(); return /^[A-Z0-9]{1,10}$/.test(t)?t:''; }
 function grassLine(m){ const tk=grassTicker(); return (tk?'$'+tk+' · ':'')+fmtUsd(m)+' MCAP'; }
 function drawGrass(dt){ const m=shownMcap(); S._grassA=Math.min(1,(S._grassA||0)+dt*0.8);

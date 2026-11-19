@@ -74,14 +74,17 @@ const coinOfPath = () => (/^\/coin\/(0x[0-9a-fA-F]{40})/.exec(location.pathname)
 const money = (v: number) => (!(v > 0) ? "$0" : v >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(2)}K` : `$${v.toFixed(0)}`);
 const G = "800 13px 'Barlow Condensed', 'Arial Narrow', sans-serif";
 
-export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge }: {
+export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge, bottom = 0, children }: {
   tf: number; onTf: (i: number) => void; big: boolean; onBig: () => void; entry: number | null; ticker: string;
   badge: { t: string; c: string } | null;
+  /** px kept clear at the bottom of the plot (desktop: the stats pills sit there) */
+  bottom?: number; children?: React.ReactNode;
 }) {
   const cv = useRef<HTMLCanvasElement>(null);
   const lab = useRef<HTMLSpanElement>(null);
   const tfRef = useRef(tf); tfRef.current = tf;
   const entryRef = useRef(entry); entryRef.current = entry;
+  const bottomRef = useRef(bottom); bottomRef.current = bottom;
   // pause (maker 2026-11-18: "it autoscrolls and now its just flat"): the window stops at the moment you paused, new
   // prices still arrive underneath and show again on play
   const [pausedAt, setPausedAt] = useState<number | null>(null);
@@ -119,7 +122,7 @@ export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge 
       const upto = pausedRef.current != null ? all.filter((p) => p.t <= now) : all;
       const ch = windowChange(upto, now, ms);
       if (lab.current) { const t = `MARKET CAP${ch == null ? "" : ` ${ch >= 0 ? "+" : ""}${ch.toFixed(1)}%`}`; if (lab.current.textContent !== t) lab.current.textContent = t; lab.current.style.color = ch == null ? "" : ch >= 0 ? "#5FF0A0" : "#FF8FBD"; }
-      const T = 38, B = 8, L0 = 8, Rr = 66, w = r.width - L0 - Rr, h = r.height - T - B;
+      const T = 38, B = 8 + bottomRef.current, L0 = 8, Rr = 66, w = r.width - L0 - Rr, h = r.height - T - B;
       const bars = windowBars(upto, now, ms);
       const shown = bars.filter((x): x is Bar => !!x);
       if (!shown.length || w <= 0 || h <= 0) {
@@ -182,6 +185,7 @@ export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge 
           </svg>
         </button>
       </div>
+      {children}
     </div>
   );
 }

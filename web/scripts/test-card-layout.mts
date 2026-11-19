@@ -90,11 +90,9 @@ test("store + chrome wiring: per-account load, engine publish, phone neutral", (
   assert.match(st, /saveLayout\(/);
   assert.match(st, /__cardLayout/);
   assert.match(st, /disciple:cardlayout/);
-  assert.match(ch, /layout-reset/);
-  assert.match(ch, /layout-show-/);
-  assert.match(ch, /card-close-/);
-  assert.match(ch, /card-min-/);
-  assert.match(ch, /setPointerCapture/);
+  // maker 2026-11-18: the ⠿ / – / × bar, minimized pills and LAYOUT menu are gone; saved min / closed cards come back on load
+  assert.doesNotMatch(ch, /card-close-|card-min-|card-drag-|layout-menu/);
+  assert.match(ch, /restoreCard\(/);
   assert.match(readFileSync(new URL("../app/coin/[address]/page.tsx", import.meta.url), "utf8"), /<CardChrome \/>/);
 });
 
