@@ -480,3 +480,16 @@ button.cp-prow:hover .n b { color: #FFFFFF; }
 .cp-danger .cp-fill { position: absolute; inset: 0; background: rgba(18,19,39,.28); transform-origin: left center; pointer-events: none; }
 .cp-danger .cp-hl { position: relative; display: inline-flex; align-items: center; gap: 8px; }
 .cp .up-card, .cp .r2-note { flex-shrink: 0; }
+/* Settings fit v2 (maker 2026-11-19: no scroll on a laptop). Three columns on wide desktops: Account + Security | Flying | Sound + Alerts.
+   Between phone and wide desktop: two columns with Sound | Alerts side by side under them. Phone stays one column. */
+@media (min-width: 721px) {
+  .p5-s2 > .p5-s2col.c3 { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+}
+@media (min-width: 1120px) {
+  .p5-settings.p5-sfit.p5-modal { width: min(1080px, 100%); }
+  .p5-sfit .p5-s2 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .p5-sfit .p5-s2 > .p5-s2col.c3 { grid-column: auto; display: flex; flex-direction: column; gap: 14px; }
+}
+@media (min-width: 721px) and (max-height: 820px) {
+  .p5-settings-backdrop { padding-top: 3vh; padding-bottom: 3vh; }
+}
