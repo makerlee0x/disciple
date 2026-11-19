@@ -39,7 +39,6 @@ contract JitTwapTest is IntegrationBase {
         super.setUp();
         // whale stress trades intentionally exceed the router default 50% impact cap
         vm.prank(router.owner());
-        router.setMaxImpactBps(router.MAX_MAX_IMPACT_BPS());
         twm = new TrampWallManager(manager, lockedLP, address(hook));
         (curve, tok) = _launch(0, 0);
         _graduate(curve);

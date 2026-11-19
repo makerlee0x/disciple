@@ -113,12 +113,10 @@ contract DiscipleRouter is IUnlockCallback {
     LockedLP public immutable lockedLP;
     address public immutable hook;
 
-    /// @notice Hard cap on the price move of a single router swap, in bps of the pre-swap price
-    ///         (same |Δprice|/price metric as Trade.impactBps / quoteExactIn). Owner-settable within
-    ///         [MIN_MAX_IMPACT_BPS, MAX_MAX_IMPACT_BPS]. Router-only: direct PoolManager swaps are unaffected.
-    uint256 public maxImpactBps = 5000;
-    uint256 public constant MIN_MAX_IMPACT_BPS = 100; // 1%
-    uint256 public constant MAX_MAX_IMPACT_BPS = 100_000; // 10x price move (buys measure Δp/p, can exceed 100%)
+    /// @dev No price-move or size cap on any trade, curve or pool (maker 2026-11-19: "there should be no limit to
+    ///      buying post bonding curve", then no cap on the curve either). minOut + deadline are the guards; Easy/Hard
+    ///      holding caps stay on the curve. The curve's routerBuy/routerSell impact argument is passed as uint256.max.
+    uint256 private constant NO_IMPACT_CAP = type(uint256).max;
     address public owner;
     address public pendingOwner;
 
@@ -129,7 +127,6 @@ contract DiscipleRouter is IUnlockCallback {
     error ZeroAmount();
     error ZeroRecipient();
     error ZeroMinOut();
-    error PriceImpactTooHigh(uint256 impactBps, uint256 maxImpactBps);
     error OnlyOwner();
     error BadParam();
     error QuoteResult(uint256 amountOut, uint256 impactBps, uint256 mcapAfterUsd);
@@ -214,15 +211,7 @@ contract DiscipleRouter is IUnlockCallback {
         owner = msg.sender;
     }
 
-    event MaxImpactSet(uint256 maxImpactBps);
     event OwnerTransferred(address indexed owner);
-
-    function setMaxImpactBps(uint256 bps) external {
-        if (msg.sender != owner) revert OnlyOwner();
-        if (bps < MIN_MAX_IMPACT_BPS || bps > MAX_MAX_IMPACT_BPS) revert BadParam();
-        maxImpactBps = bps;
-        emit MaxImpactSet(bps);
-    }
 
     /// @notice Configure USDG routing (owner), once. `launchpad` is the curve registry used before graduation.
     /// @dev Audit 2026-11-18 R4-1: write-once. The router sends user funds to the registry's curve and trusts its
@@ -417,7 +406,7 @@ contract DiscipleRouter is IUnlockCallback {
         } else {
             // Pre-grad: deliver quote STRAIGHT to the curve (v4 take → curve, or USDG transferFrom user → curve) and
             // let the curve trade for the real trader (caps, cost basis, attribution). No router custody,
-            // no approvals; the curve enforces the router impact cap on its exact quote; refunds go to the trader.
+            // no approvals; no impact cap (holding caps still apply on the curve); refunds go to the trader.
             uint256 quoteAmt = usdgIn;
             if (q != u) {
                 Hop[] memory h = _quoteHops(u, q, true);
@@ -426,7 +415,7 @@ contract DiscipleRouter is IUnlockCallback {
                 IERC20(u).safeTransferFrom(msg.sender, curve, usdgIn);
             }
             uint256 refund;
-            (tokensOut, refund) = IUsdgCurve(curve).routerBuy(msg.sender, quoteAmt, minTokensOut, deadline, maxImpactBps);
+            (tokensOut, refund) = IUsdgCurve(curve).routerBuy(msg.sender, quoteAmt, minTokensOut, deadline, NO_IMPACT_CAP);
             if (refund != 0) {
                 // Graduating buy or holding-cap partial fill (mode rules v2): unused quote comes back here. DISCIPLE audit #6: return it in USDG (swap the
                 // intermediate quote back through the same registered pool); USDG-quoted coins: plain transfer.
@@ -456,11 +445,10 @@ contract DiscipleRouter is IUnlockCallback {
             // Tokens go user → curve directly; the curve books the sell against the real trader (fixes the old
             // side effect where router-mediated sells debited/credited the router address).
             IERC20(token).safeTransferFrom(msg.sender, curve, tokensIn);
-            uint256 cap = maxImpactBps;
             if (q == u) {
-                usdgOut = IUsdgCurve(curve).routerSell(msg.sender, tokensIn, 1, deadline, msg.sender, cap);
+                usdgOut = IUsdgCurve(curve).routerSell(msg.sender, tokensIn, 1, deadline, msg.sender, NO_IMPACT_CAP);
             } else {
-                uint256 quoteAmt = IUsdgCurve(curve).routerSell(msg.sender, tokensIn, 1, deadline, address(this), cap);
+                uint256 quoteAmt = IUsdgCurve(curve).routerSell(msg.sender, tokensIn, 1, deadline, address(this), NO_IMPACT_CAP);
                 Hop[] memory h = _quoteHops(u, q, false);
                 usdgOut = _route(address(this), msg.sender, h, quoteAmt);
             }
@@ -551,7 +539,7 @@ contract DiscipleRouter is IUnlockCallback {
 
     /// @notice Swap `usdgIn` USDG (from msg.sender) for pair coin `quote` (to `recipient`) on the registered USDG/quote
     ///         pool: the same leg buyWithUsdg / launchWithUsdg use. For a dollar-priced First BOOST or a buy on a
-    ///         non-USDG pair. Router impact cap applies; no custody.
+    ///         non-USDG pair. No impact cap; no custody.
     /// @param minOut minimum `quote` out (must be > 0)
     function swapUsdgToQuote(address quote, uint256 usdgIn, uint256 minOut, address recipient, uint256 deadline)
         external
@@ -614,7 +602,7 @@ contract DiscipleRouter is IUnlockCallback {
 
     /// @notice Exact-in USDG route quote (simulate-and-revert; call via eth_call). Includes all fees.
     /// @return amountOut tokens out (isBuy) or USDG out (sell)
-    /// @return maxHopImpactBps the largest per-hop price impact (the router reverts above `maxImpactBps`)
+    /// @return maxHopImpactBps the largest per-hop price impact (display only; no trade is capped on it)
     function quoteUsdgRoute(address token, bool isBuy, uint256 amountIn)
         public
         returns (uint256 amountOut, uint256 maxHopImpactBps)
@@ -817,7 +805,7 @@ contract DiscipleRouter is IUnlockCallback {
             }
             uint256 refund;
             (tokensOut, refund) =
-                IUsdgCurve(curve).routerBuy(signer, quoteAmt, trade.minOut, trade.deadline, maxImpactBps);
+                IUsdgCurve(curve).routerBuy(signer, quoteAmt, trade.minOut, trade.deadline, NO_IMPACT_CAP);
             if (refund != 0) emit UsdgRefund(signer, token, refund, _toUsdg(u, q, refund, signer));
         }
         if (tokensOut < trade.minOut) revert Slippage();
@@ -842,11 +830,10 @@ contract DiscipleRouter is IUnlockCallback {
             _sweep(token, b, signer);
         } else {
             _pull(signer, permit, trade, signature, token, curve);
-            uint256 cap = maxImpactBps;
             if (q == u) {
-                usdgOut = IUsdgCurve(curve).routerSell(signer, tokensIn, 1, trade.deadline, signer, cap);
+                usdgOut = IUsdgCurve(curve).routerSell(signer, tokensIn, 1, trade.deadline, signer, NO_IMPACT_CAP);
             } else {
-                uint256 quoteAmt = IUsdgCurve(curve).routerSell(signer, tokensIn, 1, trade.deadline, address(this), cap);
+                uint256 quoteAmt = IUsdgCurve(curve).routerSell(signer, tokensIn, 1, trade.deadline, address(this), NO_IMPACT_CAP);
                 Hop[] memory h = _quoteHops(u, q, false);
                 usdgOut = _route(address(this), signer, h, quoteAmt);
             }
@@ -1064,11 +1051,11 @@ contract DiscipleRouter is IUnlockCallback {
     function _routeCallback(RouteData memory d) private returns (bytes memory) {
         uint256 amt = d.amountIn;
         uint256 maxImp;
-        uint256 cap = maxImpactBps;
         uint256 n = d.hops.length;
         for (uint256 i; i < n; ++i) {
             Hop memory h = d.hops[i];
-            (uint160 sb,,,) = poolManager.getSlot0(h.key.toId());
+            uint160 sb;
+            if (d.simulate) (sb,,,) = poolManager.getSlot0(h.key.toId());
             BalanceDelta delta = poolManager.swap(
                 h.key,
                 IPoolManager.SwapParams({
@@ -1085,9 +1072,11 @@ contract DiscipleRouter is IUnlockCallback {
             if (dIn >= 0 || uint256(uint128(-dIn)) != amt) revert BadPool();
             amt = uint256(uint128(dOut));
             if (amt == 0) revert ZeroMinOut();
-            uint256 imp = _hopImpact(h, sb);
-            if (imp > maxImp) maxImp = imp;
-            if (!d.simulate && imp > cap) revert PriceImpactTooHigh(imp, cap);
+            // Impact is measured for quotes only (UI display); live v4 hops are never capped.
+            if (d.simulate) {
+                uint256 imp = _hopImpact(h, sb);
+                if (imp > maxImp) maxImp = imp;
+            }
         }
         if (d.simulate) {
             if (d.curveAfter != address(0)) {
@@ -1165,22 +1154,16 @@ contract DiscipleRouter is IUnlockCallback {
         revert QuoteResult(out, impact, mcap);
     }
 
-    function _checkImpact(PoolKey memory key, uint160 sb) private view {
-        (uint160 sa,,,) = poolManager.getSlot0(key.toId());
-        (address tokenAddr,,,,) = DiscipleHook(hook).metaOf(key.toId());
-        uint256 impact = DiscipleHook(hook).impactBpsFromSqrt(sb, sa, Currency.unwrap(key.currency0) == tokenAddr);
-        uint256 cap = maxImpactBps;
-        if (impact > cap) revert PriceImpactTooHigh(impact, cap);
-    }
-
     function unlockCallback(bytes calldata raw) external returns (bytes memory) {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
         (uint8 kind, bytes memory payload) = abi.decode(raw, (uint8, bytes));
         if (kind == 1) return _routeCallback(abi.decode(payload, (RouteData)));
         CallbackData memory d = abi.decode(payload, (CallbackData));
 
-        (uint160 sqrtBefore,,,) = poolManager.getSlot0(d.key.toId());
-        if (d.simulate) _tstoreSqrt(sqrtBefore);
+        if (d.simulate) {
+            (uint160 sqrtBefore,,,) = poolManager.getSlot0(d.key.toId());
+            _tstoreSqrt(sqrtBefore);
+        }
         BalanceDelta delta = poolManager.swap(
             d.key,
             IPoolManager.SwapParams({
@@ -1199,7 +1182,6 @@ contract DiscipleRouter is IUnlockCallback {
         uint256 paid = uint256(uint128(-dIn));
         uint256 out = uint256(uint128(dOut));
         if (d.simulate) _revertQuote(d, out);
-        _checkImpact(d.key, sqrtBefore);
         cin.settle(poolManager, d.payer, paid, false);
         cout.take(poolManager, d.recipient, out, false);
         return abi.encode(out);

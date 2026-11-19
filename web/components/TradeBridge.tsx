@@ -42,7 +42,7 @@ import { warmGasCredit, warmGasPrice } from "@/lib/flight/gasReserve";
 const gasUsd = () => { try { return rawToUsd(ownWalletGasRaw()); } catch { return 0; } };   // display / engine pre-check only: gas the hidden credit can't cover
 /** the last real USDG balance, RAW (reservation math stays bigint; decimals from config) */
 const CASH_RAW: { v: bigint | null } = { v: null };
-import { activeWarning, chipTag, maxBuyUnderCap, moveWarnings, plainTradeMessage, type MoveWarn, type TradeSide } from "@/lib/flight/tradeGate";
+import { activeWarning, chipTag, moveWarnings, plainTradeMessage, type MoveWarn, type TradeSide } from "@/lib/flight/tradeGate";
 import { graduationStatus, liveMaxImpactBps } from "@/lib/flight/gradAdapter";
 import { longHidden, onTabVisible } from "@/lib/tabIdle";
 import { pctBuyLabel, pctBuyUsd } from "@/lib/sim/daily";
@@ -189,10 +189,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
   const liveTokens = useRef(0);   // last real balanceOf (whole tokens) of the trading account
   // SITE trade alerts (wallet limit, > 10 % price impact): cached reads only, so a tap never waits on them
   const rulesRef = useRef<{ capBps: number | null } | null>(null);
-  // biggest BOOST the router's per-trade price cap lets through right now ($, from the impact quotes; null = no cap in play).
-  // A bigger BOOST is cut to this instead of failing (maker 2026-11-18: "i cant buy a certain amount?? even after it graduated").
-  const maxBuyRef = useRef<number | null>(null);
-  const [maxBuyUsd, setMaxBuyUsd] = useState<number | null>(null);
+  // No BOOST size cap or MAX clip (maker 2026-11-19: "there should be no limit to buying"): the router caps no trade.
   const impRef = useRef<{ buyUsd: number[]; b: ({ bps: number; out: bigint } | null)[]; fracs: number[]; s: ({ bps: number; out: bigint } | null)[]; bal: bigint }>({ buyUsd: [], b: [], fracs: [], s: [], bal: BigInt(0) });
   const pendingBuyUsd = useRef(0);   // sent buys not yet in liveTokens (wallet-limit room)
   const [alert, setAlert] = useState<{ a: TradeAlert; side: "buy" | "sell"; usd: number; o?: TradeOpts } | null>(null);
@@ -319,9 +316,6 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
       }
       // RAPID TAP: this press's reservation, SYNC at entry (no await): buy $ + one op's gas now; a sell's tokens once sized.
       // Released on the result (slow path: once its receipt is booked) ⇒ the next press sizes from what is really left.
-      // over the router's live price cap: buy the most it allows instead of a revert ("Too big for this rocket")
-      const capUsd = maxBuyRef.current;
-      if (side === "buy" && capUsd != null && capUsd >= 1 && usd > capUsd) usd = Math.floor(capUsd * 100) / 100;
       const pressId = nextPressId(); reservePress(pressId, side, token, side === "buy" ? usd : undefined, kind);
       pressMeta.current.set(pressId, { side, amt: usd > 0 ? fmtShot(usd) : "" });
       o?.onPress?.(pressId);
@@ -777,8 +771,6 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
         if (alive) setSellOutUsd(outs);
         if (alive) dispatchEvent(new CustomEvent("disciple:dumpquote", { detail: { tokens: Number(bal) / 1e18, usd: all, at: Date.now() } }));
         const wb = moveWarnings("buy", b.map((x) => x?.signed ?? null), max), wsl = moveWarnings("sell", s.map((x) => x?.signed ?? null), max);
-        const cut = maxBuyUnderCap(buyUsd, b.map((x) => x?.bps ?? null), max);
-        maxBuyRef.current = cut; if (alive) setMaxBuyUsd(cut);
         if (alive) setWarns({ max, buy: wb.slice(0, 4), sell: wsl.slice(0, 4), customBuy: customUsd ? wb[4] : null, customSell: customSellPct ? wsl[4] : null });
       } catch { /* keep last */ }
     };
@@ -837,10 +829,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
   const sellWarn = customSellPct ? warns.customSell : customSellUsd ? null : warns.sell[sellSel] ?? null;
   // only the side being tapped / previewed (post-grad fix 3): phone = last touched side, desktop = hovered / focused side, else none
   const aw = activeWarning(phone ? phoneSide : deskSide, buyWarn, sellWarn, has);
-  // over the router's price cap: the BOOST is cut to the max it allows (runTrade), and the bar says the new size, not "too big"
-  const capped = maxBuyUsd != null && maxBuyUsd >= 1 && shotUsd > maxBuyUsd;
-  const fireUsd = capped ? Math.floor(maxBuyUsd! * 100) / 100 : shotUsd;
-  const warnText = capped && aw.text.startsWith("BOOST") ? `Max BOOST ${fmtMoney(fireUsd)} right now` : aw.text, warnOver = capped ? false : aw.over;
+  const fireUsd = shotUsd, warnText = aw.text, warnOver = aw.over;
   const hoverSide = (side: TradeSide) => ({ onMouseEnter: () => setDeskSide(side), onMouseLeave: () => setDeskSide((x) => (x === side ? null : x)),
     onFocus: () => setDeskSide(side), onBlur: () => setDeskSide((x) => (x === side ? null : x)) });
   const dumpTitle = has ? `DUMP (Shift): sell ${dumpLabel}${sellCustomN ? ` — custom ${sellUnit === "%" ? "% of holdings" : "$ (capped at position value)"}, overrides the selected preset` : " — the selected SELL preset"}` : "NO TOKENS IN WALLET";
@@ -989,7 +978,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
             <button type="button" aria-label="buy" data-testid="buy-btn" {...noKeyActivate} {...hoverSide("buy")} title={boostTitle} aria-disabled={short || full || allIn} disabled={short || allIn} data-inflight={full ? "1" : "0"} onClick={() => shoot("buy")}
               style={{ all: "unset", flex: 1, minHeight: 56, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, whiteSpace: "nowrap", background: HUD.gold, color: HUD.ink,
                 font: `800 27px/1 ${HUD.game}`, letterSpacing: ".02em", opacity: short || full || allIn ? 0.45 : 1, cursor: short || full || allIn ? "not-allowed" : "pointer" }}>
-              {full ? COPY.inFlight : allIn ? "ALL IN" : <>{t("tb.boost")} {fmtShot(fireUsd)}{capped && <span data-testid="boost-max" title="the most this rocket takes in one BOOST right now" style={{ font: `700 13px/1 ${HUD.game}`, padding: "2px 6px", borderRadius: 6, background: "rgba(18,19,39,.85)", color: HUD.gold }}>MAX</span>}{cap("SPACE", true)}</>}</button>
+              {full ? COPY.inFlight : allIn ? "ALL IN" : <>{t("tb.boost")} {fmtShot(fireUsd)}{cap("SPACE", true)}</>}</button>
           </div>
         </div>
         <div aria-hidden="true" style={{ width: 1, background: HUD.border }} />

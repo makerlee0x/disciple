@@ -102,11 +102,12 @@ contract UsdgQuoteSwapTest is IntegrationBase {
         fresh.quoteUsdgQuoteSwap(address(strategy), true, 1 ether);
     }
 
-    function test_price_impact_cap() public {
-        router.setMaxImpactBps(100); // 1%
+    /// maker 2026-11-19: pool swaps have no price-move cap (only bonding-curve trades are capped).
+    function test_no_price_impact_cap() public {
+        (uint256 q, uint256 imp) = router.quoteUsdgQuoteSwap(address(strategy), false, 500_000_000 ether);
+        assertGt(imp, 5000);
         vm.prank(alice);
-        vm.expectRevert(); // PriceImpactTooHigh(imp, 100)
-        router.swapQuoteToUsdg(address(strategy), 500_000_000 ether, 1, alice, _dl());
+        assertEq(router.swapQuoteToUsdg(address(strategy), 500_000_000 ether, 1, alice, _dl()), q);
     }
 
     function test_reentrancy_lock_is_transient_per_call() public {

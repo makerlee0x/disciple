@@ -5,12 +5,12 @@
  * COPY PENDING LEE APPROVAL (the strings below).
  */
 import { useEffect, useState } from "react";
-import { ONE_TAP_SLIPPAGE_CHOICES_BPS, oneTapSlippageBps, onSessionChange, setOneTapSlippageBps } from "@/lib/aa/session";
+import { ONE_TAP_SLIPPAGE_CHOICES_BPS, slippageLabel, oneTapSlippageBps, onSessionChange, setOneTapSlippageBps } from "@/lib/aa/session";
 import { playerError } from "@/lib/playerError";
 
 export const ONE_TAP_SLIP_COPY = {
   label: "Max price move per trade",
-  choice: (bps: number) => (bps >= 5000 ? "50% (most allowed)" : `${bps / 100}%`),
+  choice: (bps: number) => slippageLabel(bps),
   hint: "Max price move between tap and fill.",
   saving: "Updating…",
 };

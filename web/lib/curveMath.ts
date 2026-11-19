@@ -94,8 +94,12 @@ export function quoteSell(p: CurveParams, sold: bigint, tokensIn: bigint, creato
   return gross - mulDiv(gross, TRADE_FEE_BPS, BPS) - mulDiv(gross, creatorTaxBps, BPS);
 }
 
+/** Min-out after slippage. Any setting 0..100% is allowed (maker 2026-11-19); a positive quote never floors below 1 wei,
+ *  because the contracts reject a zero min-out ("Off" = take any price). */
 export function applySlippage(amount: bigint, slippageBps: number) {
-  return mulDiv(amount, BPS - B(Math.round(slippageBps)), BPS);
+  const bps = Math.min(10_000, Math.max(0, Math.round(slippageBps)));
+  const out = mulDiv(amount, BPS - B(bps), BPS);
+  return amount > B(0) && out < B(1) ? B(1) : out;
 }
 
 /** Price impact % between two sold levels (spot-to-spot; price ∝ curve mcap). */
