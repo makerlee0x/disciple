@@ -399,3 +399,7 @@ button.mkt-chip:hover { border-color: color-mix(in srgb, var(--sw) 45%, #262A33)
   animation: hg-spin .8s linear infinite; }
 @keyframes hg-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .hg-spin { animation-duration: 2.4s; } }
+/* Cash tile: Deposit + Transfer (maker 2026-11-19) */
+.hg-cashacts { display: flex; gap: 8px; margin-top: 4px; }
+.hg-cashacts .dsc3-btn { min-height: 36px; padding: 0 14px; font-size: 16px; flex: 1; max-width: 140px; }
+.hg-cashacts .dsc3-btn:not(.dsc3-btn-white) { border-color: var(--dsc3-panel-border, #2E323A); background: rgba(22,24,28,0.8); color: #E8EAEE; }

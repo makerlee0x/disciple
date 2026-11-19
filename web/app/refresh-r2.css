@@ -91,7 +91,7 @@ input.r2-field:focus, .r2-field:focus-within { border-color: rgba(242,193,78,0.5
 .cx-split { display: flex; justify-content: space-between; gap: 12px; }
 .cx-big { margin-top: 8px; min-height: 76px; border-color: rgba(242,193,78,0.55); }
 .cx-dollar { font-size: 40px; color: #9095A0; }
-.cx-big input#cx-amt, .cx-big input { all: unset; flex: 1; min-width: 0; color: #FFFFFF; font: 800 48px/1 var(--dsc-font-game); }
+.cx-big input#cx-amt, .cx-big input#cx-tamt, .cx-big input#cx-bamt, .cx-big input#sd-amt, .cx-big input { all: unset; flex: 1; min-width: 0; color: #FFFFFF; font: 800 48px/1 var(--dsc-font-game); }
 .cx-big input::placeholder { color: #5A5F6A; }
 .cx-help { display: block; margin-top: 6px; font-size: 12px; color: #9095A0; }
 /* Add cash by card or Apple Pay (lib/fund, maker 2026-11-14) */
@@ -158,7 +158,7 @@ input.r2-field:focus, .r2-field:focus-within { border-color: rgba(242,193,78,0.5
   .cx-addtxt span { color: #BCC0CA; }
   .cx-big { min-height: 72px; }
   .cx-dollar { font-size: 36px; }
-  .cx-big input, .cx-big input#cx-amt { font-size: 44px; }
+  .cx-big input, .cx-big input#cx-amt, .cx-big input#cx-tamt, .cx-big input#cx-bamt, .cx-big input#sd-amt { font-size: 44px; }
   .r2-note.warn { font-size: 12px; }
   .cx-page { padding: 0; }
   .ds-modal.cx-static { min-height: calc(100dvh - var(--ap-topbar-offset, 0px) - var(--ap-bottom-nav, 0px)); }
@@ -1041,7 +1041,7 @@ html:not([data-you]) .lb-tabs a.lb-you-only, html[data-you] .lb-tabs a.lb-out-on
   .cx-sheet .cx-card > .cx-amt { margin-top: 0; font-size: 40px; }
   .cx-sheet .cx-big { min-height: 60px; }
   .cx-sheet .cx-dollar { font-size: 32px; }
-  .cx-sheet .cx-big input, .cx-sheet .cx-big input#cx-amt { font-size: 38px; }
+  .cx-sheet .cx-big input, .cx-sheet .cx-big input#cx-amt, .cx-sheet .cx-big input#cx-tamt, .cx-sheet .cx-big input#cx-bamt, .cx-sheet .cx-big input#sd-amt { font-size: 38px; }
   .cx-sheet .r2-gold { min-height: 50px; }
   .cx-sheet .cx-sendrow { min-height: 50px; padding: 8px 16px; }
   .cx-sheet .r2-r { padding: 11px 16px; }
@@ -1121,6 +1121,51 @@ html:not([data-you]) .lb-tabs a.lb-you-only, html[data-you] .lb-tabs a.lb-out-on
   .tp-hull { width: 24px; height: 42px; }
 }
 
+/* ── @user picker (components/ui/UserPicker, maker 2026-11-19) ───────────── */
+.up-field { flex: 1; min-width: 0; gap: 4px; }
+.up-field.bad { border-color: rgba(240,48,127,0.55); }
+.up-field input { all: unset; flex: 1; min-width: 0; font-size: 15px; color: #FFFFFF; }
+.up-field input::placeholder { color: #5A5F6A; }
+.up-at { font: 800 20px/1 var(--dsc-font-game); color: #F2C14E; }
+.up-pulse { width: 8px; height: 8px; border-radius: 50%; background: #F2C14E; flex: none; animation: up-pulse 1s ease-in-out infinite; }
+@keyframes up-pulse { 50% { opacity: .25; } }
+.up-err { display: block; margin-top: 6px; font-size: 12px; color: #FFB3CF; }
+.up-recent { display: flex; gap: 6px; margin-top: 8px; overflow-x: auto; scrollbar-width: none; }
+.up-recent button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 4px 10px 4px 4px; border-radius: 999px;
+  border: 1px solid #2E323A; background: rgba(22,24,28,0.8); font-size: 13px; font-weight: 600; color: #E8EAEE; }
+.up-recent button:hover { border-color: rgba(242,193,78,0.5); }
+.up-av { display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 50%; overflow: hidden; box-sizing: border-box;
+  background: linear-gradient(160deg, #5B45B8, #1E1A4A); border: 1px solid rgba(243,223,168,0.35); font: 800 16px/1 var(--dsc-font-game); color: #F3DFA8; }
+.up-av img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.up-card { display: flex; align-items: center; gap: 12px; margin-top: 8px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(95,240,160,0.35); background: rgba(95,240,160,0.06); }
+.up-who { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.up-who b { font-size: 15px; color: #FFFFFF; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.up-who > span { font-size: 12px; color: #9095A0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.up-chg { all: unset; cursor: pointer; font-size: 12px; font-weight: 600; color: #BCC0CA; padding: 6px 10px; border-radius: 8px; border: 1px solid #2E323A; }
+.up-chg:hover { color: #FFFFFF; border-color: rgba(243,223,168,0.35); }
+.up-chg:focus-visible, .up-recent button:focus-visible { box-shadow: var(--dsc-glow-focus-ring); outline: none; }
+.cx-sentto { width: 100%; text-align: left; }
+.cx-sentto .up-card { margin-top: 0; }
+
+/* ── Send sheet (components/send/SendHost, maker 2026-11-19) ─────────────── */
+.sd-asset { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(232,234,238,0.10);
+  background: linear-gradient(160deg, #1F2433, #14161D); }
+.sd-coin { width: 44px; height: 44px; flex: none; border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center;
+  background: #2A2F3B; font: 800 20px/1 var(--dsc-font-game); color: #F3DFA8; }
+.sd-coin img { width: 100%; height: 100%; object-fit: cover; }
+.sd-at { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.sd-at b { font: 800 22px/1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sd-at > span { font-size: 12px; color: #9095A0; }
+.sd-bag { flex: none; font: 700 16px/1 var(--dsc-font-game); text-transform: uppercase; color: #5FF0A0; }
+.sd-sym { font-size: 15px; color: #BCC0CA; }
+.sd-senth { font-size: 36px; }
+/* the Send button on a fleet card / copy row */
+.sd-fleet { position: relative; }
+.sd-fleetbtn { all: unset; cursor: pointer; position: absolute; z-index: 3; top: 8px; right: 8px; width: 32px; height: 32px; border-radius: 10px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; border: 1px solid rgba(232,234,238,0.18); background: rgba(11,12,14,0.72); color: #E8EAEE; backdrop-filter: blur(6px); }
+.sd-fleetbtn:hover { color: #FFFFFF; border-color: rgba(243,223,168,0.5); }
+.sd-fleetbtn:focus-visible { box-shadow: var(--dsc-glow-focus-ring); outline: none; }
+.cx-big input::placeholder { font: inherit; }
 /* ── one pilot pill (maker 2026-11-19: signed in "way too crowded compared to the out"): level ring, @name and the balance
    under it in one pill; the "?" moved into the pilot menu. The balance is its own link (opens Cash) over the Hangar link. ── */
 :root { --wb-w-in: var(--wb-pilot-w); }

@@ -42,6 +42,7 @@ const FunnelBeacon = dynamic(() => import("./FunnelBeacon"), { ssr: false });
 const ReferralOnboarding = dynamic(() => import("./claims/ReferralOnboarding"), { ssr: false });
 // The Cash popup (round 2 "Cash" board): opened by any cash link (lib/cashLink OPEN_CASH_EVENT). Its body loads on open.
 const CashHost = dynamic(() => import("./cash/CashHost"), { ssr: false });
+const SendHost = dynamic(() => import("./send/SendHost"), { ssr: false });
 // Phone first run (maker, 2026-11-14): app-browser banner, pick-a-rocket coach / throttle intro / $0 card / first boost,
 // and the Add to Home Screen sheet. Client-only, own chunks, nothing until they have something to show.
 const InAppBanner = dynamic(() => import("./mobile/InAppBanner"), { ssr: false });
@@ -79,6 +80,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <ReferralOnboarding />
       <HowItWorksHost />
       <CashHost />
+      <SendHost />
       {!IS_STATIC_PREVIEW && <InAppBanner />}
       {!IS_STATIC_PREVIEW && <FirstRunHost />}
       {!IS_STATIC_PREVIEW && <WelcomeIntro />}
