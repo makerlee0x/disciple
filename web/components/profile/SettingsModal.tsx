@@ -195,12 +195,6 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                   </div>
                 </div>
               </section>
-              <section className="p5-sgrp" aria-label={SETTINGS_COPY.sound} data-testid="settings-sound">
-                <span className="gh">{SETTINGS_COPY.sound}</span>
-                <div className="p5-sbox">
-                  <SoundRow music={SETTINGS_COPY.music} sfx={SETTINGS_COPY.sfx} />
-                </div>
-              </section>
               <section className="p5-sgrp" aria-label={SETTINGS_COPY.security} data-testid="settings-security">
                 <span className="gh">{SETTINGS_COPY.security}</span>
                 <div className="p5-sbox">
@@ -268,6 +262,14 @@ export default function SettingsModal({ open, onClose }: { open: boolean; onClos
                       ))}
                     </div>
                   </div>
+                </div>
+              </section>
+            </div>
+            <div className="p5-s2col c3">
+              <section className="p5-sgrp" aria-label={SETTINGS_COPY.sound} data-testid="settings-sound">
+                <span className="gh">{SETTINGS_COPY.sound}</span>
+                <div className="p5-sbox">
+                  <SoundRow music={SETTINGS_COPY.music} sfx={SETTINGS_COPY.sfx} />
                 </div>
               </section>
               <PushSettings wallet={addr ? addr.toLowerCase() : null} />
