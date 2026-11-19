@@ -18,7 +18,7 @@ import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "@/components/turbo/duel
 import { PCTS, pctUsd } from "@/lib/duel/rules";
 import { LighterMatch, lighterFetcher, lighterWanted, type MatchAction } from "@/lib/lighter/duel";
 import { lighterStatus } from "@/lib/lighter/client";
-import { streamLighterMids } from "@/lib/turbo/royalePrices";
+import { LIGHTER_PRICE_HOST, streamLighterMids } from "@/lib/turbo/royalePrices";
 import { onWallet } from "@/lib/walletState";
 
 type Tick = { ts: number; p: number };
@@ -49,7 +49,15 @@ export default function ClimbScreen() {
       while (hist.length && hist[0].ts < ts - 90_000) hist.shift();
       api?.price(price, ts);
     };
-    let stopPrice = onLighter ? () => {} : ad.subscribePrice("BTC", (t) => tick(t.price, t.ts));
+    // On Lighter the chart is Lighter's own BTC from the first frame (public stream, no account needed), swapped for the
+    // pilot's exchange once the account is read. Until then, or whenever Lighter goes quiet for 3 s, the play-money feed
+    // (Hyperliquid) fills in, so the countdown never waits on Lighter (maker 2026-11-18: Climb "froze on 3").
+    let lastLx = 0;
+    const lxTick = (p: number) => { lastLx = Date.now(); tick(p, lastLx); };
+    let stopPrice = onLighter
+      ? streamLighterMids((m) => { if (m.BTC) lxTick(m.BTC); })
+      : ad.subscribePrice("BTC", (t) => tick(t.price, t.ts));
+    const stopBackup = onLighter ? ad.subscribePrice("BTC", (t) => { if (Date.now() - lastLx > 3_000) tick(t.price, Date.now()); }) : () => {};
     let lf: ReturnType<typeof lighterFetcher> | null = null;
     /** the Lighter account now: cash, and the BTC position's real entry */
     const readLighter = async () => {
@@ -79,10 +87,9 @@ export default function ClimbScreen() {
           const min = Math.max(Number(d?.min_base_amount) * px || 0, Number(d?.min_quote_amount) || 0);
           if (!dead && min > 0 && lighter) { lighter.minUsd = min; api?.climbRefresh?.(); }
         }).catch(() => {});
-        stopPrice(); stopPrice = streamLighterMids((m) => { if (m.BTC) tick(m.BTC, Date.now()); }, h);
+        if (h && h !== LIGHTER_PRICE_HOST) { stopPrice(); stopPrice = streamLighterMids((m) => { if (m.BTC) lxTick(m.BTC); }, h); }
       }).catch(() => {});
     });
-    if (onLighter) stopPrice(); // no play-money price under real orders; Lighter's own starts once the account is read
     let startCash: number | null = null, ended: Promise<void> = Promise.resolve();
     const sizesFor = (fuel: number) => PCTS.map((p) => (p === 0 ? fuel / (1 + gear * CLIMB_FEE) : pctUsd(p, fuel)) * gear / CLIMB_MAX_GEAR);
     const lighter = !lighterWanted() ? undefined : {
@@ -148,7 +155,7 @@ export default function ClimbScreen() {
       if (dead || !ref.current || !w.DuelEngine) return;
       api = w.DuelEngine.mount(ref.current, host);
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load Climb. Refresh to try again."; });
-    return () => { dead = true; stopPrice(); offWallet(); offFuel(); api?.destroy(); };
+    return () => { dead = true; stopPrice(); stopBackup(); offWallet(); offFuel(); api?.destroy(); };
   }, []);
   return <><div ref={ref} /><LobbySettings mode="climb" open={gear} onClose={() => setGear(false)} /></>;
 }
