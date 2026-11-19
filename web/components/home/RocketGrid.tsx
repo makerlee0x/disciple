@@ -4,6 +4,7 @@
  * filters and search. Rockets come only from the HomeData the hero paints with (chain launches + indexed 24h stats),
  * refreshed by the hero's poll ("dsc:home-data"). Lazy-loaded below the lobby (HomeFeedLazy); cards render in chunks.
  */
+import { useHomePoll } from "./useHomePoll";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MODE } from "@/lib/modeRules";
 import { isVerified } from "@/lib/verified";
@@ -35,6 +36,7 @@ const NEAR_BPS = 6_000;
 
 export default function RocketGrid({ initial }: { initial: HomeCoin[] }) {
   const [coins, setCoins] = useState(initial);
+  useHomePoll();
   useEffect(() => {
     const h = (e: Event) => setCoins((e as CustomEvent<HomeData>).detail.coins);
     window.addEventListener("dsc:home-data", h);

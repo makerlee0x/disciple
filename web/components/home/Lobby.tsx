@@ -6,6 +6,7 @@
  * header for every rocket. Every number comes from the HomeData the hero paints with (chain launches + indexed trades),
  * refreshed by the hero's poll ("dsc:home-data"). A shelf with nothing to show is left out.
  */
+import { useHomePoll } from "./useHomePoll";
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { fmtUsd } from "@/lib/config";
@@ -67,6 +68,7 @@ function ShelfHead({ id, title, sub, children }: { id: string; title: string; su
 
 export default function Lobby({ initial: init, hero }: { initial: HomeData; hero: ReactNode }) {
   const [data, setData] = useState(init);
+  useHomePoll();
   const [now, setNow] = useState(init.at || 0);
   useEffect(() => {
     setNow(Date.now());
