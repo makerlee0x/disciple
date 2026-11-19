@@ -29,7 +29,7 @@ Every number in one place.
 | | |
 |---|---|
 | Trade fee | 1% |
-| Split | 0.33% creator · 0.33% locked LP · 0.33% treasury · 0.01% referral |
+| Split | 0.33% creator · 0.33% locked LP · 0.33% treasury · 0.01% community rewards |
 | Creator tax | 0–7%, curve only, ends at orbit |
 | Creator fees go to | Creator, locked pool or burn · locked at launch |
 | Sniper tax | 99 · 25 · 3 · 1 · 0.3 · 0.1 · 0.03% by second, 0% from 7s |

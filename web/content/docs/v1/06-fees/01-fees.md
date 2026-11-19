@@ -13,10 +13,10 @@ Every BOOST and DUMP on a rocket pays 1%, before and after orbit. The split is f
 33 | Creator | 0.33% | gold
 33 | Locked LP | 0.33% | easy
 33 | Treasury | 0.33% | white
-1 | Referral | 0.01% | pink
+1 | Community rewards | 0.01% | pink
 ```
 
-On a $100 buy: $0.33 creator · $0.33 locked LP · $0.33 treasury · $0.01 referral. The referral slice goes to the treasury at launch.
+On a $100 buy: $0.33 creator · $0.33 locked LP · $0.33 treasury · $0.01 community rewards.
 
 - **Creator:** builds up for the creator, or goes to the locked pool or a burn if they picked that. See [Creator fees](/docs/launch/creator-fees).
 - **Locked LP:** after orbit it's added to the locked pool. On the curve the rocket holds it: into the LP at orbit if orbit lands within 12 days, otherwise to the community rewards vault.
@@ -39,4 +39,4 @@ Launching is free.
 
 ## Community rewards vault
 
-Collects the sniper tax and the curve LP share from rockets that don't reach orbit within 12 days. Payouts are made by the team, and every payout is a public transfer.
+Gets the 0.01% slice of every trade, plus the sniper tax and the curve LP share from rockets that don't reach orbit within 12 days. Payouts are made by the team, and every payout is a public transfer.

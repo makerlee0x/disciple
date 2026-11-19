@@ -129,7 +129,7 @@ export const HIW_PRO = {
     title: "Fees",
     rows: [
       ["Trade fee", "1% on every buy and sell"],
-      ["Fee split", "0.33% creator · 0.33% LP · 0.33% treasury · 0.01% referral"],
+      ["Fee split", "0.33% creator · 0.33% LP · 0.33% treasury · 0.01% community rewards"],
       ["Creator tax", "0–7%, curve only, ends at Orbit"],
       ["Creator fees go to", "Creator, locked pool or burn · locked at launch"],
       ["Anti-snipe", "99% → 0 over the first 7s"],
