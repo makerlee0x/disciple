@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { withBase } from "@/lib/base-path";
 import { fetchMintStatus, type MintStatus } from "@/lib/nft/client";
-import { DISCIPLE_SUPPLY, FOUNDER_COUNT, FOUNDER_URL } from "@/lib/nft/config";
+import { DISCIPLES_LIVE, DISCIPLE_SUPPLY, FOUNDER_COUNT, FOUNDER_URL } from "@/lib/nft/config";
 
 /** four disciples maker picked for the tile (2026-11-17) */
 const MOSAIC = ["moses", "angel", "king", "knight"].map((n) => withBase(`/nft/disciple-${n}.webp`));
@@ -23,7 +23,7 @@ export default function HolderShelf() {
   }, []);
   useEffect(() => {
     let alive = true;
-    void fetchMintStatus().then((m) => { if (alive) setMint(m); });
+    if (DISCIPLES_LIVE) void fetchMintStatus().then((m) => { if (alive) setMint(m); });
     return () => { alive = false; };
   }, []);
 
@@ -44,7 +44,7 @@ export default function HolderShelf() {
         </div>
       </section>
 
-      <div className="nft-pair">
+      {DISCIPLES_LIVE && <div className="nft-pair">
         <Link href="/mint" className="nft-disc dsc3-panel" data-testid="shelf-mint">
           <span className="nft-mosaic" aria-hidden>
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -57,7 +57,7 @@ export default function HolderShelf() {
           </span>
           <span className="dsc3-btn dsc3-btn-primary">Mint</span>
         </Link>
-      </div>
+      </div>}
     </div>
   );
 }

@@ -5,7 +5,7 @@
  */
 import { useState } from "react";
 import { linkHolder, short, unlinkHolder } from "@/lib/nft/client";
-import type { HolderChain, HolderStatus } from "@/lib/nft/config";
+import { DISCIPLES_LIVE, type HolderChain, type HolderStatus } from "@/lib/nft/config";
 import { evmConnect, evmSignMessage, solConnect, solSignMessage, type EvmWallet, type SolWallet } from "@/lib/nft/wallets";
 import WalletChooser from "./WalletChooser";
 import ChainLogo from "./ChainLogo";
@@ -21,6 +21,8 @@ export async function connectAndLink(profile: string, chain: HolderChain, w: Sol
 }
 
 const LABEL: Record<HolderChain, string> = { sol: "Solana", eth: "Ethereum" };
+/** Solana hidden until the Disciples hand-over (maker 2026-11-18); Ethereum (The Twelve) stays. */
+const CHAINS: readonly HolderChain[] = DISCIPLES_LIVE ? ["sol", "eth"] : ["eth"];
 
 /** tiles: render as compact grid tiles inside Edit profile's Linked accounts row (.p5-links), next to the X tile. */
 export default function HolderWallets({ wallet, status, onChange, tiles = false }: { wallet: string | null; status: HolderStatus; onChange: (s: HolderStatus) => void; tiles?: boolean }) {
@@ -56,7 +58,7 @@ export default function HolderWallets({ wallet, status, onChange, tiles = false 
 
   if (tiles) return (
     <>
-      {(["sol", "eth"] as const).map((c) => (
+      {CHAINS.map((c) => (
         <div key={c} className={`p5-link${open === c ? " on" : ""}`} data-testid={`holder-${c}`}>
           <div className="p5-link-top">
             <ChainLogo chain={c} />
@@ -74,7 +76,7 @@ export default function HolderWallets({ wallet, status, onChange, tiles = false 
   return (
     <div className="p5-fld" role="group" aria-label="Holder wallets" data-testid="holder-wallets">
       <span className="lab">Holder wallets</span>
-      {(["sol", "eth"] as const).map((c) => (
+      {CHAINS.map((c) => (
         <div key={c}>
           <div className="nft-hrow">
             <ChainLogo chain={c} />
