@@ -27,10 +27,6 @@ export function lighterWanted(): boolean {
   void turboRegion();
   return !turboBlockedCached();
 }
-/** the ?lighter= switch is on but this visitor's country blocks real-money Turbo (say so, don't fail silently) */
-export function lighterBlockedHere(): boolean {
-  try { return typeof window !== "undefined" && !isNativeApp() && localStorage.getItem(FLAG) === "1" && turboBlockedCached(); } catch { return false; }
-}
 
 let tok: { t: string; at: number } | null = null;
 async function token() {
