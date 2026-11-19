@@ -20,7 +20,8 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
   const chg = c.stats?.chg24 ?? null;
   const crew = c.stats?.crew ?? null;
   const mates = useCrewAboard(c.token);
-  const d = difficultyOf(c.mode, c.graduated);
+  // the top pill already says In orbit; the foot keeps the coin's difficulty (it never changes) so it isn't said twice
+  const d = difficultyOf(c.mode);
   const orbit = c.progressBps == null && !c.graduated ? null : orbitPct(c);
   const skinned = !!c.look && !isClassic(c.look);
   const style = { ...lit(c), ["--sky" as string]: `url(${withBase(skySrc(t.index))})`, ...(c.look ? { ["--trail" as string]: trailRgb(c.look.trail) } : {}) };

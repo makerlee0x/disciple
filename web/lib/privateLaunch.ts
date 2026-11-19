@@ -51,5 +51,24 @@ export async function myStealthCoins(pc: PublicClient, keys: StealthKeys): Promi
   return out;
 }
 
+const mine = new Map<string, Promise<MyStealthCoin[]>>();
+/**
+ * The signed-in account's own hidden launches (one scan per account per page load, shared by the Hangar fleet and Rewards).
+ * Found only in this browser with the account's view key, so nobody else can tie them to the account. [] when signed out or
+ * when the scan fails (retried on the next call).
+ */
+export async function myHiddenCoins(pc: PublicClient): Promise<MyStealthCoin[]> {
+  const acct = (await aaAddress().catch(() => null))?.toLowerCase();
+  if (!acct || !ANON_ADDONS[ACTIVE_CHAIN.id]) return [];
+  const k = `${ACTIVE_CHAIN.id}:${acct}`;
+  let p = mine.get(k);
+  if (!p) {
+    p = myStealthKeys().then((keys) => myStealthCoins(pc, keys));
+    mine.set(k, p);
+    p.catch(() => mine.delete(k));
+  }
+  return p.catch(() => []);
+}
+
 /** Stealth private key for one of our coins (signs its EIP-712 Claim). */
 export const stealthKeyFor = (keys: StealthKeys, eph: Hex) => stealthPrivateKey(keys.spendPriv, keys.viewPriv, eph);
