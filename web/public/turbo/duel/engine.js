@@ -970,7 +970,7 @@ function mount(root,host){
     const dr=net?net.delta:0;
     if(net&&net.rating) { rec.rating=net.rating; if((M.ranked||M.casual)&&!tie){ if(win){rec.w++;rec.streak++;} else {rec.l++;rec.streak=0;} } REC=rec; }
     if(M&&!M.net&&!tie&&!host.first) botAdjBy(win?.06:-.08);   // bots ease off after a loss, push after a win
-    LAST={pm,pb,win:win&&!tie,tie,opp:G.bot.name,bot:!!(M&&!M.net),sat:G.me.up+G.me.dn===0,len:lenTxt()};
+    LAST={pm,pb,win:win&&!tie,tie,opp:G.bot.name,bot:!!(M&&!M.net),sat:G.me.up+G.me.dn===0,len:lenTxt(),fuel:FUEL0,me:host.myName&&host.myName()||null};
     clipEnd(LAST);
     { const x=host.climbing&&host.climbing(), a=$("rClimb"); a.hidden=!x;   // cross-link (maker 2026-11-16): a real rocket climbing right now
       if(x){ a.href=x.href; a.innerHTML=`<b>\u25b2 $${esc(x.sym)}</b><span>${esc(x.line)}</span><em>BOOST IT \u2192</em>`; } }
@@ -1258,27 +1258,33 @@ function mount(root,host){
     if(r.win) return `cooked ${who} by ${m} in a ${r.len.toLowerCase()} BTC duel. run it back?`;
     return `${who} got me by ${m} in a ${r.len.toLowerCase()} BTC duel. 50x humbles everyone. who's next?`;
   }
-  /** 1080x1350 card: sky, both rockets (higher = winning), the margin, the line, the link */
+  /** 1080x1350 card, PnL first (maker 2026-11-18, mock B): your $ and % are the hero, the rival under it, your own Hangar
+   *  rocket as the art on the right. Lines: DISCIPLE / 1V1 TRADING DUEL / @YOU WON / +$x / +y% / BEAT / @THEM -$z / DISCIPLE.VIP */
   function shareCard(r){
     const W=1080,H=1350,c=document.createElement("canvas"); c.width=W; c.height=H; const x=c.getContext("2d");
     const sk=imgs[SKY_ORDER[Math.min(2,SKY_ORDER.length-1)]], sky=sk&&sk.complete&&sk.width?sk:imgs.sky1;
     if(sky&&sky.complete&&sky.width){ const k=Math.max(W/sky.width,H/sky.height); x.drawImage(sky,(W-sky.width*k)/2,(H-sky.height*k)/2,sky.width*k,sky.height*k); } else { x.fillStyle="#0B0C1E"; x.fillRect(0,0,W,H); }
-    const g=x.createLinearGradient(0,0,0,H); g.addColorStop(0,"rgba(7,8,12,.78)"); g.addColorStop(.45,"rgba(7,8,12,.25)"); g.addColorStop(1,"rgba(7,8,12,.92)"); x.fillStyle=g; x.fillRect(0,0,W,H);
-    const rk=imgs.rocket, rh=420, rw=rh*221/609, lead=r.tie?0:r.win?1:-1;
-    const rocket=(cx,cy,col)=>{ const fg=x.createRadialGradient(cx,cy+rh*.55,4,cx,cy+rh*.75,170); fg.addColorStop(0,"rgba(255,250,235,.95)"); fg.addColorStop(.3,`rgba(${col},.85)`); fg.addColorStop(1,`rgba(${col},0)`);
-      x.globalCompositeOperation="lighter"; x.fillStyle=fg; x.beginPath(); x.ellipse(cx,cy+rh*.72,62,190,0,0,Math.PI*2); x.fill(); x.globalCompositeOperation="source-over";
-      if(rk&&rk.complete&&rk.width) x.drawImage(rk,cx-rw/2,cy-rh/2,rw,rh); };
-    rocket(360,700-lead*90,"242,193,78"); rocket(720,700+lead*90,"240,48,127");
-    x.textAlign="center"; x.textBaseline="alphabetic";
-    x.font=`italic 800 64px ${GF},sans-serif`; x.fillStyle="#F2F3F7"; x.fillText("DISCIPLE",W/2,110);
-    x.font=`800 30px ${GF},sans-serif`; x.fillStyle="rgba(215,217,228,.85)"; x.fillText(`TRADING DUEL · BTC · ${r.len} · ${LEV}×`,W/2,160);
-    x.font=`800 150px ${GF},sans-serif`; x.fillStyle=r.tie?"#F2F3F7":r.win?"#F2C14E":"#FF8FBD"; x.fillText(r.tie?"DRAW":r.win?"YOU WIN":"YOU LOSE",W/2,330);
-    if(!r.tie){ x.font=`800 54px ${GF},sans-serif`; x.fillStyle="#F2F3F7"; x.fillText(`${r.win?"WON":"LOST"} BY $${Math.abs(r.pm-r.pb).toFixed(2)}`,W/2,400); }
-    x.font=`800 40px ${GF},sans-serif`; x.fillStyle="#F2C14E"; x.fillText("YOU",360,1020); x.fillStyle="#FF8FBD"; x.fillText(r.opp.toUpperCase()+(r.bot?" · BOT":""),720,1020);
-    x.font=`700 36px ${GU},sans-serif`; x.fillStyle="#F2F3F7"; x.fillText(usd(r.pm,true),360,1066); x.fillText(usd(r.pb,true),720,1066);
-    x.font=`600 34px ${GU},sans-serif`; x.fillStyle="#D7D9E4"; const line=shareLine(r), words=line.split(" "); let row="", y=1160;
-    for(const w of words){ const t=row?row+" "+w:w; if(x.measureText(t).width>W-160){ x.fillText(row,W/2,y); row=w; y+=46; } else row=t; } if(row) x.fillText(row,W/2,y);
-    x.font=`800 38px ${GF},sans-serif`; x.fillStyle="#F2C14E"; x.fillText("1V1 ME · DISCIPLE.VIP",W/2,H-60);
+    x.fillStyle="rgba(7,8,12,.5)"; x.fillRect(0,0,W,H);
+    const g=x.createLinearGradient(0,0,W,0); g.addColorStop(0,"rgba(7,8,12,.92)"); g.addColorStop(.62,"rgba(7,8,12,.35)"); g.addColorStop(1,"rgba(7,8,12,0)"); x.fillStyle=g; x.fillRect(0,0,W,H);
+    // your rocket: the hull + skin you fly (Hangar loadout), drawn at game size and scaled up so its flame keeps its shape
+    { const me=G&&G.me, base=120, k=820/base, rw=820*(me&&me.hull?me.hull.a:221/609); x.save(); x.translate(Math.min(850,W-rw/2-24),700); x.scale(k,k);   // wide hulls slide left to stay whole
+      try{ drawShip(x,me&&me.hull,imgs.rocket,base,1.5,me&&me.flameC||"242,193,78",0,null,0); }catch(e){}
+      x.restore(); }
+    const L=80, fit=(t,font,px,max)=>{ let s=px; x.font=font.replace("#",s); while(s>40&&x.measureText(t).width>max){ s-=4; x.font=font.replace("#",s); } return s; };
+    const name=(r.me||"").toUpperCase(), opp=String(r.opp||"").toUpperCase(), pct=r.fuel>0?r.pm/r.fuel*100:0;
+    const sgn=v=>(v<0?"\u2212":"+"), money=v=>sgn(v)+"$"+Math.abs(v).toFixed(2), col=v=>v<0?"#FF8FBD":"#5FF0A0";
+    x.textAlign="left"; x.textBaseline="alphabetic";
+    x.font=`italic 800 60px ${GF},sans-serif`; x.fillStyle="#F2F3F7"; x.fillText("DISCIPLE",L,120);
+    x.font=`800 30px ${GF},sans-serif`; x.fillStyle="rgba(215,217,228,.85)"; x.fillText("1V1 TRADING DUEL",L,166);
+    const verb=r.tie?"DREW":r.win?"WON":"LOST";
+    fit(`${name?name+" ":""}${verb}`,`800 #px ${GF},sans-serif`,56,600); x.fillStyle=r.tie?"#F2F3F7":r.win?"#F2C14E":"#FF8FBD"; x.fillText(`${name?name+" ":"YOU "}${verb}`,L,420);
+    fit(money(r.pm),`800 #px ${GF},sans-serif`,230,700); x.fillStyle=col(r.pm); x.fillText(money(r.pm),L-12,620);
+    x.font=`700 44px ${GU},sans-serif`; const pt=sgn(pct)+Math.abs(pct).toFixed(1)+"%", pw=x.measureText(pt).width+44;
+    x.fillStyle=r.pm<0?"rgba(255,143,189,.16)":"rgba(95,240,160,.16)"; x.beginPath(); if(x.roundRect) x.roundRect(L,665,pw,74,37); else x.rect(L,665,pw,74); x.fill(); x.fillStyle=col(r.pm); x.fillText(pt,L+22,717);
+    x.font=`800 46px ${GF},sans-serif`; x.fillStyle="#F2F3F7"; x.fillText(r.tie?"WITH":r.win?"BEAT":"LOST TO",L,840);
+    fit(`${opp} ${money(r.pb)}`,`800 #px ${GF},sans-serif`,58,620); x.fillStyle=r.win?"#FF8FBD":"#F2C14E"; x.fillText(opp+" ",L,910);
+    const ow=x.measureText(opp+" ").width; x.fillStyle=col(r.pb); x.fillText(money(r.pb),L+ow,910);
+    x.font=`800 40px ${GF},sans-serif`; x.fillStyle="#F2C14E"; x.fillText("DISCIPLE.VIP",L,H-80);
     return c;
   }
   // the link a shared post points at, made once per result (signed in: a fresh friend link, so whoever taps it lands in a
