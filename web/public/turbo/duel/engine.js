@@ -1080,7 +1080,11 @@ function mount(root,host){
     $("quitOv").addEventListener("pointerdown",e=>{ if(e.target===e.currentTarget) qShut(); });
     on(window,"keydown",e=>{ if($("quitOv").hidden) return; e.stopPropagation(); if(e.key==="Escape") qShut(); },true);   // no boost / cash-out keys behind the confirm
     if(!document.getElementById("duel-quit-css")){ const qs=document.createElement("style"); qs.id="duel-quit-css"; qs.textContent=QUIT_CSS; document.head.appendChild(qs); } }
-  if(host.guest){ $("go").hidden=true; const bk=root.querySelector(".pre-back"); if(bk) bk.style.visibility="hidden"; const mc=root.querySelector(".me-chip"); if(mc) mc.style.visibility="hidden"; const tb=document.querySelectorAll(".duel-root .tab"); if(tb[0]) tb[0].textContent="VS BOT"; if(tb[1]) tb[1].textContent="VS FRIEND";
+  if(host.guest){ $("go").hidden=true; const bk=root.querySelector(".pre-back");
+    // BACK on /duel (maker 2026-11-19): to the page you came from on this site, else home. Hidden in the X embed (it has its own link out)
+    if(bk){ if(host.embed) bk.style.visibility="hidden"; else bk.addEventListener("click",e=>{ let same=false; try{ same=!!document.referrer&&new URL(document.referrer).origin===location.origin; }catch(_){}
+      if(same&&history.length>1){ e.preventDefault(); history.back(); } }); }
+    const mc=root.querySelector(".me-chip"); if(mc) mc.style.visibility="hidden"; const tb=document.querySelectorAll(".duel-root .tab"); if(tb[0]) tb[0].textContent="VS BOT"; if(tb[1]) tb[1].textContent="VS FRIEND";
     $("botSub").innerHTML=`Play money ${RK(false)}`; }
   $("mkLink").addEventListener("click",()=>{ ensureAudio(); if(!SIGNED&&!host.guest){ host.signIn(); return; } mode="friend"; lerr(""); host.createLink(botKey,LEN,CFUEL); });
   $("iCopy").addEventListener("click",()=>{ track("duel_share"); const t=$("iLink").dataset.url||""; try{navigator.clipboard.writeText(t); toast("Link copied");}catch(e){ toast(t); } });
