@@ -52,7 +52,7 @@ contract LpAccrueGaslessTest is IntegrationBase {
             )
         );
         bytes32 witness = keccak256(
-            abi.encode(router.TRADE_TYPEHASH(), t.coin, t.isBuy, t.amountIn, t.minOut, t.recipient, t.deadline)
+            abi.encode(router.TRADE_TYPEHASH(), t.coin, t.isBuy, t.amountIn, t.minOut, t.recipient, t.deadline, t.maxGasFee)
         );
         bytes32 structHash = keccak256(
             abi.encode(
@@ -90,7 +90,7 @@ contract LpAccrueGaslessTest is IntegrationBase {
 
     function _trade(Token t, bool isBuy, uint256 amt) internal returns (uint256 out, uint256 gasUsed) {
         DiscipleRouter.Trade memory tr = DiscipleRouter.Trade({
-            coin: address(t), isBuy: isBuy, amountIn: amt, minOut: 1, recipient: alice, deadline: block.timestamp + 5 minutes
+            coin: address(t), isBuy: isBuy, amountIn: amt, minOut: 1, recipient: alice, deadline: block.timestamp + 5 minutes, maxGasFee: 0
         });
         IPermit2Witness.PermitTransferFrom memory p;
         p.permitted = IPermit2Witness.TokenPermissions({token: isBuy ? address(quote) : address(t), amount: amt});

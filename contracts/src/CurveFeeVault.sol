@@ -212,29 +212,40 @@ contract CurveFeeVault is EIP712 {
     /// @notice Creator claim (current creator only): settles the coin's owed fees first, then pays the creator's
     ///         accrued share to their Pays to wallet. A past creator's balance: sweepPastCreatorFees_1311 first.
     function claimCreatorFees(address token) external returns (uint256 amount) {
+        // maker 2026-11-19: anyone may claim; the money only ever goes to the current coin creator's Pays to wallet.
         _revertIfRouted(token);
-        if (msg.sender != _currentCreator(token)) revert NotCurrentCreator();
         address c = _settle(token);
         if (c == address(0)) revert NothingToClaim();
         address quote = ISettleCurve(c).quote(); // never caller-supplied
-        amount = creatorAccrued[token][msg.sender];
+        address cr = _currentCreator(token);
+        // a contract creator (AnonLauncher, a Safe) pulls its own fees: only a plain wallet is paid by others
+        if (cr != msg.sender && cr.code.length != 0) revert NotCurrentCreator();
+        amount = creatorAccrued[token][cr];
         if (amount == 0) revert NothingToClaim();
-        creatorAccrued[token][msg.sender] = 0;
+        creatorAccrued[token][cr] = 0;
         address h = _harvest();
         IERC20(quote).safeTransfer(
-            h == address(0) ? msg.sender : ICreatorFeeDestination(h).creatorFeeRecipientOf(token, msg.sender), amount
+            h == address(0) ? cr : ICreatorFeeDestination(h).creatorFeeRecipientOf(token, cr), amount
         );
-        emit CreatorFeesClaimed(token, msg.sender, amount);
+        emit CreatorFeesClaimed(token, cr, amount);
     }
 
     /// @notice Referrer / KOL claim in `quote`: settles the listed coins first (KOL coins accrue the 1% there).
     function claimReferrerFees(address quote, address[] calldata settleTokens) external returns (uint256 amount) {
+        return claimReferrerFeesFor(msg.sender, quote, settleTokens);
+    }
+
+    /// @notice Anyone pays `referrer` its own balance (gasless referrers hold no ETH). The caller gets nothing.
+    function claimReferrerFeesFor(address referrer, address quote, address[] calldata settleTokens)
+        public
+        returns (uint256 amount)
+    {
         _settleAll(settleTokens);
-        amount = referrerAccrued[msg.sender][quote];
+        amount = referrerAccrued[referrer][quote];
         if (amount == 0) revert NothingToClaim();
-        referrerAccrued[msg.sender][quote] = 0;
-        IERC20(quote).safeTransfer(msg.sender, amount);
-        emit ReferrerFeesClaimed(quote, msg.sender, amount);
+        referrerAccrued[referrer][quote] = 0;
+        IERC20(quote).safeTransfer(referrer, amount);
+        emit ReferrerFeesClaimed(quote, referrer, amount);
     }
 
     /// @notice Permissionless: settle the listed coins, then push the treasury balance of `quote` to FeeRouter.treasury().

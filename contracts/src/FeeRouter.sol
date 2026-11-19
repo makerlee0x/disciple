@@ -344,16 +344,15 @@ contract FeeRouter is IFeeRouter, Owned2Step {
 
     /// @inheritdoc IFeeRouter
     function claimCreatorFees(address token) external override returns (uint256 amount) {
+        // maker 2026-11-19: anyone may claim (gasless coin creators hold no ETH); the money only ever goes to the
+        // current coin creator's Pays to wallet. A past creator's balance moves over with sweepPastCreatorFees_1311.
         _revertIfSelfClaimRouted(token);
-        _revertIfNotCurrent(token, msg.sender);
-        amount = creatorAccrued[token][msg.sender];
+        address c = _claimant(token);
+        amount = creatorAccrued[token][c];
         if (amount == 0) revert NothingToClaim();
-        creatorAccrued[token][msg.sender] = 0;
-        // Quote asset for this token must be known by caller context; scaffold stores per-token
-        // via curve — production wires quote lookup. For now pull from token→quote registry on launchpad.
-        address quote = _quoteOf(token);
-        IERC20(quote).safeTransfer(_payeeOf(token, msg.sender), amount);
-        emit CreatorFeesClaimed(token, msg.sender, amount);
+        creatorAccrued[token][c] = 0;
+        IERC20(_quoteOf(token)).safeTransfer(_payeeOf(token, c), amount);
+        emit CreatorFeesClaimed(token, c, amount);
     }
 
     /// @notice Claim-router claim on behalf of `creator` (DiscipleRouter.claimCreatorFeesToUsdg): pays the quote
@@ -374,15 +373,14 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     /// @notice Creator share accrued in the launch token itself (post-graduation buys pay the hook fee in token).
     function claimCreatorTokenFees(address token) external returns (uint256 amount) {
         _revertIfSelfClaimRouted(token);
-        _revertIfNotCurrent(token, msg.sender);
-        amount = creatorTokenAccrued[token][msg.sender];
+        address c = _claimant(token);
+        amount = creatorTokenAccrued[token][c];
         if (amount == 0) revert NothingToClaim();
-        creatorTokenAccrued[token][msg.sender] = 0;
-        IERC20(token).safeTransfer(_payeeOf(token, msg.sender), amount);
-        emit CreatorTokenFeesClaimed(token, msg.sender, amount);
+        creatorTokenAccrued[token][c] = 0;
+        IERC20(token).safeTransfer(_payeeOf(token, c), amount);
+        emit CreatorTokenFeesClaimed(token, c, amount);
     }
 
-    /// @notice Permissionless: push the accrued treasury balance of `asset` to the current `treasury`.
     function claimTreasury(address asset) external returns (uint256 amount) {
         amount = treasuryAccrued[asset];
         if (amount == 0) revert NothingToClaim();
@@ -416,11 +414,21 @@ contract FeeRouter is IFeeRouter, Owned2Step {
 
     /// @inheritdoc IFeeRouter
     function claimReferrerFees(address quote) external override returns (uint256 amount) {
-        amount = referrerAccrued[msg.sender][quote];
+        return _claimReferrer(msg.sender, quote);
+    }
+
+    /// @notice Anyone pays `referrer` its own `quote` balance (gasless referrers hold no ETH). The caller gets nothing.
+    ///         The `_2143` suffix keeps this selector after every function that already existed.
+    function claimReferrerFeesFor_2143(address referrer, address quote) external returns (uint256) {
+        return _claimReferrer(referrer, quote);
+    }
+
+    function _claimReferrer(address referrer, address quote) internal returns (uint256 amount) {
+        amount = referrerAccrued[referrer][quote];
         if (amount == 0) revert NothingToClaim();
-        referrerAccrued[msg.sender][quote] = 0;
-        IERC20(quote).safeTransfer(msg.sender, amount);
-        emit ReferrerFeesClaimed(quote, msg.sender, amount);
+        referrerAccrued[referrer][quote] = 0;
+        IERC20(quote).safeTransfer(referrer, amount);
+        emit ReferrerFeesClaimed(quote, referrer, amount);
     }
 
     /// @dev Launchpad registers token→quote; overridden in full wiring.
@@ -500,6 +508,14 @@ contract FeeRouter is IFeeRouter, Owned2Step {
             creatorTokenAccrued[token][current] += t;
         }
         emit PastCreatorFeesSwept(token, past, current, q, t);
+    }
+
+    /// @dev Whose balance a creator claim pays: the coin's current creator, or msg.sender without a launchpad.
+    ///      A contract creator (AnonLauncher, a Safe) pulls its own fees: only a plain wallet is paid by others.
+    function _claimant(address token) internal view returns (address c) {
+        c = _currentCreator(token);
+        if (c == address(0)) c = msg.sender;
+        if (c != msg.sender && c.code.length != 0) revert NotCurrentCreator();
     }
 
     function _currentCreator(address token) internal view returns (address) {

@@ -10,6 +10,7 @@ import {ILaunchpad} from "../src/interfaces/ILaunchpad.sol";
 import {CurveFeeVault} from "../src/CurveFeeVault.sol";
 import {CurveDeployer} from "../src/CurveDeployer.sol";
 import {FeeRouter} from "../src/FeeRouter.sol";
+import {Launchpad} from "../src/Launchpad.sol";
 import {stdStorage, StdStorage} from "forge-std/Test.sol";
 
 /// @notice "Pays to" (maker 2026-11-19): a coin's creator picks the wallet its creator fees go to. Only the current
@@ -153,8 +154,8 @@ contract CreatorPayeeTest is IntegrationBase {
         vm.prank(creator);
         launchpad.transferCreator(address(tok), next);
 
-        vm.prank(creator);
-        vm.expectRevert(CurveFeeVault.NotCurrentCreator.selector);
+        vm.prank(creator); // the old balance is not the new creator's until swept, and never the old creator's
+        vm.expectRevert(CurveFeeVault.NothingToClaim.selector);
         feeVault.claimCreatorFees(address(tok));
 
         vm.prank(bot); // anyone moves it; nobody is paid by the sweep
@@ -186,9 +187,9 @@ contract CreatorPayeeTest is IntegrationBase {
         vm.prank(creator);
         launchpad.transferCreator(address(tok), next);
         vm.startPrank(creator);
-        vm.expectRevert(FeeRouter.NotCurrentCreator.selector);
+        vm.expectRevert(FeeRouter.NothingToClaim.selector);
         feeRouter.claimCreatorFees(address(tok));
-        vm.expectRevert(FeeRouter.NotCurrentCreator.selector);
+        vm.expectRevert(FeeRouter.NothingToClaim.selector);
         feeRouter.claimCreatorTokenFees(address(tok));
         vm.stopPrank();
         vm.prank(address(router)); // a claim router cannot pay a past creator either
@@ -199,12 +200,97 @@ contract CreatorPayeeTest is IntegrationBase {
         feeRouter.sweepPastCreatorFees_1311(address(tok), creator);
         address np = makeAddr("nextPayee");
         _setPayee(address(tok), next, np);
-        vm.startPrank(next);
+        vm.startPrank(bot); // anyone may claim; it pays the coin creator's pick
         feeRouter.claimCreatorFees(address(tok));
         feeRouter.claimCreatorTokenFees(address(tok));
         vm.stopPrank();
         assertEq(quote.balanceOf(np), q, "quote to the new creator's pick");
         assertEq(tok.balanceOf(np), t, "token to the new creator's pick");
+    }
+
+    // ── gasless players (no ETH): claims paid to the owed wallet by anyone, signatures for the rest ──
+
+    function _sig(uint256 pk, bytes32 domain, bytes32 structHash) internal pure returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s_) = vm.sign(pk, keccak256(abi.encodePacked("\x19\x01", domain, structHash)));
+        return abi.encodePacked(r, s_, v);
+    }
+
+    function _domain(string memory name, address c) internal view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes(name)),
+                keccak256("1"),
+                block.chainid,
+                c
+            )
+        );
+    }
+
+    function test_anyoneClaims_curveFees_paidToCoinCreator() public {
+        (BondingCurve c, Token tok) = _launch(0, 0);
+        _warpPastSnipe();
+        _buy(c, trader1, BUY, 0);
+        uint256 owed = feeVault.creatorClaimable(address(tok), creator);
+        uint256 c0 = quote.balanceOf(creator);
+        vm.prank(bot);
+        feeVault.claimCreatorFees(address(tok));
+        assertEq(quote.balanceOf(creator) - c0, owed);
+        assertEq(quote.balanceOf(bot), 0);
+    }
+
+    function test_contractCreator_pullsItsOwn() public {
+        (BondingCurve c, Token tok) = _anonLaunch();
+        _warpPastSnipe();
+        _buy(c, trader1, BUY, 0);
+        vm.prank(bot); // AnonLauncher's pooled balance is never pushed to it by others
+        vm.expectRevert(CurveFeeVault.NotCurrentCreator.selector);
+        feeVault.claimCreatorFees(address(tok));
+    }
+
+    function test_bySig_paysTo_transferCreator_metadata() public {
+        (address w, uint256 pk) = makeAddrAndKey("gaslessCreator");
+        (, Token tok) = _launch(0, 0);
+        vm.prank(creator);
+        launchpad.transferCreator(address(tok), w);
+        uint256 dl = block.timestamp + 1 hours;
+
+        bytes32 sh = keccak256(abi.encode(harvest.SET_RECIPIENT_TYPEHASH(), address(tok), payee, harvest.sigNonces(w), dl));
+        vm.prank(bot);
+        harvest.setCreatorFeeRecipientBySig(address(tok), payee, dl, _sig(pk, _domain("DISCIPLE CreatorFeeHarvest", address(harvest)), sh));
+        assertEq(harvest.creatorFeeRecipientOf(address(tok), w), payee);
+        vm.expectRevert(CreatorFeeHarvest.NotCreator.selector); // replay
+        harvest.setCreatorFeeRecipientBySig(address(tok), payee, dl, _sig(pk, _domain("DISCIPLE CreatorFeeHarvest", address(harvest)), sh));
+
+        bytes32 ld = _domain("DISCIPLE Launchpad", address(launchpad));
+        sh = keccak256(
+            abi.encode(
+                launchpad.UPDATE_METADATA_TYPEHASH(), address(tok), keccak256("ipfs://new"), keccak256("d"), keccak256("s"),
+                launchpad.sigNonces(w), dl
+            )
+        );
+        vm.prank(bot);
+        launchpad.updateMetadataBySig(address(tok), "ipfs://new", "d", "s", dl, _sig(pk, ld, sh));
+
+        address next = makeAddr("next");
+        sh = keccak256(abi.encode(launchpad.TRANSFER_CREATOR_TYPEHASH(), address(tok), next, launchpad.sigNonces(w), dl));
+        bytes memory tsig = _sig(pk, ld, sh);
+        vm.prank(bot);
+        launchpad.transferCreatorBySig(address(tok), next, dl, tsig);
+        assertEq(launchpad.creatorOf(address(tok)), next);
+        vm.expectRevert(Launchpad.BadSignature.selector); // the signer is no longer the coin creator
+        launchpad.transferCreatorBySig(address(tok), next, dl, tsig);
+    }
+
+    function test_anyonePaysReferrer() public {
+        address ref = makeAddr("ref");
+        stdstore.target(address(feeRouter)).sig("referrerAccrued(address,address)").with_key(ref).with_key(address(quote))
+            .checked_write(3 * U);
+        quote.mint(address(feeRouter), 3 * U);
+        vm.prank(bot);
+        feeRouter.claimReferrerFeesFor_2143(ref, address(quote));
+        assertEq(quote.balanceOf(ref), 3 * U);
+        assertEq(quote.balanceOf(bot), 0);
     }
 
     // ── private coins ─────────────────────────────────────────────────────

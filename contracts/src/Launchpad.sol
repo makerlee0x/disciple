@@ -2,6 +2,8 @@
 pragma solidity ^0.8.26;
 
 import {Owned2Step} from "./utils/Owned2Step.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Constants} from "./libraries/Constants.sol";
@@ -31,7 +33,7 @@ interface IPricerLaunch {
     function launchPriceUsd(address quote) external view returns (uint256);
 }
 
-contract Launchpad is ILaunchpad, Owned2Step {
+contract Launchpad is ILaunchpad, Owned2Step, EIP712 {
     using SafeERC20 for IERC20;
 
     address public immutable feeRouter;
@@ -138,7 +140,10 @@ contract Launchpad is ILaunchpad, Owned2Step {
         address indexed token, uint256 startMcapUsd, uint256 graduationMcapUsd, uint256 totalSupply, uint8 decimals_
     );
 
-    constructor(address owner_, address feeRouter_, address antiSnipe_, address migration_) Owned2Step(owner_) {
+    constructor(address owner_, address feeRouter_, address antiSnipe_, address migration_)
+        Owned2Step(owner_)
+        EIP712("DISCIPLE Launchpad", "1")
+    {
         feeRouter = feeRouter_;
         antiSnipe = antiSnipe_;
         migration = migration_;
@@ -419,8 +424,82 @@ contract Launchpad is ILaunchpad, Owned2Step {
         string calldata description,
         string calldata socialsURI
     ) external {
+        _updateMetadata(token, msg.sender, imageURI, description, socialsURI);
+    }
+
+    // ── gasless coin creators (maker 2026-11-19: players hold no ETH; anyone submits the coin creator's signature) ──
+
+    bytes32 public constant TRANSFER_CREATOR_TYPEHASH =
+        keccak256("TransferCreator(address token,address newCreator,uint256 nonce,uint256 deadline)");
+    bytes32 public constant UPDATE_METADATA_TYPEHASH = keccak256(
+        "UpdateMetadata(address token,string imageURI,string description,string socialsURI,uint256 nonce,uint256 deadline)"
+    );
+    /// @notice Per coin creator; every signature here uses (and burns) the next one.
+    mapping(address => uint256) public sigNonces;
+
+    error BadSignature();
+    error SignatureExpired();
+
+    function updateMetadataBySig(
+        address token,
+        string calldata imageURI,
+        string calldata description,
+        string calldata socialsURI,
+        uint256 deadline,
+        bytes calldata sig
+    ) external {
+        address c = metaOf[token].creator;
+        _useSig(
+            c,
+            keccak256(
+                abi.encode(
+                    UPDATE_METADATA_TYPEHASH,
+                    token,
+                    keccak256(bytes(imageURI)),
+                    keccak256(bytes(description)),
+                    keccak256(bytes(socialsURI)),
+                    sigNonces[c],
+                    deadline
+                )
+            ),
+            deadline,
+            sig
+        );
+        _updateMetadata(token, c, imageURI, description, socialsURI);
+    }
+
+    function transferCreatorBySig(address token, address newCreator, uint256 deadline, bytes calldata sig) external {
+        address c = metaOf[token].creator;
+        _useSig(c, keccak256(abi.encode(TRANSFER_CREATOR_TYPEHASH, token, newCreator, sigNonces[c], deadline)), deadline, sig);
+        _transferCreator(token, c, newCreator);
+    }
+
+    /// @notice Anyone pays `holder` its Easy holder tips on `token` (gasless holders hold no ETH). The caller gets nothing.
+    function claimFor(address token, address holder) external returns (uint256) {
+        address c = curveOf[token];
+        if (c == address(0)) revert InvalidMetadata();
+        return BondingCurve(c).claimFor(holder);
+    }
+
+    function _useSig(address signer, bytes32 structHash, uint256 deadline, bytes calldata sig) internal {
+        if (block.timestamp > deadline) revert SignatureExpired();
+        if (signer == address(0) || !SignatureChecker.isValidSignatureNow(signer, _hashTypedDataV4(structHash), sig)) {
+            revert BadSignature();
+        }
+        unchecked {
+            ++sigNonces[signer];
+        }
+    }
+
+    function _updateMetadata(
+        address token,
+        address who,
+        string calldata imageURI,
+        string calldata description,
+        string calldata socialsURI
+    ) internal {
         LaunchMeta storage m = metaOf[token];
-        if (msg.sender != m.creator) revert OnlyCreator();
+        if (who != m.creator) revert OnlyCreator();
         m.imageURI = imageURI;
         m.description = description;
         m.socialsURI = socialsURI;
@@ -433,12 +512,15 @@ contract Launchpad is ILaunchpad, Owned2Step {
     ///      the current one with `sweepPastCreatorFees_1311` (anyone). Pool fees on the hook are paid to creatorOf at
     ///      claim time. A creator's "Pays to" pick (CreatorFeeHarvest) does not carry over.
     function transferCreator(address token, address newCreator) external {
+        _transferCreator(token, msg.sender, newCreator);
+    }
+
+    function _transferCreator(address token, address who, address newCreator) internal {
         LaunchMeta storage m = metaOf[token];
-        if (msg.sender != m.creator) revert OnlyCreator();
+        if (who != m.creator) revert OnlyCreator();
         require(newCreator != address(0), "zero");
-        address prev = m.creator;
         m.creator = newCreator;
-        emit CreatorTransferred(token, prev, newCreator);
+        emit CreatorTransferred(token, who, newCreator);
     }
 
     /// @notice Preview the optional same-tx creator buy (tax 0) — use to set creatorBuyMinTokensOut.

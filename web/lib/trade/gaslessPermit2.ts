@@ -23,13 +23,21 @@ export const GASLESS_GRAD_GAS_LIMIT = BigInt(3_000_000);
 /** Higher cap only when the buy fills the curve: a bigger gasLimit reserves relayer ETH (balance must cover gasLimit×maxFeePerGas) even though unused gas is not billed. */
 export const gaslessTxGasLimit = (fillsCurve: boolean) => (fillsCurve ? GASLESS_GRAD_GAS_LIMIT : GASLESS_GAS_LIMIT);
 
-export type Trade = { coin: Address; isBuy: boolean; amountIn: bigint; minOut: bigint; recipient: Address; deadline: bigint };
+export type Trade = { coin: Address; isBuy: boolean; amountIn: bigint; minOut: bigint; recipient: Address; deadline: bigint; maxGasFee?: bigint };
+
+/** Flat network fee on gasless trades (maker 2026-11-19): the router takes it in USDG for the relayer, capped by the
+ *  signed `maxGasFee`. Only routers from that PR have the field, so it is on once NEXT_PUBLIC_GASLESS_GAS_FEE is set
+ *  (decimal USDG, e.g. "0.01"; the Team's router.gasFee). Unset = the old 6-field Trade. */
+export const GASLESS_GAS_FEE_USD = Number(process.env.NEXT_PUBLIC_GASLESS_GAS_FEE ?? "0") || 0;
+export const GAS_FEE_LIVE = GASLESS_GAS_FEE_USD > 0;
 export type Permit = { permitted: { token: Address; amount: bigint }; nonce: bigint; deadline: bigint };
 /** One-time EIP-2612 approve of PERMIT2 bundled into the first trade (value 0 ⇒ none). */
 export type Erc2612 = { value: bigint; deadline: bigint; v: number; r: Hex; s: Hex };
 export type GaslessRequest = { signer: Address; permit: Permit; trade: Trade; signature: Hex; approval?: Erc2612 };
 
-export const TRADE_TYPE = "Trade(address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline)";
+export const TRADE_TYPE = GAS_FEE_LIVE
+  ? "Trade(address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline,uint256 maxGasFee)"
+  : "Trade(address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline)";
 export const TRADE_WITNESS_TYPE = `Trade witness)TokenPermissions(address token,uint256 amount)${TRADE_TYPE}`;
 export const TRADE_TYPEHASH = keccak256(toBytes(TRADE_TYPE));
 
@@ -42,6 +50,7 @@ export const permit2Types = {
   Trade: [
     { name: "coin", type: "address" }, { name: "isBuy", type: "bool" }, { name: "amountIn", type: "uint256" },
     { name: "minOut", type: "uint256" }, { name: "recipient", type: "address" }, { name: "deadline", type: "uint256" },
+    ...(GAS_FEE_LIVE ? [{ name: "maxGasFee", type: "uint256" } as const] : []),
   ],
 } as const;
 
@@ -51,18 +60,22 @@ export function tradeTypedData(chainId: number, router: Address, permit: Permit,
     domain: { name: "Permit2", chainId, verifyingContract: PERMIT2 },
     types: permit2Types,
     primaryType: "PermitWitnessTransferFrom" as const,
-    message: { permitted: permit.permitted, spender: router, nonce: permit.nonce, deadline: permit.deadline, witness: trade },
+    message: { permitted: permit.permitted, spender: router, nonce: permit.nonce, deadline: permit.deadline, witness: { ...trade, maxGasFee: trade.maxGasFee ?? BigInt(0) } },
   };
 }
 /** keccak256(abi.encode(TRADE_TYPEHASH, …)) — DiscipleRouter.tradeWitnessHash. */
 export function tradeWitnessHash(t: Trade): Hex {
-  return keccak256(encodeAbiParameters(
-    [{ type: "bytes32" }, { type: "address" }, { type: "bool" }, { type: "uint256" }, { type: "uint256" }, { type: "address" }, { type: "uint256" }],
-    [TRADE_TYPEHASH, t.coin, t.isBuy, t.amountIn, t.minOut, t.recipient, t.deadline]));
+  const base = [{ type: "bytes32" }, { type: "address" }, { type: "bool" }, { type: "uint256" }, { type: "uint256" }, { type: "address" }, { type: "uint256" }] as const;
+  const vals = [TRADE_TYPEHASH, t.coin, t.isBuy, t.amountIn, t.minOut, t.recipient, t.deadline] as const;
+  return keccak256(GAS_FEE_LIVE
+    ? encodeAbiParameters([...base, { type: "uint256" }], [...vals, t.maxGasFee ?? BigInt(0)])
+    : encodeAbiParameters(base, vals));
 }
 
 const P = "(address token,uint256 amount) permitted,uint256 nonce,uint256 deadline";
-const T = "address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline";
+const T = GAS_FEE_LIVE
+  ? "address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline,uint256 maxGasFee"
+  : "address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline";
 const A = "uint256 value,uint256 deadline,uint8 v,bytes32 r,bytes32 s";
 export const gaslessRouterAbi = parseAbi([
   `function buyWithPermit2(address signer, (${P}) permit, (${T}) trade, bytes signature) returns (uint256)`,
@@ -136,7 +149,7 @@ export function parseGaslessRequest(x: unknown): GaslessRequest {
   const q: GaslessRequest = {
     signer: addr(o.signer, "signer"),
     permit: { permitted: { token: addr(p.permitted?.token, "permit token"), amount: big(p.permitted?.amount, "permit amount") }, nonce: big(p.nonce, "nonce"), deadline: big(p.deadline, "permit deadline") },
-    trade: { coin: addr(t.coin, "coin"), isBuy: t.isBuy === true ? true : t.isBuy === false ? false : (() => { throw new GaslessReject("bad side"); })(), amountIn: big(t.amountIn, "amountIn"), minOut: big(t.minOut, "minOut"), recipient: addr(t.recipient, "recipient"), deadline: big(t.deadline, "deadline") },
+    trade: { coin: addr(t.coin, "coin"), isBuy: t.isBuy === true ? true : t.isBuy === false ? false : (() => { throw new GaslessReject("bad side"); })(), amountIn: big(t.amountIn, "amountIn"), minOut: big(t.minOut, "minOut"), recipient: addr(t.recipient, "recipient"), deadline: big(t.deadline, "deadline"), ...(GAS_FEE_LIVE ? { maxGasFee: big(t.maxGasFee ?? 0, "maxGasFee") } : {}) },
     signature: sig as Hex,
   };
   if (o.approval !== undefined && o.approval !== null) {

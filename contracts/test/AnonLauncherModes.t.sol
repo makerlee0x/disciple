@@ -70,34 +70,21 @@ contract AnonLauncherModesTest is IntegrationBase {
 
     function test_legacyLaunchAnon_staysTrench() public {
         vm.prank(payer);
-        ILaunchpad.LaunchResult memory r = anon.launchAnon(_p(10 ether), stealth, recipient, "", 0x00, 0);
+        ILaunchpad.LaunchResult memory r = anon.launchAnon(_p(0), stealth, recipient, "", 0x00, 0);
         assertEq(launchpad.modeOf(r.token), Constants.MODE_TRENCH);
-        assertEq(Token(r.token).balanceOf(recipient), r.creatorTokensBought);
     }
 
-    function test_hard_sendsBoostNow() public {
-        ILaunchpad.LaunchResult memory r = _anon(Constants.MODE_PVP, 10 ether);
-        assertEq(launchpad.modeOf(r.token), Constants.MODE_PVP);
-        assertEq(launchpad.creatorOf(r.token), address(anon));
-        assertEq(anon.stealthOwnerOf(r.token), stealth);
-        assertGt(r.creatorTokensBought, 0);
-        assertEq(Token(r.token).balanceOf(recipient), r.creatorTokensBought);
-        assertEq(Token(r.token).balanceOf(address(anon)), 0);
-        (address held,,) = anon.heldBoost(r.token);
-        assertEq(held, address(0));
-    }
-
-    function test_trenchWithMode_sendsBoostNow() public {
-        ILaunchpad.LaunchResult memory r = _anon(Constants.MODE_TRENCH, 10 ether);
-        assertEq(launchpad.modeOf(r.token), Constants.MODE_TRENCH);
-        assertEq(Token(r.token).balanceOf(recipient), r.creatorTokensBought);
-    }
-
-    function test_hard_usdg_sendsBoostNow() public {
-        ILaunchpad.LaunchResult memory r = _launchUsdg(Constants.MODE_PVP, 10 ether);
-        assertEq(launchpad.modeOf(r.token), Constants.MODE_PVP);
-        assertEq(launchpad.creatorOf(r.token), address(anon));
-        assertEq(Token(r.token).balanceOf(recipient), r.creatorTokensBought);
+    /// @notice maker 2026-11-19: no First BOOST on hidden launches, in any mode or pay path.
+    function test_everyMode_firstBoost_blocked() public {
+        uint8[3] memory modes = [Constants.MODE_TRENCH, Constants.MODE_PVE, Constants.MODE_PVP];
+        for (uint256 i; i < 3; ++i) {
+            vm.prank(payer);
+            vm.expectRevert(AnonLauncher.NoFirstBoost.selector);
+            anon.launchAnonWithMode(_p(10 ether), modes[i], stealth, recipient, "", 0x00, 0);
+            vm.prank(payer);
+            vm.expectRevert(AnonLauncher.NoFirstBoost.selector);
+            anon.launchAnonWithUsdgMode(_p(0), modes[i], stealth, recipient, "", 0x00, 0, 10 ether, 0, address(0));
+        }
     }
 
     function test_badMode_reverts() public {
@@ -117,84 +104,4 @@ contract AnonLauncherModesTest is IntegrationBase {
 
     // ───────── Easy: boost held until orbit ─────────
 
-    function _checkEasyHeld(ILaunchpad.LaunchResult memory r) internal view {
-        assertEq(launchpad.modeOf(r.token), Constants.MODE_PVE);
-        assertTrue(Token(r.token).creatorLockActive(), "Easy creator lock is on");
-        assertGt(r.creatorTokensBought, 0);
-        assertEq(Token(r.token).balanceOf(address(anon)), r.creatorTokensBought, "held on the launcher");
-        assertEq(Token(r.token).balanceOf(recipient), 0);
-        (address to, uint96 amt, address curve) = anon.heldBoost(r.token);
-        assertEq(to, recipient);
-        assertEq(amt, r.creatorTokensBought);
-        assertEq(curve, r.curve);
-        (,, uint256 tokenAmt) = anon.pending(r.token);
-        assertEq(tokenAmt, 0, "the held boost is not creator fees");
-    }
-
-    function _checkRelease(ILaunchpad.LaunchResult memory r) internal {
-        _grad(BondingCurve(r.curve));
-        assertFalse(Token(r.token).creatorLockActive(), "lock off after orbit");
-        anon.releaseBoost(r.token); // anyone
-        assertEq(Token(r.token).balanceOf(recipient), r.creatorTokensBought);
-        (address to,,) = anon.heldBoost(r.token);
-        assertEq(to, address(0), "cleared");
-        vm.expectRevert(AnonLauncher.NothingHeld.selector);
-        anon.releaseBoost(r.token);
-    }
-
-    function test_easy_holdsBoost_thenReleasesAfterOrbit() public {
-        ILaunchpad.LaunchResult memory r = _anon(Constants.MODE_PVE, 10 ether);
-        _checkEasyHeld(r);
-        // before orbit: nothing to pay out yet
-        vm.expectRevert(AnonLauncher.NothingToClaim.selector);
-        anon.releaseBoost(r.token);
-        // the stealth owner cannot sweep the held boost as "creator fees"
-        address[] memory ts = new address[](1);
-        ts[0] = r.token;
-        vm.prank(stealth);
-        vm.expectRevert(AnonLauncher.NothingToClaim.selector);
-        anon.claimMany(ts, stealth);
-        _checkRelease(r);
-    }
-
-    function test_easy_usdg_holdsBoost_thenReleasesAfterOrbit() public {
-        ILaunchpad.LaunchResult memory r = _launchUsdg(Constants.MODE_PVE, 10 ether);
-        _checkEasyHeld(r);
-        _checkRelease(r);
-    }
-
-    function test_easy_heldBoostEarnsCrewTips_paidToRecipient() public {
-        ILaunchpad.LaunchResult memory r = _anon(Constants.MODE_PVE, 10 ether);
-        BondingCurve c = BondingCurve(r.curve);
-        _warpPastSnipe();
-        // a big early buyer sells at a profit after a pump: the Easy crew tip goes to holders, the held boost included
-        address alice = makeAddr("alice");
-        quote.mint(alice, 10_000_000 ether);
-        vm.startPrank(alice);
-        quote.approve(address(c), type(uint256).max);
-        c.buy(1_000 ether, 0, block.timestamp + 1 hours);
-        vm.stopPrank();
-        // pump the mcap like ModeRulesV2.test_crewTip_thresholdEdges so alice's whole-position sale pays the tip
-        for (uint256 i; i < 200 && !c.graduated() && c.marketCapUsd() < 25_000e18; ++i) {
-            address w = makeAddr(string(abi.encodePacked("pump", vm.toString(i))));
-            quote.mint(w, 1_000 ether);
-            vm.startPrank(w);
-            quote.approve(address(c), 200 ether);
-            c.buy(200 ether, 0, block.timestamp + 1 hours);
-            vm.stopPrank();
-        }
-        uint256 bal = Token(r.token).balanceOf(alice);
-        vm.startPrank(alice);
-        Token(r.token).approve(address(c), bal);
-        c.sell(bal, 0, block.timestamp + 1 hours);
-        vm.stopPrank();
-        uint256 owed = c.pendingRewards(address(anon));
-        assertGt(owed, 0, "the held boost earned crew tips");
-        uint256 q0 = quote.balanceOf(recipient);
-        anon.releaseBoost(r.token); // pre-orbit: pays rewards only, keeps holding the boost
-        assertEq(quote.balanceOf(recipient) - q0, owed, "crew tips to the boost recipient");
-        (address to,,) = anon.heldBoost(r.token);
-        assertEq(to, recipient, "still held until orbit");
-        assertEq(Token(r.token).balanceOf(recipient), 0);
-    }
 }
