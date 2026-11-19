@@ -399,6 +399,42 @@ button.mkt-chip:hover { border-color: color-mix(in srgb, var(--sw) 45%, #262A33)
   animation: hg-spin .8s linear infinite; }
 @keyframes hg-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .hg-spin { animation-duration: 2.4s; } }
+
+/* ---------- private sales + cash offers (maker 2026-11-19: items only move as a sale, $1 minimum) ---------- */
+.mkt-seg { display: inline-flex; gap: 4px; padding: 3px; border-radius: 999px; border: 1px solid var(--dsc3-panel-border); }
+.mkt-seg .mkt-toggle { padding: 6px 12px; font-size: 13px; border: 0; }
+.mkt-sell-to { flex-basis: 100%; display: flex; justify-content: flex-end; }
+.mkt-sell-to > div { width: min(380px, 100%); text-align: left; }
+.mkt-priv { border-color: rgba(242,193,78,.45); color: #F2C14E; text-transform: none; }
+.mkt-priv-tx { color: #F2C14E; }
+.mkt-amt { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 3px; margin-right: 4px; }
+.mkt-amt b { font: 800 20px / 1 var(--dsc-font-game); color: #FFFFFF; }
+.mkt-amt small { font: 500 11px / 1.2 var(--dsc-font-mono); color: var(--dsc-muted); white-space: nowrap; }
+.mkt-new { display: flex; flex-direction: column; gap: 12px; }
+.mkt-pick { max-height: 220px; overflow: auto; }
+.mkt-offer-go { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mkt-offer-go .hgu-buy.sm { margin-top: 0; }
+.mkt-offer-go small { flex-basis: 100%; font: 500 12px / 1.3 var(--dsc-font-mono); color: var(--dsc-muted); }
+.hgu-trades-list h3 .mkt-x { margin-left: auto; font: 600 13px / 1 var(--dsc-font-ui); text-transform: none; color: #BCC0CA; }
+.hgu-trades .hgu-copy-act .hgu-buy.sm { margin-top: 0; text-decoration: none; display: inline-flex; align-items: center; }
+@media (max-width: 720px) {
+  .mkt-sell-to { justify-content: flex-start; }
+  .mkt-amt { align-items: flex-start; margin-right: auto; }
+}
+.hgu-copy-rows li:has(.mkt-sell.open) { grid-template-columns: 52px minmax(0, 1fr); }
+.hgu-copy-rows li:has(.mkt-sell.open) > .hgu-copy-act { grid-column: 1 / -1; justify-content: flex-end; }
+.hgu-copy-act:has(.mkt-sell.open) > :not(.mkt-sell) { display: none; }
+.hgu-trades .hgu-trade-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.hgu-trades .hgu-copy-act .hgu-buy.sm, .hgu-trades .hgu-copy-act .hgu-owned { white-space: nowrap; }
+.hgu-trades .mkt-tabs { margin: 0; flex-wrap: wrap; }
+.hgu-trades .mkt-empty { margin: 4px 0; color: var(--dsc-muted); }
+.hgu-trades .mkt-row .hgu-buy.sm { margin-top: 0; }
+.mkt-tabs button { position: relative; }
+.mkt-dot { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; border-radius: 50%; background: #F0307F; box-shadow: 0 0 0 2px var(--dsc3-panel-bg, #15171C); }
+@media (max-width: 720px) {
+  .hgu-trades .mkt-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 4px 4px 2px 0; margin: -4px 0 0; }
+  .hgu-trades .mkt-tabs button { flex: none; }
+}
 /* Cash tile: Deposit + Transfer (maker 2026-11-19) */
 .hg-cashacts { display: flex; gap: 8px; margin-top: 4px; }
 .hg-cashacts .dsc3-btn { min-height: 36px; padding: 0 14px; font-size: 16px; flex: 1; max-width: 140px; }

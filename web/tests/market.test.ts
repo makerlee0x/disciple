@@ -171,35 +171,119 @@ describe("market server (local KV)", () => {
     expect((await col.collectionOf(C)).copies.some((c) => c.uid === mine[0].uid)).toBe(true);
   });
 
-  it("trade offers swap both sides at once; decline, cancel and stale copies are handled", async () => {
-    const a = await earn(A, 2), b = await earn(B, 2);
-    const ga = a.find((c) => !c.bound)!, gb = b.find((c) => !c.bound)!;
-    expect((await mkt.makeOffer(A, A, [ga.uid], [])).ok).toBe(false);
-    expect((await mkt.makeOffer(A, B, [], [])).ok).toBe(false);
-    expect((await mkt.makeOffer(A, B, [gb.uid], [])).ok).toBe(false);   // not A's copy
-    const o = await mkt.makeOffer(A, B, [ga.uid], [gb.uid]);
+  /** B's tradable copies that aren't listed, frozen or flown */
+  async function free(w: string) {
+    const c = await col.collectionOf(w);
+    const worn = new Set(Object.values(c.equippedCopy ?? {}));
+    const out: typeof c.copies = [];
+    for (const x of c.copies) if (!x.bound && x.origin === "crate" && !worn.has(x.uid) && !(await col.isListed(x.uid)) && !(await col.frozenReason(x.uid))) out.push(x);
+    return out;
+  }
+  const NET = BigInt(20_000);
+  const okRelay = () => deps(async () => ({ success: true, txHash: "0x0ff" }));
+
+  it("a private sale is off /market and only the pilot it's for can buy it, with the 7% fee", async () => {
+    const b = await earn(B, 2);
+    const g = (await free(B))[0] ?? b[0];
+    expect((await mkt.listCopy(B, g.uid, 50, undefined, undefined, { to: A })).ok).toBe(false);   // $1 minimum
+    expect((await mkt.listCopy(B, g.uid, 800, undefined, undefined, { to: B })).ok).toBe(false);  // not to yourself
+    expect((await mkt.listCopy(B, g.uid, 800, undefined, undefined, { to: "@nobody_here_xyz" })).ok).toBe(false);
+    const l = await mkt.listCopy(B, g.uid, 800, undefined, undefined, { to: A });
+    if (!l.ok) throw new Error(l.reason);
+    expect(l.listing.to).toBe(A);
+    expect((await mkt.listings()).some((r) => r.id === l.listing.id)).toBe(false);
+    expect((await mkt.myListings(A)).some((r) => r.id === l.listing.id && r.to === A)).toBe(true);
+    expect((await mkt.myListings(B)).some((r) => r.id === l.listing.id)).toBe(true);
+    const t = await mkt.buyTerms(l.listing.id);
+    if ("ok" in t) throw new Error(t.reason);
+    expect((await mkt.buyListing(C, l.listing.id, buy(C, B, t, NET), okRelay())).ok).toBe(false);
+    const r = await mkt.buyListing(A, l.listing.id, buy(A, B, t, NET), okRelay());
+    expect(r.ok).toBe(true);
+    expect((await col.copyRecord(g.uid))?.history.at(-1)).toMatchObject({ ev: "moved", via: "market", from: B, to: A, price: 800 });
+    expect((await mkt.myListings(A)).some((x) => x.id === l.listing.id)).toBe(false);   // gone from "for you" once sold
+  });
+
+  it("cash offers: checks, decline, replace, accept makes a private sale the offerer pays for", async () => {
+    await earn(B, 2);
+    const [g, h] = await free(B);
+    expect((await mkt.makeOffer(B, g.uid, 900)).ok).toBe(false);                 // your own copy
+    expect((await mkt.makeOffer(A, g.uid, 50)).ok).toBe(false);                  // under $1
+    expect((await mkt.makeOffer(A, "0000000000000000", 900)).ok).toBe(false);   // no such copy
+    const starter = (await col.collectionOf(B)).copies.find((c) => c.origin === "starter");
+    if (starter) expect((await mkt.makeOffer(A, starter.uid, 900)).ok).toBe(false);
+    // listed publicly at $20: an offer has to be under it
+    const pub = await mkt.listCopy(B, g.uid, 2000);
+    if (!pub.ok) throw new Error(pub.reason);
+    expect((await mkt.makeOffer(A, g.uid, 2000)).ok).toBe(false);
+    const o1 = await mkt.makeOffer(A, g.uid, 1200);
+    if (!o1.ok) throw new Error(o1.reason);
+    expect(o1.offer).toMatchObject({ from: A, to: B, uid: g.uid, price: 1200, state: "open" });
+    expect((await mkt.answerOffer(A, o1.offer.id, "accept")).ok).toBe(false);    // only the owner answers
+    expect((await mkt.answerOffer(C, o1.offer.id, "decline")).ok).toBe(false);
+    expect((await mkt.answerOffer(B, o1.offer.id, "decline")).ok).toBe(true);
+    expect((await mkt.answerOffer(B, o1.offer.id, "accept")).ok).toBe(false);
+    // a second offer on the same copy replaces the first
+    const o2 = await mkt.makeOffer(A, g.uid, 1300);
+    const o3 = await mkt.makeOffer(A, g.uid, 1500);
+    if (!o2.ok || !o3.ok) throw new Error("offer");
+    expect((await mkt.offersOf(B)).find((x) => x.id === o2.offer.id)?.state).toBe("cancelled");
+    const acc = await mkt.answerOffer(B, o3.offer.id, "accept");
+    if (!acc.ok) throw new Error(acc.reason);
+    expect(acc.offer.state).toBe("accepted");
+    expect((await mkt.listingById(pub.listing.id))?.state).toBe("closed");      // the public listing came down
+    const priv = await mkt.listingById(acc.offer.listing!);
+    expect(priv).toMatchObject({ state: "open", to: A, price: 1500, offer: o3.offer.id });
+    expect((await mkt.listings()).some((x) => x.uid === g.uid)).toBe(false);
+    const t = await mkt.buyTerms(priv!.id);
+    if ("ok" in t) throw new Error(t.reason);
+    expect(t.fee).toBe(105);   // 7% of $15
+    expect((await mkt.buyListing(C, priv!.id, buy(C, B, t, NET), okRelay())).ok).toBe(false);
+    expect((await mkt.buyListing(A, priv!.id, buy(A, B, t, NET), okRelay())).ok).toBe(true);
+    expect((await col.collectionOf(A)).copies.some((c) => c.uid === g.uid)).toBe(true);
+    expect((await mkt.offersOf(A)).find((x) => x.id === o3.offer.id)?.state).toBe("paid");
+    // cancel: open, and after it was accepted (the private sale closes)
+    const o4 = await mkt.makeOffer(C, h.uid, 400);
+    if (!o4.ok) throw new Error(o4.reason);
+    expect((await mkt.answerOffer(B, o4.offer.id, "cancel")).ok).toBe(false);
+    const a4 = await mkt.answerOffer(B, o4.offer.id, "accept");
+    if (!a4.ok) throw new Error(a4.reason);
+    expect((await mkt.answerOffer(C, o4.offer.id, "cancel")).ok).toBe(true);
+    expect((await mkt.listingById(a4.offer.listing!))?.state).toBe("closed");
+    expect((await mkt.listCopy(B, h.uid, 500)).ok).toBe(true);                    // the copy is free again
+  });
+
+  it("an accepted offer that isn't paid in time lapses and frees the copy; a copy that moves expires its offers", async () => {
+    const { OFFER_PAY_MS } = await import("@/lib/market");
+    await earn(B, 2);
+    const [g, h] = await free(B);
+    const t0 = Date.now();
+    const o = await mkt.makeOffer(C, g.uid, 600, t0);
     if (!o.ok) throw new Error(o.reason);
-    expect((await mkt.answerOffer(A, o.offer.id, "accept")).ok).toBe(false);   // only B accepts
-    expect((await mkt.answerOffer(C, o.offer.id, "accept")).ok).toBe(false);
-    const done = await mkt.answerOffer(B, o.offer.id, "accept");
-    expect(done.ok && done.offer.state).toBe("accepted");
-    expect((await col.collectionOf(B)).copies.some((c) => c.uid === ga.uid)).toBe(true);
-    expect((await col.collectionOf(A)).copies.some((c) => c.uid === gb.uid)).toBe(true);
-    expect((await col.copyRecord(ga.uid))?.history.at(-1)).toMatchObject({ ev: "moved", via: "trade", from: A, to: B, offer: o.offer.id });
-    expect((await mkt.answerOffer(B, o.offer.id, "accept")).ok).toBe(false);
-    // a copy listed after the offer was made blocks it
-    const o2 = await mkt.makeOffer(B, A, [ga.uid], []);
+    const acc = await mkt.answerOffer(B, o.offer.id, "accept", t0);
+    if (!acc.ok) throw new Error(acc.reason);
+    const later = t0 + OFFER_PAY_MS + 1000;
+    expect("ok" in (await mkt.buyTerms(acc.offer.listing!, undefined, later))).toBe(true);
+    expect((await mkt.offersOf(C, later)).find((x) => x.id === o.offer.id)?.state).toBe("lapsed");
+    expect((await mkt.listingById(acc.offer.listing!, undefined, later))?.state).toBe("closed");
+    expect((await mkt.listCopy(B, g.uid, 700)).ok).toBe(true);
+    // an open offer on a copy that's since been sold to someone else reads as expired
+    const o2 = await mkt.makeOffer(C, h.uid, 300);
     if (!o2.ok) throw new Error(o2.reason);
-    await mkt.listCopy(B, ga.uid, 300);
-    expect((await mkt.answerOffer(A, o2.offer.id, "accept")).ok).toBe(false);
-    expect((await mkt.answerOffer(A, o2.offer.id, "decline")).ok).toBe(true);
-    const o3 = await mkt.makeOffer(A, B, [gb.uid], []);
-    if (!o3.ok) throw new Error(o3.reason);
-    expect((await mkt.answerOffer(B, o3.offer.id, "cancel")).ok).toBe(false);
-    expect((await mkt.answerOffer(A, o3.offer.id, "cancel")).ok).toBe(true);
-    const list = await mkt.offersOf(A);
-    expect(list.map((x) => x.state)).toEqual(expect.arrayContaining(["accepted", "declined", "cancelled"]));
-    expect(list.find((x) => x.id === o.offer.id)?.giveCopies?.[0]?.uid).toBe(ga.uid);
+    const l = await mkt.listCopy(B, h.uid, 900);
+    if (!l.ok) throw new Error(l.reason);
+    const t = await mkt.buyTerms(l.listing.id);
+    if ("ok" in t) throw new Error(t.reason);
+    expect((await mkt.buyListing(A, l.listing.id, buy(A, B, t, NET), okRelay())).ok).toBe(true);
+    expect((await mkt.offersOf(C)).find((x) => x.id === o2.offer.id)?.state).toBe("expired");
+    expect((await mkt.answerOffer(B, o2.offer.id, "accept")).ok).toBe(false);
+  });
+
+  it("old item-for-item offers read as gone and can't be accepted", async () => {
+    const s = kvMod.kv();
+    await s.set(mkt.MKT.o("abcdefabcdef"), JSON.stringify({ id: "abcdefabcdef", from: A, to: B, give: ["x"], want: [], at: Date.now(), state: "open" }));
+    await s.zadd(mkt.MKT.offers(B), [{ score: Date.now(), member: "abcdefabcdef" }]);
+    expect((await mkt.offersOf(B)).some((x) => x.id === "abcdefabcdef")).toBe(false);
+    expect((await mkt.answerOffer(B, "abcdefabcdef", "accept")).ok).toBe(false);
   });
 
   it("a frozen copy comes off the market and can't be listed or traded", async () => {
@@ -209,7 +293,7 @@ describe("market server (local KV)", () => {
     await mkt.freezeCopy(a[0].uid, "reported stolen");
     expect((await mkt.listings()).some((r) => r.uid === a[0].uid)).toBe(false);
     expect((await mkt.listCopy(A, a[0].uid, 900)).ok).toBe(false);
-    expect((await mkt.makeOffer(A, B, [a[0].uid], [])).ok).toBe(false);
+    expect((await mkt.makeOffer(B, a[0].uid, 500)).ok).toBe(false);
     await mkt.unfreezeCopy(a[0].uid);
     expect((await mkt.listCopy(A, a[0].uid, 900)).ok).toBe(true);
     void kvMod;
@@ -233,24 +317,6 @@ describe("market server (local KV)", () => {
     expect((await col.collectionOf(T)).copies.filter((c) => c.origin === "migrated")).toHaveLength(TRADE_UP_N);   // nothing burned
     await mkt.unfreezeCopy(real);
     expect((await col.tradeUp(T, ten)).ok).toBe(true);
-  });
-
-  it("two offers at once from an unmigrated legacy collection migrate it once, without duplicate copies", async () => {
-    const { ITEMS, STARTER_SKIN } = await import("@/lib/collection");
-    const s = kvMod.kv(), L = "0x" + "e7".repeat(20);
-    const legacy = ITEMS.filter((i) => i.series === 1 && i.kind === "skin" && !i.prestige && i.id !== STARTER_SKIN).slice(0, 3);
-    for (const i of legacy) await s.sadd(col.COLK.own(L), i.id);
-    await col.collectionOf(B); await col.collectionOf(C);
-    const before = new Map<string, number>();
-    for (const i of legacy) before.set(i.id, Number((await s.get(col.COLK.supply(i.id))) ?? 0));
-    // each offer reads (and would migrate) L's legacy collection; a copy uid nobody has keeps the offers themselves from opening
-    const none = "0000000000000000";
-    await Promise.all([mkt.makeOffer(L, B, [none], []), mkt.makeOffer(L, C, [none], []), mkt.makeOffer(B, L, [], [none]), mkt.makeOffer(C, L, [], [none])]);
-    const inv = (await col.collectionOf(L)).copies.filter((c) => c.origin === "migrated");
-    expect(inv).toHaveLength(legacy.length);
-    // one copy minted per legacy item, not one per request (extra mints would be first-generation copies nobody tracks)
-    for (const i of legacy) expect(Number(await s.get(col.COLK.supply(i.id)))).toBe(before.get(i.id)! + 1);
-    expect(new Set(inv.map((c) => c.item)).size).toBe(legacy.length);
   });
 
   it("unlist and a buy can't both win: a pending sale can't be pulled, and a pulled listing can't be paid for", async () => {
