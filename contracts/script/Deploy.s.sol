@@ -410,7 +410,8 @@ contract Deploy is NetworkConfig {
         }
     }
 
-    /// @dev setUsdgRoute + setAllowedQuote + setPriceRoute for each of the 12 pair coins (script/whitelist/MainnetRoutes).
+    /// @dev setUsdgRoute + setAllowedQuote + setPriceRoute for each of the 12 pair coins (script/whitelist/MainnetRoutes),
+    ///      then requires each one to price (QuotePricer.quotePriceUsd: route TWAP, min liquidity, per-side depth).
     function _wireMainnetRoutes(QuotePricer pricer, DiscipleRouter router) internal {
         address[12] memory q = MainnetRoutes.quotes();
         for (uint256 i; i < 12; ++i) {
@@ -418,6 +419,9 @@ contract Deploy is NetworkConfig {
             router.setUsdgRoute(q[i], keys);
             pricer.setAllowedQuote(q[i], true);
             pricer.setPriceRoute(q[i], keys);
+            // Audit delta L-01: price every route now (min liquidity + $10k per-side depth run at pricing time),
+            // so a listed pair coin that can't launch fails the deploy instead of failing its first launch.
+            require(pricer.quotePriceUsd(q[i]) > 0, "Deploy: pair route unpriced");
             console2.log("PairRoute", q[i], keys.length);
         }
     }
