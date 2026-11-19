@@ -10,8 +10,9 @@ export default function LevelRing({ info, size = 40, stroke, img }: { info: Pick
     <span className={img ? "xp-ring has-pfp" : "xp-ring"} style={{ width: size, height: size }} data-prestige={info.prestige || undefined}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--xp-ring-track)" strokeWidth={sw} />
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--dsc3-light-gold)" strokeWidth={sw} strokeLinecap="round"
-          strokeDasharray={`${c * p} ${c}`} transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+        {/* no arc at 0: a round cap on a zero-length dash still paints a gold dot (maker 2026-11-19 "two gold dots") */}
+        {p > 0 && <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--dsc3-light-gold)" strokeWidth={sw} strokeLinecap="round"
+          strokeDasharray={`${c * p} ${c}`} transform={`rotate(-90 ${size / 2} ${size / 2})`} />}
       </svg>
       {img ? <>
         {/* eslint-disable-next-line @next/next/no-img-element */}
