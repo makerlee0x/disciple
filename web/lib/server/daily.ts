@@ -23,12 +23,19 @@ import { defaultUsername } from "../defaultUsername";
 import { usernameOf } from "./usernames";
 import { levelOfWallet } from "./xp";
 import { accountWallets } from "./xpAccount";
+import { metaOf } from "./profileMeta";
+import { pfpUrl } from "../profileMeta";
 
 /** The pilot's @name: this wallet's, else one from another wallet on the same account (lib/server/xpAccount; a reserved
  *  name like @maker sits on whichever wallet signed in last). */
 async function accountUsernameOf(w: string, s: Kv): Promise<string | null> {
   for (const x of await accountWallets(w, s)) { const u = await usernameOf(x); if (u) return u; }
   return null;
+}
+/** the pilot's picture (/api/image/…): this wallet's, else one from another wallet on the same account; "" for none */
+async function accountPfpOf(w: string, s: Kv): Promise<string> {
+  for (const x of await accountWallets(w, s)) { const m = await metaOf(x).catch(() => null); const u = m ? pfpUrl(m.pfp) : ""; if (u) return u; }
+  return "";
 }
 import { dailyToday, dailyEndsAt, verifyDailyFull, validInputs, DAILY, type DailyScore } from "../sim/daily";
 import { checkTicket, issueTicket, serverDailySeed } from "./dailySeed";
@@ -58,10 +65,11 @@ export interface DailyRun { runId: string; name: string; score: DailyScore; at: 
   flags?: string[] }
 export interface DailyBoard {
   id: number; /** null while the daily is open (the seed comes with a start ticket) */ seed: number | null; difficulty: string; endsAt: number; count: number;
-  top: { runId: string; name: string; multiple: number; pnl: number }[];
+  /** pfp: the signed-in pilot's picture (/api/image/…), "" for a call sign run */
+  top: { runId: string; name: string; pfp: string; multiple: number; pnl: number }[];
   /** boarded false: not on the board yet (its pilot hasn't signed in and saved it); rank and count are where it would place */
-  me: { runId: string; rank: number; count: number; boarded: boolean; multiple: number; pnl: number; topPct: number } | null;
-  run: { runId: string; name: string; level: number | null; prestige: number; multiple: number; pnl: number; goals: DailyScore["goals"]; boardedAtS: number | null; outAtS: number | null } | null;
+  me: { runId: string; rank: number; count: number; boarded: boolean; multiple: number; pnl: number; topPct: number; name?: string; pfp?: string } | null;
+  run: { runId: string; name: string; pfp: string; level: number | null; prestige: number; multiple: number; pnl: number; goals: DailyScore["goals"]; boardedAtS: number | null; outAtS: number | null } | null;
 }
 /** is daily `id` open for a submission at `now` (today, or yesterday inside the grace window)? */
 export function dailyOpen(id: number, now = Date.now()) {
@@ -136,12 +144,13 @@ export async function dailyBoard(id: number, opts: { me?: string | null; run?: s
   const runs = ids.length ? await s.mget(ids.map((r) => rkey(id, r))) : [];
   // a saved run shows its pilot's username (pilotOf), not the device call sign (maker 2026-11-17: "my name isnt on the leaderboard")
   const top = await Promise.all(runs.flatMap((v) => { if (!v) return []; const r = JSON.parse(v) as DailyRun;
-    return [pilotOf(id, r, s).then((p) => p.name, () => r.name).then((name) => ({ runId: r.runId, name, multiple: r.score.multiple, pnl: r.score.pnl }))]; }));
+    return [pilotOf(id, r, s).catch(() => ({ name: r.name, pfp: "" })).then(({ name, pfp }) => ({ runId: r.runId, name, pfp, multiple: r.score.multiple, pnl: r.score.pnl }))]; }));
   const count = await s.zcard(zkey(id));
   let me: DailyBoard["me"] = null, run: DailyBoard["run"] = null;
-  if (opts.me) { const r = await readRun(id, opts.me, s); if (r) { const k = await placeOf(id, r, s); me = { runId: r.runId, rank: k.rank, count: k.count, boarded: k.boarded, multiple: r.score.multiple, pnl: r.score.pnl, topPct: topPct(k.rank, k.count) }; } }
+  if (opts.me) { const r = await readRun(id, opts.me, s); if (r) { const [k, p] = await Promise.all([placeOf(id, r, s), pilotOf(id, r, s).catch(() => null)]);
+    me = { runId: r.runId, rank: k.rank, count: k.count, boarded: k.boarded, multiple: r.score.multiple, pnl: r.score.pnl, topPct: topPct(k.rank, k.count), ...(p ? { name: p.name, pfp: p.pfp } : {}) }; } }
   if (opts.run) { const r = await readRun(id, opts.run, s); if (r) { const p = await pilotOf(id, r, s);
-    run = { runId: r.runId, name: p.name, level: p.level, prestige: p.prestige, multiple: r.score.multiple, pnl: r.score.pnl, goals: r.score.goals, boardedAtS: r.score.boardedAtS ?? null, outAtS: r.score.outAtS }; } }
+    run = { runId: r.runId, name: p.name, pfp: p.pfp, level: p.level, prestige: p.prestige, multiple: r.score.multiple, pnl: r.score.pnl, goals: r.score.goals, boardedAtS: r.score.boardedAtS ?? null, outAtS: r.score.outAtS }; } }
   return { id, seed: dailyOpen(id) ? null : await serverDailySeed(id, s), difficulty: DAILY.difficulty, endsAt: dailyEndsAt(id), count, top, me, run };
 }
 /** "Top 12%": the share of today's pilots at or above this rank, rounded up, at least 1 */
@@ -155,8 +164,9 @@ export async function bindOwner(id: number, runId: string, wallet: string, s: Kv
   return (await s.get(okey(id, runId))) === w;
 }
 /** how a run's pilot is shown: a signed-in pilot by their username and level, otherwise the run's call sign */
-export async function pilotOf(id: number, r: DailyRun, s: Kv = kv()): Promise<{ name: string; level: number | null; prestige: number; progress: number }> {
-  const w = await ownerOf(id, r.runId, s).catch(() => null); if (!w) return { name: r.name, level: null, prestige: 0, progress: 0 };
-  const [u, lv] = await Promise.all([accountUsernameOf(w, s).catch(() => null), levelOfWallet(w, s).catch(() => null)]);
-  return { name: u || r.name, level: lv?.level ?? null, prestige: lv?.prestige ?? 0, progress: lv?.progress ?? 0 };
+export async function pilotOf(id: number, r: DailyRun, s: Kv = kv()): Promise<{ name: string; pfp: string; level: number | null; prestige: number; progress: number }> {
+  const w = await ownerOf(id, r.runId, s).catch(() => null); if (!w) return { name: r.name, pfp: "", level: null, prestige: 0, progress: 0 };
+  // the picture too (maker 2026-11-18: "my pfp is blank" on Today's board, it only ever drew the initial)
+  const [u, lv, pfp] = await Promise.all([accountUsernameOf(w, s).catch(() => null), levelOfWallet(w, s).catch(() => null), accountPfpOf(w, s).catch(() => "")]);
+  return { name: u || r.name, pfp, level: lv?.level ?? null, prestige: lv?.prestige ?? 0, progress: lv?.progress ?? 0 };
 }

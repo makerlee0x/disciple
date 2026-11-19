@@ -124,7 +124,8 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
           .dr-side .dbc { margin-top: 0; }
         }
         @media (max-width: 899px) { .dr-main, .dr-side { display: contents; } }
-        .dr-top { position: fixed; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + 12px); left: 16px; right: 16px; display: flex; align-items: center; justify-content: space-between; gap: 10px; pointer-events: none; }
+        /* sticky in the scroll box, not fixed to the window: a fixed X sat on the scroll bar (maker 2026-11-18) */
+        .dr-top { position: sticky; z-index: 2; top: calc(env(safe-area-inset-top, 0px) + 12px); height: 44px; margin: calc(env(safe-area-inset-top, 0px) + 12px) 16px calc(-56px - env(safe-area-inset-top, 0px)); display: flex; align-items: center; justify-content: space-between; gap: 10px; pointer-events: none; }
         .dr-top > * { pointer-events: auto; }
         .dr-top .dr-topbtn { height: 44px; padding: 0 14px 0 10px; font-size: 16px; }
         .dr-top .dr-x { width: 44px; padding: 0; }

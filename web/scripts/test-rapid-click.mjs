@@ -106,7 +106,7 @@ ok(/if \(live && liveHas !== false\) \{/.test(tb) && /else setHint\(COPY\.loadin
   "DUMP right after a reload: live + bag not re-read yet still sends (bridge re-reads balanceOf); otherwise a visible 'Loading your position…', never a silent no-op");
 ok(/const goodMcap=\(m\)=>typeof m==='number'&&Number\.isFinite\(m\)&&m>0;/.test(eng) && /if \(goodMcap\(e\.mcap\)\) S\.confirmed\.mcap=e\.mcap;/.test(eng) && /e\.t==='mark'\)\{ if\(goodMcap\(e\.mcap\)\) S\.confirmed\.mcap=e\.mcap; \}/.test(eng),
   "engine: a swap / mark with no usable mcap (0 / null / NaN) keeps the last good one (was: floored to LAUNCH PAD)");
-ok(/if\(ti>S\.tierShown\)\{ S\.grassCard=4\.5; award\('tier'\+ti,'TIER WITNESS'/.test(eng), "engine: 'TIER WITNESS — crossed into …' only on a climb, never on a drop");
+ok(/if\(S\.tierShown>=0&&ti>\(S\.tierBest==null\?S\.tierShown:S\.tierBest\)\)\{[\s\S]{0,200}?S\.grassCard=4\.5; award\('tier'\+ti,'TIER WITNESS'/.test(eng), "engine: zone card + 'TIER WITNESS' only on a new high for the flight, never on a drop or a re-climb");
 { const E = rig({ customUsd: 1 }); E.S.confirmed.mcap = null;
   ok(E.click(0) !== "SILENT" && E.sent.length === 0, "no price yet: the click shows a flash instead of vanishing"); }
 console.log(bad ? `\n${bad} FAILED` : "\nall ok"); process.exit(bad ? 1 : 0);
