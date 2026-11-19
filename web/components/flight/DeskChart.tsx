@@ -3,7 +3,7 @@
  * Desktop Pilot chart (maker 2026-11-14 picked board C "Trader's right column" on the desktop ideas page
  * https://claude.ai/artifact/6bL2Ydgd7GwgxPniaQ7XSv): the phone flight's chart card, big, at the top of the right column.
  * The crew feed (GameChat, Pilot) starts under it via --ap-pilot-chart-h. Pro keeps its DexChart; phones keep PhoneHud's copy.
- * Click the card to make it taller; the 1M / 5M / 1H pick and the size are remembered on this device.
+ * Click the card to make it taller; the 1M / 5M / 1H / 1D pick and the size are remembered on this device.
  */
 import { useEffect, useState } from "react";
 import PhoneChart from "./PhoneChart";
@@ -21,7 +21,7 @@ export default function DeskChart({ ticker }: { ticker: string }) {
   const [big, setBig] = useState(false);
   const [entry, setEntry] = useState<number | null>(null);
   useEffect(() => { const f = () => setPhone(isPhoneUI()); f(); addEventListener("resize", f); return () => removeEventListener("resize", f); }, []);
-  useEffect(() => { try { const v = JSON.parse(localStorage.getItem(KEY) || "{}"); if (v.tf >= 0 && v.tf <= 2) setTf(v.tf); if (v.big) setBig(true); } catch { /* private mode */ } }, []);
+  useEffect(() => { try { const v = JSON.parse(localStorage.getItem(KEY) || "{}"); if (v.tf >= 0 && v.tf <= 3) setTf(v.tf); if (v.big) setBig(true); } catch { /* private mode */ } }, []);
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify({ tf, big })); } catch { /* private mode */ } }, [tf, big]);
   useEffect(() => {
     const read = (d: PnlView) => setEntry(d && (d.size ?? 0) > 0 && (d.entryMcap ?? 0) > 0 ? d.entryMcap! : null);

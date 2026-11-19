@@ -48,7 +48,8 @@ test("hover styles only on hover devices (PostCSS)", async () => {
 
 test("engine streams sky plates and starts on the near ones", () => {
   const eng = rd("public/flight/engine.js");
-  assert.match(eng, /S\.confirmed\.mcap===null \|\| !skyReady\(\)/, "frame gate = rocket + plates near the current altitude");
+  assert.match(eng, /const skyOk=skyReady\(\);/, "the sky window keeps streaming every frame");
+  assert.match(eng, /S\.confirmed\.mcap===null \|\| \(!S\.drewOnce && !skyOk\)/, "frame gate = rocket + plates near the current altitude, first frame only (maker 2026-11-18: no blank flight on a zone jump)");
   assert.match(eng, /if\(inflight>=3\) break;/, "background plates load 3 at a time");
   assert.match(eng, /assetsReady:\(\)=>\{ if\(!ALL_PLATES\)\{ ALL_PLATES=true; pumpAssets\(\); \} return loaded>=names\.length/, "assetsReady still = everything (replay / tests): asking turns the full stream on");
   // speed pass 2026-11-14: plates stream only near the current zone, and not at all on the phone photo-sky layout

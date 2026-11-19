@@ -42,14 +42,15 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
     setBps(b); setBusy(true); setSlipErr("");
     try { await setOneTapSlippageBps(b); } catch (e) { setSlipErr(playerError(e).slice(0, 120)); } finally { setBusy(false); }
   };
-  const where = live ? "Real flights" : scope.includes("sim") ? "Free play" : "Paper flights";
+  // real money needs no tag (maker 2026-11-18: "remove the real flights pill"); practice modes keep theirs
+  const where = live ? null : scope.includes("sim") ? "Free play" : "Paper flights";
   return (
     <div className="ds-modal-backdrop p5-settings-backdrop p5-trade-backdrop" data-testid="swap-settings-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => e.stopPropagation()} onKeyUp={(e) => e.stopPropagation()}>
       <div className="ds-modal p5-modal p5-settings p5-trade" role="dialog" aria-modal="true" aria-label="Trade settings" data-testid="swap-settings">
         <header className="p5-mhead">
           <h2>Trade settings</h2>
-          <span className="p5-trade-where">{where}</span>
+          {where && <span className="p5-trade-where">{where}</span>}
           <button type="button" className="p5-icon" aria-label="close" onClick={onClose}><Icon name="close" size={18} /></button>
         </header>
         <section className="p5-sgrp" aria-label="Boost amounts">

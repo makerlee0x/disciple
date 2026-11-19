@@ -1,8 +1,8 @@
 "use client";
 /**
  * Flight chart card, phones and desktop Pilot (throttle prototype v3, maker 2026-11-14: "the chart is fantastic"; "otherwise it feels like
- * you're trading blind"). Market-cap CANDLES under the top row: 1M · 5M · 1H = how much time the card shows (30 candles each:
- * 2 s, 10 s, 2 min), the live price tag on the right and a dashed YOU BOARDED line at your entry.
+ * you're trading blind"). Market-cap CANDLES under the top row: 1M · 5M · 1H · 1D = how much time the card shows (30 candles each:
+ * 2 s, 10 s, 2 min, 48 min) plus a pause, the live price tag on the right and a dashed YOU BOARDED line at your entry.
  *
  * Fixes from maker's live play-test (2026-11-14 8:15 PM CT):
  *  - "the chart took forever to load" / "I can't see the history": a live coin's card is seeded from its full fill history
@@ -14,11 +14,11 @@
  * The series is kept in a module store while the flight is open (a re-render or a sheet open never loses it). Drawn at
  * ~4 fps on a small canvas, paused while the tab is hidden.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchHistory } from "@/lib/chart/history";
 
-export const CHART_TFS = [{ k: "1M", ms: 60_000 }, { k: "5M", ms: 300_000 }, { k: "1H", ms: 3_600_000 }] as const;
-const KEEP_MS = 6 * 3_600_000, MIN_GAP_MS = 250, BARS = 30;
+export const CHART_TFS = [{ k: "1M", ms: 60_000 }, { k: "5M", ms: 300_000 }, { k: "1H", ms: 3_600_000 }, { k: "1D", ms: 86_400_000 }] as const;
+const KEEP_MS = 25 * 3_600_000, MIN_GAP_MS = 250, BARS = 30;
 
 type Pt = { t: number; m: number };
 const store: { key: string; pts: Pt[]; hist: Pt[]; histFor: string; last: number } = { key: "", pts: [], hist: [], histFor: "", last: 0 };
@@ -82,6 +82,10 @@ export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge 
   const lab = useRef<HTMLSpanElement>(null);
   const tfRef = useRef(tf); tfRef.current = tf;
   const entryRef = useRef(entry); entryRef.current = entry;
+  // pause (maker 2026-11-18: "it autoscrolls and now its just flat"): the window stops at the moment you paused, new
+  // prices still arrive underneath and show again on play
+  const [pausedAt, setPausedAt] = useState<number | null>(null);
+  const pausedRef = useRef(pausedAt); pausedRef.current = pausedAt;
 
   useEffect(() => {
     const key = location.pathname + location.search;
@@ -110,16 +114,18 @@ export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge 
       if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
       const x = c.getContext("2d"); if (!x) return;
       x.setTransform(dpr, 0, 0, dpr, 0, 0); x.clearRect(0, 0, r.width, r.height);
-      const now = Date.now(), ms = CHART_TFS[tfRef.current].ms;
+      const now = pausedRef.current ?? Date.now(), ms = CHART_TFS[tfRef.current].ms;
       const all = series();
-      const ch = windowChange(all, now, ms);
+      const upto = pausedRef.current != null ? all.filter((p) => p.t <= now) : all;
+      const ch = windowChange(upto, now, ms);
       if (lab.current) { const t = `MARKET CAP${ch == null ? "" : ` ${ch >= 0 ? "+" : ""}${ch.toFixed(1)}%`}`; if (lab.current.textContent !== t) lab.current.textContent = t; lab.current.style.color = ch == null ? "" : ch >= 0 ? "#5FF0A0" : "#FF8FBD"; }
       const T = 38, B = 8, L0 = 8, Rr = 66, w = r.width - L0 - Rr, h = r.height - T - B;
-      const bars = windowBars(all, now, ms);
+      const bars = windowBars(upto, now, ms);
       const shown = bars.filter((x): x is Bar => !!x);
       if (!shown.length || w <= 0 || h <= 0) {
-        x.fillStyle = "rgba(215,217,228,.55)"; x.font = "500 12px system-ui, sans-serif"; x.textAlign = "center";
-        x.fillText("Waiting for the first price…", r.width / 2, T + h / 2 + 4); return;
+        // no loading sentence (copy rule): a soft pulse until the first price lands
+        const a = 0.25 + 0.2 * Math.sin(now / 160); x.fillStyle = `rgba(243,223,168,${a.toFixed(3)})`;
+        x.beginPath(); x.arc(r.width / 2, T + h / 2, 4, 0, Math.PI * 2); x.fill(); return;
       }
       const ent = entryRef.current && entryRef.current > 0 ? entryRef.current : null;
       let lo = Infinity, hi = -Infinity; for (const c of shown) { if (c.l < lo) lo = c.l; if (c.h > hi) hi = c.h; }
@@ -152,10 +158,13 @@ export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge 
       x.fillStyle = `rgb(${col})`; x.beginPath(); x.roundRect(tx, ty, tw, 20, 6); x.fill();
       x.fillStyle = up ? "#0d2a1b" : "#FFFFFF"; x.textAlign = "left"; x.fillText(tag, tx + 6, ty + 15);
     };
-    const id = setInterval(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); }, 250);
+    const kick = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(draw); };
+    // speed (maker 2026-11-18: "the delay on the chart … is horrendous"): a new price draws on the next frame, not the next 250 ms tick
+    const id = setInterval(kick, 250);
+    addEventListener("disciple:mark", kick);
     draw();
-    return () => { clearInterval(id); cancelAnimationFrame(raf); };
-  }, [big, tf]);
+    return () => { clearInterval(id); cancelAnimationFrame(raf); removeEventListener("disciple:mark", kick); };
+  }, [big, tf, pausedAt]);
 
   return (
     <div className="pc" data-testid="phone-chart" data-big={big ? "1" : "0"} role="group" aria-label="Market cap chart. Tap to make it bigger." onClick={onBig}>
@@ -165,6 +174,13 @@ export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge 
       <div className="pc-tf" role="tablist" aria-label="Chart time">
         {CHART_TFS.map((t, i) => <button key={t.k} type="button" role="tab" aria-selected={tf === i} className={tf === i ? "on" : ""} data-testid={`chart-tf-${t.k}`}
           onClick={(e) => { e.stopPropagation(); onTf(i); }}>{t.k}</button>)}
+        <button type="button" className={pausedAt != null ? "on" : ""} data-testid="chart-pause" aria-pressed={pausedAt != null}
+          aria-label={pausedAt != null ? "Play chart" : "Pause chart"} title={pausedAt != null ? "Play" : "Pause"}
+          onClick={(e) => { e.stopPropagation(); setPausedAt((p) => (p != null ? null : Date.now())); }}>
+          <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden style={{ verticalAlign: "-1px" }}>
+            {pausedAt != null ? <path d="M3 1.5v9l7.5-4.5z" fill="currentColor" /> : <><rect x="2" y="1.5" width="3" height="9" rx="1" fill="currentColor" /><rect x="7" y="1.5" width="3" height="9" rx="1" fill="currentColor" /></>}
+          </svg>
+        </button>
       </div>
     </div>
   );

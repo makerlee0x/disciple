@@ -16,7 +16,7 @@ export default function OrbitFlash() {
   }, []);
   if (!n) return null;
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 60, pointerEvents: "none", mixBlendMode: "screen" }} aria-hidden data-testid="orbit-flash">
+    <div style={{ position: "fixed", inset: 0, zIndex: 60, pointerEvents: "none", mixBlendMode: "screen", opacity: 0.55 }} aria-hidden data-testid="orbit-flash">
       <AnimClip key={n} id="B2-orbit" overlay onEnd={() => setN(0)} style={{ width: "100%", height: "100%" }} />
     </div>
   );

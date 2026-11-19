@@ -1470,11 +1470,8 @@ function trick(kind){ if(!TRICKS[kind]||S.menuOpen||trickOn()) return false;
   S.floaters.push({x:nx+70,y:ny-150,txt,c:T.c,life:1.1,game:S.trickCombo>1?34:30});
   sfx('trick',{kind,combo:S.trickCombo}); try{ dispatchEvent(new CustomEvent('disciple:trick',{detail:{kind,combo:S.trickCombo}})); }catch(_){} return true; }
 function styleFill(){ if(!S.trickAt||Date.now()-S.trickAt>STYLE_WIN) return; const combo=S.trickCombo||1, kind=S.trick?S.trick.kind:'spin'; S.trickAt=0;
-  const [nx,ny]=nozzleXY(); S.floaters.push({x:nx+70,y:ny-190,txt:combo>1?'STYLE FILL x'+combo:'STYLE FILL',c:'#F3DFA8',life:1.6,game:30});
-  sfx('orbit'); try{ dispatchEvent(new CustomEvent('disciple:stylefill',{detail:{at:Date.now(),combo,kind}})); }catch(_){} }
-addEventListener('disciple:stylexp',e=>{ const d=e.detail||{}, [nx,ny]=nozzleXY();
-  if(d.state==='confirming') S.floaters.push({x:nx+70,y:ny-225,txt:'+'+(d.xp||5)+' XP · confirming',c:'#5FF0A0',life:1.6,game:20});
-  else if(d.state==='capped') S.floaters.push({x:nx+70,y:ny-225,txt:'Style XP capped for today',c:'#C8C4FF',life:1.6,game:18}); });
+  /* no on-screen callout (maker 2026-11-18: "wtf is style fill"): the XP is still reported, quietly */
+  try{ dispatchEvent(new CustomEvent('disciple:stylefill',{detail:{at:Date.now(),combo,kind}})); }catch(_){} }
 /* @calm (phone full-screen flying): the page (CalmFlight) fades the HUD after a few idle seconds and sends disciple:calm {on};
    the rocket eases up to CALM_ZOOM× its size while calm. Cosmetic only. */
 const CALM_ZOOM=1.2; S.calm=false; S.calmK=0;
@@ -2415,8 +2412,9 @@ function drawHud(){
 }
 
 // player copy (e2e sweep 2026-11-14: this used to print the source name and raw status, e.g. "(LIVE · RH RPC getLogs)"); the source + status stay on window.__flight for debugging
-function drawLoading(){ ctx.fillStyle='#05060c'; ctx.fillRect(0,0,W,H); ctx.fillStyle='#C9CED6'; ctx.font=GF(16,600); ctx.textAlign='center';
-  ctx.fillText(S.confirmed.mcap===null?'Waiting for the first price…':'Fueling up…',W/2,H/2); ctx.textAlign='left'; }
+// no loading sentence (copy rule): the night sky and a soft pulse under where the rocket will sit
+function drawLoading(){ ctx.fillStyle='#05060c'; ctx.fillRect(0,0,W,H);
+  const a=0.25+0.2*Math.sin(S.t*4); ctx.fillStyle=`rgba(243,223,168,${a.toFixed(3)})`; ctx.beginPath(); ctx.arc(W/2,H*0.58,5,0,Math.PI*2); ctx.fill(); }
 
 /* =====================================================================
    NUKE ON DUMP — sell bombs (visual layer only; never touches rocket motion/springs)
@@ -2930,7 +2928,12 @@ const PERF=window.__flightPerf={n:0,long25:0,long50:0,max:0,sum:0,reset(){ this.
 function frame(now){
   { const d=now-last; if(d>0&&d<5000){ PERF.n++; PERF.sum+=d; if(d>25) PERF.long25++; if(d>50) PERF.long50++; if(d>PERF.max) PERF.max=d; } }
   const rawDt=FIXED_DT||Math.min(0.25,Math.max(0,(now-last)/1000)); last=now;
-  if (S.confirmed.mcap===null || !skyReady()){ S.t+=rawDt; drawLoading(); RAF(frame); return; }
+  // the sky gate holds only the FIRST frame (maker 2026-11-18: "the rocket disappeared for a second" at graduation): a big
+  // jump into a zone whose plate isn't in yet used to blank the whole flight to the loading fill; drawBg already paints the
+  // night fill for a missing plate, so after the first frame the flight keeps drawing while the plate streams in
+  const skyOk=skyReady();
+  if (S.confirmed.mcap===null || (!S.drewOnce && !skyOk)){ S.t+=rawDt; drawLoading(); RAF(frame); return; }
+  S.drewOnce=true;
   acc+=rawDt; let n=0;
   while (acc>=SIM_DT-1e-9 && n<MAX_STEPS){ for(const k of LERP_KEYS) PREV[k]=S[k]; S.particles.snap(); S.shards.snap(); S.bfx.snap(); simStep(SIM_DT); acc-=SIM_DT; n++; }
   if (n===MAX_STEPS && acc>SIM_DT) acc=0;             // long stall: drop the backlog instead of spiralling
@@ -3005,7 +3008,10 @@ function simStep(stepDt){
   S.lean=clamp((S.steer?S.steer.vx:0)/(STEER_VMAX*W)+Math.tanh((S.drift||0)*0.35/60)*0.3,-1,1);                 // lateral term: drift / lane change → which side, how far (follows velocity)
   // vertical velocity for attitude: the ~10 s candle window (smooth trend) blended with the live climb rate,
   // so a dump tips the nose over promptly instead of waiting for the window to turn
-  S.vyAtt=0.45*(S.momV||0)+0.55*(S.vyS||0);   // market motion stays separate from cosmetic manual dive
+  // the trend term fades once the price goes quiet (maker 2026-11-18: "the rocket got stuck pointing down … after a dump"):
+  // a flat market rights the nose in ~1.5 s instead of waiting ~10 s for the candle window to roll the dump out
+  { const ls=S.confirmed.lastSwapTs||0, q=ls?(performance.now()-ls)/1000:99, fresh=q<1?1:Math.exp(-(q-1)/0.8);
+    S.vyAtt=0.45*(S.momV||0)*fresh+0.55*(S.vyS||0); }   // market motion stays separate from cosmetic manual dive
   if (FREE_FLY) S.vyAtt*=0.6;   // free play: a dump tips the nose over less and it rights itself sooner (the 1.5x Daily market kept it pointed down)
   stepHeading(S, aimWithDive(aimFromMotion(S.vyAtt, S.lean, S.fight, PX_PER_ALT*0.02, S), S.dive, S), 0, dt);   // v0 = 2% of a tier per second (source-independent)
   S.heading=Math.PI/2 - S.aimDisp*Math.PI/180; S.tilt=S.heading;
@@ -3159,7 +3165,7 @@ function fmtUpPct(p){ return p>=9.95?String(Math.round(p)):Math.max(0.1,Math.cei
 function tierLineEnd(ti){ ctx.save(); ctx.font=GF(20,700); const e=36+ctx.measureText(tierText(ti)).width; ctx.restore(); return e; }   // tier text only (no rules text, pass 3 #2)
 /* GRADUATION SET PIECE (phase 1): the coin leaves the curve live (not on load) → a pearl flash, a gold shock ring off the
    rocket, the 'IN ORBIT' card for 4.5 s and the orbit sting. window.__flightOrbit() plays it for previews / tests. */
-function startOrbitFx(){ S.orbitFx=S.t; S.tierBanner=0; S.screenFlash={t0:S.t,dur:1.1,a:0.7,c:'255,246,220'}; sfx('orbit'); haptic([20,40,60]);
+function startOrbitFx(){ S.orbitFx=S.t; S.tierBanner=0; S.screenFlash={t0:S.t,dur:0.6,a:0.3,c:'255,246,220'};   // soft: the rocket stays visible through it sfx('orbit'); haptic([20,40,60]);
   try{ dispatchEvent(new CustomEvent('disciple:orbit',{detail:{at:Date.now()}})); }catch(_){} }
 function drawOrbitCard(){ const age=S.orbitFx!=null?S.t-S.orbitFx:99; if(age>4.5) return;
   const a=clamp(age/0.3,0,1)*clamp((4.5-age)/0.8,0,1), PB=phBand(), BY=PB?PB.top+52:BANNER_Y+20;
