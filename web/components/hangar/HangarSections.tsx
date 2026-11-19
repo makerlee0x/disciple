@@ -27,7 +27,11 @@ export function SendIcon({ size = 16 }: { size?: number }) {
 
 /** Service record strip (maker 2026-11-18): Hangar value, Cash, Turbo cash. Flights aboard / Rockets launched are gone
  *  (Your fleet below already shows them). Turbo cash is the owner's own trading balance, so only the private Hangar has it. */
-export function ServiceRecord({ pf, isPrivate }: { pf: LivePortfolio | null; isPrivate: boolean }) {
+export function ServiceRecord({ pf, isPrivate, rewards }: {
+  pf: LivePortfolio | null; isPrivate: boolean;
+  /** maker 2026-11-19: the owner's fourth tile, gold, opens the Rewards panel (null = still reading) */
+  rewards?: { usd: number | null; onOpen: () => void } | null;
+}) {
   const [turbo, setTurbo] = useState(0);
   const [canAdd, setCanAdd] = useState(false);
   useEffect(() => (isPrivate ? onTurboCash((t) => { setTurbo(t.usd); setCanAdd(t.canAdd); }) : undefined), [isPrivate]);
@@ -36,7 +40,7 @@ export function ServiceRecord({ pf, isPrivate }: { pf: LivePortfolio | null; isP
   const total = ok ? pf.cashUsd + rockets! + (isPrivate ? turbo : 0) : null;
   const today = ok && pf.rows.every((r) => Number.isFinite(r.price24h)) ? pf.rows.reduce((s, r) => s + r.tokens * (r.priceNow - r.price24h), 0) : null;
   return (
-    <section className={`hg-record${isPrivate ? " three" : ""}`} aria-label="Service record" data-testid="profile-portfolio">
+    <section className={`hg-record${isPrivate ? rewards ? " four" : " three" : ""}`} aria-label="Service record" data-testid="profile-portfolio">
       <div>
         <span className="l">Hangar value</span>
         <b data-testid="portfolio-total">{total != null ? usd2(total) : "—"}</b>
@@ -53,6 +57,12 @@ export function ServiceRecord({ pf, isPrivate }: { pf: LivePortfolio | null; isP
           <span className="l">Turbo cash</span>
           <b data-testid="portfolio-turbo">{usd2(turbo)}</b>
           {canAdd ? <span className="hg-cashacts"><a href={DEPOSIT_HREF} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); openCash("turbo"); }} className="dsc3-btn" data-testid="hangar-turbo-transfer">Transfer</a></span> : <span className="s" />}
+        </div>
+      )}
+      {isPrivate && rewards && (
+        <div className="act rw" data-testid="hangar-rewards">
+          <span className="rw-tx"><span className="l">Rewards</span><b data-testid="portfolio-rewards">{rewards.usd != null ? usd2(rewards.usd) : "—"}</b></span>
+          <button type="button" className="hg-act gold" onClick={rewards.onOpen} data-testid="claim-now">Claim</button>
         </div>
       )}
     </section>

@@ -54,7 +54,7 @@ export type ActionQuoteOpts = {
 
 function kindOf(raw: unknown): ActionKind {
   const k = (raw ?? {}) as { kind?: unknown };
-  if (k.kind === "anonClaim" || k.kind === "anonTransferCreator" || k.kind === "trampPull") return k.kind;
+  if (k.kind === "anonClaim" || k.kind === "anonTransferCreator" || k.kind === "anonCreatorMeta" || k.kind === "trampPull") return k.kind;
   throw notSent(new GaslessReject("unknown gasless action"));
 }
 

@@ -1166,6 +1166,7 @@ html:not([data-you]) .lb-tabs a.lb-you-only, html[data-you] .lb-tabs a.lb-out-on
 .sd-fleetbtn:hover { color: #FFFFFF; border-color: rgba(243,223,168,0.5); }
 .sd-fleetbtn:focus-visible { box-shadow: var(--dsc-glow-focus-ring); outline: none; }
 .cx-big input::placeholder { font: inherit; }
+
 /* ── one pilot pill (maker 2026-11-19: signed in "way too crowded compared to the out"): level ring, @name and the balance
    under it in one pill; the "?" moved into the pilot menu. The balance is its own link (opens Cash) over the Hangar link. ── */
 :root { --wb-w-in: var(--wb-pilot-w); }
