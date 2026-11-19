@@ -9,13 +9,15 @@
    blips loop while a trade is pending. The ambience bed is wind (AppSounds), and turns to the thin-air hum at orbit.
    All of it runs at the Sound effects level from Settings. */
 import { useEffect } from "react";
-import { playSfx, setBed, startLoop, type LoopHandle } from "@/lib/game/sfx";
+import { playSfx, preloadSfx, setBed, startLoop, type LoopHandle } from "@/lib/game/sfx";
 
 const BOMBS = ["bomb_grenade", "bomb_bunker", "bomb_warhead", "bomb_moab", "bomb_atom", "nuke"];
 
 export default function FlightSfx() {
   useEffect(() => {
     let hum: LoopHandle | null = null, pend: LoopHandle | null = null, humV = -1, pendOn = false;
+    // the trade sounds load now, so the first BOOST / DUMP / fill doesn't wait on a fetch + decode before it plays
+    preloadSfx(["boost_small", "boost_big", "bomb_fall", "trade_fill_buy", "trade_fill_sell", "tx_fail", "bomb_grenade"]);
     const on = (e: Event) => {
       const d = ((e as CustomEvent).detail || {}) as { k?: string; side?: string; usd?: number; tier?: number };
       switch (d.k) {
