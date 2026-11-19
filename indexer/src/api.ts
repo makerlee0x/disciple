@@ -433,6 +433,21 @@ export class Api {
     return { user: u, referredBy, referred, claims, deposits };
   }
 
+  /**
+   * Coins still on the curve where `user` may have referral / KOL shares not yet settled into CurveFeeVault: coins traded
+   * by wallets it referred, plus coins that already paid it a KOL share. The web passes these as settleTokens to
+   * CurveFeeVault.claimReferrerFeesFor so the claim settles them first (hook rebuild, 2026-11-19). Latest first, max 20.
+   */
+  referralCoins(user: string) {
+    const u = user.toLowerCase();
+    const rows = this.db.prepare(`SELECT token, MAX(ts) last FROM (
+        SELECT t.token, t.ts FROM trades t JOIN referrals r ON r.wallet = t.trader AND r.stack = t.stack WHERE r.referrer = ?
+        UNION ALL
+        SELECT f.token, f.ts FROM fee_credits f WHERE f.payee = ? AND f.role = 'kol'
+      ) x JOIN coins c USING (token) WHERE c.graduated = 0 GROUP BY token ORDER BY last DESC LIMIT 20`).all(u, u) as { token: string }[];
+    return { user: u, tokens: rows.map((r) => r.token) };
+  }
+
   profile(user: string) {
     const u = user.toLowerCase();
     return {
@@ -596,6 +611,7 @@ export class Api {
       if (p[2] === "holdings") return [200, this.holdings(p[1])];
       if (p[2] === "referrals") return [200, this.referrals(p[1])];
       if (p[2] === "referral") return [200, this.userReferral(p[1])];
+      if (p[2] === "referral-coins") return [200, this.referralCoins(p[1])];
       if (p[2] === "rewards") return [200, await this.userRewards(p[1])];
       if (p[2] === "counters") return [200, this.counters(p[1])];
       if (p[2] === "orders") return [200, this.orders("owner", p[1])];
