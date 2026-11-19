@@ -1,5 +1,6 @@
 /** Quote address → pair bucket + display symbol (moved verbatim from the old app/page.tsx; shared by the hero + feed). */
 import { recommendedPairs } from "@/lib/pairs";
+import { whitelistQuoteByAddress } from "@/lib/whitelistQuotes";
 
 export const shortHex = (a: string) => (a ? a.slice(0, 6) + "…" + a.slice(-4) : "—");
 
@@ -13,6 +14,7 @@ export function pairOf(quote: string): "STRATEGY" | "USDG" | "OTHER" {
 
 export function pairSymOf(quote: string): string {
   const k = pairOf(quote);
-  if (k === "OTHER") return shortHex(quote);
+  // a listed pair coin shows its symbol (AI, PENGU, …); only an unknown quote falls back to its address
+  if (k === "OTHER") return whitelistQuoteByAddress(quote)?.symbol ?? shortHex(quote);
   return k === "USDG" ? (recommendedPairs()[1]?.symbol ?? "USDG") : "STRATEGY";
 }
