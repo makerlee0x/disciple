@@ -1,7 +1,7 @@
-import TrophiesPage from "@/components/xp/TrophiesPage";
+import StatsPage from "@/components/stats/StatsPage";
 
 export const metadata = { title: "Trophies · DISCIPLE" };
 
 export default function Page() {
-  return <TrophiesPage />;
+  return <StatsPage />;
 }
