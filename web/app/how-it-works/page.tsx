@@ -1,5 +1,5 @@
 /**
- * /how-it-works ("How to play"). One tab per game mode (maker 2026-11-18): Launch, Duel, Climb. Each tab is a 3-step strip
+ * /how-it-works ("How to play"). One tab per game mode (maker 2026-11-18): Launch, Duel, Climb, Daily mission. Each tab is a 3-step strip
  * drawn in the game's own UI pieces (what you press, what happens, how you win), the keys, and a play button. Show, don't
  * tell: every step is a picture with a verb and one short line. The Pro spec sheet still opens on #pro.
  * Both the tabs and the spec sheet render on the server; ModeTabs only picks which one shows. Strings: content/how-it-works.ts.
@@ -68,6 +68,16 @@ function Art({ kind }: { kind: string }) {
       <div className={`${s.art} ${s.artCol}`}>
         <span className={s.tgt}><small>Target</small><b>+1%</b></span>
         <span className={s.tbar}><i /></span>
+      </div>
+    );
+    case "today": return (
+      <div className={`${s.art} ${s.plate}`} style={{ backgroundImage: `url(${withBase("/art/modes/free.webp")})` }}>
+        <span className={`${s.bagCard} ${s.bagPlate}`}><small>Practice cash</small><b>$250</b><em>2:00</em></span>
+      </div>
+    );
+    case "rank": return (
+      <div className={`${s.art} ${s.artCol}`}>
+        <span className={s.score}><span className={s.me}>#1 You <b>+$84.20</b></span><span>#2 <b>+$61.05</b></span></span>
       </div>
     );
     case "ladder": return (
@@ -155,6 +165,8 @@ function Pro() {
           </table>
         </div>
       </div>
+      <div className={s.spec}><h3>{R.turbo.title}</h3><Rows rows={R.turbo.rows} /></div>
+      <div className={s.spec}><h3>{R.anon.title}</h3><Rows rows={R.anon.rows} /></div>
       {PRO_HUD_ENABLED && <div className={s.spec}><h3>{R.hud.title}</h3><Rows rows={R.hud.rows} /></div>}
       <div className={`${s.spec}${PRO_HUD_ENABLED ? "" : ` ${s.wide}`}`}>
         <h3>{R.keys.title}</h3>
@@ -166,7 +178,7 @@ function Pro() {
       </div>
       <div className={`${s.verify} ${s.wide}`}>
         <b>{R.verify.title}</b>
-        <span>{R.verify.body}</span>
+        {R.verify.body && <span>{R.verify.body}</span>}
         <Link href={HIW_ROUTES.contracts} className={`${s.btn} ${s.ghost} ${s.sm}`}>{R.verify.contracts}</Link>
         <Link href={HIW_ROUTES.docs} className={`${s.btn} ${s.ghost} ${s.sm}`}>{R.verify.docs}</Link>
       </div>
