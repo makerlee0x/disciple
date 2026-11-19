@@ -38,7 +38,7 @@ test("connection failure before sending ⇒ failure line with a plain reason", (
   assert.equal(msg(e), LAUNCH_FAILED_REASON(LAUNCH_REASON.network));
 });
 test("specific plain copy passes through (not enough cash, wallet cap)", () => {
-  for (const t of ["Not enough cash for the First BOOST: need $5.00, have $1.00.", "Wallet cap reached: one wallet can hold at most 7% before orbit."])
+  for (const t of ["Not enough cash for the First BOOST: need $5.00, have $1.00.", "Max bag reached: this wallet holds as much of this rocket as its difficulty allows right now. The cap grows as the market cap climbs."])
     assert.equal(msg(new ProtocolError("InsufficientBalance", t)), t);
 });
 test("generic failure ⇒ failure line with a short plain reason, never the old line", () => {

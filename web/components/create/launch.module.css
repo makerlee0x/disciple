@@ -386,3 +386,49 @@
 .sh .lockTag { margin-left: 2px; }
 .moTitle:has(.lockTag) { flex-direction: row; align-items: center; gap: 10px; }
 .moTitle span.lockTag { font: inherit; color: #F3DFA8; }
+
+/* ⓘ tooltips instead of subtitles (maker 2026-11-18) */
+.info { display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border-radius: 50%; flex: none; cursor: help;
+  background: transparent; border: 1px solid rgba(232, 234, 238, .18); color: #9095A0; }
+.info:hover, .info:focus-visible { color: #F3DFA8; border-color: rgba(243, 223, 168, .5); }
+.tipRows { display: flex; flex-direction: column; gap: 6px; }
+.tipRows p { margin: 0; }
+.tipRows b { color: #FFFFFF; }
+.tipFoot { color: #9095A0; }
+.diff p.dTicket { font-size: 12px; color: #9095A0; }
+
+/* the big preview is the upload button: it IS the token image */
+button.badgeBig { position: relative; padding: 0; border: 0; cursor: pointer; }
+button.badgeBig:hover { box-shadow: 0 10px 26px rgba(0, 0, 0, .5), 0 0 0 2px #F3DFA8; }
+.badgeUp { position: absolute; left: 50%; bottom: 6px; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 999px;
+  background: rgba(10, 12, 18, .86); border: 1px solid rgba(243, 223, 168, .45); color: #F3DFA8; font: 700 11px / 1 var(--dsc-font-ui, Inter, sans-serif); white-space: nowrap; }
+
+/* More options v2: 12 pair coins in a 4×3 grid, links side by side, fees as three squares, the cut as a big number */
+.mo .pairs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.mo .pair { min-height: 36px; padding: 0 10px; gap: 8px; font-size: 15px; justify-content: flex-start; min-width: 0; }
+.mo .pair img { width: 20px; height: 20px; }
+.mo .pair span { overflow: hidden; text-overflow: ellipsis; }
+.links3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.links3 .linkRow { height: 42px; padding: 0 10px; gap: 8px; min-width: 0; }
+.links3 .linkRow input { font-size: 14px; }
+.fees3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.feeSq { position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 6px 6px 10px; border-radius: 14px; border: 1px solid #2E323A;
+  background: rgba(10, 12, 18, .7); color: #BCC0CA; cursor: pointer; text-align: center; font: 800 16px / 1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .02em; }
+.feeSq:hover:not(:disabled) { border-color: #4A4F5A; }
+.feeSq:disabled { opacity: .45; cursor: default; }
+.feeSq .feeArt { width: 100%; height: auto; aspect-ratio: 1.35; }
+.feeSq .tick { top: 10px; right: 10px; }
+.feeLbl { white-space: nowrap; }
+.feeBig { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 6px; padding: 14px 16px; border-radius: 14px;
+  background: radial-gradient(120% 140% at 0% 0%, rgba(95, 240, 160, .1), rgba(10, 12, 18, 0) 60%); border: 1px solid rgba(95, 240, 160, .22); }
+.feeBig b { font: 800 88px / .86 var(--dsc-font-game); color: #5FF0A0; letter-spacing: -.01em; }
+.feeBigLbl { font: 800 18px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+.feeBigChips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chipTag { display: inline-flex; align-items: center; padding: 5px 9px; border-radius: 8px; background: rgba(232, 234, 238, .06); border: 1px solid rgba(232, 234, 238, .12);
+  font: 500 12px / 1 var(--dsc-font-mono, 'JetBrains Mono', ui-monospace, monospace); color: #BCC0CA; }
+.chipTax { color: #F3DFA8; border-color: rgba(243, 223, 168, .3); }
+@media (max-width: 760px) {
+  .mo .pair { font-size: 13px; padding: 0 8px; gap: 6px; }
+  .links3 { grid-template-columns: 1fr; }
+  .feeBig b { font-size: 64px; }
+}

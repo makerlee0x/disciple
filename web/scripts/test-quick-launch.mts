@@ -30,7 +30,7 @@ test("whitelist has 12 coins, STRATEGY first and default, no USDG", () => {
   assert.equal(defaultLaunchPair().symbol, "STRATEGY");
   assert.equal(defaultLaunchPair().address, "0x168661C52E5922288dFb2b3f323b6Cf90eb21e18");
   assert.deepEqual(LAUNCH_WHITELIST.map((c) => c.symbol), [
-    "STRATEGY", "AI", "SCHIFFY", "BONER", "MEME", "PONS", "ORBIO", "HOOKR", "CASHCAT", "PRIORS", "PENGU", "HMM",
+    "STRATEGY", "AI", "SCHIFFY", "BONER", "MEME", "PONS", "ORBIO", "HOOKR", "CASHCAT", "PRIORS", "PENGU", "DELTA",
   ]);
   assert.equal(whitelistIncludesUsdg(), false);
   assert.equal(LAUNCH_WHITELIST.some((c) => isUsdgSymbol(c.symbol)), false);
@@ -165,8 +165,9 @@ test("First BOOST and Anon/Pseudo copy is short, and the info bubble starts clos
   assert.equal(FIRST_BOOST_COPY.easyLock, "On Easy, that first buy stays locked until the rocket moves to the open market. Later buys you can sell anytime.");
   assert.equal(FIRST_BOOST_COPY.pveLoginUnknown, "On Easy, sign in with email, Google, or X before you launch with a first buy.");
   assert.doesNotMatch(FIRST_BOOST_COPY.easyLock, /ASCENDS/i);
-  assert.equal(QUICK_LAUNCH_COPY.anonHelp, "Your name won't be shown as the creator. The account that pays can still be seen on the public record.");
-  assert.equal(QUICK_LAUNCH_COPY.pseudoHelp, "Your name won't be shown as the creator. The account that pays, and the first buy, can still be seen on the public record.");
+  assert.equal(QUICK_LAUNCH_COPY.anonLaunch, "Anon launch");
+  assert.equal(QUICK_LAUNCH_COPY.anonHelp, "Your name stays off the rocket. Your wallet still shows on-chain.");
+  assert.equal(QUICK_LAUNCH_COPY.pseudoHelp, "Your name stays off the rocket. Your wallet and ticket buy still show on-chain.");
   assert.equal(QUICK_LAUNCH_COPY.uploadImage, "Upload image");
 });
 
@@ -245,9 +246,9 @@ test("creator fee destination is a three-way exclusive choice, default is the cr
 
 test("creator fee copy matches the r7 card labels and tax helpers, with no jargon", () => {
   assert.equal(QUICK_LAUNCH_COPY.creatorFees, "Creator fees");
-  assert.equal(QUICK_LAUNCH_COPY.creatorFeesPerm, "You pick this when you launch, and you can't change it later.");
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeesPerm, "You can't change this after launch.");
   assert.equal(QUICK_LAUNCH_COPY.rewards, "Send your creator fees to a different account");
-  assert.equal(QUICK_LAUNCH_COPY.rewardsHelp, "Your creator fees go to this account instead of you. You'll confirm this one extra time.");
+  assert.equal(QUICK_LAUNCH_COPY.rewardsHelp, "One extra confirmation.");
   const H = "0x4e94a3e9900b435b7c91d0a7cd53a22c8a9f8a03";
   assert.equal(CREATOR_FEE_DESTINATION_LIVE, true);
   assert.equal(liveCreatorFeeDestination(0, { harvest: H }), undefined, "keep never goes through the harvest");
@@ -259,15 +260,15 @@ test("creator fee copy matches the r7 card labels and tax helpers, with no jargo
   assert.equal(CREATOR_FEE_COPY[0].chip, "");
   assert.equal(CREATOR_FEE_COPY[1].sentence, "Fees go into the locked pool.");
   assert.equal(CREATOR_FEE_COPY[1].chip, "Fees stay in the pool");
-  assert.equal(CREATOR_FEE_COPY[2].sentence, "Fees buy and burn the pair coin.");
-  assert.equal(CREATOR_FEE_COPY[2].chip, "Fees buy and burn the pair coin");
+  assert.equal(CREATOR_FEE_COPY[2].sentence, "Fees are burned.");
+  assert.equal(CREATOR_FEE_COPY[2].chip, "Fees are burned");
   assert.equal(CREATOR_TAX_HELP[0], "Added on every trade, and you can't change it later.");
   assert.equal(CREATOR_TAX_HELP[1], "Added on every trade and goes into the locked pool. You can't change it later.");
   assert.equal(CREATOR_TAX_HELP[2], "Added on every trade and buys and burns the pair coin. You can't change it later.");
   const here = dirname(fileURLToPath(import.meta.url));
   const page = readFileSync(join(here, "../app/create/page.tsx"), "utf8");
-  const css = readFileSync(join(here, "../components/create/quickLaunch.module.css"), "utf8");
-  assert.equal(QUICK_LAUNCH_COPY.creatorFeeSplit, "You earn 33% of every trading fee, forever.");
+  const css = readFileSync(join(here, "../components/create/launch.module.css"), "utf8");
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeeSplit, "You earn 0.33% of every trade, forever.");
   const visible = [
     QUICK_LAUNCH_COPY.creatorFees, QUICK_LAUNCH_COPY.creatorFeesPerm, QUICK_LAUNCH_COPY.creatorFeeSplit,
     QUICK_LAUNCH_COPY.rewards, QUICK_LAUNCH_COPY.rewardsHelp,
@@ -276,34 +277,30 @@ test("creator fee copy matches the r7 card labels and tax helpers, with no jargo
   assert.doesNotMatch(visible, /\bLP\b|quote token|renounced|\buint\b|\bhalf\b|creator rewards|available once the new contracts are live/i);
   assert.doesNotMatch(page, /available once the new contracts are live|creator rewards|creatorFeesPending/i);
   assert.match(page, /creatorFeeDestination: sendFeeDest/, "the launch sends the chosen destination");
-  const feeCss = css.slice(css.indexOf(".feeCards"), css.indexOf(".feePerm") + 80);
-  assert.match(feeCss, /grid-template-columns:\s*repeat\(3,/);
-  assert.doesNotMatch(feeCss, /#F2C14E|#FF7A3D|gold|orange/i);
+  // More options v2 (maker 2026-11-18): the three fee picks are squares in one row
+  assert.match(css, /\.fees3\s*\{[^}]*grid-template-columns:\s*repeat\(3,/);
   assert.match(page, /data-testid=\{\`fee-destination-\$\{id\}\`\}/);
-  assert.match(page, /CREATOR_TAX_HELP\[feeDestination\]/);
+  // creator tax help is an ⓘ now, not a line under the slider
+  assert.match(page, /testId="creator-tax-info"/);
+  assert.doesNotMatch(page, /data-testid="creator-tax-help"/);
   assert.match(page, /liveCreatorFeeDestination\(feeDestination, \{ private: privateLaunch/);
 });
 
 
-test("the creator fee split is on the closed Quick Launch page and in Advanced, and does not change with the destination", () => {
+test("the creator fee reads as 0.33% of every trade (33% of the 1% fee), on the page and big in More options", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const page = readFileSync(join(here, "../app/create/page.tsx"), "utf8");
   assert.match(page, /data-testid="creator-fee-split"/);
   assert.match(page, /data-testid="creator-fee-split-advanced"/);
-  assert.equal((page.match(/C\.creatorFeeSplit/g) || []).length, 2);
-  assert.equal(QUICK_LAUNCH_COPY.creatorFeeSplit, "You earn 33% of every trading fee, forever.");
-  assert.doesNotMatch(page, /Every trade pays a 1% fee/);
-  assert.doesNotMatch(QUICK_LAUNCH_COPY.creatorFeeSplit, /Every trade pays a 1% fee|0\.33%|\.33%|33% creator/);
-  // Same constant in both places; not rewritten for pool or burn.
-  assert.doesNotMatch(page, /creatorFeeSplit\[feeDestination\]|CREATOR_FEE_COPY\[feeDestination\]\.split/);
-  // Not on the illustrated cards (cards still use the short destination labels).
-  const cardBlock = page.slice(page.indexOf("feeCards"), page.indexOf("creatorFeesPerm"));
-  assert.match(cardBlock, /CREATOR_FEE_COPY\[id\]\.sentence/);
-  assert.doesNotMatch(cardBlock, /creatorFeeSplit/);
-  assert.equal(QUICK_LAUNCH_COPY.creatorFeesPerm, "You pick this when you launch, and you can't change it later.");
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeeSplit, "You earn 0.33% of every trade, forever.");
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeeBig, "0.33%");
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeeOfWhat, "33% of the 1% trade fee");
+  assert.doesNotMatch(QUICK_LAUNCH_COPY.creatorFeeSplit, /33% of every trading fee/);
+  assert.doesNotMatch(page, /every trading fee/);
+  assert.match(page, /C\.creatorFeeBig/);
+  assert.match(page, /CREATOR_FEE_COPY\[id\]|FEE_SQUARE_LABEL\[id\]/);
+  assert.equal(QUICK_LAUNCH_COPY.creatorFeesPerm, "You can't change this after launch.");
   assert.equal(CREATOR_TAX_HELP[0], "Added on every trade, and you can't change it later.");
-  assert.equal(CREATOR_TAX_HELP[1], "Added on every trade and goes into the locked pool. You can't change it later.");
-  assert.equal(CREATOR_TAX_HELP[2], "Added on every trade and buys and burns the pair coin. You can't change it later.");
   assert.equal(CREATOR_FEE_DESTINATION_LIVE, true);
 });
 
@@ -327,10 +324,16 @@ test("Difficulty is three cards with the caps written on them (canvas board \"La
   assert.match(page, /data-testid=\{`mode-card-\$\{label\.toLowerCase\(\)\}`\}/);
   assert.match(page, /QUICK_LAUNCH_MODE_CARD\.footer/);
   assert.match(page, /data-testid="mode-cards"/);
-  assert.match(QUICK_LAUNCH_MODE_CARD.Easy.blurb, /1%/);
-  assert.match(QUICK_LAUNCH_MODE_CARD.Hard.blurb, /3\.33%/);
-  assert.match(QUICK_LAUNCH_MODE_CARD.Trench.blurb, /No bag cap/);
+  assert.equal(QUICK_LAUNCH_MODE_CARD.Easy.bag, "Max bag 1% → 3.33%");
+  assert.equal(QUICK_LAUNCH_MODE_CARD.Hard.bag, "Max bag 3.33% → 7.77%");
+  assert.equal(QUICK_LAUNCH_MODE_CARD.Trench.bag, "No max bag");
+  assert.match(QUICK_LAUNCH_MODE_CARD.Easy.ticket, /1\.2%.*locked/);
+  assert.match(QUICK_LAUNCH_MODE_CARD.Trench.ticket, /7\.77%/);
   assert.equal(QUICK_LAUNCH_MODE_CARD.Trench.label, "Expert");
+  assert.ok(!("nick" in QUICK_LAUNCH_MODE_CARD.Trench), "no 'aka the Trench'");
+  assert.match(page, /testId="difficulty-info"/);
+  assert.match(page, /testId="creator-ticket-info"/);
+  assert.doesNotMatch(page, /Hidden launches fly on Expert/);
   assert.doesNotMatch(page, /modesFoot|mode-modal|modeBtn|modeOpen/);
 });
 
