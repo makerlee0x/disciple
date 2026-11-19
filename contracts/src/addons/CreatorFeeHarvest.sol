@@ -113,6 +113,10 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     mapping(address token => address launcher) public launcherOf;
     /// @notice Rocket-token fees handed over with `depositRocketTokens`, waiting for the next `route`.
     mapping(address token => uint256 amount) public rocketDeposited;
+    /// @notice Pays to (maker 2026-11-19): the wallet a creator picked for one coin's creator fees, keyed by that
+    ///         creator. Only the current `creatorOf` sets it. A new creator after `transferCreator` starts with no
+    ///         pick (the old creator's pick only applies to the old creator's own leftover fees).
+    mapping(address token => mapping(address creator => address payee)) internal _payeeOf;
 
     error ZeroAddress();
     error AlreadyWired();
@@ -125,6 +129,7 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     error AwaitingOrbit();
     error Expired();
     error Slippage();
+    error NotCreator();
 
     /// @notice `launcher` is who FeeRouter pays (`creatorOf`): the wallet, or AnonLauncher for a private coin.
     event CreatorFeeDestinationSet(address indexed token, address indexed launcher, uint8 destination);
@@ -135,6 +140,7 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     );
     event RocketTokensDeposited(address indexed token, address indexed from, uint256 amount);
     event OwnershipRenounced();
+    event CreatorFeeRecipientSet(address indexed token, address indexed creator, address recipient);
 
     constructor(address owner_) Owned2Step(owner_) {
         if (owner_ == address(0)) revert ZeroAddress();
@@ -550,6 +556,21 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         uint256 left = IERC20(q).balanceOf(address(this)) - bal0;
         if (left != 0) IERC20(q).safeTransfer(msg.sender, left);
         _record(result.token, creatorFeeDestination);
+    }
+
+    /// @notice The coin's current creator picks where its creator fees go (curve and pool claims, quote and rocket
+    ///         token). address(0) or the creator's own address clears it. Any wallet or contract can be picked.
+    function setCreatorFeeRecipient(address token, address recipient) external {
+        if (msg.sender != launchpad.creatorOf(token) || msg.sender == address(0)) revert NotCreator();
+        if (recipient == msg.sender) recipient = address(0);
+        _payeeOf[token][msg.sender] = recipient;
+        emit CreatorFeeRecipientSet(token, msg.sender, recipient);
+    }
+
+    /// @notice Where `creator`'s fees for `token` are paid: their pick, else `creator`.
+    function creatorFeeRecipientOf(address token, address creator) external view returns (address) {
+        address p = _payeeOf[token][creator];
+        return p == address(0) ? creator : p;
     }
 
     function _record(address token, uint8 dest) internal {

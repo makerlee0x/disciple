@@ -12,6 +12,7 @@ import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 
 interface ILaunchpadRecord {
     function curveOf(address token) external view returns (address);
@@ -38,7 +39,15 @@ contract Migration is IMigration, Owned2Step {
 
     LockedLP public immutable lockedLP;
     IPoolManager public immutable poolManager;
-    DiscipleHook public immutable hook;
+    /// @notice Hook for the NEXT graduation (maker 2026-11-19: owner can swap it for new coins, instantly, until
+    ///         `lockHook`). A graduated coin keeps its pool's hook forever: `hookOf(token)`.
+    DiscipleHook public hook;
+    /// @notice The hook each graduated coin's pool uses.
+    mapping(address token => address) public hookOf;
+    /// @notice Every hook this Migration has ever used (DiscipleRouter / LockedLP / AnonLauncher trust these).
+    mapping(address => bool) public isHook;
+    /// @notice Once true, `setHook` is gone for good.
+    bool public hookLocked;
     /// @notice Launchpad registry: the only legitimate migrate caller is `launchpad.curveOf(token)` (audit #1).
     address public launchpad;
 
@@ -50,8 +59,12 @@ contract Migration is IMigration, Owned2Step {
     error OnlyCurve();
     error QuoteMismatch();
     error LaunchpadAlreadySet();
+    error HookLocked();
+    error BadHook();
 
     event LaunchpadSet(address indexed launchpad);
+    event HookSet(address indexed hook);
+    event HookLockedForever();
 
     event Migrated(
         address indexed token,
@@ -66,6 +79,29 @@ contract Migration is IMigration, Owned2Step {
         lockedLP = LockedLP(lockedLP_);
         poolManager = IPoolManager(poolManager_);
         hook = DiscipleHook(hook_);
+        isHook[hook_] = true;
+    }
+
+    /// @notice Owner points NEW graduations at another DiscipleHook. Coins already graduated keep theirs. The hook must
+    ///         be on this PoolManager, have the same permission flags, and already be wired to this Migration.
+    function setHook(address h) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (hookLocked) revert HookLocked();
+        uint160 flags = Hooks.BEFORE_INITIALIZE_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG;
+        if (
+            h.code.length == 0 || uint160(h) & Hooks.ALL_HOOK_MASK != flags
+                || address(DiscipleHook(h).poolManager()) != address(poolManager) || DiscipleHook(h).migration() != address(this)
+        ) revert BadHook();
+        hook = DiscipleHook(h);
+        isHook[h] = true;
+        emit HookSet(h);
+    }
+
+    /// @notice Owner ends hook swaps for good.
+    function lockHook() external {
+        if (msg.sender != owner) revert OnlyOwner();
+        hookLocked = true;
+        emit HookLockedForever();
     }
 
     /// @notice One-time wire of the Launchpad (deployed after Migration because Launchpad stores it immutably).
@@ -100,6 +136,7 @@ contract Migration is IMigration, Owned2Step {
         lockedLP.addLockedLiquidity(token, quote, tokenAmount, quoteAmount);
 
         // Currency order: currency0 < currency1
+        DiscipleHook h = hook;
         bool tokenIsC0 = uint160(token) < uint160(quote);
         Currency currency0 = Currency.wrap(tokenIsC0 ? token : quote);
         Currency currency1 = Currency.wrap(tokenIsC0 ? quote : token);
@@ -109,7 +146,7 @@ contract Migration is IMigration, Owned2Step {
             currency1: currency1,
             fee: POOL_FEE,
             tickSpacing: TICK_SPACING,
-            hooks: IHooks(address(hook))
+            hooks: IHooks(address(h))
         });
 
         uint256 amount0 = tokenIsC0 ? tokenAmount : quoteAmount;
@@ -136,7 +173,8 @@ contract Migration is IMigration, Owned2Step {
         address creator = ILaunchpadRecord(lp).creatorOf(token);
         if (creator == address(0)) creator = ICurveRecord(msg.sender).creator();
         creatorOf[token] = creator;
-        hook.registerPool(key, token, quote, creator, _quotePriceFromCurve(msg.sender));
+        hookOf[token] = address(h);
+        h.registerPool(key, token, quote, creator, _quotePriceFromCurve(msg.sender));
 
         PoolId id = key.toId();
         poolId = PoolId.unwrap(id);

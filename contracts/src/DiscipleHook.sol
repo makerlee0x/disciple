@@ -33,6 +33,7 @@ interface IHookLockedLP {
 
 interface IHookCreatorFeeDestination {
     function creatorFeeDestinationOf(address token) external view returns (uint8);
+    function creatorFeeRecipientOf(address token, address creator) external view returns (address);
 }
 
 /// @title Post-grad 1% trade-fee hook (§3 / LOCKED #11, maker 2026-11-19: the hook keeps the fee, claims later)
@@ -277,6 +278,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         } else {
             to = IHookLaunchpad(IMigrationLockedLP(migration).launchpad()).creatorOf(token);
             if (to == address(0)) to = m.creator;
+            if (h != address(0)) to = IHookCreatorFeeDestination(h).creatorFeeRecipientOf(token, to); // Pays to
             if (quoteAmount != 0) creatorQuotePaidTo[token][to] += quoteAmount;
             _pay(m.quote, token, to, quoteAmount, tokenAmount);
         }

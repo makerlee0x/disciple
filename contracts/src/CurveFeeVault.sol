@@ -22,6 +22,7 @@ interface IFeeRouterConfig {
 ///      creatorOf of every coin it launches).
 interface IAnonStealthOwner {
     function stealthOwnerOf(address token) external view returns (address);
+    function payeeOf(address token) external view returns (address);
 }
 
 interface ILaunchpadView {
@@ -105,6 +106,8 @@ contract CurveFeeVault is EIP712 {
     error BadSignature();
     /// @notice Destination 1 or 2. The later-send contract pulls these fees. The launcher cannot claim them.
     error CreatorFeesRouted();
+    /// @notice maker 2026-11-19: only the coin's current creator claims; a past creator's balance moves to them.
+    error NotCurrentCreator();
 
     /// @notice Same fields as FeeRouter.TradeFeeRouted (lpShare = the share the curve kept; trader 0 = batch settle).
     event CurveFeeSettled(
@@ -122,6 +125,7 @@ contract CurveFeeVault is EIP712 {
         uint256 kolShare
     );
     event CreatorFeesClaimed(address indexed token, address indexed creator, uint256 amount);
+    event PastCreatorFeesSwept(address indexed token, address indexed past, address indexed current, uint256 amount);
     event ReferrerFeesClaimed(address indexed quote, address indexed referrer, uint256 amount);
     event TreasuryFeesClaimed(address indexed asset, address indexed treasury, uint256 amount);
     /// @notice A private coin's creator fees (creatorAccrued[token][anonLauncher]) paid on its stealth owner's claim.
@@ -205,16 +209,21 @@ contract CurveFeeVault is EIP712 {
         }
     }
 
-    /// @notice Creator claim: settles the coin's owed fees first, then pays msg.sender's accrued share.
+    /// @notice Creator claim (current creator only): settles the coin's owed fees first, then pays the creator's
+    ///         accrued share to their Pays to wallet. A past creator's balance: sweepPastCreatorFees_1311 first.
     function claimCreatorFees(address token) external returns (uint256 amount) {
         _revertIfRouted(token);
+        if (msg.sender != _currentCreator(token)) revert NotCurrentCreator();
         address c = _settle(token);
         if (c == address(0)) revert NothingToClaim();
         address quote = ISettleCurve(c).quote(); // never caller-supplied
         amount = creatorAccrued[token][msg.sender];
         if (amount == 0) revert NothingToClaim();
         creatorAccrued[token][msg.sender] = 0;
-        IERC20(quote).safeTransfer(msg.sender, amount);
+        address h = _harvest();
+        IERC20(quote).safeTransfer(
+            h == address(0) ? msg.sender : ICreatorFeeDestination(h).creatorFeeRecipientOf(token, msg.sender), amount
+        );
         emit CreatorFeesClaimed(token, msg.sender, amount);
     }
 
@@ -249,6 +258,7 @@ contract CurveFeeVault is EIP712 {
         if (!feeRouter.isClaimRouter(msg.sender)) revert OnlyClaimRouter();
         // Destination 1 or 2 is pulled only by the later-send contract, the same rule as FeeRouter.
         if (_destination(token) > 0 && msg.sender != _harvest()) revert CreatorFeesRouted();
+        if (msg.sender != _harvest() && creator != _currentCreator(token)) revert NotCurrentCreator();
         address c = _settle(token);
         if (c == address(0)) return 0;
         amount = creatorAccrued[token][creator];
@@ -256,6 +266,23 @@ contract CurveFeeVault is EIP712 {
         creatorAccrued[token][creator] = 0;
         IERC20(ISettleCurve(c).quote()).safeTransfer(msg.sender, amount);
         emit CreatorFeesClaimed(token, creator, amount);
+    }
+
+    /// @notice maker 2026-11-19 "the new creator gets the fees": settles `token`, then moves what is still booked to
+    ///         a past creator onto the current creator. Anyone may call it; nothing is paid out.
+    function sweepPastCreatorFees_1311(address token, address past) external returns (uint256 amount) {
+        address current = _currentCreator(token);
+        if (current == address(0) || past == current) revert NotCurrentCreator();
+        _settle(token);
+        amount = creatorAccrued[token][past];
+        if (amount == 0) revert NothingToClaim();
+        creatorAccrued[token][past] = 0;
+        creatorAccrued[token][current] += amount;
+        emit PastCreatorFeesSwept(token, past, current, amount);
+    }
+
+    function _currentCreator(address token) internal view returns (address) {
+        return ILaunchpadView(feeRouter.launchpad()).creatorOf(token);
     }
 
     // ── private launches (AnonLauncher stealth owner) ──
@@ -270,6 +297,22 @@ contract CurveFeeVault is EIP712 {
         if (amount == 0) revert NothingToClaim();
         IERC20(quote).safeTransfer(to, amount);
         emit StealthCreatorFeesClaimed(token, msg.sender, to, quote, amount);
+    }
+
+    /// @notice Pays to, private coin: anyone pays the coin's creator fees to the wallet its stealth owner picked on
+    ///         AnonLauncher (`payeeOf`). The caller gets nothing.
+    function claimAnonToPayee(address token) external returns (uint256 amount) {
+        address al = anonLauncher;
+        address payee = al == address(0) ? address(0) : IAnonStealthOwner(al).payeeOf(token);
+        if (payee == address(0)) revert ZeroAddress();
+        address so = IAnonStealthOwner(al).stealthOwnerOf(token);
+        _checkStealthOwner(token, so);
+        _revertIfRouted(token);
+        address quote;
+        (quote, amount) = _takeAnon(token);
+        if (amount == 0) revert NothingToClaim();
+        IERC20(quote).safeTransfer(payee, amount);
+        emit StealthCreatorFeesClaimed(token, so, payee, quote, amount);
     }
 
     /// @notice Gasless: anyone submits the stealth owner's EIP-712 Claim (AnonLauncher's struct, this vault's domain
@@ -387,4 +430,5 @@ interface IHarvestPointer {
 
 interface ICreatorFeeDestination {
     function creatorFeeDestinationOf(address token) external view returns (uint8);
+    function creatorFeeRecipientOf(address token, address creator) external view returns (address);
 }

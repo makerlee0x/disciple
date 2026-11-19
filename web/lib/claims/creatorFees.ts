@@ -41,12 +41,25 @@ export const hookClaimsAbi = parseAbi([
   "function claimable(address token, uint8 share) view returns (uint256 quoteAmount, uint256 tokenAmount)",
   "function claimCreatorFees(address token) returns (uint256 quoteAmount, uint256 tokenAmount)",
 ]);
-/** Creator share still held by the hook for `token` (0s on an older hook or an unset address). */
-export async function hookCreatorClaimable(pc: PublicClient, token: Address): Promise<{ quote: bigint; token: bigint }> {
-  const h = deployment().hook;
-  if (!h || /^0x0{40}$/i.test(h)) return { quote: ZERO, token: ZERO };
+const migrationHookAbi = parseAbi(["function hookOf(address token) view returns (address)"]);
+const isZero = (a?: string) => !a || /^0x0{40}$/i.test(a);
+/** The coin's own pool hook: Migration.hookOf (maker 2026-11-19: new coins can graduate on a newer hook), else the
+ *  deployment hook (older Migration). */
+export async function hookOfToken(pc: PublicClient, token: Address): Promise<Address | null> {
+  const m = deployment().migration;
+  if (!isZero(m)) {
+    const h = await (pc.readContract({ address: m, abi: migrationHookAbi, functionName: "hookOf", args: [token] }) as Promise<Address>).catch(() => null);
+    if (h && !isZero(h)) return h;
+  }
+  const d = deployment().hook;
+  return isZero(d) ? null : d;
+}
+/** Creator share still held by the coin's hook (0s on an older hook or an unset address). */
+export async function hookCreatorClaimable(pc: PublicClient, token: Address): Promise<{ quote: bigint; token: bigint; hook?: Address }> {
+  const h = await hookOfToken(pc, token);
+  if (!h) return { quote: ZERO, token: ZERO };
   const r = await (pc.readContract({ address: h, abi: hookClaimsAbi, functionName: "claimable", args: [token, 0] }) as Promise<readonly [bigint, bigint]>).catch(() => [ZERO, ZERO] as const);
-  return { quote: r[0], token: r[1] };
+  return { quote: r[0], token: r[1], hook: h };
 }
 export type Accrual = { amount: bigint; trader: Address; tx: Hex; block: bigint; ts?: number; side: "quote" | "token" };
 export type CreatorRocket = {
@@ -72,7 +85,7 @@ export type CreatorRocket = {
    *  Absent ⇒ all of `claimable` (pre-lp-accrue rows). */
   baseClaimable?: bigint;
   /** Creator share still held by DiscipleHook (graduated pools). Included in `claimable` / `tokenSide.claimable`. */
-  hook?: { quote: bigint; token: bigint };
+  hook?: { quote: bigint; token: bigint; hook?: Address };
   /** Launched with creator fees sent to the locked pool (1) or to buy-and-burn (2). Nothing here is claimable:
    *  FeeRouter / CurveFeeVault / AnonLauncher refuse the creator, and CreatorFeeHarvest.route moves the fees. */
   routed?: 1 | 2;
@@ -283,7 +296,7 @@ export function creatorClaimCalls(rows: ClaimRow[], caps: Caps, me?: Address): C
     if (caps.creatorFees && baseOf(r) > ZERO) calls.push({ to: fr, data: encodeFunctionData({ abi: feeRouterAbi, functionName: "claimCreatorFees", args: [r.token] }) });
     if (vaultPart(r) > ZERO) calls.push({ to: r.vault!, data: encodeFunctionData({ abi: curveFeeVaultAbi, functionName: "claimCreatorFees", args: [r.token] }) });
     if (caps.creatorTokenFees && hasTok) calls.push({ to: fr, data: encodeFunctionData({ abi: feeRouterAbi, functionName: "claimCreatorTokenFees", args: [r.token] }) });
-    if (hk.quote > ZERO || hk.token > ZERO) calls.push({ to: deployment().hook, data: encodeFunctionData({ abi: hookClaimsAbi, functionName: "claimCreatorFees", args: [r.token] }) });
+    if (hk.quote > ZERO || hk.token > ZERO) calls.push({ to: hk.hook ?? deployment().hook, data: encodeFunctionData({ abi: hookClaimsAbi, functionName: "claimCreatorFees", args: [r.token] }) });
   }
   if (caps.anonClaims && me) for (const [al, tokens] of Array.from(byLauncher.entries()))
     calls.push({ to: al, data: encodeFunctionData({ abi: anonLauncherAbi, functionName: "claimMany", args: [tokens, me] }) });

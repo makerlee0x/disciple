@@ -8,6 +8,7 @@ import {Constants} from "./libraries/Constants.sol";
 import {FeeMath} from "./libraries/FeeMath.sol";
 import {CurveMath} from "./libraries/CurveMath.sol";
 import {Token} from "./Token.sol";
+import {TokenDeployer} from "./TokenDeployer.sol";
 import {BondingCurve} from "./BondingCurve.sol";
 import {CurveDeployer} from "./CurveDeployer.sol";
 import {ILaunchpad} from "./interfaces/ILaunchpad.sol";
@@ -45,6 +46,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
     IQuotePricer public pricer;
     /// @notice BondingCurve factory (separate contract to keep Launchpad under the size limit).
     CurveDeployer public curveDeployer;
+    bool public curveDeployerLocked;
 
     mapping(address => bool) public override isLaunched;
     mapping(address => address) public override curveOf;
@@ -140,6 +142,23 @@ contract Launchpad is ILaunchpad, Owned2Step {
         feeRouter = feeRouter_;
         antiSnipe = antiSnipe_;
         migration = migration_;
+        // Pre-orbit v4 block (maker 2026-11-19): each Token refuses transfers into the PoolManager until orbit, except
+        // LockedLP seeding the real pool. Read once here so the launch path only passes two words.
+        (_v4PoolManager, _v4LockedLP) = _v4Pointers(migration_);
+        tokenDeployer = new TokenDeployer(); // EIP-170: Token creation code lives there, not in this runtime
+    }
+
+    TokenDeployer public immutable tokenDeployer;
+
+    address internal immutable _v4PoolManager;
+    address internal immutable _v4LockedLP;
+
+    function _v4Pointers(address m) private view returns (address pm, address llp) {
+        if (m.code.length == 0) return (address(0), address(0));
+        (bool ok, bytes memory r) = m.staticcall(abi.encodeWithSignature("poolManager()"));
+        if (ok && r.length >= 32) pm = abi.decode(r, (address));
+        (ok, r) = m.staticcall(abi.encodeWithSignature("lockedLP()"));
+        if (ok && r.length >= 32) llp = abi.decode(r, (address));
     }
 
     /// @notice Owner/multisig sets STRATEGY (or replacement) as the default launch quote.
@@ -150,12 +169,18 @@ contract Launchpad is ILaunchpad, Owned2Step {
         emit DefaultQuoteUpdated(quote_);
     }
 
-    /// @notice Write-once (audit 2026-11-17 R461-01): Launchpad authorizes whatever the deployer returns to book fee
-    ///         credit in FeeRouter, so a swappable deployer would let the owner mint fee credit. New curve logic = new stack.
+    /// @notice Curve code for NEW launches (maker 2026-11-19: swappable at once by the owner until `lockCurveDeployer`;
+    ///         existing coins keep their curve). Trust: the deployer's curves are authorized on FeeRouter.
     function setCurveDeployer(address d) external {
-        if (msg.sender != owner) revert OnlyOwner();
-        if (address(curveDeployer) != address(0) || d.code.length == 0) revert CurveDeployerUnset();
+        if (msg.sender != owner || curveDeployerLocked) revert OnlyOwner();
+        if (d.code.length == 0) revert CurveDeployerUnset();
         curveDeployer = CurveDeployer(d);
+    }
+
+    /// @notice Ends curve swaps for good.
+    function lockCurveDeployer() external {
+        if (msg.sender != owner) revert OnlyOwner();
+        curveDeployerLocked = true;
     }
 
     /// @notice Protocol owner sets the creator-buy cap for FUTURE launches (ceiling 7.77%).
@@ -302,8 +327,10 @@ contract Launchpad is ILaunchpad, Owned2Step {
             }
         }
 
-        Token t = new Token(
-            params.name, params.ticker, creator, address(this), address(this), mode == Constants.MODE_PVE
+        Token t = Token(
+            tokenDeployer.deploy(
+                params.name, params.ticker, creator, mode == Constants.MODE_PVE, _v4PoolManager, _v4LockedLP
+            )
         );
 
         // USD price is derived on-chain (never caller-supplied); reverts if no USDG reference pool.
@@ -401,11 +428,10 @@ contract Launchpad is ILaunchpad, Owned2Step {
     }
 
     /// @notice Transfer creator ownership pack (§5 / #26): metadata + fee claim + tax rights.
-    /// @dev Fees already booked to the previous creator (FeeRouter.creatorAccrued, and CurveFeeVault.creatorAccrued
-    ///      for fees settled before the transfer) stay with them (claim anytime). lp-accrue curves (L1, lee
-    ///      2026-11-09 "Leave it, the new creator gets unsettled fees"): curve-phase fees that are still owed on the
-    ///      curve (not yet settled) are booked at settle time to the creator of record THEN, so they go to the new
-    ///      creator. To keep them, call BondingCurve.settleFees() (permissionless) before transferring.
+    /// @dev maker 2026-11-19 "the new creator gets the fees": every unclaimed creator fee follows the role. Only the
+    ///      current creator can claim on FeeRouter / CurveFeeVault; a balance still booked to a past creator moves to
+    ///      the current one with `sweepPastCreatorFees_1311` (anyone). Pool fees on the hook are paid to creatorOf at
+    ///      claim time. A creator's "Pays to" pick (CreatorFeeHarvest) does not carry over.
     function transferCreator(address token, address newCreator) external {
         LaunchMeta storage m = metaOf[token];
         if (msg.sender != m.creator) revert OnlyCreator();

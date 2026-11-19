@@ -26,7 +26,7 @@ contract TokenBurnTest is Test {
     address bob = makeAddr("bob");
 
     function _token(bool pve) internal returns (Token t) {
-        t = new Token("Coin", "C", creator, address(this), address(this), pve);
+        t = new Token("Coin", "C", creator, address(this), address(this), pve, address(0), address(0));
     }
 
     function test_burn_dropsTotalSupply() public {

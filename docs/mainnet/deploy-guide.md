@@ -37,14 +37,33 @@ keeper, a bot or a person can run them. Nothing needs a cron for trading to work
 Referrers are still paid by hand from the daily referral spreadsheet (`/api/cron/referral-payout`), which reads the
 router's trade event and `ReferralRegistry`.
 
-## 3. Owner settings that stay adjustable
+## 3. Team settings that stay adjustable
 
 | Setting | Default | Range | Who | Affects |
 |---|---|---|---|---|
-| `Launchpad.setCrewTipPpm` (Easy holder tip) | 33,000 ppm (3.3%) | 0 to 120,000 (12%) | Launchpad owner | new coins only |
-| `Launchpad.setCrewTipThresholdBps` (tip cutoff, share of mcap) | 50 (0.5%) | 10 to 1,200 (12%) | Launchpad owner | new coins only |
+| `Launchpad.setCrewTipPpm` (Easy holder tip) | 33,000 ppm (3.3%) | 0 to 120,000 (12%) | Team | new coins only |
+| `Launchpad.setCrewTipThresholdBps` (tip cutoff, share of mcap) | 50 (0.5%) | 10 to 1,200 (12%) | Team | new coins only |
 
-Nothing in the hook is adjustable: fee, split and recipients are fixed at deploy, and the admin is renounced.
+Nothing inside a hook is adjustable: fee, split and recipients are fixed when it is deployed, and its admin is renounced.
+
+### Swapping the curve or hook for new coins (Team only, instant)
+
+maker 2026-11-19: a bug fix in the curve or the hook is one new deploy, nothing else.
+
+| Fix | Deploy | Then the Team calls | Lock forever |
+|---|---|---|---|
+| Curve | new `CurveDeployer(feeVault)` (holds the new BondingCurve code) | `Launchpad.setCurveDeployer(newDeployer)` | `Launchpad.lockCurveDeployer()` |
+| Hook | new `DiscipleHook` (CREATE2-mined flags, same PoolManager), then on it `setMigration(migration)`, `setCreatorFeeHarvest(harvest)`, `setPricer(pricer)`, `renounceAdmin()` | `Migration.setHook(newHook)` | `Migration.lockHook()` |
+| Router | new `DiscipleRouter` | `Launchpad.setTrustedRouter(newRouter, true)` | |
+
+Coins already launched keep their curve; coins already graduated keep their pool's hook (a v4 pool's hook can never change). `Migration.hookOf(token)` says which hook a coin uses; DiscipleRouter, LockedLP, AnonLauncher and the site read it per coin.
+
+Trust: the Team key can point new launches at any curve or hook it deploys, until locked. A new curve is authorized on FeeRouter like every curve.
+
+### Coin creator changes
+
+- **Pays to**: the coin creator picks a wallet for their creator fees, `CreatorFeeHarvest.setCreatorFeeRecipient(token, wallet)` (hidden coins: `AnonLauncher.setPayeeBySig`). Covers curve and pool claims. A new coin creator starts with no pick.
+- **New coin creator gets every unclaimed fee**: only the current coin creator can claim on FeeRouter / CurveFeeVault. A balance still booked to a past coin creator moves over with `sweepPastCreatorFees_1311(token, past)` (anyone).
 
 ## 4. Deploy
 
@@ -92,7 +111,8 @@ for row in \
   "src/RewardsVault.sol:RewardsVault <rewardsVault>" \
   "src/addons/CreatorFeeHarvest.sol:CreatorFeeHarvest <harvest>" \
   "src/addons/AnonLauncher.sol:AnonLauncher <anonLauncher>" \
-  "src/addons/MarketLens.sol:MarketLens <marketLens>"; do
+  "src/addons/MarketLens.sol:MarketLens <marketLens>" \
+  "src/TokenDeployer.sol:TokenDeployer <launchpad.tokenDeployer()>"; do
   set -- $row
   forge verify-contract "$2" "$1" --chain-id 4663 --verifier blockscout --verifier-url "$EXPLORER" \
     --rpc-url https://rpc.mainnet.chain.robinhood.com --guess-constructor-args --watch

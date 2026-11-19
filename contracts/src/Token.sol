@@ -12,17 +12,6 @@ interface IPveCurveHook {
     function onTokenTransfer(address from, address to, uint256 amount) external;
 }
 
-/// @dev Pre-orbit v4 block: the Launchpad's Migration (pool manager + LockedLP + graduation record).
-interface ITokenLaunchpadMigration {
-    function migration() external view returns (address);
-}
-
-interface ITokenMigration {
-    function poolManager() external view returns (address);
-    function lockedLP() external view returns (address);
-    function isGraduated(address token) external view returns (bool);
-}
-
 /// @title DISCIPLE ERC-20 launch token
 /// @notice Fixed 1M supply at launch, 18 decimals, no further mint (§2 / LOCKED #7, #10). Holders may burn their own
 ///         tokens (`burn`) or an approved holder's (`burnFrom`): `totalSupply()` really drops (redeploy pack, lee
@@ -42,7 +31,6 @@ contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
     ///         seeding of the real pool inside the graduation transaction. address(0) (no Migration found) = off.
     address public immutable poolManager;
     address internal immutable _lockedLP;
-    address internal immutable _migration;
     /// @notice The coin's curve (set once by the Launchpad, every mode; the name is kept for the ABI) and whether the
     ///         coin is still pre-orbit (cleared by the curve at graduation). One packed slot. PVE transfer
     ///         notifications run only while `pveHooks && pveLive`.
@@ -67,7 +55,9 @@ contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
         address creator_,
         address launchpad_,
         address recipient_,
-        bool pveHooks_
+        bool pveHooks_,
+        address poolManager_,
+        address lockedLP_
     )
         ERC20(name_, symbol_)
         ERC20Permit(name_)
@@ -78,24 +68,10 @@ contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
         creator = creator_;
         launchpad = launchpad_;
         pveHooks = pveHooks_;
-        (address pm, address llp, address mig) = _v4Pointers(launchpad_);
-        poolManager = pm;
-        _lockedLP = llp;
-        _migration = mig;
+        poolManager = poolManager_; // address(0) leaves the pre-orbit v4 block off
+        _lockedLP = lockedLP_;
         // Fixed supply at launch; no further mint (§2).
         _mint(recipient_, Constants.TOTAL_SUPPLY);
-    }
-
-    /// @dev Launchpad.migration() → Migration.poolManager()/lockedLP(); zeros when the launchpad has none (tests).
-    function _v4Pointers(address lp) private view returns (address pm, address llp, address mig) {
-        (bool ok, bytes memory r) = lp.staticcall(abi.encodeWithSelector(ITokenLaunchpadMigration.migration.selector));
-        if (!ok || r.length < 32) return (address(0), address(0), address(0));
-        mig = abi.decode(r, (address));
-        if (mig.code.length == 0) return (address(0), address(0), address(0));
-        (ok, r) = mig.staticcall(abi.encodeWithSelector(ITokenMigration.poolManager.selector));
-        if (ok && r.length >= 32) pm = abi.decode(r, (address));
-        (ok, r) = mig.staticcall(abi.encodeWithSelector(ITokenMigration.lockedLP.selector));
-        if (ok && r.length >= 32) llp = abi.decode(r, (address));
     }
 
     /// @notice Launchpad wires the coin's curve once (before any tokens leave the Launchpad), every mode.
@@ -126,11 +102,8 @@ contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
     }
 
     function _update(address from, address to, uint256 value) internal override {
-        // Pre-orbit v4 block. pveLive is cleared at graduation, so a graduated coin pays one warm SLOAD here; a curve
-        // that never clears it (pre-2026-11-19 curves) falls back to Migration's graduation record.
-        if (to == poolManager && to != address(0) && pveLive && from != _lockedLP) {
-            if (!ITokenMigration(_migration).isGraduated(address(this))) revert PoolBeforeOrbit();
-        }
+        // Pre-orbit v4 block: the curve clears pveLive at graduation; LockedLP seeds the real pool inside that tx.
+        if (to == poolManager && to != address(0) && pveLive && from != _lockedLP) revert PoolBeforeOrbit();
         super._update(from, to, value);
         if (pveHooks && pveLive) {
             // creator lock (mode rules v2): the creator's balance may not drop below the First BOOST pre-graduation

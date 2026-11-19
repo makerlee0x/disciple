@@ -33,6 +33,17 @@ interface ILaunchpadCurveOf {
 interface IFeeRouterClaimFor {
     function claimCreatorFeesFor(address token, address creator) external returns (uint256);
     function creatorAccrued(address token, address creator) external view returns (uint256);
+    function creatorFeeHarvest_16() external view returns (address);
+}
+
+/// @dev Migration.isHook: every DISCIPLE hook Migration has graduated coins on.
+interface IMigrationHookSet {
+    function isHook(address h) external view returns (bool);
+}
+
+/// @dev CreatorFeeHarvest.creatorFeeRecipientOf: the creator's "Pays to" wallet for one coin.
+interface ICreatorFeeRecipient {
+    function creatorFeeRecipientOf(address token, address creator) external view returns (address);
 }
 
 /// @dev CurveFeeVault.claimCreatorFeesToRouter (lp-accrue coins' curve-phase creator fees; FeeRouter.isClaimRouter only).
@@ -249,6 +260,10 @@ contract DiscipleRouter is IUnlockCallback {
         if (u == address(0)) revert UsdgNotConfigured();
         if (quote == address(0) || quote == u) revert BadParam();
         if (!UsdgRouteLib.check(poolManager, u, quote, keys, hook)) revert BadPool();
+        address m = lockedLP.migration();
+        for (uint256 i; i < keys.length; ++i) {
+            if (m != address(0) && IMigrationHookSet(m).isHook(address(keys[i].hooks))) revert BadPool();
+        }
         delete _usdgRoute[quote];
         for (uint256 i; i < keys.length; ++i) {
             _usdgRoute[quote].push(keys[i]);
@@ -288,7 +303,9 @@ contract DiscipleRouter is IUnlockCallback {
     /// @notice The graduated v4 pool key for `token` (reverts if not graduated).
     function poolKeyOf(address token) public view returns (PoolKey memory key) {
         key = lockedLP.getPoolKey(token);
-        if (address(key.hooks) != hook || address(key.hooks) == address(0)) revert NotGraduated();
+        // LockedLP only stores keys Migration seeded, so a set hook is that coin's DISCIPLE hook (maker 2026-11-19:
+        // new coins can graduate on a newer hook).
+        if (address(key.hooks) == address(0)) revert NotGraduated();
     }
 
     /// @notice Exact-in buy: spend `quoteIn` of the pool's quote asset for `token`, sent to `recipient`.
@@ -525,7 +542,10 @@ contract DiscipleRouter is IUnlockCallback {
         address v = _feeVaultOf(curve);
         if (v != address(0)) amt = ICurveFeeVaultClaim(v).claimCreatorFeesToRouter(token, msg.sender);
         if (amt == 0 || fr.creatorAccrued(token, msg.sender) != 0) amt += fr.claimCreatorFeesFor(token, msg.sender);
-        usdgOut = _toUsdg(u, q, amt, msg.sender);
+        address h = fr.creatorFeeHarvest_16();
+        usdgOut = _toUsdg(
+            u, q, amt, h == address(0) ? msg.sender : ICreatorFeeRecipient(h).creatorFeeRecipientOf(token, msg.sender)
+        );
         if (usdgOut < minUsdgOut) revert Slippage();
         emit UsdgCreatorFeesClaimed(msg.sender, token, amt, usdgOut);
         _exit();
@@ -1042,8 +1062,9 @@ contract DiscipleRouter is IUnlockCallback {
     function _hopImpact(Hop memory h, uint160 sb) private view returns (uint256) {
         (uint160 sa,,,) = poolManager.getSlot0(h.key.toId());
         if (h.disciple) {
-            (address tokenAddr,,,,) = DiscipleHook(hook).metaOf(h.key.toId());
-            return DiscipleHook(hook).impactBpsFromSqrt(sb, sa, Currency.unwrap(h.key.currency0) == tokenAddr);
+            DiscipleHook dh = DiscipleHook(address(h.key.hooks));
+            (address tokenAddr,,,,) = dh.metaOf(h.key.toId());
+            return dh.impactBpsFromSqrt(sb, sa, Currency.unwrap(h.key.currency0) == tokenAddr);
         }
         return _impactFromSqrt(sb, sa, Currency.unwrap(h.key.currency0) != usdg);
     }
@@ -1144,13 +1165,14 @@ contract DiscipleRouter is IUnlockCallback {
         }
         (uint160 sa,,,) = poolManager.getSlot0(d.key.toId());
         // token is c0 iff buying means zeroForOne == false
-        (address tokenAddr,,,,) = DiscipleHook(hook).metaOf(d.key.toId());
+        DiscipleHook dh = DiscipleHook(address(d.key.hooks));
+        (address tokenAddr,,,,) = dh.metaOf(d.key.toId());
         // Audit #13 / G-1: live quote/USD via the hook view (falls back to launch price). The hook Trade event emits
         // sqrtPriceAfter; off-chain USD mcap from it with this same price equals this quote.
-        uint256 qpx = DiscipleHook(hook).quoteUsdOf(d.key.toId());
+        uint256 qpx = dh.quoteUsdOf(d.key.toId());
         bool tokenIsC0 = Currency.unwrap(d.key.currency0) == tokenAddr;
-        uint256 impact = DiscipleHook(hook).impactBpsFromSqrt(sb, sa, tokenIsC0);
-        uint256 mcap = DiscipleHook(hook).mcapUsdFromSqrt(sa, tokenIsC0, qpx);
+        uint256 impact = dh.impactBpsFromSqrt(sb, sa, tokenIsC0);
+        uint256 mcap = dh.mcapUsdFromSqrt(sa, tokenIsC0, qpx);
         revert QuoteResult(out, impact, mcap);
     }
 

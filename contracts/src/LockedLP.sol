@@ -299,7 +299,10 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         external
         returns (bool compoundReady)
     {
-        if (msg.sender != feeRouter && msg.sender != hook) revert Unauthorized();
+        // maker 2026-11-19: Migration can move new coins to a new hook, so the coin's own pool hook may credit it.
+        if (msg.sender != feeRouter && msg.sender != hook && IMigrationHooks(migration).hookOf(token) != msg.sender) {
+            revert Unauthorized();
+        }
         return _credit(token, quote, tokenAmount, quoteAmount);
     }
 
@@ -749,4 +752,8 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         Position storage p = _positions[token];
         return (p.tickLower, p.tickUpper, p.salt);
     }
+}
+
+interface IMigrationHooks {
+    function hookOf(address token) external view returns (address);
 }
