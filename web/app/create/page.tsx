@@ -52,6 +52,7 @@ import {
   storeCreatorFeeDestination, storeCreatorTax, storeUpload, type CreatorFeeDestination,
 } from "@/lib/quickLaunch";
 import CreatorFeeArt from "@/components/create/CreatorFeeArt";
+import AnonGlyph from "@/components/create/AnonGlyph";
 import s from "@/components/create/quickLaunch.module.css";
 import L from "@/components/create/launch.module.css";
 
@@ -229,6 +230,7 @@ export default function LaunchRocketPage() {
   }
 
   function setFeeDest(v: CreatorFeeDestination) {
+    if (privateLaunch && v === CREATOR_FEE_DESTINATION.creator) return; // hidden launches never keep fees (a claim names a wallet)
     setFeeDestination(v);
     storeCreatorFeeDestination(v);
   }
@@ -355,9 +357,10 @@ export default function LaunchRocketPage() {
     }
     const sendFeeDest = liveCreatorFeeDestination(feeDestination, { private: privateLaunch, harvest: deployment().creatorFeeHarvest });
     if (!keepFees && sendFeeDest === undefined) {
-      setMsg(privateLaunch ? `${C.creatorFeesPrivateLater} Pick "${CREATOR_FEE_COPY[0].sentence}" or turn off Anon launch.` : C.creatorFeesNotHere);
+      setMsg(C.creatorFeesNotHere);
       return;
     }
+    if (privateLaunch && (keepFees || !sendFeeDest)) { setMsg("Hidden launches burn or lock their creator fees."); return; }
     if (sendFeeDest && !HARVEST_USDG_BOOST_LIVE && boostState.usdgIn != null && boostState.usdgIn > BigInt(0)) { setMsg(C.creatorFeesNoBoost); return; }
     const web = normalizeWebsite(website) ?? "";
     if (web !== website.trim()) setWebsite(web);
@@ -446,6 +449,19 @@ export default function LaunchRocketPage() {
   const pairSet = quote.label !== defaultPairLabel;
   const linksSet = !!(twitter.trim() || website.trim() || telegram.trim());
   const feeRoutingOk = creatorFeeRoutingAvailable({ private: privateLaunch, harvest: deployment().creatorFeeHarvest });
+  // hidden launches need pool / burn routing (they can't keep fees), so the switch is off where that isn't live
+  const anonAvailable = creatorFeeRoutingAvailable({ private: true, harvest: deployment().creatorFeeHarvest });
+  function toggleHidden() {
+    if (!anonAvailable) return;
+    const on = !privateLaunch;
+    setPrivateLaunch(on);
+    if (on) {
+      setBoost("0"); // free: no Ticket buy
+      if (feeDestination === CREATOR_FEE_DESTINATION.creator) setFeeDestination(CREATOR_FEE_DESTINATION.lockedPool);
+    } else {
+      setFeeDestination(readStoredCreatorFeeDestination());
+    }
+  }
   const feesSet = tax > 0 || feeDestination !== DEFAULT_CREATOR_FEE_DESTINATION || (!privateLaunch && !!feeReceiver.trim());
 
   const linkGlyph = {
@@ -510,22 +526,25 @@ export default function LaunchRocketPage() {
         <div className={L.moCol}>
           <div className={L.sec} data-testid="creator-fee-destination">
             <div className={L.sh}><span className={L.moIco}><Icon name="fees" size={15} /></span><span className={L.st}>{C.creatorFees}</span>
+              {privateLaunch && <span className={L.anonTag} aria-label="Anon launch"><AnonGlyph size={15} /></span>}
               <Info label="How creator fees work" testId="creator-fee-info" tip={C.creatorFeeTip} /></div>
             <div className={L.fees3} role="radiogroup" aria-label={C.creatorFees}>
               {CREATOR_FEE_DESTINATIONS.map((id) => {
                 const on = feeDestination === id;
-                const off = id !== CREATOR_FEE_DESTINATION.creator && !feeRoutingOk;
+                const anonOff = privateLaunch && id === CREATOR_FEE_DESTINATION.creator;
+                const off = anonOff || (id !== CREATOR_FEE_DESTINATION.creator && !feeRoutingOk);
                 return (
                   <button key={id} type="button" role="radio" aria-checked={on} disabled={off} data-testid={`fee-destination-${id}`}
                     className={`${L.feeSq}${on ? ` ${L.feeOn}` : ""}`} onClick={() => setFeeDest(id)}>
                     <span className={L.feeArt}><CreatorFeeArt dest={id} /></span>
                     <span className={L.feeLbl}>{FEE_SQUARE_LABEL[id]}</span>
+                    {anonOff && <span className={L.anonCorner} aria-label="Not on anon launches"><AnonGlyph size={18} /></span>}
                     {on && <span className={L.tick} aria-hidden><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#121327" strokeWidth="3.5"><path d="M5 12l5 5 9-10" /></svg></span>}
                   </button>
                 );
               })}
             </div>
-            {!feeRoutingOk && <span className={L.note} data-testid="fee-destination-later">{privateLaunch ? C.creatorFeesPrivateLater : C.creatorFeesNotHere}</span>}
+            {!feeRoutingOk && <span className={L.note} data-testid="fee-destination-later">{C.creatorFeesNotHere}</span>}
             <span className={L.note}>{C.creatorFeesPerm}</span>
             <div className={L.feeBig} data-testid="creator-fee-split-advanced">
               <b>{C.creatorFeeBig}</b>
@@ -555,7 +574,7 @@ export default function LaunchRocketPage() {
   return (
     <div className={`${L.page} launch-v3`}>
       <form className={L.grid} onSubmit={onSubmit}>
-        <LaunchPad name={name} ticker={callSign} icon={previewIcon} mode={card.label} modeColor={card.color} seat={seatLabel(boost)} look={look}
+        <LaunchPad name={name} ticker={callSign} icon={previewIcon} mode={card.label} modeColor={card.color} seat={seatLabel(privateLaunch ? "0" : boost)} look={look} hidden={privateLaunch}
           chip={<LookChip look={look} onOpen={() => setLookOpen(true)} onShuffle={() => setLookPick(shuffleLook(lookOpts, lookChoice))} disabled={launching} />}
           tray={lookOpen ? <LookPicker opts={lookOpts} signedIn={signedIn} value={lookChoice} hidden={privateLaunch} onPick={setLookPick} onClose={() => setLookOpen(false)} /> : null} />
 
@@ -636,12 +655,14 @@ export default function LaunchRocketPage() {
                 const label = MODE_LABEL[id];
                 const c = modeCard(label);
                 const on = hiddenExpertOnly ? id === LaunchMode.TRENCH_WARFARE : gameMode === id;
+                const anonOff = hiddenExpertOnly && id !== LaunchMode.TRENCH_WARFARE;
                 return (
                   <button key={id} type="button" role="radio" aria-checked={on} aria-label={c.label} data-testid={`mode-card-${label.toLowerCase()}`}
-                    className={`${L.diff}${on ? ` ${L.diffOn}` : ""}`} style={{ ["--mc" as string]: c.color }}
-                    onClick={() => { setGameMode(id); if (hiddenExpertOnly && id !== MODE_ORDER[MODE_ORDER.length - 1]) setPrivateLaunch(false); }}>
+                    className={`${L.diff}${on ? ` ${L.diffOn}` : ""}${anonOff ? ` ${L.diffAnonOff}` : ""}`} style={{ ["--mc" as string]: c.color }}
+                    onClick={() => { setGameMode(id); if (hiddenExpertOnly && id !== MODE_ORDER[MODE_ORDER.length - 1]) toggleHidden(); }}>
                     <span className={L.band} />
                     {on && <span className={L.tick}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#121327" strokeWidth="3.5" aria-hidden><path d="M5 12l5 5 9-10" /></svg></span>}
+                    {anonOff && <span className={L.anonCorner} aria-hidden><AnonGlyph size={18} /></span>}
                     <span className={L.dHead}><span className={L.lbl}>{c.label}</span></span>
                     <p>{c.bag}</p>
                     <p className={L.dTicket}>{c.ticket}</p>
@@ -654,6 +675,7 @@ export default function LaunchRocketPage() {
 
           <div className={`${L.sec} ${L.aSeat}`}>
             <div className={L.sh}><span className={L.num}>4</span><span className={L.st}>{C.creatorTicket}</span>
+              {privateLaunch && <span className={L.anonTag} aria-label="Anon launches are free" data-testid="ticket-anon"><AnonGlyph size={15} /></span>}
               <Info label="What the Creator Ticket is" testId="creator-ticket-info" tip={
                 <div className={L.tipRows}><p>{CREATOR_TICKET_TIP.lead}</p><p>{CREATOR_TICKET_TIP.byMode[modeLabel === "Trench" ? "Expert" : modeLabel]}</p></div>} /></div>
             <FirstBoostField
@@ -666,11 +688,11 @@ export default function LaunchRocketPage() {
 
           <div className={`${L.sec} ${L.aMore}`}>
             <div className={L.sh}><span className={L.st}>Extras</span></div>
-            <button type="button" className={L.hide} role="switch" aria-checked={privateLaunch} data-testid="private-launch" onClick={() => setPrivateLaunch((v) => !v)}>
+            <button type="button" className={L.hide} role="switch" aria-checked={privateLaunch} data-testid="private-launch" disabled={!anonAvailable}
+              title={anonAvailable ? undefined : "Not switched on here yet"} onClick={toggleHidden}>
               <span className={L.tog} aria-hidden />
-              <span className={L.hideTx}>
-                <b>{C.anonLaunch}</b>
-              </span>
+              <span className={L.hideTx}><b>{C.anonLaunch}</b></span>
+              <span className={L.hideMark} aria-hidden>{anonAvailable ? <AnonGlyph size={18} /> : <Icon name="lock" size={15} />}</span>
             </button>
             <button type="button" className={L.adv} data-testid="advanced-open" onClick={() => setAdvanced(true)}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M4 6h16M4 12h10M4 18h6" /></svg>
@@ -694,7 +716,7 @@ export default function LaunchRocketPage() {
             {!launching && <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M5 12h14M13 6l6 6-6 6" /></svg>}
           </button>
           <div className={L.ctaFoot} ref={howRef}>
-            <span data-testid="creator-fee-split"><FeeLine text={feeSplitLine(feeDestination)} /></span>
+            <span className={privateLaunch ? L.feeFoot : undefined} data-testid="creator-fee-split">{privateLaunch && <AnonGlyph size={15} />}<FeeLine text={feeSplitLine(feeDestination)} /></span>
             <button type="button" className={L.linkBtn} data-testid="how-launching" aria-expanded={howOpen} onClick={() => setHowOpen((v) => !v)}>{C.howLaunching}</button>
             {howOpen && (
               <div className={L.how} data-testid="how-launching-steps">

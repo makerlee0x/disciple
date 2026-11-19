@@ -79,7 +79,7 @@ export const QUICK_LAUNCH_COPY = {
   rewardsPlaceholder: "You",
   rewardsHelp: "One extra confirmation.",
   creatorTax: "Creator tax",
-  creatorTaxHelp: "An extra cut of every trade, on top of the 0.33%. Up to 7%. Locked at launch. High tax scares off traders.",
+  creatorTaxHelp: "An extra cut of every curve trade, on top of the 0.33%. Up to 7%. Ends at orbit, so it is not for life. Locked at launch. High tax scares off traders.",
   pairCoinHelp: "Your rocket trades against this coin. The list is always 12 coins and rotates over time with interest and activity.",
   creatorTicket: "Creator Ticket",
   howLaunching: "How launching works",
@@ -205,9 +205,9 @@ export const CREATOR_TAX_HELP: Record<CreatorFeeDestination, string> = {
 /** Public launches can send 1 and 2 (through CreatorFeeHarvest) on any chain whose deployment has a harvest address. */
 export const CREATOR_FEE_DESTINATION_LIVE = true;
 /**
- * Private launches go through the gasless relayer, which calls CreatorFeeHarvest.launchAnonWithUsdg with refundTo.
- * That argument is new in this harvest; the v6 testnet harvest does not have it. Keep false until the harvest that
- * has it is deployed (mainnet deploy, or a testnet redeploy), then flip.
+ * Hidden launches (maker 2026-11-19): free, creator fees burned or locked in the pool, sent by the relayer through
+ * CreatorFeeHarvest.launchAnon / launchAnonWithMode (lib/trade/freeAnonLaunch). The v6 testnet harvest predates those, so
+ * "Hide my name" stays switched off until the harvest that has them is deployed (mainnet deploy, or a testnet redeploy).
  */
 export const PRIVATE_FEE_ROUTING_LIVE = false;
 /**

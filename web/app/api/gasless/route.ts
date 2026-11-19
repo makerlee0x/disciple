@@ -7,7 +7,7 @@ import { flushRelayTrust } from "@/lib/server/fastRelay";
 import { relayGaslessTrade, requireGaslessMode, warmGasless } from "@/lib/server/gaslessRelay";
 import { quoteGaslessWithdraw, relayGaslessWithdraw } from "@/lib/server/gaslessWithdrawRelay";
 import { quoteGaslessAction, relayGaslessAction } from "@/lib/server/gaslessActionRelay";
-import { relayGaslessAnonLaunch } from "@/lib/server/gaslessAnonLaunchRelay";
+import { relayAnonFreeLaunch, relayGaslessAnonLaunch } from "@/lib/server/gaslessAnonLaunchRelay";
 /**
  * POST /api/gasless — gasless swaps (flow/gasless-permit2). Admitted when the resolved mode is gasless
  * (the default in every environment, including production); otherwise every method is refused notSent.
@@ -17,7 +17,8 @@ import { relayGaslessAnonLaunch } from "@/lib/server/gaslessAnonLaunchRelay";
  * disciple_gaslessWithdraw [request] (same Privy / revoke / strike gate as a trade) ·
  * disciple_gaslessActionQuote [{kind, callCount?, signer?}] (no signature) ·
  * disciple_gaslessAction [request] (same gate; allowlisted claimManyBySig / transferCreatorBySig / tramp pull) ·
- * disciple_gaslessAnonLaunch [request] (same Privy / revoke / strike gate; relayer-submitted private launch).
+ * disciple_gaslessAnonLaunch [request] (closed: it pulled the payment from the player's wallet).
+ * disciple_anonFreeLaunch [{wallet, launch}] (same gate; free hidden launch, burn / locked-pool fees, no wallet in the tx).
  * One JSON answer with the full receipt (eth_sendRawTransactionSync). Never logs signatures, keys or RPC URLs.
  */
 const ID_TOKEN_RE = /^[A-Za-z0-9_\-.]+$/;
@@ -35,7 +36,7 @@ function identityToken(req: Request): string | null {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const METHODS = new Set(["disciple_gaslessTrade", "disciple_gaslessWarm", "disciple_gaslessWithdrawQuote", "disciple_gaslessWithdraw", "disciple_gaslessActionQuote", "disciple_gaslessAction", "disciple_gaslessAnonLaunch"]);
+const METHODS = new Set(["disciple_gaslessTrade", "disciple_gaslessWarm", "disciple_gaslessWithdrawQuote", "disciple_gaslessWithdraw", "disciple_gaslessActionQuote", "disciple_gaslessAction", "disciple_gaslessAnonLaunch", "disciple_anonFreeLaunch"]);
 const GASLESS_IP_LIMIT = 120;   // same relay:ip window as the self-bundler route (per minute)
 
 export async function POST(req: Request) {
@@ -60,6 +61,8 @@ export async function POST(req: Request) {
         ? await relayGaslessWithdraw(body.params[0], { ipGate, metrics, idToken: identityToken(req) })
         : body.method === "disciple_gaslessAction"
           ? await relayGaslessAction(body.params[0], { ipGate, metrics, idToken: identityToken(req) })
+          : body.method === "disciple_anonFreeLaunch"
+            ? await relayAnonFreeLaunch(body.params[0], { ipGate, metrics, idToken: identityToken(req) })
           : body.method === "disciple_gaslessAnonLaunch"
             ? await relayGaslessAnonLaunch(body.params[0], { ipGate, metrics, idToken: identityToken(req) })
             : await relayGaslessTrade(body.params[0], { ipGate, metrics, idToken: identityToken(req) });

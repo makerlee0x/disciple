@@ -192,12 +192,13 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
     const c = (on: boolean, tx = false) => `${L.chip}${tx ? ` ${L.chipTx}` : ""}${on ? ` ${L.on}` : ""}`;
     return (
       <div className={L.sec} data-testid="first-boost-chips" style={{ padding: 0, borderTop: 0 }}>
-        <div className={L.chips} role="group" aria-label="Ticket">
-          <button type="button" className={c(isAmt(0) || value === "")} onClick={() => { setCustomOpen(false); onChange("0"); }}>{QUICK_LAUNCH_COPY.chip0}</button>
-          <button type="button" className={c(isAmt(5))} disabled={maxUsd != null && maxUsd < 5} onClick={() => { setCustomOpen(false); onChange("5"); }}>{QUICK_LAUNCH_COPY.chip5}</button>
-          <button type="button" className={c(isAmt(20))} disabled={maxUsd != null && maxUsd < 20} onClick={() => { setCustomOpen(false); onChange("20"); }}>{QUICK_LAUNCH_COPY.chip20}</button>
-          <button type="button" className={c(isMaxSel)} disabled={!limits || (!!usdg && !maxUsdg)} onClick={() => { setCustomOpen(false); fillMax(); }}>{maxBoostChipLabel(maxUsd)}</button>
-          {customOpen || isCustom ? (
+        {/* hidden launches are free (maker 2026-11-19): $0 stays lit, the rest go dark; the Ticket heading carries the anon mark */}
+        <div className={`${L.chips}${privateLaunch ? ` ${L.anonChips}` : ""}`} role="group" aria-label="Ticket">
+          <button type="button" className={c(privateLaunch || isAmt(0) || value === "")} onClick={() => { setCustomOpen(false); onChange("0"); }}>{QUICK_LAUNCH_COPY.chip0}</button>
+          <button type="button" className={c(!privateLaunch && isAmt(5))} disabled={privateLaunch || (maxUsd != null && maxUsd < 5)} onClick={() => { setCustomOpen(false); onChange("5"); }}>{QUICK_LAUNCH_COPY.chip5}</button>
+          <button type="button" className={c(!privateLaunch && isAmt(20))} disabled={privateLaunch || (maxUsd != null && maxUsd < 20)} onClick={() => { setCustomOpen(false); onChange("20"); }}>{QUICK_LAUNCH_COPY.chip20}</button>
+          <button type="button" className={c(!privateLaunch && isMaxSel)} disabled={privateLaunch || !limits || (!!usdg && !maxUsdg)} onClick={() => { setCustomOpen(false); fillMax(); }}>{maxBoostChipLabel(maxUsd)}</button>
+          {!privateLaunch && (customOpen || isCustom) ? (
             <label className={c(true)}>
               <span aria-hidden>$</span>
               <input className={L.chipInput} inputMode="decimal" autoComplete="off" aria-label="Custom ticket" autoFocus={customOpen}
@@ -209,7 +210,7 @@ export default function FirstBoostField({ pair, pairLabel, creatorTaxBps, ticker
               />
             </label>
           ) : (
-            <button type="button" className={c(isCustom, true)} data-testid="first-boost-custom-open" onClick={() => { setCustomOpen(true); if (value === "" || isAmt(0) || isAmt(5) || isAmt(20) || isMaxSel) onChange(""); }}>{QUICK_LAUNCH_COPY.custom}</button>
+            <button type="button" className={c(!privateLaunch && isCustom, true)} disabled={privateLaunch} data-testid="first-boost-custom-open" onClick={() => { setCustomOpen(true); if (value === "" || isAmt(0) || isAmt(5) || isAmt(20) || isMaxSel) onChange(""); }}>{QUICK_LAUNCH_COPY.custom}</button>
           )}
         </div>
         {/* one short line under the chips (the launch builder fits on one screen): the error, else the cap + Easy rules */}

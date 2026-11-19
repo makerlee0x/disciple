@@ -9,12 +9,15 @@ import type { CoinLook } from "@/lib/coinLook";
 import HeroPad from "@/components/home/HeroPad";
 import { withBase } from "@/lib/base-path";
 import s from "./launch.module.css";
+import AnonGlyph from "./AnonGlyph";
 
 const GRAIN_SRC = "/home/pad/grain.webp";
 
 /** `look` puts the picked skin on the pad; `chip` (the look chip) sits on the right, above the nameplate; `tray` (the look picker) opens over the stage. */
-export default function LaunchPad({ name, ticker, icon, mode, modeColor, seat, look, chip, tray }: {
+export default function LaunchPad({ name, ticker, icon, mode, modeColor, seat, look, chip, tray, hidden = false }: {
   name: string; ticker: string; icon: string | null; mode: string; modeColor: string; seat: string; look?: CoinLook | null; chip?: ReactNode; tray?: ReactNode;
+  /** hidden launch: the anon tag rides next to the mode tag */
+  hidden?: boolean;
 }) {
   // idle layers (smog, glow, stars) load after first paint, like the lobby
   const [go, setGo] = useState(false);
@@ -30,7 +33,10 @@ export default function LaunchPad({ name, ticker, icon, mode, modeColor, seat, l
         <div className={s.stageTitle}>
           <h1>Launch<br />a rocket</h1>
         </div>
-        <span className={s.modeTag} data-testid="pad-mode">● {mode}</span>
+        <div className={s.padTags}>
+          {hidden && <span className={s.anonPadTag} data-testid="pad-anon"><AnonGlyph size={16} />Anon</span>}
+          <span className={s.modeTag} data-testid="pad-mode">● {mode}</span>
+        </div>
       </div>
       {chip && <div className={s.lookDock}>{chip}</div>}
       <div className={s.plate}>
