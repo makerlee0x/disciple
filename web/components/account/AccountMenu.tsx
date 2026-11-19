@@ -27,6 +27,8 @@ export const ACCOUNT_COPY = {
   copied: "Link copied",
   ready: (v: string) => `${v} ready`,
   settings: "Settings",
+  howToPlay: "How to play",
+  docs: "Docs",
   signOut: "Sign out",
   xpTo: (n: number, next: number) => `${n.toLocaleString("en-US")} XP to ${next}`,
   level: (n: number) => `Level ${n}`,
@@ -36,6 +38,8 @@ export const ACCOUNT_COPY = {
 export const REWARDS_HREF = "/profile#rewards";
 
 const I = {
+  help: <><circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01" /></>,
+  docs: <path d="M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h5" />,
   hangar: <path d="M3 10l9-6 9 6v10H3zM9 20v-6h6v6" />,
   topPilots: <path d="M5 20V12M12 20V5M19 20v-5" />,
   trophies: <path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 20h8" />,
@@ -89,6 +93,9 @@ export default function AccountMenu({ wallet, name, initial, onClose, onSignOut 
         <a role="menuitem" className="am-i" href={REWARDS_HREF} onClick={onClose} data-testid="account-rewards"><Ico d={I.rewards} />{ACCOUNT_COPY.rewards}{ready > 0.004 && <span className="am-r gold">{ACCOUNT_COPY.ready(usd2(ready))}</span>}</a>
         <button role="menuitem" type="button" className="am-i" onClick={() => void invite()} data-testid="account-invite"><Ico d={I.invite} />{copied ? ACCOUNT_COPY.copied : ACCOUNT_COPY.invite}</button>
         <Link role="menuitem" className="am-i" href={SETTINGS_HREF} scroll={false} onClick={(e) => { onClose(); onSettingsClick(e); }}><Ico d={I.settings} />{ACCOUNT_COPY.settings}</Link>
+        {/* the top bar "?" moved in here when the balance joined the pilot pill (maker 2026-11-19) */}
+        <Link role="menuitem" className="am-i" href="/how-it-works" onClick={onClose}><Ico d={I.help} />{ACCOUNT_COPY.howToPlay}</Link>
+        <Link role="menuitem" className="am-i" href="/docs" onClick={onClose}><Ico d={I.docs} />{ACCOUNT_COPY.docs}</Link>
         <span className="am-sep" />
         <button role="menuitem" type="button" className="am-i dim" onClick={() => { onClose(); onSignOut(); }} data-testid="account-signout"><Ico d={I.out} />{ACCOUNT_COPY.signOut}</button>
       </div>

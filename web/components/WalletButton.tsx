@@ -1,6 +1,5 @@
 "use client";
 
-import HelpButton from "@/components/HelpButton";
 import Link from "next/link";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
@@ -97,7 +96,8 @@ function PillProgress({ progress }: { progress: number }) {
   })() : "";
   return (
     <svg ref={ref} className="wb-prog" width={box?.w ?? 0} height={box?.h ?? 0} aria-hidden>
-      {d && <path d={d} pathLength={100} fill="none" stroke="var(--dsc3-light-gold)" strokeWidth={sw} strokeLinecap="round" strokeDasharray={`${p * 100} 100`} />}
+      {/* nothing at 0 XP: a zero-length round-capped dash paints a stray gold dot */}
+      {d && p > 0 && <path d={d} pathLength={100} fill="none" stroke="var(--dsc3-light-gold)" strokeWidth={sw} strokeLinecap="round" strokeDasharray={`${p * 100} 100`} />}
     </svg>
   );
 }
@@ -362,10 +362,9 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
             <>
               {compact ? (
                 <>
-                  {/* lobby routes (brand v3 lobby mockup): one cash chip + the pilot chip (level ring + name) */}
-                  <HelpButton />
-                  {/* always shown when signed in: $0.00 until (or unless) the cash read lands */}
-                  {!hideCash && (
+                  {/* lobby routes: one pilot pill (level ring, @name, balance under it; maker 2026-11-19 "too crowded").
+                      The "?" lives in the pilot menu now. The separate cash chip only shows when there is no split pill. */}
+                  {!hideCash && !!addr && !smart && (
                     <a href={DEPOSIT_HREF} onClick={onDepositClick} className="wb-cash" data-testid="cash-card" aria-label="Your cash: open Cash" title="Cash. Boosts spend it, dumps pay it. Tap to add.">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg>
                       <b>{usd2(cashUsd)}</b>
@@ -377,7 +376,15 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
                        Phones have no arrow, so there the arrow button covers the whole pill and a tap opens the menu. */
                     <div className="wb-pilot wb-pilot-split">
                       {pilot.avatar}
-                      <span>{chipLabel(uname, shown)}</span>
+                      <span className="wb-id">
+                        <span className="wb-name">{chipLabel(uname, shown)}</span>
+                        {!hideCash && (
+                          <a href={DEPOSIT_HREF} onClick={onDepositClick} className="wb-bal" data-testid="cash-card" aria-label="Your cash: open Cash">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg>
+                            <b>{usd2(cashUsd)}</b>
+                          </a>
+                        )}
+                      </span>
                       {pilot.hasPfp && <b className="wb-lv" aria-label={`Level ${pilot.info.level}`}>{pilot.info.level}</b>}
                       <PillProgress progress={pilot.info.progress} />
                       <Link href="/profile" className="wb-pilot-go" aria-label="Your Hangar" data-testid="pilot-hangar" onClick={() => setAcct(false)} />
@@ -390,7 +397,11 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
                     <button type="button" className="wb-pilot" aria-label="Your pilot menu" aria-haspopup={smart ? "menu" : undefined} aria-expanded={smart ? acct : undefined} aria-busy={!addr || undefined}
                       onClick={() => { if (!addr) return; if (smart) { if (!acct) dispatchEvent(new Event(TOPBAR_POPOVER_EVENT)); setAcct((v) => !v); return; } navigator.clipboard?.writeText(addr); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>
                       {pilot.avatar}
-                      <span>{copied ? "Copied" : chipLabel(uname, shown)}</span>
+                      {/* while the session loads (saved pill) it already looks like the signed-in pill: name + balance */}
+                      <span className="wb-id">
+                        <span className="wb-name">{copied ? "Copied" : chipLabel(uname, shown)}</span>
+                        {!hideCash && !(addr && !smart) && <span className="wb-bal"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg><b>{usd2(cashUsd)}</b></span>}
+                      </span>
                       {pilot.hasPfp && <b className="wb-lv" aria-label={`Level ${pilot.info.level}`}>{pilot.info.level}</b>}
                       <PillProgress progress={pilot.info.progress} />
                       {(smart || !addr) && <svg className="wb-chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M6 9l6 6 6-6" /></svg>}

@@ -1166,3 +1166,22 @@ html:not([data-you]) .lb-tabs a.lb-you-only, html[data-you] .lb-tabs a.lb-out-on
 .sd-fleetbtn:hover { color: #FFFFFF; border-color: rgba(243,223,168,0.5); }
 .sd-fleetbtn:focus-visible { box-shadow: var(--dsc-glow-focus-ring); outline: none; }
 .cx-big input::placeholder { font: inherit; }
+/* ── one pilot pill (maker 2026-11-19: signed in "way too crowded compared to the out"): level ring, @name and the balance
+   under it in one pill; the "?" moved into the pilot menu. The balance is its own link (opens Cash) over the Hangar link. ── */
+:root { --wb-w-in: var(--wb-pilot-w); }
+.wb-pilot > span.wb-id { flex: 1; min-width: 0; max-width: none; overflow: visible; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font: inherit; white-space: nowrap; }
+.wb-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font: 600 13px / 1 var(--dsc-font-ui); color: #BCC0CA; }
+.wb-bal { position: relative; z-index: 3; display: inline-flex; align-items: center; gap: 6px; color: #FFFFFF; text-decoration: none; border-radius: 6px; }
+.wb-bal svg { flex: none; color: var(--dsc3-signal-up); }
+.wb-bal b { font: 700 18px / 1 var(--dsc-font-game); font-variant-numeric: tabular-nums; }
+.wb-bal:hover b { color: #F3DFA8; }
+.wb-bal:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
+.wb-slot .wb-bal { pointer-events: none; }
+@media (max-width: 720px) {
+  /* phones: ring + balance (no name, no arrow); the balance opens Cash, the rest of the pill opens the menu */
+  .wb-pilot > span.wb-id { display: flex; flex: none; }
+  .wb-name { display: none; }
+  .wb-pilot.wb-pilot-split, .wb-slot .wb-pilot { padding-right: 14px; gap: 8px; }
+  .wb-bal b { font-size: 17px; }
+  :root { --wb-w-in: 132px; }
+}
