@@ -1232,7 +1232,7 @@ function submit(side,usd,force,opt,pct){
   /* @pressfeel (flight mechanics pass, maker 2026-11-13): a BOOST squats the rocket body on the press frame (a spring on the
      drawn y only, ≈6 px, settled in ~150 ms; the altitude, camera and PnL are untouched) and a lock ring marks where the fill
      will land: its arc closes while the trade is in flight, snaps gold on the fill, cracks on a fail. */
-  if(side==='buy') S.kickV=(S.kickV||0)+150;
+  S.kickV=(S.kickV||0)+150;   // both sides (a DUMP used to get nothing on the press frame, so it read as slower than a BOOST)
   (S.locks||(S.locks=[])).push({p,side,usd:S.tradeUsd,t0:S.t,st:'pend',tr:0});
   // the rocket heads for the ghost NOW (visual only, ≤ BA_CAP before the receipt; @boostanim). Its own segment: previous ghost → this one
   const sf=isLive()?1:(S.simF||1);
@@ -1255,7 +1255,7 @@ function submit(side,usd,force,opt,pct){
       if(r.needsConfirm!=='walletcap') tradeNote(r.reason); S.pending=S.pending.filter(q=>q!==p); pushInFlight(); return; }   // wallet limit: the page's card says it (no sky banner too)
     p.state=r.ok?'confirmed':'failed'; lockResolve(p,r&&r.ok?'ok':r&&r.unknown?'gone':'fail');
     if(r&&r.ok&&side==='buy'){ const [nx0,ny0]=nozzleXY(); S.floaters.push({x:nx0+70,y:ny0-120,txt:'+'+fmtShot(p.usd).replace(/\.00$/,'')+' aboard',c:'#F2C14E',life:1.4,game:24}); styleFill(); }
-    if(r&&r.ok&&side==='sell') S.kickV=(S.kickV||0)-120;   // @pressfeel: recoil, the rocket kicks up as the bomb leaves
+    // (a sell's fill no longer kicks the rocket UP: it fought the drop the player just paid for)
     baResolve(ba, !!(r&&r.ok), performance.now(), S.boostAnim, r&&r.txHash);
     if(!(r&&r.ok)&&p.from>0&&proj>0) for(const q of S.pending) if(q!==p&&q.state==='pending'&&q.t0>p.t0){ q.proj*=p.from/proj; q.from*=p.from/proj; }   // later ghosts drop by the failed step   // ok → completes to the ghost; fail → eases back (this trade's share only)
     fillThrust(side,p.usd,pct,r);   // the rocket reacts to the REAL fill only (was: thrust + flare at the click)
@@ -2434,6 +2434,7 @@ const BOMB_ALIASES={daisy:'cruise', warhead:'bunker', moab:'cruise', 'bunker bus
 const BOMB_MERGE_WIN=0.30;   // s (sim time): sells landing within this window merge into one bomb
 const BOMB_MIN_GAP=0.55;     // s between detonations (queue otherwise)
 const BOMB_MAX_ACTIVE=2;     // live blasts on screen (puffs excluded)
+const OWN_BOMB_FALL=0.12;  // s: your own sell's bomb drop (others' keep their tier's fall)
 const BOMB_MAX_QUEUE=2;      // overflow merges into the last queued bomb (×N)
 const SLOWMO_S=0.6, SLOWMO_SCALE=0.3;
 function bombTierOf(pct){ let i=0;   // tier = price impact only; a full-bag dump is NOT automatically an ATOM
@@ -2477,7 +2478,7 @@ function bombStep(dt){
       else S.bombQ.push(f); } }
   // 2) launch respecting gap + max active (puffs don't count)
   let active=0; for (const b of S.bombs) if(b.age<b.T.life*0.6) active++;
-  if (S.bombQ.length && S.t-S.bombQ[0].t>=0.05 && S.t-S.lastBombT>=BOMB_MIN_GAP && active<BOMB_MAX_ACTIVE){
+  if (S.bombQ.length && (S.bombQ[0].mine || S.t-S.bombQ[0].t>=0.05) && S.t-S.lastBombT>=BOMB_MIN_GAP && active<BOMB_MAX_ACTIVE){
     const f=S.bombQ.shift(); launchBomb(bPct(f),f); }
   for (const tm of simTimers) if(!tm.done&&S.t>=tm.at){ tm.done=true; tm.fn(); }
   // 3) advance
@@ -2548,7 +2549,8 @@ const SHOCK_LIVE=sh=>sh.r<sh.R;
 function wobStep(dt){ S.wobV+=(-WOB_W*WOB_W*S.wob-2*WOB_Z*WOB_W*S.wobV)*dt; S.wob=clamp(S.wob+S.wobV*dt,-WOB_MAX,WOB_MAX); if(Math.abs(S.wob)===WOB_MAX) S.wobV*=-0.3; }
 function bfxSpawn(k,x,y,vx,vy,r,gr,life,drag,c,a,g){ const p=S.bfx.spawn(); p.k=k; p.x=x; p.y=y; p.vx=vx; p.vy=vy; p.r=p.r0=r; p.gr=gr; p.life=p.max=life; p.drag=drag; p.c=c; p.a=a; p.g=g||0; return p; }
 function launchBomb(pct,f){
-  const tier=bombTierOf(pct,f&&f.fullStack), T=BOMB_TIERS[tier], tp=tipPoint();
+  // your own DUMP: the boom lands right after the fill (≤ OWN_BOMB_FALL s), not 0.3–0.55 s later; other pilots' bombs keep the full drop
+  const tier=bombTierOf(pct,f&&f.fullStack), T0=BOMB_TIERS[tier], T=f&&f.mine&&T0.fall>OWN_BOMB_FALL?{...T0,fall:OWN_BOMB_FALL}:T0, tp=tipPoint();
   S.lastBombT=S.t; HOOK('bomb',{tier,name:T.name,pct,mine:!!(f&&f.mine)});
   const b={tier,T,pct,x:tp.x,alt:tp.alt,age:0,det:!T.fall,seed:Math.random()*1000,n:(f&&f.n)||1,usd:(f&&f.usd)||0,trader:f&&f.trader,fullStack:f&&f.fullStack,mine:!!(f&&f.mine)};
   if (T.k==='cruise'){ // inbound from above; smoke trail while streaking
@@ -3165,7 +3167,7 @@ function fmtUpPct(p){ return p>=9.95?String(Math.round(p)):Math.max(0.1,Math.cei
 function tierLineEnd(ti){ ctx.save(); ctx.font=GF(20,700); const e=36+ctx.measureText(tierText(ti)).width; ctx.restore(); return e; }   // tier text only (no rules text, pass 3 #2)
 /* GRADUATION SET PIECE (phase 1): the coin leaves the curve live (not on load) → a pearl flash, a gold shock ring off the
    rocket, the 'IN ORBIT' card for 4.5 s and the orbit sting. window.__flightOrbit() plays it for previews / tests. */
-function startOrbitFx(){ S.orbitFx=S.t; S.tierBanner=0; S.screenFlash={t0:S.t,dur:0.6,a:0.3,c:'255,246,220'};   // soft: the rocket stays visible through it sfx('orbit'); haptic([20,40,60]);
+function startOrbitFx(){ S.orbitFx=S.t; S.tierBanner=0; S.screenFlash={t0:S.t,dur:0.6,a:0.3,c:'255,246,220'}; sfx('orbit'); haptic([20,40,60]);   // soft flash: the rocket stays visible through it
   try{ dispatchEvent(new CustomEvent('disciple:orbit',{detail:{at:Date.now()}})); }catch(_){} }
 function drawOrbitCard(){ const age=S.orbitFx!=null?S.t-S.orbitFx:99; if(age>4.5) return;
   const a=clamp(age/0.3,0,1)*clamp((4.5-age)/0.8,0,1), PB=phBand(), BY=PB?PB.top+52:BANNER_Y+20;

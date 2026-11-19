@@ -275,6 +275,53 @@ export async function pollUntilFill(pollers: Pick<LogPoller, "tick" | "head" | "
   return false;
 }
 
+/** A receipt log as the relay returns it (JSON-RPC: block / index may be hex strings). */
+export type RawReceiptLog = { address: string; topics: readonly string[]; data: string; blockNumber?: unknown; logIndex?: unknown; transactionHash?: unknown };
+const toBig = (v: unknown): bigint | undefined => {
+  try { return typeof v === "bigint" ? v : typeof v === "number" || (typeof v === "string" && v !== "") ? BigInt(v) : undefined; } catch { return undefined; }
+};
+/**
+ * Own fill (maker 2026-11-18: sells felt ~1 s slower, the chart lagged the fill): the coin's Trade rows straight from the
+ * receipt logs that came back with the send, in the same shape the log poller builds (curve Trade, else the pool's
+ * PoolManager Swap / old hook Trade, with the router's UsdgTrade $ attached). Pure, no RPC. The orderer dedupes by
+ * tx:logIndex, so when the public RPC (~0.7 s behind) serves the same logs later they are skipped. A log without a block
+ * or index can't be ordered ⇒ nothing is returned and the poller delivers it as before.
+ */
+export function receiptTradeLogs(raw: readonly RawReceiptLog[], o: { token: string; curve: string; quote?: string; trader: string;
+  hook?: string; poolManager?: string; routers?: readonly string[] }): { curve: L[]; hook: L[] } {
+  const lc = (s: unknown) => String(s ?? "").toLowerCase();
+  const token = lc(o.token), routers = new Set((o.routers ?? []).map(lc));
+  const poolId = o.quote && o.hook && !/^0x0{40}$/i.test(o.hook) ? lc(disciplePoolId(o.token, o.quote, o.hook)) : "";
+  const curve: L[] = [], legacy: L[] = [], swaps: L[] = [], usdg: { tx: string; args: UsdgTradeArgs }[] = [], refunds: { tx: string; args: UsdgRefundArgs }[] = [];
+  for (const r of raw) {
+    const blockNumber = toBig(r.blockNumber), li = toBig(r.logIndex), tx = typeof r.transactionHash === "string" ? r.transactionHash : "";
+    if (blockNumber === undefined || li === undefined || !tx) return { curve: [], hook: [] };
+    const base = { address: r.address, topics: r.topics, data: r.data, blockNumber, logIndex: Number(li), transactionHash: tx } as unknown as L;
+    const topics = r.topics as [`0x${string}`, ...`0x${string}`[]], data = r.data as `0x${string}`, at = lc(r.address);
+    try {
+      if (at === lc(o.curve)) {
+        const ev = decodeEventLog({ abi: bondingCurveAbi, data, topics });
+        if (ev.eventName === "Trade") curve.push({ ...base, eventName: "Trade", args: ev.args as unknown as Record<string, unknown> });
+      } else if (o.hook && at === lc(o.hook)) {
+        const ev = decodeEventLog({ abi: [LEGACY_HOOK_TRADE], data, topics });
+        if (lc((ev.args as { token?: string }).token) === token) legacy.push({ ...base, eventName: "Trade", args: ev.args as unknown as Record<string, unknown> });
+      } else if (poolId && o.poolManager && at === lc(o.poolManager)) {
+        const ev = decodeEventLog({ abi: [SWAP_EVENT], data, topics });
+        const a = ev.args as unknown as SwapArgs;
+        if (lc(a.id) === poolId) swaps.push({ ...base, eventName: "Trade", args: { ...hookTradeFromSwap(a, o.token, o.quote!, ZERO_ADDR), trader: o.trader as Address } as unknown as Record<string, unknown> });
+      } else if (routers.has(at)) {
+        const ev = decodeEventLog({ abi: discipleRouterAbi, data, topics });
+        if (ev.eventName === "UsdgTrade") usdg.push({ tx, args: ev.args as unknown as UsdgTradeArgs });
+        else if (ev.eventName === "UsdgRefund") refunds.push({ tx, args: ev.args as unknown as UsdgRefundArgs });
+      }
+    } catch { /* another event of that contract */ }
+  }
+  const idx = usdgIndex(attachRefunds(usdg, refunds));
+  const hook = legacy.length ? legacy : swaps;
+  for (const l of [...curve, ...hook]) (l as L & { usdg?: UsdgTradeArgs }).usdg = idx.get(usdgKey(String(l.transactionHash), String(l.args.token ?? o.token), Boolean(l.args.isBuy)))?.shift();
+  return { curve, hook };
+}
+
 /** Definitive per-tx answers (receipt found): UsdgTrade args or null (no router leg). Last 512 kept. */
 const RECEIPT_USDG = new Map<string, UsdgTradeArgs | null>();
 /**
@@ -410,19 +457,34 @@ export async function watchCurve(token: Address, curve: Address, cb: Cb, pc: Pub
     // own trade: the relay's receipt block (disciple:op confirmed / the fillreceipt detail) ⇒ poll until the getLogs node
     // has that block and the tx's row arrived (brief retries); the row itself always comes from the chain's logs
     const busyTx = new Set<string>();
-    const ownFill = (txHash: string | undefined, b: BlockLike) => {
+    // Own fill with its receipt logs (TradeBridge 'disciple:fillreceipt'): the coin's Trade rows go to the engine NOW,
+    // decoded from those logs (no RPC). Was: a price read at the receipt's block from the public RPC, which is ~0.7 s
+    // behind the relay and often ran out of tries, so the rocket and chart waited for the next log poll.
+    const fromReceipt = (logs: readonly RawReceiptLog[], trader: string): boolean => {
+      const d = deployment();
+      const got = receiptTradeLogs(logs, { token, curve, quote: quote as string | undefined, trader, hook: d.hook, poolManager: d.poolManager, routers: usdgRouters(d) });
+      if (!got.curve.length && !got.hook.length) return false;
+      inOrder(async () => {
+        for (const l of got.curve) order.trade(tradeFromLog(l, qp, "curve", undefined, usdgOf(l)));
+        if (got.hook.length) { const k = await hookCtx; for (const l of got.hook) order.trade(tradeFromLog(l, qp, "hook", k, usdgOf(l))); }
+      });
+      return true;
+    };
+    const ownFill = (txHash: string | undefined, b: BlockLike, logs?: readonly RawReceiptLog[], trader?: string) => {
+      let now = false;   // before the busy check: the orderer dedupes, and an earlier op 'confirmed' carried no logs
+      try { now = !!logs?.length && !!trader && fromReceipt(logs, trader); } catch { now = false; }
       const k = String(txHash || "").toLowerCase();
       if (k && busyTx.has(k)) return;
       if (k) busyTx.add(k);
       const at = blockOf(b) ?? txBlock(txHash);
-      // speed (maker 2026-11-18: "the delay on the chart and execution is horrendous"): read the price AT the receipt's
-      // block right away (one call) so the rocket and chart move now. The Trade row still comes from the logs below;
-      // it can't move the mcap back (the orderer keys this State after every log of that block).
-      if (at !== undefined) void readMcapAt(pc, token, at, { tries: 4, delayMs: 120 }).then((m) => { if (m) order.state(m, at); }).catch(() => undefined);
+      // no usable logs (AA path / older relay): read the price AT the receipt's block (the orderer keys this State after
+      // every log of that block, so it can't move the mcap back)
+      if (!now && at !== undefined) void readMcapAt(pc, token, at, { tries: 4, delayMs: 120 }).then((m) => { if (m) order.state(m, at); }).catch(() => undefined);
       void pollUntilFill(pollers, at, txHash).finally(() => { if (k) busyTx.delete(k); });
     };
     const onOp = (e: Event) => { const d = (e as CustomEvent<{ phase?: string; txHash?: string; blockNumber?: BlockLike }>).detail; if (d?.phase === "confirmed" && d.blockNumber !== undefined) ownFill(d.txHash, d.blockNumber); };
-    const onFill = (e: Event) => { const d = (e as CustomEvent<{ txHash?: string; blockNumber?: BlockLike }>).detail; ownFill(d?.txHash, d?.blockNumber); };
+    const onFill = (e: Event) => { const d = (e as CustomEvent<{ txHash?: string; blockNumber?: BlockLike; logs?: RawReceiptLog[]; trader?: string; token?: string }>).detail;
+      ownFill(d?.txHash, d?.blockNumber, d?.token && d.token.toLowerCase() !== token.toLowerCase() ? undefined : d?.logs, d?.trader); };
     const own = () => { kicks.forEach((k) => k()); setTimeout(() => kicks.forEach((k) => k()), 700); };
     window.addEventListener("disciple:livetrade", own); window.addEventListener("disciple:fillreceipt", onFill); window.addEventListener("disciple:op", onOp);
     stops.push(() => { window.removeEventListener("disciple:livetrade", own); window.removeEventListener("disciple:fillreceipt", onFill); window.removeEventListener("disciple:op", onOp); });
