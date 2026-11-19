@@ -75,6 +75,7 @@ contract MigrationTest is Test {
         manager = stack.manager;
 
         vm.startPrank(owner);
+        lockedLP.setHook(address(stack.hook));
         lockedLP.setMigration(address(migration));
         lockedLP.setFeeRouter(address(feeRouter));
         lockedLP.setPoolManager(address(manager));
@@ -96,7 +97,6 @@ contract MigrationTest is Test {
         feeRouter.setLaunchpad(address(launchpad));
         migration.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
-        feeRouter.setAuthorized(address(hook), true);
         vm.stopPrank();
 
         swapRouter = new PoolSwapTest(manager);

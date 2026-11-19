@@ -37,9 +37,6 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     mapping(address => mapping(address => uint256)) public override referrerAccrued;
 
     mapping(address => bool) public authorizedCallers; // curves / migration
-    /// @notice maker 2026-11-17: the owner authorizes exactly one caller (the hook) at deploy, then never again.
-    ///         Curves are authorized by the Launchpad as they launch.
-    bool public ownerAuthorizationUsed;
     /// @notice One-way (audit 2026-11-17 R461-01b / R461-04): once set, the KOL share, referral sink and claim-router
     ///         list can never change, so no later key can take creator fees or re-split existing coins' fees.
     bool public settingsLocked;
@@ -47,8 +44,8 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     /// @notice Treasury share (33% + unrouted 1% [+ 30% of a legacy routeSnipeFee call; v2 curves never make one]) accrued per asset; anyone may push it to
     ///         `treasury` with claimTreasury(asset). Replaces the per-trade treasury transfer (gas).
     mapping(address => uint256) public treasuryAccrued;
-    /// @notice Phase 3a (Maker lee 2026-10-24): when set, the 1% referral share that would go to a referrer (the
-    ///         trader's referrer, or the coin's launch KOL — the same 1% share) goes here instead. treasury →
+    /// @notice Phase 3a (Maker lee 2026-10-24; widened 2026-11-19): when set, the WHOLE 1% referral share of every
+    ///         trade (referred or not, incl. a launch KOL's) goes here: the community rewards Safe on mainnet. treasury →
     ///         credited to treasuryAccrued; any other address → claimable via claimReferrerFees. address(0) = off
     ///         (today's routing). Future trades only; already-accrued referral fees stay claimable. The KOL's 2% of
     ///         the creator share is NOT redirected. A sink equal to the treasury follows setTreasury (audit r127).
@@ -191,13 +188,10 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         if (settingsLocked) revert SettingsLocked();
     }
 
+    /// @notice Launchpad only (it authorizes each curve as it launches). maker 2026-11-19: the hook no longer calls
+    ///         FeeRouter, so the owner's one-time grant is gone and no key can ever add a caller that books fee credit.
     function setAuthorized(address caller, bool ok) external {
-        if (msg.sender != launchpad) {
-            if (msg.sender != owner) revert OnlyOwner();
-            // maker 2026-11-17: one owner grant (the hook), so no key can later add a caller that books fee credit.
-            if (ownerAuthorizationUsed || !ok || caller.code.length == 0) revert AlreadyWired();
-            ownerAuthorizationUsed = true;
-        }
+        if (msg.sender != launchpad) revert OnlyOwner();
         authorizedCallers[caller] = ok;
     }
 
@@ -216,17 +210,6 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     ) external override {
         if (!authorizedCallers[msg.sender]) revert OnlyAuthorized();
         _route(token, quote, trader, creator, feeAmount, creatorTaxAmount);
-    }
-
-    /// @notice Post-grad hook fee: the hook transfers the full `feeAmount` here. Split 33/33/33/1; the whole 33%
-    ///         LP share goes to LockedLP, which auto-compounds it per trade into the locked position (no in-range donation).
-    function routeHookFee(address token, address feeToken, address trader, address creator, uint256 feeAmount)
-        external
-        override
-        returns (bool compoundReady)
-    {
-        if (!authorizedCallers[msg.sender]) revert OnlyAuthorized();
-        return _route(token, feeToken, trader, creator, feeAmount, 0);
     }
 
     function _route(
@@ -262,8 +245,9 @@ contract FeeRouter is IFeeRouter, Owned2Step {
             leftoverTo = traderRef;
         }
 
-        // Referral sink: redirect the referrer's 1% (only when a referrer would have been paid).
-        if (leftoverTo != address(0)) {
+        // Referral sink (maker 2026-11-19: the community rewards Safe on mainnet): when set, it takes the WHOLE 1% of
+        // every trade, referred or not, same as the post-graduation hook. A sink equal to the treasury = treasury.
+        {
             address sink = referralSink;
             if (sink != address(0)) leftoverTo = sink == treasury ? address(0) : sink;
         }

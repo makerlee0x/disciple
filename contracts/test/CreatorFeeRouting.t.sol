@@ -596,7 +596,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         }
         BondingCurve.SellQuote memory sq = curve.quoteSellFor(trader1, sellAmt);
         assertGt(sq.profitTax, 0, "the crew tip still applies on a profitable sell");
-        assertEq(sq.profitTax, (sq.quoteOut + sq.profitTax) * Constants.PVE_CREW_TIP_PPM / 1e6);
+        assertEq(sq.profitTax, (sq.quoteOut + sq.profitTax) * curve.crewTipPpm() / 1e6);
         vm.startPrank(trader1);
         tok.approve(address(curve), sellAmt);
         curve.sell(sellAmt, 0, block.timestamp + 1 hours);

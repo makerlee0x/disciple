@@ -83,6 +83,9 @@ contract Launchpad is ILaunchpad, Owned2Step {
     /// @notice Easy crew-tip threshold for FUTURE launches, bps of the coin's mcap at the time of sale (default 0.5%;
     ///         bounds [CREW_TIP_THRESHOLD_BPS_MIN, _MAX]). Snapshotted into each curve as an immutable.
     uint256 public crewTipThresholdBps = Constants.CREW_TIP_THRESHOLD_BPS_DEFAULT;
+    /// @notice Easy holder tip for FUTURE launches, ppm of profitable sell proceeds (default 3.3%, 0 = off,
+    ///         max 12%). Each curve reads it once in its constructor and keeps it for life.
+    uint256 public crewTipPpm = Constants.CREW_TIP_PPM_DEFAULT;
     /// @notice Sniper-escrow timeout for FUTURE launches (default Constants.SNIPE_ESCROW_TIMEOUT = 12 days since 2026-11-09, was 30;
     ///         bounds [1 day, 365 days]). Snapshotted into
     ///         each curve: after it, a not-yet-graduated curve's escrow can be sent to RewardsVault by anyone.
@@ -122,6 +125,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
     event TrustedRouterSet(address indexed router, bool trusted);
     event CurveRouterKilled(address indexed curve, bool killed);
     event CrewTipThresholdSet(uint256 bps);
+    event CrewTipPpmSet(uint256 ppm);
     event SnipeEscrowTimeoutSet(uint256 secs);
     /// @notice Bonding-curve game mode chosen by the creator (0 TRENCH WARFARE, 1 PVE, 2 PVP).
     event LaunchMode(address indexed token, address indexed curve, uint8 mode);
@@ -199,6 +203,14 @@ contract Launchpad is ILaunchpad, Owned2Step {
         }
         crewTipThresholdBps = bps;
         emit CrewTipThresholdSet(bps);
+    }
+
+    /// @notice Protocol owner sets the Easy holder tip for FUTURE launches (ppm, 0 to 12%).
+    function setCrewTipPpm(uint256 ppm) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (ppm > Constants.CREW_TIP_PPM_MAX) revert CrewTipThresholdOutOfBounds();
+        crewTipPpm = ppm;
+        emit CrewTipPpmSet(ppm);
     }
 
     /// @notice Protocol owner sets the sniper-escrow timeout for FUTURE launches (seconds, bounded).
@@ -321,7 +333,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
             )
         );
 
-        if (mode == Constants.MODE_PVE) t.setPveCurve(address(curve));
+        t.setPveCurve(address(curve)); // every mode: pre-orbit v4 block (maker 2026-11-19); PVE hooks still PVE-only
         IERC20(address(t)).safeTransfer(address(curve), Constants.TOTAL_SUPPLY);
 
         FeeRouter(feeRouter).setAuthorized(address(curve), true);

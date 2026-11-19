@@ -12,10 +12,13 @@ import { scanEventHistory } from "./eventHistory";
  *                Rows add vault.creatorClaimable (accrued + still owed on the curve) to the FeeRouter balance (post-grad
  *                and pre-lp-accrue fees); claims call each side that holds something. Private rockets: the vault books them
  *                under the launcher; the coin's owner (AnonLauncher.stealthOwnerOf) claims with claimManyAsStealthBySig.
+ *   hook         graduated pools (maker 2026-11-19): DiscipleHook holds the 1% and pays the creator share on a public
+ *                claimCreatorFees(token) (anyone may call; it always pays Launchpad.creatorOf). Read with
+ *                claimable(token, 0) → (quote, token). Added to the same batch, so the claim stays one transaction.
  * Claims go through lib/wallet.execCalls (smart account userOp, owner-signed; or the legacy EOA path), the same sender
  * the trade flow uses. Balances are always read live on-chain.
  */
-import { decodeEventLog, encodeFunctionData, type Address, type Hex, type PublicClient } from "viem";
+import { decodeEventLog, encodeFunctionData, parseAbi, type Address, type Hex, type PublicClient } from "viem";
 import { anonLauncherAbi, bondingCurveAbi, feeRouterAbi, launchpadAbi, tokenAbi } from "../abi";
 import { deployment } from "../chains";
 import type { Call } from "../aa/core";
@@ -33,6 +36,18 @@ import { creatorFeeHarvestAbi } from "../creatorFeeHarvest";
 import { curveFeeVaultAbi, feeVaultOf, stackFeeVault, vaultClaimDomain, vaultCreatorClaimable } from "./vault";
 
 const ZERO = BigInt(0);
+/** DiscipleHook creator-share reads / claim (hook holds post-graduation fees until a public claim). */
+export const hookClaimsAbi = parseAbi([
+  "function claimable(address token, uint8 share) view returns (uint256 quoteAmount, uint256 tokenAmount)",
+  "function claimCreatorFees(address token) returns (uint256 quoteAmount, uint256 tokenAmount)",
+]);
+/** Creator share still held by the hook for `token` (0s on an older hook or an unset address). */
+export async function hookCreatorClaimable(pc: PublicClient, token: Address): Promise<{ quote: bigint; token: bigint }> {
+  const h = deployment().hook;
+  if (!h || /^0x0{40}$/i.test(h)) return { quote: ZERO, token: ZERO };
+  const r = await (pc.readContract({ address: h, abi: hookClaimsAbi, functionName: "claimable", args: [token, 0] }) as Promise<readonly [bigint, bigint]>).catch(() => [ZERO, ZERO] as const);
+  return { quote: r[0], token: r[1] };
+}
 export type Accrual = { amount: bigint; trader: Address; tx: Hex; block: bigint; ts?: number; side: "quote" | "token" };
 export type CreatorRocket = {
   token: Address; name: string; ticker: string; quote: Asset;
@@ -56,6 +71,8 @@ export type CreatorRocket = {
   /** the part of `claimable` in FeeRouter (wallet rockets) or AnonLauncher.pending quote side (private rockets).
    *  Absent ⇒ all of `claimable` (pre-lp-accrue rows). */
   baseClaimable?: bigint;
+  /** Creator share still held by DiscipleHook (graduated pools). Included in `claimable` / `tokenSide.claimable`. */
+  hook?: { quote: bigint; token: bigint };
   /** Launched with creator fees sent to the locked pool (1) or to buy-and-burn (2). Nothing here is claimable:
    *  FeeRouter / CurveFeeVault / AnonLauncher refuse the creator, and CreatorFeeHarvest.route moves the fees. */
   routed?: 1 | 2;
@@ -123,19 +140,22 @@ export async function creatorDashboard(pc: PublicClient, me: Address, caps: Caps
   ]);
   const own = await Promise.all(rockets.map(async (r): Promise<CreatorRocket> => {
     const quote = await assetMeta(pc, r.quote || (await quoteOfToken(pc, r.token)));
-    const [split, recent] = await Promise.all([
+    const [split, recent, hook] = await Promise.all([
       creatorQuoteSplit(pc, r.token, me).catch(() => ({ claimable: ZERO, vault: null, vaultClaimable: ZERO, baseClaimable: ZERO })),
       recentAccruals(pc, r.token, recentN),
+      hookCreatorClaimable(pc, r.token),
     ]);
-    const claimable = split.claimable;
+    const claimable = split.claimable + hook.quote;
     const claimed = sumFor(claimLogs, r.token) + sumFor(vaultClaimLogs, r.token);
     let tokenSide: CreatorRocket["tokenSide"] = null;
     if (caps.creatorTokenFees) {
       const [asset, tc] = await Promise.all([assetMeta(pc, r.token), creatorTokenClaimable(pc, r.token, me).catch(() => ZERO)]);
-      tokenSide = { asset, claimable: tc, claimed: sumFor(tokenClaimLogs, r.token) };
+      tokenSide = { asset, claimable: tc + hook.token, claimed: sumFor(tokenClaimLogs, r.token) };
+    } else if (hook.token > ZERO) {
+      tokenSide = { asset: await assetMeta(pc, r.token), claimable: hook.token, claimed: ZERO };
     }
     return { token: r.token, name: r.name, ticker: r.ticker, quote, claimable, claimed, lifetime: claimed + claimable, recent, tokenSide,
-      vault: split.vault, vaultClaimable: split.vaultClaimable, baseClaimable: split.baseClaimable };
+      vault: split.vault, vaultClaimable: split.vaultClaimable, baseClaimable: split.baseClaimable, hook };
   }));
   return markRouted(pc, [...own, ...anon]);
 }
@@ -236,9 +256,10 @@ export async function anonRockets(pc: PublicClient, me: Address, stealth: { toke
   return rows.filter((r): r is CreatorRocket => !!r);
 }
 
-export type ClaimRow = Pick<CreatorRocket, "token" | "claimable" | "tokenSide" | "anon" | "launcher" | "stealth" | "vault" | "vaultClaimable" | "baseClaimable">;
+export type ClaimRow = Pick<CreatorRocket, "token" | "claimable" | "tokenSide" | "anon" | "launcher" | "stealth" | "vault" | "vaultClaimable" | "baseClaimable" | "hook">;
 /** FeeRouter / AnonLauncher quote part (pre-lp-accrue rows carry no split: all of `claimable`). */
-const baseOf = (r: ClaimRow) => r.baseClaimable ?? r.claimable;
+const hookOf = (r: ClaimRow) => r.hook ?? { quote: ZERO, token: ZERO };
+const baseOf = (r: ClaimRow) => r.baseClaimable ?? r.claimable - hookOf(r).quote;
 const vaultPart = (r: ClaimRow) => (r.vault ? r.vaultClaimable ?? ZERO : ZERO);
 /** AnonLauncher.claimMany / BySig only when the launcher holds something on either side (skip a call that would pay 0). */
 const anonHasSomething = (r: ClaimRow) => baseOf(r) > ZERO || (!!r.tokenSide && r.tokenSide.claimable > ZERO);
@@ -254,13 +275,15 @@ export function creatorClaimCalls(rows: ClaimRow[], caps: Caps, me?: Address): C
   const calls: Call[] = [];
   const byLauncher = new Map<Address, Address[]>();
   for (const r of rows) {
-    const hasTok = !!r.tokenSide && r.tokenSide.claimable > ZERO;
+    const hk = hookOf(r);
+    const hasTok = !!r.tokenSide && r.tokenSide.claimable - hk.token > ZERO; // FeeRouter part only
     // AnonLauncher and CurveFeeVault claims for private rockets go through claimManyBySig / claimManyAsStealthBySig
     // (anonSigClaimCalls), which the gasless relayer can submit
     if (r.anon) continue;
     if (caps.creatorFees && baseOf(r) > ZERO) calls.push({ to: fr, data: encodeFunctionData({ abi: feeRouterAbi, functionName: "claimCreatorFees", args: [r.token] }) });
     if (vaultPart(r) > ZERO) calls.push({ to: r.vault!, data: encodeFunctionData({ abi: curveFeeVaultAbi, functionName: "claimCreatorFees", args: [r.token] }) });
     if (caps.creatorTokenFees && hasTok) calls.push({ to: fr, data: encodeFunctionData({ abi: feeRouterAbi, functionName: "claimCreatorTokenFees", args: [r.token] }) });
+    if (hk.quote > ZERO || hk.token > ZERO) calls.push({ to: deployment().hook, data: encodeFunctionData({ abi: hookClaimsAbi, functionName: "claimCreatorFees", args: [r.token] }) });
   }
   if (caps.anonClaims && me) for (const [al, tokens] of Array.from(byLauncher.entries()))
     calls.push({ to: al, data: encodeFunctionData({ abi: anonLauncherAbi, functionName: "claimMany", args: [tokens, me] }) });

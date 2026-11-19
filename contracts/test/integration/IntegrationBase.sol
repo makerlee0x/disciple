@@ -138,6 +138,7 @@ abstract contract IntegrationBase is Test {
         router = stack.router;
 
         vm.startPrank(owner);
+        lockedLP.setHook(address(stack.hook));
         lockedLP.setMigration(address(migration));
         lockedLP.setFeeRouter(address(feeRouter));
         lockedLP.setPoolManager(address(manager));
@@ -153,7 +154,6 @@ abstract contract IntegrationBase is Test {
         feeRouter.setLaunchpad(address(launchpad));
         migration.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
-        feeRouter.setAuthorized(address(hook), true);
         rewardsVault = new RewardsVault(owner);
         rewardsVault.setFeeRouter(address(feeRouter));
         feeRouter.setRewardsVault(address(rewardsVault));
@@ -186,6 +186,7 @@ abstract contract IntegrationBase is Test {
         swapRouter = new PoolSwapTest(manager);
 
         harvest = new CreatorFeeHarvest{salt: harvestSalt}(owner);
+        hook.setCreatorFeeHarvest(address(harvest)); // maker 2026-11-19: creator share of lock / burn coins at claim
         // Fund actors
         address[7] memory actors = [creator, sniper, trader1, trader2, kol, referred, address(this)];
         for (uint256 i = 0; i < actors.length; i++) {

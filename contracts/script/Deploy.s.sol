@@ -68,7 +68,10 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       (+ a mock STRATEGY w/ STRATEGY/USDG pool at $0.00245 when DEFAULT_QUOTE is unset too)
 ///   USDG_DECIMALS       decimals of the mock USDG deployed when USDG is unset (default 6)
 ///   EXPECT_USDG_DECIMALS  revert unless USDG.decimals() equals this (default 6; set 18 only for a legacy mUSDG)
-///   REFERRAL_SINK       FeeRouter.referralSink. Forced to TREASURY on 4663 (env ignored) (maker 2026-11-16: the referral 1% goes
+///   COMMUNITY_SAFE      community rewards Safe (required on 4663, must be a contract; default TREASURY elsewhere). Fixed in
+///                       DiscipleHook (the hook's 1%), FeeRouter.referralSink (the curve 1% + no-holder crew tip) and
+///                       the default REWARDS_VAULT_OWNER (unclaimed sniper fees). maker 2026-11-19.
+///   REFERRAL_SINK       FeeRouter.referralSink. Forced to COMMUNITY_SAFE on 4663 (env ignored). Was TREASURY (old note: (maker 2026-11-16: the referral 1% goes
 ///                       to treasury, referrers are paid by hand), address(0) elsewhere (referrer / launch KOL get
 ///                       the 1%). Non-zero redirects the WHOLE referral 1% incl. the launch-KOL 1% (lee, 2026-10-24).
 ///                       Fixed for good on 4663 by lockSettings().
@@ -146,6 +149,8 @@ contract Deploy is NetworkConfig {
         // script/HandoverToSafe.s.sol nominates the Safe. Set → it must be a contract and is nominated below.
         require(safe == address(0) || safe.code.length != 0, "Deploy: SAFE has no code");
         if (treasury == address(0)) treasury = safe != address(0) ? safe : deployer;
+        address community = vm.envOr("COMMUNITY_SAFE", treasury);
+        require(!mainnet || (community != treasury && community.code.length != 0), "Deploy: COMMUNITY_SAFE");
 
         if (o.manager == address(0)) {
             o.manager = address(new PoolManager(deployer));
@@ -169,14 +174,17 @@ contract Deploy is NetworkConfig {
         uint160 flags = uint160(
             Hooks.BEFORE_INITIALIZE_FLAG | Hooks.AFTER_SWAP_FLAG | Hooks.AFTER_SWAP_RETURNS_DELTA_FLAG
         );
-        bytes memory ctorArgs = abi.encode(manager, feeRouter, address(0), deployer);
+        // maker 2026-11-19: the hook holds the 1% and pays treasury / community Safe at claim; both fixed here.
+        bytes memory ctorArgs = abi.encode(manager, address(0), deployer, treasury, community);
         (address hookAddr, bytes32 salt) =
             HookMiner.find(CREATE2_DEPLOYER, flags, type(DiscipleHook).creationCode, ctorArgs);
-        DiscipleHook hook = new DiscipleHook{salt: salt}(manager, feeRouter, address(0), deployer);
+        DiscipleHook hook = new DiscipleHook{salt: salt}(manager, address(0), deployer, treasury, community);
         require(address(hook) == hookAddr, "Deploy: hook address mismatch");
 
         Migration migration = new Migration(deployer, address(lockedLP), o.manager, address(hook));
         hook.setMigration(address(migration));
+        hook.setCreatorFeeHarvest(address(harvest)); // creator share of lock / burn coins, read at claim time
+        lockedLP.setHook(address(hook)); // the hook credits the LP share at claim time
         lockedLP.setMigration(address(migration));
         lockedLP.setFeeRouter(address(feeRouter));
         lockedLP.setPoolManager(o.manager);
@@ -197,7 +205,7 @@ contract Deploy is NetworkConfig {
 
         feeRouter.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
-        feeRouter.setAuthorized(address(hook), true);
+        // maker 2026-11-19: the hook no longer calls FeeRouter, so it is not authorized (and the owner cannot authorize).
 
         // ── quote assets + oracle ──
         PoolKey memory refKey;
@@ -303,10 +311,10 @@ contract Deploy is NetworkConfig {
         if (mainnet || vm.envOr("RENOUNCE_LOCKED_LP", false)) lockedLP.renounceOwnership();
         // referralSink: address(0) = today's routing (default). Non-zero takes the whole referral 1% incl. launch KOL.
         {
-            // maker 2026-11-16: the referral 1% goes to treasury on mainnet (team pays referrers by hand). It must be
-            // set before lockSettings() below, so mainnet defaults the sink to the treasury.
-            // audit 2026-11-18 R461b-04: on 4663 the env is ignored (sink = treasury, KOL = 0 are forced, then locked).
-            address sink = mainnet ? treasury : vm.envOr("REFERRAL_SINK", address(0));
+            // maker 2026-11-19: the 1% of every curve trade goes to the community rewards Safe (referrers are still paid
+            // by hand from the referral spreadsheet). Set before lockSettings() below.
+            // audit 2026-11-18 R461b-04: on 4663 the env is ignored (sink = community Safe, KOL = 0 forced, then locked).
+            address sink = mainnet ? community : vm.envOr("REFERRAL_SINK", address(0));
             if (sink != address(0)) feeRouter.setReferralSink(sink);
             // maker 2026-11-17: no automatic KOL cut either ("pay it by hand"). Mainnet sets the launch-KOL slice of
             // the creator share to 0 before lockSettings(), so creators keep their full 33% and KOLs are paid by hand.
@@ -388,7 +396,9 @@ contract Deploy is NetworkConfig {
         DiscipleRouter router,
         AnonLauncher anon
     ) internal view {
-        require(feeRouter.authorizedCallers(address(hook)) && feeRouter.ownerAuthorizationUsed(), "verify: hook auth");
+        require(!feeRouter.authorizedCallers(address(hook)), "verify: hook not on FeeRouter");
+        require(hook.creatorFeeHarvest() == address(harvest) && lockedLP.hook() == address(hook), "verify: hook wiring");
+        require(address(anon.hook()) == address(hook), "verify: anon hook");
         require(feeRouter.creatorFeeHarvest_16() == address(harvest), "verify: harvest pointer");
         require(anon.creatorFeeHarvest() == address(harvest), "verify: anon harvest");
         require(address(harvest.anon()) == address(anon) && address(harvest.feeVault()) != address(0), "verify: harvest");
@@ -403,7 +413,9 @@ contract Deploy is NetworkConfig {
         if (mainnet) {
             // audit 2026-11-18 E-L3: the locked values, not just the lock (env overrides could lock wrong values)
             require(feeRouter.kolCreatorShareBps() == 0, "verify: KOL share 0");
-            require(feeRouter.referralSink() == feeRouter.treasury(), "verify: referral sink = treasury");
+            address community = hook.communitySafe();
+            require(feeRouter.referralSink() == community && community != feeRouter.treasury(), "verify: sink = community");
+            require(hook.treasury() == feeRouter.treasury() && community.code.length != 0, "verify: hook recipients");
             require(harvest.owner() == address(0), "verify: harvest renounced");
             require(lockedLP.owner() == address(0), "verify: lockedLP renounced");
             require(hook.admin() == address(0), "verify: hook admin");
@@ -460,7 +472,10 @@ contract Deploy is NetworkConfig {
         RewardsVault vault = new RewardsVault(deployer);
         vault.setFeeRouter(address(feeRouter));
         feeRouter.setRewardsVault(address(vault));
-        address vOwner = vm.envOr("REWARDS_VAULT_OWNER", vm.envOr("SAFE", deployer));
+        // maker 2026-11-19: unclaimed sniper fees belong to the community rewards Safe on mainnet.
+        address vOwner = block.chainid == 4663
+            ? vm.envOr("REWARDS_VAULT_OWNER", vm.envAddress("COMMUNITY_SAFE"))
+            : vm.envOr("REWARDS_VAULT_OWNER", vm.envOr("SAFE", deployer));
         // Owned2Step: this only nominates; REWARDS_VAULT_OWNER must call vault.acceptOwnership() afterwards.
         if (vOwner != deployer) vault.transferOwnership(vOwner);
         // mcapNow / Trade-event mcap fix: live QuotePricer on the hook (curves read Launchpad.pricer()).
@@ -474,6 +489,7 @@ contract Deploy is NetworkConfig {
             usdg,
             vm.envOr("ERC5564_ANNOUNCER", address(0x55649E01B5Df198D18D95b5cc5051630cfD45564))
         ); // hidden launches are free forever (maker 2026-11-17): no fee setting exists
+        anon.setHook(address(hook)); // hidden coins' post-graduation creator share
         MarketLens lens = new MarketLens(address(launchpad), address(migration));
         console2.log("RewardsVault", address(vault));
         console2.log("AnonLauncher", address(anon));

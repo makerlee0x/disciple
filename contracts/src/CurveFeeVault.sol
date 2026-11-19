@@ -154,7 +154,8 @@ contract CurveFeeVault is EIP712 {
         if (leftoverTo == address(0) && trader != address(0)) {
             leftoverTo = IReferrals(fr.referrals()).referrerOf(trader);
         }
-        if (leftoverTo != address(0)) {
+        // maker 2026-11-19: a set sink (community rewards Safe on mainnet) takes the whole 1% of every trade.
+        {
             address sink = fr.referralSink();
             if (sink != address(0)) leftoverTo = sink == fr.treasury() ? address(0) : sink;
         }

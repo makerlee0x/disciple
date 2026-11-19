@@ -41,7 +41,7 @@ Every number in one place.
 |---|---|---|---|
 | Max bag | 1% → 3.33% | 3.33% → 7.77% | None |
 | Creator Ticket | 1.2% · locked to orbit | 3.33% | 7.77% |
-| Crew tip | 0.777% over 0.5% of mcap profit | — | — |
+| Crew tip | 3.3% over 0.5% of mcap profit (set per rocket at launch) | — | — |
 
 Over the max bag: fills to the cap, refunds the rest.
 

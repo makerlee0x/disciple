@@ -8,9 +8,9 @@ import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
-import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {Currency, CurrencyLibrary} from "@uniswap/v4-core/src/types/Currency.sol";
+import {IUnlockCallback} from "@uniswap/v4-core/src/interfaces/callback/IUnlockCallback.sol";
 import {SafeCast} from "@uniswap/v4-core/src/libraries/SafeCast.sol";
-import {IFeeRouter} from "./interfaces/IFeeRouter.sol";
 import {Constants} from "./libraries/Constants.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IQuotePricer} from "./interfaces/IQuotePricer.sol";
@@ -18,44 +18,105 @@ import {McapMath} from "./libraries/McapMath.sol";
 
 interface IMigrationLockedLP {
     function lockedLP() external view returns (address);
+    function launchpad() external view returns (address);
 }
 
-/// @title Post-grad 1% trade-fee hook (§3 / LOCKED #11)
-/// @notice Pool LP fee is 0. This hook does two things and nothing else:
-///         1. beforeInitialize: only LockedLP (via Migration at graduation) may create a pool on this hook, so nobody
-///            can pre-create a DISCIPLE pool at a bad price.
-///         2. afterSwap: takes 1% of the swap's unspecified (output-side) amount and sends it to FeeRouter
-///            (33/33/33/1). This is the standard v4 fee-taking-hook pattern (afterSwapReturnDelta).
-///         No beforeSwap, no liquidity gate, no price tracking, no compounding and no events: trades, prices and
-///         market caps are read off-chain from the PoolManager's own Swap event. LP compounding is a separate,
-///         keeper-run LockedLP.flush outside swaps.
+interface IHookLaunchpad {
+    function creatorOf(address token) external view returns (address);
+}
+
+interface IHookLockedLP {
+    function creditLockedLiquidity(address token, address quote, uint256 tokenAmount, uint256 quoteAmount)
+        external
+        returns (bool compoundReady);
+}
+
+interface IHookCreatorFeeDestination {
+    function creatorFeeDestinationOf(address token) external view returns (uint8);
+}
+
+/// @title Post-grad 1% trade-fee hook (§3 / LOCKED #11, maker 2026-11-19: the hook keeps the fee, claims later)
+/// @notice Pool LP fee is 0. During a swap this hook does one thing: it keeps 1% of the swap's unspecified
+///         (output-side) amount for ITSELF and adds it to the pool's running fee total. The fee is held as the hook's
+///         PoolManager balance (ERC-6909 `mint`, no ERC-20 transfer during the swap, so a token that froze the hook's
+///         address could not block trading). No other contract is called during a swap (no FeeRouter, no Launchpad,
+///         no LockedLP, no referral lookup). A claim burns that balance and the PoolManager pays the recipient.
+///         The 33/33/33/1 split happens only when someone claims. Claims are public (any wallet, keeper or bot) and
+///         always pay the fixed recipient, never the caller:
+///           - 33% creator: the coin's current creator (Launchpad.creatorOf at claim time), or, when the launcher
+///             picked locked LP / burn on CreatorFeeHarvest, LockedLP / the dead address.
+///           - 33% locked liquidity: LockedLP's compound bucket for the coin.
+///           - 33% treasury: `treasury`, fixed at deploy.
+///           - 1% community rewards: `communitySafe`, fixed at deploy.
+///         beforeInitialize: only LockedLP (via Migration at graduation) may create a pool on this hook.
+///         Nothing here is adjustable: the fee, the split and both Safes are fixed at deploy; the admin only wires
+///         the set-once pointers and is then renounced.
 /// @dev Must be mined to an address with BEFORE_INITIALIZE_FLAG | AFTER_SWAP_FLAG | AFTER_SWAP_RETURNS_DELTA_FLAG.
-///      The view helpers below (metaOf, quoteUsdOf, mcapUsdFromSqrt, impactBpsFromSqrt) are read by DiscipleRouter
-///      quotes and MarketLens only; none of them runs on the swap path.
-contract DiscipleHook is IHooks {
+///      Accounting is cumulative: `feesOf[pool]` only grows; each share's claimable amount is its fixed fraction of
+///      the running total minus what that share already claimed, so nothing can be paid twice. Each share rounds
+///      down on its own (at most 3 wei per pool and currency stays in the hook).
+///      The view helpers (metaOf, quoteUsdOf, mcapUsdFromSqrt, impactBpsFromSqrt) are read by DiscipleRouter quotes and
+///      MarketLens only; none of them runs on the swap path.
+contract DiscipleHook is IHooks, IUnlockCallback {
     using PoolIdLibrary for PoolKey;
     using SafeCast for uint256;
+    using CurrencyLibrary for Currency;
+
+    /// @notice Share ids for `claimable` / `claimedOf` (33 / 33 / 33 / 1 of every fee).
+    uint8 public constant SHARE_CREATOR = 0;
+    uint8 public constant SHARE_LOCKED_LP = 1;
+    uint8 public constant SHARE_TREASURY = 2;
+    uint8 public constant SHARE_COMMUNITY = 3;
+    /// @notice CreatorFeeHarvest destinations (same values as CreatorFeeHarvest.DEST_*).
+    uint8 internal constant DEST_LOCKED_LP = 1;
+    uint8 internal constant DEST_BURN = 2;
+    address public constant BURN = 0x000000000000000000000000000000000000dEaD;
 
     IPoolManager public immutable poolManager;
-    IFeeRouter public immutable feeRouter;
+    /// @notice 33% treasury share recipient (the treasury Safe). Fixed at deploy.
+    address public immutable treasury;
+    /// @notice 1% community rewards share recipient (the community rewards Safe). Fixed at deploy.
+    address public immutable communitySafe;
 
     struct PoolMeta {
         address token;
         address quote;
-        address creator;
+        address creator; // creator at graduation (fallback only; claims pay Launchpad.creatorOf)
         bool registered;
         uint256 quotePriceUsd; // launch-time USD WAD per 1e18 raw quote (quoteUsdOf fallback)
     }
 
+    /// @notice Running fee totals of one pool, in currency0 / currency1 raw units. Only ever grows.
+    struct Fees {
+        uint128 amount0;
+        uint128 amount1;
+    }
+
     mapping(PoolId => PoolMeta) public metaOf;
+    /// @notice Graduated pool of a launch token (set at registration).
+    mapping(address token => PoolId) public poolOf;
+    /// @notice Lifetime fees taken by the hook per pool (the only storage a swap writes).
+    mapping(PoolId => Fees) public feesOf;
+    /// @notice Lifetime amount already paid out per pool and share (SHARE_*).
+    mapping(PoolId => mapping(uint8 share => Fees)) public claimedOf;
+    /// @notice Lifetime quote-side creator fees paid to `payee` for `token`. AnonLauncher holds many hidden coins'
+    ///         quote in one balance, so it reads this to know how much of a public claim belongs to which coin.
+    mapping(address token => mapping(address payee => uint256)) public creatorQuotePaidTo;
 
     address public admin;
     address public pendingAdmin;
     address public migration;
     /// @notice Live quote/USD oracle, read only by the view `quoteUsdOf`. Never called during a swap.
     IQuotePricer public pricer;
+    /// @notice CreatorFeeHarvest (launcher's keep / lock / burn pick). Set once by the admin; read at claim only.
+    address public creatorFeeHarvest;
 
     event AdminTransferred(address indexed admin);
+    /// @notice One share of one pool was paid out. `to` is the fixed recipient (LockedLP / dEaD for routed creator
+    ///         fees). Amounts are raw token / quote units.
+    event FeesClaimed(
+        address indexed token, uint8 indexed share, address indexed to, uint256 quoteAmount, uint256 tokenAmount
+    );
 
     error OnlyPoolManager();
     error OnlyMigration();
@@ -63,17 +124,27 @@ contract DiscipleHook is IHooks {
     error NotRegistered();
     error OnlyAdmin();
     error OnlyLockedLP();
+    error ZeroAddress();
+    error NothingToClaim();
 
     modifier onlyPoolManager() {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
         _;
     }
 
-    constructor(IPoolManager poolManager_, IFeeRouter feeRouter_, address migration_, address admin_) {
+    constructor(
+        IPoolManager poolManager_,
+        address migration_,
+        address admin_,
+        address treasury_,
+        address communitySafe_
+    ) {
+        if (treasury_ == address(0) || communitySafe_ == address(0)) revert ZeroAddress();
         admin = admin_;
         poolManager = poolManager_;
-        feeRouter = feeRouter_;
         migration = migration_;
+        treasury = treasury_;
+        communitySafe = communitySafe_;
         Hooks.validateHookPermissions(this, getHookPermissions());
     }
 
@@ -83,6 +154,13 @@ contract DiscipleHook is IHooks {
         if (msg.sender != admin) revert OnlyAdmin();
         require(migration == address(0) && m.code.length != 0, "DiscipleHook: mig"); // F-L11: contract only
         migration = m;
+    }
+
+    /// @notice One-time wire of CreatorFeeHarvest (the launcher's lock / burn pick for the creator share).
+    function setCreatorFeeHarvest(address h) external {
+        if (msg.sender != admin) revert OnlyAdmin();
+        require(creatorFeeHarvest == address(0) && h.code.length != 0, "DiscipleHook: harvest");
+        creatorFeeHarvest = h;
     }
 
     function setPricer(address p) external {
@@ -131,13 +209,15 @@ contract DiscipleHook is IHooks {
         });
     }
 
-    /// @notice Called by Migration at graduation to bind pool → token/quote/creator (fee routing + view helpers).
+    /// @notice Called by Migration at graduation to bind pool → token/quote/creator (claims + view helpers).
     function registerPool(PoolKey calldata key, address token, address quote, address creator, uint256 quotePriceUsd)
         external
     {
         if (msg.sender != migration) revert OnlyMigration();
-        metaOf[key.toId()] =
+        PoolId id = key.toId();
+        metaOf[id] =
             PoolMeta({token: token, quote: quote, creator: creator, registered: true, quotePriceUsd: quotePriceUsd});
+        poolOf[token] = id;
     }
 
     /// @dev Only LockedLP (seeding at graduation, called by Migration) may initialize.
@@ -152,17 +232,18 @@ contract DiscipleHook is IHooks {
         return IHooks.beforeInitialize.selector;
     }
 
-    /// @dev 1% of the unspecified (output for exact-in) amount, taken by the PoolManager straight to FeeRouter and
-    ///      returned as the hook delta, so the swapper's BalanceDelta already shows the net amount.
+    /// @dev 1% of the unspecified (output for exact-in) amount, minted to this hook as a PoolManager (ERC-6909) balance
+    ///      and returned as the hook delta, so the swapper's BalanceDelta already shows the net amount. The only other
+    ///      effect is one storage write (the pool's running fee total). No external call besides PoolManager.mint.
     function afterSwap(
-        address sender,
+        address,
         PoolKey calldata key,
         IPoolManager.SwapParams calldata params,
         BalanceDelta delta,
         bytes calldata
     ) external onlyPoolManager returns (bytes4, int128) {
-        PoolMeta memory m = metaOf[key.toId()];
-        if (!m.registered) revert NotRegistered();
+        PoolId id = key.toId();
+        if (!metaOf[id].registered) revert NotRegistered();
 
         bool specifiedTokenIs0 = (params.amountSpecified < 0 == params.zeroForOne);
         (Currency feeCurrency, int128 swapAmount) =
@@ -171,12 +252,146 @@ contract DiscipleHook is IHooks {
 
         uint256 feeAmount = uint256(uint128(swapAmount)) * Constants.TRADE_FEE_BPS / Constants.BPS_DENOM;
         if (feeAmount > 0) {
-            poolManager.take(feeCurrency, address(feeRouter), feeAmount);
-            // `sender` is the contract that called PoolManager.swap (DiscipleRouter for site trades). Referral
-            // credit is not taken from hookData; the referral slice goes to FeeRouter's referral sink.
-            feeRouter.routeHookFee(m.token, Currency.unwrap(feeCurrency), sender, m.creator, feeAmount);
+            poolManager.mint(address(this), feeCurrency.toId(), feeAmount);
+            Fees storage f = feesOf[id];
+            if (specifiedTokenIs0) f.amount1 += uint128(feeAmount);
+            else f.amount0 += uint128(feeAmount);
         }
         return (IHooks.afterSwap.selector, feeAmount.toInt128());
+    }
+
+    // ── claims (public; pay the fixed recipient, never the caller) ──────────
+
+    /// @notice Pay this coin's creator share (quote and rocket-token sides, one transaction).
+    function claimCreatorFees(address token) public returns (uint256 quoteAmount, uint256 tokenAmount) {
+        (PoolId id, PoolMeta memory m, bool tokenIsC0) = _pool(token);
+        (quoteAmount, tokenAmount) = _take(id, SHARE_CREATOR, tokenIsC0);
+        address h = creatorFeeHarvest;
+        uint8 dest = h == address(0) ? 0 : IHookCreatorFeeDestination(h).creatorFeeDestinationOf(token);
+        address to;
+        if (dest == DEST_LOCKED_LP) {
+            to = _toLockedLP(token, m.quote, tokenAmount, quoteAmount);
+        } else if (dest == DEST_BURN) {
+            to = BURN;
+            _pay(m.quote, token, to, quoteAmount, tokenAmount);
+        } else {
+            to = IHookLaunchpad(IMigrationLockedLP(migration).launchpad()).creatorOf(token);
+            if (to == address(0)) to = m.creator;
+            if (quoteAmount != 0) creatorQuotePaidTo[token][to] += quoteAmount;
+            _pay(m.quote, token, to, quoteAmount, tokenAmount);
+        }
+        emit FeesClaimed(token, SHARE_CREATOR, to, quoteAmount, tokenAmount);
+    }
+
+    /// @notice Pay this coin's 33% locked-liquidity share into LockedLP (compound bucket; LockedLP.flush adds it).
+    function claimLockedLiquidityFees(address token) public returns (uint256 quoteAmount, uint256 tokenAmount) {
+        (PoolId id, PoolMeta memory m, bool tokenIsC0) = _pool(token);
+        (quoteAmount, tokenAmount) = _take(id, SHARE_LOCKED_LP, tokenIsC0);
+        address to = _toLockedLP(token, m.quote, tokenAmount, quoteAmount);
+        emit FeesClaimed(token, SHARE_LOCKED_LP, to, quoteAmount, tokenAmount);
+    }
+
+    /// @notice Pay this coin's 33% treasury share to `treasury`.
+    function claimTreasuryFees(address token) public returns (uint256 quoteAmount, uint256 tokenAmount) {
+        (quoteAmount, tokenAmount) = _claimTo(token, SHARE_TREASURY, treasury);
+    }
+
+    /// @notice Pay this coin's 1% community rewards share to `communitySafe`.
+    function claimCommunityFees(address token) public returns (uint256 quoteAmount, uint256 tokenAmount) {
+        (quoteAmount, tokenAmount) = _claimTo(token, SHARE_COMMUNITY, communitySafe);
+    }
+
+    /// @notice Pay every share of every listed coin that has something owed (skips empty shares, never reverts
+    ///         NothingToClaim). For keepers / bots.
+    function claimAll(address[] calldata tokens) external {
+        for (uint256 i; i < tokens.length; ++i) {
+            address t = tokens[i];
+            for (uint8 s; s < 4; ++s) {
+                (uint256 q, uint256 k) = claimable(t, s);
+                if (q == 0 && k == 0) continue;
+                if (s == SHARE_CREATOR) claimCreatorFees(t);
+                else if (s == SHARE_LOCKED_LP) claimLockedLiquidityFees(t);
+                else if (s == SHARE_TREASURY) claimTreasuryFees(t);
+                else claimCommunityFees(t);
+            }
+        }
+    }
+
+    /// @notice What `share` (SHARE_*) of `token`'s pool can claim now, split into quote and rocket-token amounts.
+    function claimable(address token, uint8 share) public view returns (uint256 quoteAmount, uint256 tokenAmount) {
+        PoolId id = poolOf[token];
+        PoolMeta memory m = metaOf[id];
+        if (!m.registered || m.token != token) return (0, 0);
+        (uint256 a0, uint256 a1) = _owed(id, share);
+        bool tokenIsC0 = uint160(token) < uint160(m.quote);
+        return tokenIsC0 ? (a1, a0) : (a0, a1);
+    }
+
+    function _claimTo(address token, uint8 share, address to) internal returns (uint256 quoteAmount, uint256 tokenAmount) {
+        (PoolId id, PoolMeta memory m, bool tokenIsC0) = _pool(token);
+        (quoteAmount, tokenAmount) = _take(id, share, tokenIsC0);
+        _pay(m.quote, token, to, quoteAmount, tokenAmount);
+        emit FeesClaimed(token, share, to, quoteAmount, tokenAmount);
+    }
+
+    function _pool(address token) internal view returns (PoolId id, PoolMeta memory m, bool tokenIsC0) {
+        id = poolOf[token];
+        m = metaOf[id];
+        if (!m.registered || m.token != token) revert NotRegistered();
+        tokenIsC0 = uint160(token) < uint160(m.quote);
+    }
+
+    /// @dev Book `share`'s owed amounts as claimed (effects before any transfer) and return them as quote / token.
+    function _take(PoolId id, uint8 share, bool tokenIsC0) internal returns (uint256 quoteAmount, uint256 tokenAmount) {
+        (uint256 a0, uint256 a1) = _owed(id, share);
+        if (a0 == 0 && a1 == 0) revert NothingToClaim();
+        Fees storage c = claimedOf[id][share];
+        c.amount0 += uint128(a0);
+        c.amount1 += uint128(a1);
+        (quoteAmount, tokenAmount) = tokenIsC0 ? (a1, a0) : (a0, a1);
+    }
+
+    /// @dev share of the running total (33/33/33/1, each rounded down) minus what it already claimed.
+    function _owed(PoolId id, uint8 share) internal view returns (uint256 a0, uint256 a1) {
+        Fees memory f = feesOf[id];
+        Fees memory c = claimedOf[id][share];
+        uint256 pct = share == SHARE_CREATOR
+            ? Constants.FEE_SHARE_CREATOR
+            : share == SHARE_LOCKED_LP
+                ? Constants.FEE_SHARE_LP_LOCK
+                : share == SHARE_TREASURY ? Constants.FEE_SHARE_TREASURY : Constants.FEE_SHARE_REFERRAL;
+        if (share > SHARE_COMMUNITY) return (0, 0);
+        a0 = uint256(f.amount0) * pct / Constants.FEE_SHARE_DENOM - c.amount0;
+        a1 = uint256(f.amount1) * pct / Constants.FEE_SHARE_DENOM - c.amount1;
+    }
+
+    function _toLockedLP(address token, address quote, uint256 tokenAmount, uint256 quoteAmount)
+        internal
+        returns (address lp)
+    {
+        lp = IMigrationLockedLP(migration).lockedLP();
+        _pay(quote, token, lp, quoteAmount, tokenAmount);
+        IHookLockedLP(lp).creditLockedLiquidity(token, quote, tokenAmount, quoteAmount);
+    }
+
+    /// @dev Burn the hook's PoolManager balance and have the PoolManager send the tokens straight to `to`.
+    function _pay(address quote, address token, address to, uint256 quoteAmount, uint256 tokenAmount) internal {
+        poolManager.unlock(abi.encode(quote, token, to, quoteAmount, tokenAmount));
+    }
+
+    /// @dev PoolManager callback for `_pay` only (claims). burn credits the hook, take debits it: net zero.
+    function unlockCallback(bytes calldata data) external onlyPoolManager returns (bytes memory) {
+        (address quote, address token, address to, uint256 quoteAmount, uint256 tokenAmount) =
+            abi.decode(data, (address, address, address, uint256, uint256));
+        _burnTake(Currency.wrap(quote), to, quoteAmount);
+        _burnTake(Currency.wrap(token), to, tokenAmount);
+        return "";
+    }
+
+    function _burnTake(Currency c, address to, uint256 amount) internal {
+        if (amount == 0) return;
+        poolManager.burn(address(this), c.toId(), amount);
+        poolManager.take(c, to, amount);
     }
 
     // ── views (not on the swap path) ────────────────────────────────────────

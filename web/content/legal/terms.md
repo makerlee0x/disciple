@@ -48,7 +48,7 @@ Every BOOST and every DUMP pays a 1% fee.
 
 The person who launches a rocket can set a creator tax from 0% up to 7%. They choose it on the create page, and it does not change after launch. While the rocket is on its first market, that tax is taken from buys and sells on top of the 1% fee.
 
-On an Easy rocket, while it is still on its first market, a sell can also pay a crew tip of 0.777% of the amount that sell would pay you. The tip applies only when the profit on that sale is above a threshold set for that rocket. Hard and Expert do not charge this tip.
+On an Easy rocket, while it is still on its first market, a sell can also pay a crew tip of up to 12% (3.3% by default) of the amount that sell would pay you. The tip rate and threshold are fixed for each rocket when it launches, and the tip applies only when the profit on that sale is above that threshold. Hard and Expert do not charge this tip.
 
 In the first few seconds after a launch, a BOOST pays an extra tax that starts high and falls to nothing. The launcher's own first buy does not pay that extra tax.
 

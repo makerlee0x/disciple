@@ -39,6 +39,8 @@ contract AnonLauncherTest is IntegrationBase {
         super.setUp();
         anon =
             new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), address(0));
+        vm.prank(owner);
+        anon.setHook(address(hook)); // maker 2026-11-19: post-orbit creator share is held by the hook
         (stealthA, skA) = makeAddrAndKey("stealthA");
         (stealthB, skB) = makeAddrAndKey("stealthB");
         quote.mint(payer, 1_000_000 * U);

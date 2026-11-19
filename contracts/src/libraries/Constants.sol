@@ -175,11 +175,13 @@ library Constants {
     ///      The First BOOST is exempt from the holding cap for that buy only (it still counts in NET afterwards).
     uint256 internal constant FIRST_BOOST_MAX_BPS_PVE = 120; // 1.2%
     uint256 internal constant FIRST_BOOST_MAX_BPS_PVP = 333; // 3.33%
-    /// @dev Easy crew tip: 0.777% of the sell proceeds, only when realized profit on that sale > threshold.
-    uint256 internal constant PVE_CREW_TIP_PPM = 7770;
+    /// @dev Easy crew (holder) tip, ppm of the sell proceeds, only when realized profit on that sale > threshold.
+    ///      maker 2026-11-19: Launchpad.crewTipPpm (owner-settable 0–12%, default 3.3%), snapshotted per coin at launch.
+    uint256 internal constant CREW_TIP_PPM_DEFAULT = 33_000; // 3.3%
+    uint256 internal constant CREW_TIP_PPM_MAX = 120_000; // 12%
     /// @dev Crew-tip threshold, bps of the coin's market cap at the time of sale (Launchpad.crewTipThresholdBps,
     ///      owner-settable within [MIN, MAX], snapshotted per coin at launch). Default 0.5% of mcap.
     uint256 internal constant CREW_TIP_THRESHOLD_BPS_DEFAULT = 50;
     uint256 internal constant CREW_TIP_THRESHOLD_BPS_MIN = 10; // 0.1%
-    uint256 internal constant CREW_TIP_THRESHOLD_BPS_MAX = 500; // 5%
+    uint256 internal constant CREW_TIP_THRESHOLD_BPS_MAX = 1200; // 12% (maker 2026-11-19, was 5%)
 }

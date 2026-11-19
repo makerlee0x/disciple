@@ -144,7 +144,7 @@ export const HIW_PRO = {
     rows: [
       ["Max bag per wallet", "1% → 3.33%", "3.33% → 7.77%", "None"],
       ["Creator Ticket, max", "1.2% · locked to orbit", "3.33%", "7.77%"],
-      ["Crew tip", "0.777% of big winning sells, to holders", "—", "—"],
+      ["Crew tip", "Up to 3.3% of big winning sells, to holders", "—", "—"],
     ] as [string, string, string, string][],
     overcap: ["Over-cap buys", "Partial fill, unused input refunded. No max buy or sell."] as [string, string],
   },

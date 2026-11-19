@@ -13,7 +13,7 @@ Picked at launch, locked for good. The rules only run on the bonding curve. At o
 |---|---|---|---|
 | Max bag per wallet | 1% → 3.33% | 3.33% → 7.77% | None |
 | Creator Ticket max | 1.2% · locked to orbit | 3.33% | 7.77% |
-| Crew tip | 0.777% | — | — |
+| Crew tip | 3.3% | — | — |
 | Sniper tax | 7s | 7s | 7s |
 
 ## Max bag
@@ -22,7 +22,7 @@ The cap grows in a straight line as mcap climbs from $3,333 to $33,333. It follo
 
 ## Crew tip (Easy)
 
-Sell at a profit bigger than 0.5% of the rocket's mcap and 0.777% of what you get goes to the other holders. You don't share in your own tip. No other holders: it goes to the treasury.
+Sell at a profit bigger than 0.5% of the rocket's mcap and 3.3% of what you get goes to the other holders. Each rocket keeps the tip and cutoff it launched with. You don't share in your own tip. No other holders: it goes to community rewards.
 
 ## Burning
 

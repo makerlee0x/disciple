@@ -19,7 +19,7 @@ section: Reference
 | **Creator tax** | Optional 0–7% on curve trades. Ends at orbit. |
 | **Creator Ticket** | The creator's buy inside the launch. |
 | **Crew** | Everyone holding a rocket. |
-| **Crew tip** | Easy only: 0.777% of a big winning sell, to the other holders. |
+| **Crew tip** | Easy only: a cut of a big winning sell (3.3% at launch time), to the other holders. |
 | **Daily mission** | One practice market a day, same for everyone. |
 | **Duel** | 1v1 Turbo on BTC, one minute. |
 | **DUMP** | Sell. In Turbo, go short. |

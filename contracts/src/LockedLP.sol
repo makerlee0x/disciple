@@ -47,6 +47,9 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     ///         Replacing LockedLP is what changes this address. It does not make locked liquidity withdrawable.
     address private immutable creatorFeeHarvest;
     IPoolManager public poolManager;
+    /// @notice maker 2026-11-19: DiscipleHook holds the post-graduation 1% and pays the 33% LP share (and the creator
+    ///         share of locked-LP coins) here when someone claims. Write-once, like the other pointers.
+    address public hook;
 
     int24 public constant TICK_SPACING = 60;
     address public constant BURN = 0x000000000000000000000000000000000000dEaD;
@@ -210,7 +213,10 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     ///         caps can never change. Refuses until every pointer is set, so nothing is left unwired.
     function renounceOwnership() external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (feeRouter == address(0) || migration == address(0) || address(poolManager) == address(0) || treasury == address(0)) {
+        if (
+            feeRouter == address(0) || migration == address(0) || address(poolManager) == address(0)
+                || treasury == address(0) || hook == address(0)
+        ) {
             revert NotWired();
         }
         owner = address(0);
@@ -222,6 +228,12 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         if (msg.sender != owner) revert OnlyOwner();
         if (feeRouter != address(0) || r.code.length == 0) revert AlreadyWired(); // audit L-31: contracts only
         feeRouter = r;
+    }
+
+    function setHook(address h) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (hook != address(0) || h.code.length == 0) revert AlreadyWired();
+        hook = h;
     }
 
     function setMigration(address m) external {
@@ -279,14 +291,15 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         return tokenAmount + quoteAmount;
     }
 
-    /// @notice Gas path for the per-trade LP share: FeeRouter has ALREADY transferred the amounts here.
-    /// @dev FeeRouter-only (it transfers exactly these amounts immediately before this call, same tx).
+    /// @notice LP share credit: the caller has ALREADY transferred the amounts here. FeeRouter (curve-phase LP share)
+    ///         or DiscipleHook (post-graduation LP share / locked-LP creator share, at claim time).
+    /// @dev Both callers transfer exactly these amounts immediately before this call, same tx.
     /// @return compoundReady post-graduation and both buckets hold >= 2 wei (informational; the keeper flushes).
     function creditLockedLiquidity(address token, address quote, uint256 tokenAmount, uint256 quoteAmount)
         external
         returns (bool compoundReady)
     {
-        if (msg.sender != feeRouter) revert Unauthorized();
+        if (msg.sender != feeRouter && msg.sender != hook) revert Unauthorized();
         return _credit(token, quote, tokenAmount, quoteAmount);
     }
 

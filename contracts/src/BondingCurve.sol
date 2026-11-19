@@ -46,6 +46,8 @@ interface IFeeRouterCurve {
     function accrueTreasury(address asset, uint256 amount) external;
     function rewardsVault() external view returns (address);
     function referrals() external view returns (address);
+    function referralSink() external view returns (address);
+    function treasury() external view returns (address);
 }
 
 interface IReferrerOf {
@@ -88,6 +90,9 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     address public immutable trustedRouter;
     /// @notice Easy crew-tip threshold in bps of the coin's mcap at the time of sale (snapshotted from Launchpad).
     uint256 public immutable crewTipThresholdBps;
+    /// @notice Easy holder tip, ppm of profitable sell proceeds, read from Launchpad.crewTipPpm at launch and fixed for
+    ///         this coin's life (maker 2026-11-19). 0 = no tip.
+    uint256 public immutable crewTipPpm;
     /// @notice Seconds after launch when a not-graduated curve's snipeEscrow becomes releasable to RewardsVault
     ///         (snapshotted from Launchpad.snipeEscrowTimeout; default 12 days).
     uint256 public immutable snipeEscrowTimeout;
@@ -175,6 +180,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     event ProfitTaxCharged(
         address indexed token, address indexed seller, uint256 tax, uint256 grossQuote, uint256 costBasis
     );
+    /// @notice Easy holder tip with no other holder, paid to the community rewards Safe.
+    event CrewTipToCommunity(address indexed token, address indexed to, uint256 amount);
     event HolderRewardsClaimed(address indexed token, address indexed holder, uint256 amount);
 
     /// @notice Partial fill / graduation cap: `quoteRefund` of the input was returned to the payer (or the router).
@@ -244,11 +251,19 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         launchBlock = block.number;
         trustedRouter = trustedRouter_;
         crewTipThresholdBps = crewTipThresholdBps_;
+        crewTipPpm = _launchCrewTipPpm(launchpad_);
         snipeEscrowTimeout = snipeEscrowTimeout_;
         feeVault = ICurveFeeVault(feeVault_);
         referrals = IReferrerOf(IFeeRouterCurve(feeRouter_).referrals());
 
         _params = params_;
+    }
+
+    /// @dev Launchpad.crewTipPpm, capped at CREW_TIP_PPM_MAX; a launchpad without the getter keeps the default.
+    function _launchCrewTipPpm(address lp) private view returns (uint256 ppm) {
+        (bool ok, bytes memory r) = lp.staticcall(abi.encodeWithSignature("crewTipPpm()"));
+        ppm = ok && r.length >= 32 ? abi.decode(r, (uint256)) : Constants.CREW_TIP_PPM_DEFAULT;
+        if (ppm > Constants.CREW_TIP_PPM_MAX) ppm = Constants.CREW_TIP_PPM_MAX;
     }
 
     // ───────────────────────────── views ─────────────────────────────
@@ -660,7 +675,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
 
     /// @dev Easy crew tip for selling `tokensIn` with `netOut` proceeds (after the 1% fee + creator tax).
     ///      Realized profit = netOut − cost × tokensIn / NET (tokens beyond NET, i.e. received outside the curve
-    ///      bookkeeping, carry zero basis). Tip = 0.777% of netOut iff profit > crewTipThresholdBps × mcap (pre-sale).
+    ///      bookkeeping, carry zero basis). Tip = crewTipPpm of netOut iff profit > crewTipThresholdBps × mcap (pre-sale).
     ///      Both sides are in the pair coin at the launch quote/USD, so the USD conversion cancels.
     function _crewTip(address seller, uint256 tokensIn, uint256 netOut)
         internal
@@ -673,7 +688,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         if (netOut > costPortion) {
             uint256 threshold =
                 Math.mulDiv(CurveMath.marketCapQuote(_params, tokensSold), crewTipThresholdBps, Constants.BPS_DENOM);
-            if (netOut - costPortion > threshold) tip = (netOut * Constants.PVE_CREW_TIP_PPM) / 1e6;
+            if (netOut - costPortion > threshold) tip = (netOut * crewTipPpm) / 1e6;
         }
     }
 
@@ -799,12 +814,19 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         if (acc != 0) rewardDebt[seller] = Math.mulDiv(newBal, acc, ACC_SCALE);
     }
 
-    /// @dev Tax over everyone else's NET (`others`); audit L6: nobody else holds → treasury now (not to whoever
-    ///      buys in later). Returns the new accumulator.
+    /// @dev Tax over everyone else's NET (`others`); audit L6: nobody else holds → paid out now (not to whoever
+    ///      buys in later). maker 2026-11-19: to the community rewards Safe (FeeRouter.referralSink, which mainnet
+    ///      sets to that Safe); the treasury only when no separate sink is set. Returns the new accumulator.
     function _distributeTax(uint256 tax, uint256 others, uint256 acc) internal returns (uint256) {
         if (others == 0) {
-            IERC20(quote).safeTransfer(address(feeRouter), tax);
-            IFeeRouterCurve(address(feeRouter)).accrueTreasury(quote, tax);
+            address sink = IFeeRouterCurve(address(feeRouter)).referralSink();
+            if (sink != address(0) && sink != IFeeRouterCurve(address(feeRouter)).treasury()) {
+                IERC20(quote).safeTransfer(sink, tax);
+                emit CrewTipToCommunity(token, sink, tax);
+            } else {
+                IERC20(quote).safeTransfer(address(feeRouter), tax);
+                IFeeRouterCurve(address(feeRouter)).accrueTreasury(quote, tax);
+            }
             return acc;
         }
         acc += Math.mulDiv(tax, ACC_SCALE, others);
@@ -1008,8 +1030,9 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
             emit SnipeEscrowToLP(token, esc);
         }
 
-        // PVE: holder rewards stay here, claimable forever; NET positions freeze (token stops notifying).
-        if (mode == Constants.MODE_PVE) IPveToken(token).endPveHooks();
+        // Every mode: the coin has orbited, so the token opens v4 transfers (maker 2026-11-19). PVE: holder rewards
+        // stay here, claimable forever; NET positions freeze (token stops notifying).
+        IPveToken(token).endPveHooks();
 
         emit GraduatedToV4(token, poolId, tokenLiq, quoteLiq);
     }

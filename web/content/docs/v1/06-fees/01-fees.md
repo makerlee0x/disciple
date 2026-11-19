@@ -29,7 +29,7 @@ On a $100 buy: $0.33 creator · $0.33 locked LP · $0.33 treasury · $0.01 commu
 | Trade fee | Every rocket trade | 1% |
 | Creator tax | Rocket trades on the curve, if set | 0–7% |
 | Sniper tax | BOOSTs in a rocket's first 7s | 99% → 0% |
-| Crew tip | Easy, winning sell over 0.5% of mcap | 0.777% |
+| Crew tip | Easy, winning sell over 0.5% of mcap | 3.3% (fixed per rocket at launch) |
 | Turbo | Every Turbo order | 1.1 bp round trip |
 | Relay | Cash ↔ Turbo cash | About 4¢ on $10 |
 | Market | Skin sales | 7% |

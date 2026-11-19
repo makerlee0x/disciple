@@ -39,7 +39,7 @@ Scope: the combined stack from PRs #14 (anon launch), #16 (snipe split + creator
 6. `postprocess.mjs` writes `deployments/<chain>.json` and the web bundle. Then the indexer config, the frontend env, and a canary launch with a small creator buy, buy/sell through the router, and an anon launch.
 
 ## 5. Verification
-- Verify source on the explorer for every contract (`forge verify-contract`, same solc 0.8.26, via_ir, cancun, optimizer settings).
+- Verify source on the explorer for every contract (`forge verify-contract`, same solc 0.8.26, via_ir, cancun, optimizer settings). Commands per contract: `docs/mainnet/deploy-guide.md` §5.
 - Run a script that reads all wiring getters and owners and diffs them against the deployment json. This becomes part of the CI artifact.
 - The indexer replays from the deploy block, and its mcap matches the v4 pool (as on testnet: TRMP $45.3k, pool-derived).
 
