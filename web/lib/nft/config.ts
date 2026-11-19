@@ -22,6 +22,8 @@ export const isDiscipleAuthority = (a: string | null | undefined) => !!a && (DIS
 /** Metaplex default pNFT rule set, the one the first 175 use. */
 export const DISCIPLE_RULE_SET = "eBJLFYPxJmMGKuFwpDWkzxZeUrad92kZRC5BJLpzyT9";
 export const DISCIPLE_SUPPLY = 777;
+/** Solana Disciples on the site (market tile, Solana holder wallet, Connect NFT). Off until the collection hand-over (maker 2026-11-18). */
+export const DISCIPLES_LIVE = false;
 export const DISCIPLE_SYMBOL = "DSCPL";
 export const DISCIPLE_ROYALTY_BPS = 700;
 export const METADATA_BASE = "https://gateway.pinit.io/ipfs/QmRhv7orAQhRuuyGp9BKRUoGbzU9Hc9LQqJG5hmbyrLPAZ/";

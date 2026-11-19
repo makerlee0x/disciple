@@ -15,7 +15,7 @@ import { UsernameField, useUsernameDraft } from "./UsernameRow";
 import HolderWallets from "@/components/nft/HolderWallets";
 import NftPicker from "@/components/nft/NftPicker";
 import { EMPTY_HOLDER, fetchHolder } from "@/lib/nft/client";
-import type { HolderStatus } from "@/lib/nft/config";
+import { DISCIPLES_LIVE, type HolderStatus } from "@/lib/nft/config";
 import { isNativeApp } from "@/lib/native";
 
 /** Edit profile copy (profile r3 README copy list). */
@@ -154,7 +154,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
           <div className="nm">
             <b>{draft.name?.trim() || uname.name || (handle || "").replace(/^@/, "")}</b>
             {level && <span>{level}</span>}
-            {web && wallet && <button type="button" className="nft-connect" disabled={!!busy} aria-pressed={picking} onClick={() => setPicking((v) => !v)} data-testid="connect-nft">Connect NFT</button>}
+            {web && wallet && DISCIPLES_LIVE && <button type="button" className="nft-connect" disabled={!!busy} aria-pressed={picking} onClick={() => setPicking((v) => !v)} data-testid="connect-nft">Connect NFT</button>}
           </div>
         </div>
       </header>
