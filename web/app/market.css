@@ -241,3 +241,19 @@
   .mk-sheet-tx { padding: 20px 16px; } .mk-sheet-tx h2 { font-size: 40px; }
 }
 @media (prefers-reduced-motion: reduce) { .mk-feat-art, .mk-sheet, .mk-scrim { animation: none; } .mk-card, .mk-feat-card { transition: none; } }
+
+/* cash offers + private sales in the item sheet (maker 2026-11-19) */
+.mk-tags i.fy { color: #121327; background: #F2C14E; }
+.mk-offer-btn { width: 100%; min-height: 48px; font: 800 18px / 1 var(--dsc-font-game); text-transform: uppercase; background: transparent; color: #FFFFFF; border: 1px solid rgba(243,223,168,.35); }
+.mk-offer-btn:hover { border-color: rgba(242,193,78,.7); }
+.mk-offer { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 12px; border-radius: 16px; border: 1px solid var(--dsc3-panel-border); background: rgba(22,24,28,.6); }
+.mk-offer-in { display: flex; align-items: center; gap: 6px; height: 48px; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(242,193,78,.55); background: rgba(10,12,18,.6); }
+.mk-offer-in span { font: 800 26px / 1 var(--dsc-font-game); color: #9095A0; }
+.mk-offer-in input { all: unset; flex: 1; min-width: 0; font: 800 28px / 1 var(--dsc-font-game); color: #FFFFFF; }
+.mk-offer-in input::placeholder { color: #5A5F6A; }
+.mk-offer-go { min-height: 48px; padding: 0 18px; font: 800 18px / 1 var(--dsc-font-game); text-transform: uppercase; }
+.mk-offer .mk-link { margin-top: 0; }
+.mk-offer small { justify-self: end; font: 500 12px / 1.3 var(--dsc-font-mono); color: var(--dsc-muted); }
+.mk-offer-sent { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(95,240,160,.35); background: rgba(95,240,160,.06); }
+.mk-offer-sent b { font: 800 18px / 1 var(--dsc-font-game); text-transform: uppercase; color: #5FF0A0; }
+.mk-offer-sent span { font: 500 12px / 1.3 var(--dsc-font-mono); color: #BCC0CA; }

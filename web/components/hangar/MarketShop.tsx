@@ -17,8 +17,8 @@ import {
   type Item, type Rarity,
 } from "@/lib/collection";
 import { isNativeApp } from "@/lib/native";
-import { usd, type Listing, type Sale } from "@/lib/market";
-import { buyListing, buyQuote, useMarket } from "@/lib/marketClient";
+import { parsePrice, usd, type Listing, type Sale } from "@/lib/market";
+import { buyListing, buyQuote, listingDetail, marketAction, useMarket } from "@/lib/marketClient";
 import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
 import { itemArt } from "./Collection";
 import AnimClip from "@/components/ui/AnimClip";
@@ -238,8 +238,12 @@ function Sheet({ l, rows, me, onPick, onClose }: { l: Listing; rows: Listing[]; 
   const [step, setStep] = useState<"idle" | "quote" | "confirm" | "busy" | "done">("idle");
   const [net, setNet] = useState(0);
   const [note, setNote] = useState("");
+  const [offering, setOffering] = useState(false);
+  const [offer, setOffer] = useState("");
+  const [sentOffer, setSentOffer] = useState<number | null>(null);
   useEffect(() => {
-    setStep("idle"); setNote(""); setSales([]);
+    setStep("idle"); setNote(""); setSales([]); setOffering(false); setOffer(""); setSentOffer(null);
+    if (process.env.NODE_ENV !== "production") (window as unknown as { __offerSheetDev?: (v: string, sent?: boolean) => void }).__offerSheetDev = (v, sent) => { setOffering(!sent); setOffer(v); setSentOffer(sent ? parsePrice(v) : null); };
     fetch(withBase(`/api/market?listing=${l.id}`), { cache: "no-store" }).then((r) => r.json()).then((j: { ok?: boolean; sales?: Sale[] }) => { if (j?.ok) setSales(j.sales ?? []); }).catch(() => {});
   }, [l.id]);
   useEffect(() => {
@@ -263,7 +267,7 @@ function Sheet({ l, rows, me, onPick, onClose }: { l: Listing; rows: Listing[]; 
   };
   let cta: ReactNode;
   if (l.state === "sold" || step === "done") cta = null;
-  else if (mine) cta = <p className="mk-note">Your listing.</p>;
+  else if (mine) cta = <p className="mk-note">{l.to ? <>Your listing · <span className="mkt-priv-tx">@{l.toName ?? short(l.to)}</span></> : "Your listing."}</p>;
   else if (!me) cta = <button type="button" className="dsc3-btn dsc3-btn-primary mk-buy" onClick={signIn} data-testid="buy-signin">Sign in to buy</button>;
   else if (step === "confirm" || step === "busy") cta = (
     <div className="mk-confirm">
@@ -274,6 +278,26 @@ function Sheet({ l, rows, me, onPick, onClose }: { l: Listing; rows: Listing[]; 
     </div>
   );
   else cta = <button type="button" className="dsc3-btn dsc3-btn-primary mk-buy" disabled={step === "quote" || l.state !== "open"} onClick={ask} data-testid="buy">{l.state === "pending" ? "Being bought" : step === "quote" ? "…" : `Buy ${usd(l.price)}`}</button>;
+  const forMe = !!me && l.to === me.toLowerCase();
+  const offerCents = parsePrice(offer);
+  const sendOffer = async () => {
+    if (!me || !offerCents || !c) return;
+    setNote("");
+    const r = await marketAction(me, { op: "offer", copy: c.uid, price: offerCents });
+    if (r.ok) { setSentOffer(offerCents); setOffering(false); } else setNote(r.reason ?? "Couldn't send it.");
+  };
+  // cash offer on someone else's open listing (not a private sale already priced for you)
+  const offerBox = me && !mine && !forMe && c && l.state === "open" && step === "idle" ? (
+    sentOffer ? <p className="mk-offer-sent" data-testid="offer-sent"><b>Offer sent · {usd(sentOffer)}</b><span>Paid from Cash if {who(l.sellerName, l.seller)} takes it</span></p>
+    : offering ? (
+      <div className="mk-offer" data-testid="offer-box">
+        <label className="mk-offer-in"><span>$</span><input inputMode="decimal" placeholder="0.00" value={offer} onChange={(e) => setOffer(e.target.value)} aria-label="Offer in dollars" autoFocus /></label>
+        <button type="button" className="dsc3-btn dsc3-btn-primary mk-offer-go" disabled={!offerCents || offerCents >= l.price} onClick={sendOffer} data-testid="offer-send">{offerCents ? `Offer ${usd(offerCents)}` : "Offer"}</button>
+        <button type="button" className="mk-link" onClick={() => setOffering(false)}>Cancel</button>
+        <small>{offerCents && offerCents >= l.price ? `Has to be under ${usd(l.price)}` : "Paid from Cash if they take it"}</small>
+      </div>
+    ) : <button type="button" className="dsc3-btn mk-offer-btn" onClick={() => setOffering(true)} data-testid="make-offer">Make offer</button>
+  ) : null;
   return (
     <div className="mk-scrim" onClick={onClose} data-testid="market-detail">
       <div className="mk-sheet" role="dialog" aria-modal="true" aria-label={fullName(it)} style={{ ["--sw" as string]: SW[it.rar] }} onClick={(e) => e.stopPropagation()}>
@@ -282,10 +306,11 @@ function Sheet({ l, rows, me, onPick, onClose }: { l: Listing; rows: Listing[]; 
         <div className="mk-sheet-tx">
           <small className="mk-kind">{kindLine(it)}</small>
           <h2>{nameOf(it)}</h2>
-          <span className="mk-tags lg">{c?.fe && <i className="fe">First edition</i>}{c?.trak != null && <i className="ft">FlightTrak™ · {fmt(c.trak)} wins</i>}</span>
+          <span className="mk-tags lg">{forMe && <i className="fy">For you</i>}{c?.fe && <i className="fe">First edition</i>}{c?.trak != null && <i className="ft">FlightTrak™ · {fmt(c.trak)} wins</i>}</span>
           <b className="mk-big">{usd(l.price)}</b>
           {avg && <span className="mk-avg">Avg sale {usd(avg)}{l.price < avg ? <i className="mk-deal">-{Math.round((1 - l.price / avg) * 100)}%</i> : null}</span>}
           {cta}
+          {offerBox}
           {step === "done" && <div className="mk-done"><b>It&apos;s yours.</b><Link href="/rocket" className="dsc3-btn dsc3-btn-primary">Equip it</Link></div>}
           {note && <p className="mk-note" role="status">{note}</p>}
           {c && (
@@ -321,8 +346,15 @@ export function MarketShop({ wallet, crates }: { wallet: string | null; crates?:
   const live = liveSeries(Date.now()) ?? SERIES[0];
   const last = useMemo(() => lastSales(sales), [sales]);
   const shown = useMemo(() => apply(rows ?? [], f, last), [rows, f, last]);
+  const [extra, setExtra] = useState<Listing | null>(null);
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get("l");
+    if (!id || !/^[a-f0-9]{12}$/.test(id)) return;
+    setSel(id);
+    void listingDetail(id).then((d) => { if (d) setExtra(d.listing); });
+  }, []);
   const close = useCallback(() => setSel(null), []);
-  const open = sel ? rows?.find((l) => l.id === sel) ?? null : null;
+  const open = sel ? rows?.find((l) => l.id === sel) ?? (extra?.id === sel ? extra : null) : null;
   if (web === false) {
     return <section className="mk-app"><b>Market&apos;s on the web</b><p>disciple.vip/market</p></section>;
   }
