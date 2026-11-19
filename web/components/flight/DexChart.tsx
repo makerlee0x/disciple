@@ -163,7 +163,7 @@ export default function DexChart({ coin, ticker }: { coin: string; ticker?: stri
         autoSize: true,
         // transparent canvas: the plot box behind it is the old translucent rgba(8,10,20,.62) ⇒ the sky shows through
         layout: { background: { type: lc.ColorType.Solid, color: "rgba(0,0,0,0)" }, textColor: C.fg, fontFamily: mono, fontSize: 9,
-          // lee, Oct 30: "remove the trading view symbol" — attribution moved to the How it works footer ("Charts by TradingView")
+          // lee, Oct 30: "remove the trading view symbol" — credited on the docs Credits page (content/docs/v1/08-reference/05-credits.md)
           attributionLogo: false },
         grid: { vertLines: { color: C.grid }, horzLines: { color: C.grid } },
         // lee, Oct 30: "straight scale not log" — linear mcap axis; autoscale floored at $0 + blank labels below $0

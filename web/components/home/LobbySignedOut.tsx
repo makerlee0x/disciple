@@ -121,7 +121,7 @@ function Hero({ data, hero }: { data: HomeData; hero: HomeCoin }) {
       <div className={s.heroCopy}>
         <span className={s.eyebrow}><span className={s.liveTag}>Live</span>{pilots > 0 ? `${pilots.toLocaleString("en-US")} ${pilots === 1 ? "pilot" : "pilots"} flying right now` : "Fresh off the pad"}</span>
         <h1 id="so-hero-title" className={s.heroTitle}>${sym}<br />is climbing</h1>
-        <p className={s.lede} data-testid="so-hero-facts">{facts}. Boost to grab a seat, dump to cash out.</p>
+        <p className={s.lede} data-testid="so-hero-facts">{facts}</p>
         <div className={s.actions}>
           <Link href={play} prefetch={false} className={`${s.btn} ${s.gold}`} data-testid="so-play">▲ Boost ${sym}</Link>
           <Link href="/create" className={`${s.btn} ${s.ghost}`} data-testid="so-launch">Launch yours</Link>

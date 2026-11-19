@@ -60,6 +60,7 @@ test("signed out, the launch button signs you in", async ({ page }) => {
   await page.goto("/create");
   const btn = page.getByTestId("create-sign-in");
   await expect(btn).toBeVisible();
+  await expect(btn).toHaveText(/sign in to launch/i);
   await hydrated(btn);
   await btn.click();
   await expect(page.getByTestId("create-launch")).toBeVisible();

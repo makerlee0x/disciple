@@ -611,18 +611,24 @@ textarea.he-ta { min-height: 76px; padding: 12px 14px; resize: none; display: bl
 .hgo .hgo-bio li { display: flex; gap: 10px; align-items: center; }
 .hgo .hgo-bio li i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .hgo .hg-ghost { text-decoration: none; }
-.hgo-ghost { opacity: .6; border-style: dashed !important; }
-.hgo-bar { display: block; height: 26px; width: 60%; border-radius: 6px; background: rgba(232,234,238,0.06); }
-.hgo-row { display: flex; gap: 20px; opacity: .6; }
-.hgo-panel { flex: 1; min-width: 0; padding: 20px 24px; border-radius: 16px; border: 1px dashed #2E323A; background: rgba(22,24,28,0.4); }
+/* a filled-in sample hangar, blurred behind the sign-in (maker 2026-11-18) */
+.hgo-blur { display: flex; flex-direction: column; gap: 20px; filter: blur(7px) saturate(.9); opacity: .75; pointer-events: none; user-select: none;
+  -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent); mask-image: linear-gradient(180deg, #000 55%, transparent); }
+.hgo-v { display: block; margin-top: 8px; font: 800 30px / 1 var(--dsc-font-game); color: #FFFFFF; font-variant-numeric: tabular-nums; }
+.hgo-row { display: flex; gap: 20px; }
+.hgo-panel { flex: 1; min-width: 0; padding: 20px 24px; border-radius: 16px; border: 1px solid #2E323A; background: rgba(22,24,28,0.7); }
 .hgo-wide { flex: 2; }
-.hgo-panel h2 { margin: 0; font: 800 28px / 1 var(--dsc-font-game); text-transform: uppercase; color: #6F7480; }
+.hgo-panel h2 { margin: 0; font: 800 28px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
 .hgo-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; }
-.hgo-cards i { height: 160px; border-radius: 14px; border: 1px dashed #2E323A; }
-.hgo-gems { display: flex; gap: 28px; margin-top: 34px; padding: 0 0 18px 12px; }
-.hgo-gems i { width: 44px; height: 44px; border-radius: 12px; transform: rotate(45deg); border: 1px dashed #3A3F49; }
+.hgo-cards i { height: 160px; border-radius: 14px; border: 1px solid #2E323A; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 10px; padding-bottom: 14px; box-sizing: border-box; font-style: normal; }
+.hgo-cards img { width: 40px; height: auto; }
+.hgo-cards b { font: 800 16px / 1 var(--dsc-font-game); color: #F3DFA8; }
+.hgo-gems { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 24px; }
+.hgo-gems img { width: 52px; height: 52px; }
 @media (max-width: 720px) {
-  .hgo-ghost, .hgo-row { display: none !important; }
+  .hgo-row { flex-direction: column; }
+  .hgo-cards { grid-template-columns: repeat(2, 1fr); }
+  .hgo-cards i { height: 120px; }
 }
 .wb-fail.r2-note.err { background: #23111A; }
 @media (max-width: 720px) {

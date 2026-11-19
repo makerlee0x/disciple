@@ -2,6 +2,10 @@ import type { Metadata } from "next";
 import PublicProfile from "./PublicProfile";
 import { cardMeta } from "@/lib/ogMeta";
 
+// Rendered per request (like /vs and /d). generateMetadata reads ?card=points, and on an on-demand static route reading
+// searchParams throws "changed from static to dynamic at runtime", so every /u/<name> was a 500 (maker 2026-11-18).
+export const dynamic = "force-dynamic";
+
 /**
  * The server build renders any username on demand. `output: 'export'` (STATIC_PREVIEW=1) needs at least one
  * pre-rendered path, so the static preview gets a single placeholder slug; no sample pilots are pre-rendered.
