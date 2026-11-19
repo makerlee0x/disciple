@@ -42,19 +42,14 @@ export function ServiceRecord({ pf, isPrivate }: { pf: LivePortfolio | null; isP
       <div>
         <span className="l">Cash</span>
         <b data-testid="portfolio-cash">{ok ? usd2(pf.cashUsd) : "—"}</b>
-        {/* maker 2026-11-19: a clear Deposit and a Transfer (to an @user or a 0x address: the Cash popup's Transfer tab) */}
-        {isPrivate ? (
-          <span className="hg-cashacts">
-            <Link href={DEPOSIT_HREF} onClick={onDepositClick} className="dsc3-btn dsc3-btn-primary" data-testid="hangar-deposit">Deposit</Link>
-            <a href={DEPOSIT_HREF} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); openCash("out"); }} className="dsc3-btn" data-testid="hangar-transfer">Transfer</a>
-          </span>
-        ) : <span className="s" />}
+        {/* maker 2026-11-19 (pins on the rewards mockup): Cash gets a clear Deposit, Turbo cash a Transfer */}
+        {isPrivate ? <span className="hg-cashacts"><Link href={DEPOSIT_HREF} onClick={onDepositClick} className="dsc3-btn dsc3-btn-primary" data-testid="hangar-deposit">Deposit</Link></span> : <span className="s" />}
       </div>
       {isPrivate && (
         <div>
           <span className="l">Turbo cash</span>
           <b data-testid="portfolio-turbo">{usd2(turbo)}</b>
-          {canAdd ? <a href={DEPOSIT_HREF} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); openCash("turbo"); }} className="s">Add to Turbo</a> : <span className="s" />}
+          {canAdd ? <span className="hg-cashacts"><a href={DEPOSIT_HREF} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); openCash("turbo"); }} className="dsc3-btn" data-testid="hangar-turbo-transfer">Transfer</a></span> : <span className="s" />}
         </div>
       )}
     </section>
