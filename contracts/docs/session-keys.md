@@ -45,7 +45,7 @@ Storage is keyed `mapping(entityId => mapping(account => Session))`, so validati
 * Expiry is automatic. Install a new session for a new key/budget (random `entityId`); stale sessions can be uninstalled lazily.
 
 ### Slippage check limits
-* The quote is taken **in the same tx, right before the trade**. It stops a session key from sending zero or absurd `minOut`. It does **not** stop a sandwich: a front-run in an *earlier* tx has already moved the price when the quote is read. That leg is bounded by DiscipleRouter's `maxImpactBps` (PR #44, default 50%), by the client's own `minOut` (computed off-chain before signing, so it reflects the pre-attack price), and by the session cap.
+* The quote is taken **in the same tx, right before the trade**. It stops a session key from sending zero or absurd `minOut`. It does **not** stop a sandwich: a front-run in an *earlier* tx has already moved the price when the quote is read. That leg is bounded by the client's own `minOut` (the router impact cap was removed 2026-11-19) (computed off-chain before signing, so it reflects the pre-attack price), and by the session cap.
 * In a batch, every trade is quoted against the **pre-batch** state. A later trade in the same batch on the same pool can fail falsely if an earlier one moved the price. Send one trade per pool per batch.
 * Clients: compute `minOut` with `minOutFor(quote, slippage)` (SDK) using `slippage ≤ maxSlippageBps`.
 

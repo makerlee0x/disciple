@@ -4,6 +4,7 @@
  * filters and search. Rockets come only from the HomeData the hero paints with (chain launches + indexed 24h stats),
  * refreshed by the hero's poll ("dsc:home-data"). Lazy-loaded below the lobby (HomeFeedLazy); cards render in chunks.
  */
+import { useHomePoll } from "./useHomePoll";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MODE } from "@/lib/modeRules";
 import { isVerified } from "@/lib/verified";
@@ -35,6 +36,7 @@ const NEAR_BPS = 6_000;
 
 export default function RocketGrid({ initial }: { initial: HomeCoin[] }) {
   const [coins, setCoins] = useState(initial);
+  useHomePoll();
   useEffect(() => {
     const h = (e: Event) => setCoins((e as CustomEvent<HomeData>).detail.coins);
     window.addEventListener("dsc:home-data", h);
@@ -42,7 +44,14 @@ export default function RocketGrid({ initial }: { initial: HomeCoin[] }) {
   }, []);
   const [sort, setSort] = useState<Sort>("new");
   const [diff, setDiff] = useState<Diff>("all");
+  const [pair, setPair] = useState("all");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
+  // the base pairs on the board right now (what each rocket is bought and sold in), most rockets first
+  const pairs = useMemo(() => {
+    const n = new Map<string, number>();
+    for (const c of coins) if (c.pairSym) n.set(c.pairSym, (n.get(c.pairSym) ?? 0) + 1);
+    return [...n.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k]) => k);
+  }, [coins]);
   const [q, setQ] = useState("");
   const [shown, setShown] = useState(CHUNK);
   const more = useRef<HTMLDivElement>(null);
@@ -52,7 +61,8 @@ export default function RocketGrid({ initial }: { initial: HomeCoin[] }) {
     const needle = q.trim().toLowerCase().replace(/^\$/, "");
     const mode = DIFFS.find((d) => d.k === diff)?.mode;
     const r = coins.filter((c) => {
-      if (needle && !(c.name.toLowerCase().includes(needle) || c.ticker.toLowerCase().includes(needle) || c.token.includes(needle))) return false;
+      if (needle && !(c.name.toLowerCase().includes(needle) || c.ticker.toLowerCase().includes(needle) || c.token.includes(needle) || (c.pairSym ?? "").toLowerCase().includes(needle))) return false;
+      if (pair !== "all" && pairs.includes(pair) && c.pairSym !== pair) return false;
       if (mode !== undefined && (c.graduated || c.mode !== mode)) return false;
       if (verifiedOnly && !isVerified(c.token) && !vset.has(c.token)) return false;
       if (sort === "near") return !c.graduated && (c.progressBps ?? 0) >= NEAR_BPS;
@@ -65,9 +75,9 @@ export default function RocketGrid({ initial }: { initial: HomeCoin[] }) {
     else if (sort === "busy") r.sort((a, b) => vol(b) - vol(a) || b.block - a.block);
     else if (sort === "near") r.sort((a, b) => (b.progressBps ?? 0) - (a.progressBps ?? 0));
     return r;
-  }, [coins, q, diff, verifiedOnly, vset, sort]);
+  }, [coins, q, diff, pair, pairs, verifiedOnly, vset, sort]);
 
-  useEffect(() => setShown(CHUNK), [q, diff, verifiedOnly, sort]);
+  useEffect(() => setShown(CHUNK), [q, diff, pair, verifiedOnly, sort]);
   useEffect(() => {
     const el = more.current;
     if (!el) return;
@@ -88,10 +98,14 @@ export default function RocketGrid({ initial }: { initial: HomeCoin[] }) {
         <div className={s.tools}>
           <label className={s.search}>
             <Icon name="search" size={16} />
-            <input type="search" placeholder="Search rockets" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search rockets by name or ticker" />
+            <input type="search" placeholder="Search rockets" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search rockets by name, ticker or pair" />
           </label>
           <DsSelect className="pill" value={diff} onChange={(v) => setDiff(v as Diff)} ariaLabel="Difficulty"
             options={DIFFS.map((d) => ({ value: d.k, label: d.label }))} />
+          {pairs.length > 0 && (
+            <DsSelect className="pill" value={pairs.includes(pair) ? pair : "all"} onChange={setPair} ariaLabel="Pair"
+              options={[{ value: "all", label: "Any pair" }, ...pairs.map((p) => ({ value: p, label: p }))]} />
+          )}
           <button type="button" className="dsc3-chip" aria-pressed={verifiedOnly} onClick={() => setVerifiedOnly((v) => !v)} title="Hand-verified rockets only">
             <Icon name="verified" size={16} /> Verified
           </button>

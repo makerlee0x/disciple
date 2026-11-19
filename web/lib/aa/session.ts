@@ -38,14 +38,20 @@ export function setOneTapSpendLimitUsd(usd: number | null) {
 }
 
 const ONE_TAP_SLIP_LS = "disciple.oneTap.maxSlippageBps";
-export const ONE_TAP_SLIPPAGE_CHOICES_BPS = [500, 1500, 3000, 5000] as const;
+/** maker 2026-11-19: no min or max on player slippage. 10_000 = Off (no price protection; min-out floors at 1 wei). */
+export const ONE_TAP_SLIPPAGE_CHOICES_BPS = [500, 1500, 3000, 5000, 10_000] as const;
+export const SLIPPAGE_OFF_BPS = 10_000;
+export const slippageLabel = (bps: number) => (bps >= SLIPPAGE_OFF_BPS ? "Off" : `${bps / 100}%`);
 export const ONE_TAP_SLIPPAGE_DEFAULT_BPS = 1500;
 export const SLIPPAGE_DEFAULT_BPS = 500;
-export const SLIPPAGE_MIN_BPS = 10;
-export const SLIPPAGE_MAX_BPS = 5000;
-export const clampSlippageBps = (b: number) => Math.min(SLIPPAGE_MAX_BPS, Math.max(SLIPPAGE_MIN_BPS, Math.round(b) || SLIPPAGE_DEFAULT_BPS));
+export const SLIPPAGE_MIN_BPS = 0;
+export const SLIPPAGE_MAX_BPS = 10_000;
+export const clampSlippageBps = (b: number) => {
+  const n = Math.round(b);
+  return Number.isFinite(n) ? Math.min(SLIPPAGE_MAX_BPS, Math.max(SLIPPAGE_MIN_BPS, n)) : SLIPPAGE_DEFAULT_BPS;
+};
 export function oneTapSlippageBps(): number {
-  try { const v = Number(localStorage.getItem(ONE_TAP_SLIP_LS)); if (v > 0) return clampSlippageBps(v); } catch { /* SSR / private mode */ }
+  try { const raw = localStorage.getItem(ONE_TAP_SLIP_LS); if (raw != null && raw !== "" && Number.isFinite(Number(raw))) return clampSlippageBps(Number(raw)); } catch { /* SSR / private mode */ }
   return ONE_TAP_SLIPPAGE_DEFAULT_BPS;
 }
 export async function setOneTapSlippageBps(bps: number): Promise<void> {

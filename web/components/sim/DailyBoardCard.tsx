@@ -4,26 +4,43 @@
  * pinned on top, then medal ranks, faces and $ PnL (maker 2026-11-18: "the leaderboard needs to be the new leaderboard design").
  * Used by the Daily mission hub, the pre-launch and the result screen.
  */
+import { useEffect, useState } from "react";
 import { lightOf } from "@/components/home/rocketBits";
 import { fmtDailyPnl } from "@/lib/sim/daily";
+import { withBase } from "@/lib/base-path";
+import { lastPill } from "@/lib/walletState";
+import { hasSavedSession } from "@/lib/aa/sessionState";
 
-export type DailyBoardRow = { runId: string; name: string; pnl: number };
+export type DailyBoardRow = { runId: string; name: string; pnl: number; pfp?: string };
 
 function Rank({ n }: { n: number }) {
   return n <= 3 ? <span className={`tp-rm m${n}`} aria-label={`#${n}`}>{n}</span> : <span className="tp-rk">{n}</span>;
 }
-function Face({ id, name, big }: { id: string; name: string; big?: boolean }) {
-  return <span className={`tp-av ${big ? "md" : "sm"}`} style={{ background: lightOf(id) }} aria-hidden>{(name.replace(/^@/, "")[0] ?? "?").toUpperCase()}</span>;
+/** pilot face: their picture, else their initial on their light colour (as the Top pilots board) */
+function Face({ id, name, pfp, big }: { id: string; name: string; pfp?: string | null; big?: boolean }) {
+  return <span className={`tp-av ${big ? "md" : "sm"}`} style={{ background: lightOf(id) }} aria-hidden>
+    {/* eslint-disable-next-line @next/next/no-img-element */}
+    {pfp ? <img src={withBase(pfp)} alt="" loading="lazy" decoding="async" /> : (name.replace(/^@/, "")[0] ?? "?").toUpperCase()}</span>;
+}
+/** the signed-in pilot's own picture and name from the top bar's saved pill: a run that isn't saved to the board yet has no
+ *  owner on the server, so the pinned "Your rank" face drew a "Y" for You (maker 2026-11-18: "my pfp is blank") */
+function useOwnFace(): { pfp: string | null; name: string | null } {
+  const [f, setF] = useState<{ pfp: string | null; name: string | null }>({ pfp: null, name: null });
+  useEffect(() => { try { if (!hasSavedSession()) return; const p = lastPill(); if (p) setF({ pfp: typeof p.img === "string" && p.img ? p.img : null, name: p.name || null }); } catch { /* no storage */ } }, []);
+  return f;
 }
 
 export default function DailyBoardCard({ rows, count, me, meId, max = 10, testId }: {
   /** the board's rows, best $ PnL first (null while loading) */
   rows: DailyBoardRow[] | null; count: number;
   /** your place and $ PnL today, pinned on top */
-  me?: { rank: number; pnl: number; name?: string } | null;
+  me?: { rank: number; pnl: number; name?: string; pfp?: string } | null;
   /** your run id: that row is highlighted and reads You */
   meId?: string | null; max?: number; testId?: string;
 }) {
+  const own = useOwnFace();
+  const mineRow = meId ? rows?.find((r) => r.runId === meId) : undefined;
+  const myPfp = me?.pfp || mineRow?.pfp || own.pfp, myName = me?.name || mineRow?.name || own.name || "You";
   return (
     <section className="tp-card tp-traders dbc" aria-label="Today's board" data-testid={testId}>
       <style>{`
@@ -44,7 +61,7 @@ export default function DailyBoardCard({ rows, count, me, meId, max = 10, testId
       <div className="dbc-head"><b>TODAY&apos;S BOARD</b><span>{count > 0 ? `${count.toLocaleString("en-US")} pilot${count === 1 ? "" : "s"}` : ""}</span></div>
       {me && (
         <div className="tp-mine" data-testid="daily-board-mine">
-          <Face id={meId ?? "you"} name={me.name ?? "You"} big />
+          <Face id={meId ?? "you"} name={myName} pfp={myPfp} big />
           <div className="tp-minerk"><span>Your rank</span><b className="r2-g"><i>#</i> {me.rank.toLocaleString("en-US")}</b></div>
           <div className="tp-minepnl"><span>PnL</span><b className={`r2-g ${me.pnl < 0 ? "down" : "up"}`}>{fmtDailyPnl(me.pnl)}</b></div>
         </div>
@@ -53,7 +70,7 @@ export default function DailyBoardCard({ rows, count, me, meId, max = 10, testId
         : rows.length === 0 ? <div className="dbc-empty">No runs yet</div>
         : <div className="tp-trows">{rows.slice(0, max).map((r, i) => { const self = !!meId && r.runId === meId;
           return <div key={r.runId} className={`tp-trow${self ? " self" : ""}`} data-testid={self ? "daily-board-me" : "daily-board-row"}>
-            <Rank n={i + 1} /><Face id={r.runId} name={r.name} big />
+            <Rank n={i + 1} /><Face id={r.runId} name={r.name} pfp={r.pfp || (self ? myPfp : null)} big />
             <div className="tp-tname"><b>{self ? "You" : r.name}</b></div>
             <div className="tp-tpnl"><b className={`r2-g ${r.pnl < 0 ? "down" : "up"}`}>{fmtDailyPnl(r.pnl)}</b></div>
           </div>; })}</div>}

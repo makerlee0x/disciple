@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OPTIONAL_QUOTES, WHITELIST_QUOTES, whitelistQuoteByAddress, whitelistQuoteBySymbol } from "../lib/whitelistQuotes";
+import { OPTIONAL_QUOTES, pairLogoBySymbol, WHITELIST_QUOTES, whitelistQuoteByAddress, whitelistQuoteBySymbol } from "../lib/whitelistQuotes";
 import { buildLaunchWhitelist, LAUNCH_WHITELIST, whitelistIncludesUsdg } from "../lib/launchWhitelist";
 
 describe("whitelist quotes", () => {
@@ -26,5 +26,13 @@ describe("whitelist quotes", () => {
     expect(whitelistIncludesUsdg(LAUNCH_WHITELIST)).toBe(false);
     expect(buildLaunchWhitelist({ USDG: true }).map((c) => c.symbol)).toContain("USDG");
     expect(buildLaunchWhitelist({ ETH: true }).map((c) => c.symbol).slice(-1)).toEqual(["ETH"]);
+  });
+});
+
+describe("base pair tag on rocket cards (maker 2026-11-19)", () => {
+  it("finds the pair coin logo by symbol", () => {
+    expect(pairLogoBySymbol("SCHIFFY")).toBe("/whitelist/SCHIFFY.png");
+    expect(pairLogoBySymbol("mUSDG")).toBe("/whitelist/USDG.png");
+    expect(pairLogoBySymbol("0x1234…7890")).toBeNull();
   });
 });

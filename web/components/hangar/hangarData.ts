@@ -25,6 +25,27 @@ export function useHomeCoins(): Map<string, HomeCoin> | null {
   return m;
 }
 
+/**
+ * Tokens of the rockets this account launched anon (lib/privateLaunch myHiddenCoins), for its own Hangar only. On chain the
+ * creator is the AnonLauncher, so the creator match misses them. Empty set when off, signed out or the scan fails.
+ */
+export function useHiddenLaunches(enabled: boolean): Set<string> {
+  const [s, setS] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (!enabled || IS_STATIC_PREVIEW) { setS(new Set()); return; }
+    let alive = true;
+    void Promise.all([import("@/lib/privateLaunch"), import("@/components/claims/ui")])
+      .then(async ([pl, ui]) => {
+        const cs = await pl.myHiddenCoins(ui.pc());
+        if (alive) setS(new Set(cs.map((c) => c.token.toLowerCase())));
+        void pl.creditHiddenLaunches(cs);   // their trophies (First launch, Blessed Dev) count for you, privately
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [enabled]);
+  return s;
+}
+
 export type Loadout = { skin: string; coin: string; flame: string };
 const STOCK: Loadout = { skin: "chrome", coin: "halo", flame: thrusterById("stock").flame };
 

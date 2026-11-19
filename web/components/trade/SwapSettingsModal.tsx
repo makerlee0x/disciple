@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { MODES } from "@/lib/config";
 import { DEFAULT_SELLS, MIN_BOOST_USD, validBoost, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
-import { ONE_TAP_SLIPPAGE_CHOICES_BPS, oneTapSlippageBps, onSessionChange, setOneTapSlippageBps } from "@/lib/aa/session";
+import { ONE_TAP_SLIPPAGE_CHOICES_BPS, slippageLabel, oneTapSlippageBps, onSessionChange, setOneTapSlippageBps } from "@/lib/aa/session";
 import { playerError } from "@/lib/playerError";
 import Icon from "@/components/icons/Icon";
 
@@ -95,7 +95,7 @@ export default function SwapSettingsModal({ initial, autoUsd, tier, scope, onSav
               <div className="tx"><b>Max price move</b><span>{live ? "Bigger moves cancel the trade" : "Applies to real flights only"}</span></div>
               {live && <div className="p5-seg" role="radiogroup" aria-label="Max price move" data-testid="swap-slip">
                 {ONE_TAP_SLIPPAGE_CHOICES_BPS.map((b) => <button key={b} type="button" role="radio" aria-checked={bps === b} className={bps === b ? "on" : ""} disabled={busy}
-                  onClick={() => void pick(b)} data-testid={`swap-slip-${b}`}>{b / 100}%</button>)}
+                  onClick={() => void pick(b)} data-testid={`swap-slip-${b}`}>{slippageLabel(b)}</button>)}
               </div>}
               {slipErr && <span className="p5-err" role="alert">{slipErr}</span>}
             </div>

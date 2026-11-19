@@ -121,6 +121,13 @@
 .on:hover:not(:disabled) { border-color: transparent; }
 .chipInput { width: 64px; border: 0; outline: none; background: transparent; color: inherit; font: inherit; padding: 0; }
 .note { font-size: 12px; line-height: 1.4; color: #9095A0; }
+/* Easy ticket lock: closed lock → dashed track → open lock at orbit */
+.lockTrack { display: flex; align-items: center; gap: 10px; margin-top: 10px; max-width: 360px; }
+.lockEnd { display: inline-flex; align-items: center; gap: 6px; color: #F3DFA8; font: 700 13px / 1 var(--dsc-font-game); letter-spacing: .04em; flex: none; }
+.lockEnd b { font: inherit; }
+.lockOpen { color: #5FF0A0; }
+.lockLine { flex: 1; min-width: 24px; height: 0; border-top: 2px dashed #4A4F5A; position: relative; }
+.lockLine::after { content: ""; position: absolute; right: -2px; top: -6px; border: 5px solid transparent; border-left: 7px solid #4A4F5A; }
 .help { font-size: 12.5px; line-height: 1.4; color: #BCC0CA; }
 .ok { color: #5FF0A0; }
 .bad { color: #FF6B6B; }

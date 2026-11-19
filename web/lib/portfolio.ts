@@ -54,7 +54,8 @@ export function bookedPortfolio(pf: Portfolio, holder: string, usdg: string, fil
 }
 
 const fillsCache = new Map<string, { at: number; p: Promise<number> }>();
-function cachedPrice24h(coin: Address): Promise<number> {
+/** The coin's price 24 h ago (its fills, cached 5 min). */
+export function cachedPrice24h(coin: Address): Promise<number> {
   const k = coin.toLowerCase(), hit = fillsCache.get(k);
   if (hit && Date.now() - hit.at < 5 * 60_000) return hit.p;
   const p = fetch(`/api/trades?coin=${coin}&order=desc&limit=2000`).then((r) => r.json()).then((j: { fills?: Fill[] }) => price24hAgo(j.fills ?? []))
@@ -80,10 +81,11 @@ async function coinsOf(account: Address, extra: Address[]): Promise<Address[]> {
 }
 
 /**
+ * `o.skip24h`: don't wait for the 24 h prices (price24h NaN), so balances show first (Hangar fleet, maker 2026-11-19).
  * `o.blockNumber`: balances read AT that block (lib/fillBook readAtOrAfter: ≥ our last fill's receipt block, so a lagging
  * public-RPC node can't serve the pre-fill balances); a node without that block rejects the read ⇒ the caller retries.
  */
-export async function loadPortfolio(pc: PublicClient, account: Address, extra: Address[] = [], o: { blockNumber?: bigint } = {}): Promise<Portfolio> {
+export async function loadPortfolio(pc: PublicClient, account: Address, extra: Address[] = [], o: { blockNumber?: bigint; skip24h?: boolean } = {}): Promise<Portfolio> {
   const usdg = deployment().usdg;
   const at = o.blockNumber !== undefined ? { blockNumber: o.blockNumber } : {};
   const [cashRaw, dec, coins] = await Promise.all([
@@ -97,7 +99,8 @@ export async function loadPortfolio(pc: PublicClient, account: Address, extra: A
     try {
       const bal = pinned ?? await pc.readContract({ address: coin, abi: erc20, functionName: "balanceOf", args: [account] });
       if (bal === BigInt(0)) return null;
-      const [pn, p24] = await Promise.all([priceNow(pc, coin), cachedPrice24h(coin)]);
+      // skip24h: price24h is NaN; the caller fills it in after (each coin's 24 h price reads up to 2,000 fills)
+      const [pn, p24] = await Promise.all([priceNow(pc, coin), o.skip24h ? NaN : cachedPrice24h(coin)]);
       return { coin, tokens: Number(bal) / 1e18, priceNow: pn, price24h: p24 };
     } catch { return null; }
   }))).filter((h): h is Holding => !!h);

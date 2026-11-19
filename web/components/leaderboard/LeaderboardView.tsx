@@ -426,6 +426,8 @@ function SeasonLadder({ d }: { d: SeasonRes }) {
 export default function LeaderboardView() {
   const [win, setWin] = useState<BoardWindow>("day");
   const [mode, setMode] = useState<Mode>("overall");
+  // ?tab=duel|climb|rockets (the stats page's rank tiles link here)
+  useEffect(() => { const t = new URLSearchParams(window.location.search).get("tab"); const m = MODES.find((x) => x.k === t); if (m) setMode(m.k); }, []);
   const [sub, setSub] = useState<Sub>("traders");
   const [view, setView] = useState<View>("season");
   const [life, setLife] = useState<LifetimeResponse | null>(null);
