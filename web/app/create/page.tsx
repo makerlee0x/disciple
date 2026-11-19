@@ -360,7 +360,7 @@ export default function LaunchRocketPage() {
       setMsg(C.creatorFeesNotHere);
       return;
     }
-    if (privateLaunch && (keepFees || !sendFeeDest)) { setMsg("Hidden launches burn or lock their creator fees."); return; }
+    if (privateLaunch && (keepFees || !sendFeeDest)) { setMsg("Anon launches burn or lock their creator fees."); return; }
     if (sendFeeDest && !HARVEST_USDG_BOOST_LIVE && boostState.usdgIn != null && boostState.usdgIn > BigInt(0)) { setMsg(C.creatorFeesNoBoost); return; }
     const web = normalizeWebsite(website) ?? "";
     if (web !== website.trim()) setWebsite(web);
@@ -668,7 +668,7 @@ export default function LaunchRocketPage() {
 
           <div className={`${L.sec} ${L.aSeat}`}>
             <div className={L.sh}><span className={L.num}>4</span><span className={L.st}>{C.creatorTicket}</span>
-              {privateLaunch && <span className={L.anonTag} aria-label="Anon launches are free" data-testid="ticket-anon"><AnonGlyph size={15} /></span>}
+              {privateLaunch && <span className={L.anonTag} aria-label="Anon launch" data-testid="ticket-anon"><AnonGlyph size={15} /></span>}
               <Info label="What the Creator Ticket is" testId="creator-ticket-info" tip={
                 <div className={L.tipRows}><p>{CREATOR_TICKET_TIP.lead}</p><p>{CREATOR_TICKET_TIP.byMode[modeLabel === "Trench" ? "Expert" : modeLabel]}</p></div>} /></div>
             <FirstBoostField
@@ -710,6 +710,7 @@ export default function LaunchRocketPage() {
           </button>
           <div className={L.ctaFoot} ref={howRef}>
             <span className={privateLaunch ? L.feeFoot : undefined} data-testid="creator-fee-split">{privateLaunch && <AnonGlyph size={15} />}<FeeLine text={feeSplitLine(feeDestination)} /></span>
+            {privateLaunch && <span className={L.feeFoot} data-testid="anon-network-fee">Network fee paid from Cash</span>}
             <button type="button" className={L.linkBtn} data-testid="how-launching" aria-expanded={howOpen} onClick={() => setHowOpen((v) => !v)}>{C.howLaunching}</button>
             {howOpen && (
               <div className={L.how} data-testid="how-launching-steps">

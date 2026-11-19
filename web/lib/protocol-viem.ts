@@ -1243,7 +1243,7 @@ export function createViemProtocol(): ProtocolClient {
       const usdgIn = lp.creatorBuyUsdgIn ?? B(0);
       // Hidden launches are free and anon (maker 2026-11-19): no Ticket buy, creator fees burned or locked in the pool, and the
       // relayer sends the launch, so this wallet is never in the launch tx (no payment, no refund, no claims).
-      if (lp.private && (usdgIn > B(0) || (lp.creatorBuyQuoteIn ?? B(0)) > B(0))) throw new ProtocolError("LaunchFailed", "Hidden launches are free. Set the Ticket to $0.");
+      if (lp.private && (usdgIn > B(0) || (lp.creatorBuyQuoteIn ?? B(0)) > B(0))) throw new ProtocolError("LaunchFailed", "Anon launches have no Ticket. Set it to $0.");
       const usdg = usdgIn > B(0) ? await launchUsdg(pc) : null;
       if (usdgIn > B(0) && !usdg) throw new ProtocolError("NoRouter", "Paying the First BOOST in dollars isn't available on this network yet.");
       const creatorBuy = usdg ? B(0) : lp.creatorBuyQuoteIn ?? B(0);
@@ -1254,7 +1254,7 @@ export function createViemProtocol(): ProtocolClient {
       const mode = lp.private && !ANON_ANY_MODE_LIVE ? LaunchMode.TRENCH_WARFARE : lp.mode ?? DEFAULT_LAUNCH_MODE;
       // Pool / burn: every launch path goes through CreatorFeeHarvest, which records the choice in this transaction.
       const feeDest = routesThroughHarvest(lp.creatorFeeDestination) ? lp.creatorFeeDestination : undefined;
-      if (lp.private && !feeDest) throw new ProtocolError("LaunchFailed", "Hidden launches burn or lock their creator fees. Pick one in More options.");
+      if (lp.private && !feeDest) throw new ProtocolError("LaunchFailed", "Anon launches burn or lock their creator fees. Pick one in More options.");
       const harvest = feeDest ? deployment().creatorFeeHarvest : undefined;
       if (feeDest && (!harvest || harvest === ZERO_ADDRESS)) throw new ProtocolError("NotDeployed", "Sending creator fees to the pool or the burn isn't available on this network yet.");
       // Deployed harvest's launchWithUsdg reverts when usdgIn > 0 (audit CH-02): refuse before anything is signed.
@@ -1353,7 +1353,10 @@ export function createViemProtocol(): ProtocolClient {
           const { stealthOwner, ephemeralPubKey, viewTag } = lp.private;
           try {
             // the session wallet goes to the relay only (off-chain sign-in check); it is not part of the launch
-            r = await sendFreeAnonLaunch(gaslessSigner()?.address ?? me, {
+            const owner = gaslessSigner();
+            if (!owner) throw new ProtocolError("LaunchFailed", "Sign in first.");
+            // the launch gas is paid in USDG by its own silent cash-out to the relayer; the launch tx never names this wallet
+            r = await sendFreeAnonLaunch(pc as never, owner, {
               name: params.name, ticker: params.ticker, imageURI: params.imageURI, description: params.description,
               socialsURI: params.socialsURI, quote: params.quote, creatorTaxBps: params.creatorTaxBps, deadline: params.deadline,
               mode, stealthOwner, ephemeralPubKey, viewTag, creatorFeeDestination: feeDest!,

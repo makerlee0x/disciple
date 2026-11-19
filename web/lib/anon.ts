@@ -37,7 +37,7 @@ export const isLegacyLauncher = (chainId: number, addr: string) =>
   !!ANON_ADDONS[chainId] && [ANON_ADDONS[chainId].anonLauncherLegacy, ...ANON_ADDONS[chainId].olderLaunchers].some((x) => x.toLowerCase() === addr.toLowerCase());
 
 export const PRIVATE_COPY =
-  "Hidden launch: the coin's creator on-chain is a one-time stealth address, and no wallet of yours is in the launch. " +
+  "Anon launch: the coin's creator on-chain is a one-time stealth address, and no wallet of yours is in the launch. " +
   "It's free, and the creator fees are burned or locked in the pool.";
 /** Back-compat alias (old name). */
 export const PSEUDONYMOUS_COPY = PRIVATE_COPY;

@@ -353,7 +353,7 @@ export function checkGaslessAnonLaunchRequest(q: GaslessAnonLaunchRequest, o: {
   const tooLong = anonLaunchTooLong(l);
   if (tooLong) throw new GaslessReject(tooLong);
   if ((l.ephemeralPubKey.length - 2) / 2 > ANON_LAUNCH_LIMITS.ephemeralPubKey) throw new GaslessReject("bad ephemeralPubKey");
-  if (!ANON_ANY_MODE_LIVE && l.mode) throw new GaslessReject("hidden launches are Expert only for now");
+  if (!ANON_ANY_MODE_LIVE && l.mode) throw new GaslessReject("anon launches are Expert only for now");
   if (l.creatorFeeDestination === 0) {
     if (!eq(l.launcher, o.launcher)) throw new GaslessReject("launcher mismatch");
   } else {

@@ -2,7 +2,7 @@ import "server-only";
 /**
  * Gasless action relay (claims / tramp pull / anon creator transfer). Same admission gate as gasless trades and
  * withdrawals (Privy identity token, revoke/strike/blocklist, H1/M1/M2), same strike policy (only sender-caused
- * signature/permit/nonce included reverts), same USDG fee quote (rateFromEnv + unmarkedRate, 1.0x, quoted fee kept).
+ * signature/permit/nonce included reverts), same USDG fee quote (live pool price + markup, usdgEthRate.liveUsdgPerEth; quoted fee kept).
  * Does not touch the trade path. New code uses deployment() (active chain).
  */
 import { createPublicClient, parseAbi, recoverTypedDataAddress, type Address, type Hex } from "viem";
@@ -14,7 +14,7 @@ import {
   MULTICALL3, actionGas, actionTxGasLimit, actionWitness, checkGaslessActionRequest, encodeActionCall, encodeForwarderActionCall,
   parseGaslessActionRequest, transferTypedData, withdrawFeeRaw, type ActionKind, type GaslessActionRequest,
 } from "../trade/gaslessAction";
-import { rateFromEnv, unmarkedRate } from "./usdgEthRate";
+import { feeFloor, liveUsdgPerEth, rateFromEnv, unmarkedRate } from "./usdgEthRate";
 import { requireGaslessMode, type GaslessConfirmed, type GaslessDeps } from "./gaslessRelay";
 import { shouldStrikeIncludedRevert } from "./gaslessStrike";
 import { relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";
@@ -77,7 +77,7 @@ export async function quoteGaslessAction(raw: unknown = {}, opts: ActionQuoteOpt
   const gas = actionGas(kind, callCount, needsPermit);
   const feeTo = opts.feeTo ?? actionFeeTo();
   const baseFee = opts.baseFee ?? (await directRelayer()).fee;
-  const rate = opts.rate ?? actionUsdgPerEth();
+  const rate = opts.rate ?? await liveUsdgPerEth();
   const fee = kind === "trampPull" ? 0n : withdrawFeeRaw(gas, baseFee, rate, decimals);
   let keeperTipBps = 0;
   if (kind === "trampPull") {
@@ -143,8 +143,8 @@ export async function relayGaslessAction(raw: unknown, d: GaslessDeps = {}): Pro
     const feeTo = actionFeeTo();
     const needsPermit = !!(q.approval && q.approval.value > BigInt(0));
     const gas = actionGas(q.kind, q.calls.length, needsPermit);
-    const rate = actionUsdgPerEth();
-    const current = q.kind === "trampPull" ? 0n : withdrawFeeRaw(gas, (await directRelayer()).fee, rate, dep.usdgDecimals);
+    const rate = await liveUsdgPerEth();
+    const current = q.kind === "trampPull" ? 0n : feeFloor(withdrawFeeRaw(gas, (await directRelayer()).fee, rate, dep.usdgDecimals));
     if (q.fee < current) throw new GaslessReject("fee changed, please retry");
     checkGaslessActionRequest(q, { usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, nowSec: d.nowSec ?? Math.floor(Date.now() / 1000), feeTo, minFee: current });
     if (q.fee > 0n && q.feePermit && q.feeSignature) {
