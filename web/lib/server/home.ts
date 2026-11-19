@@ -9,7 +9,7 @@ import "server-only";
  */
 import { coinLooksOf } from "./coinLooks";
 import type { CoinLook } from "@/lib/coinLook";
-import { parseAbi, type Address, type PublicClient } from "viem";
+import type { PublicClient } from "viem";
 import { isDeployed } from "@/lib/chains";
 import { listLaunches } from "@/lib/events";
 import { publicClient } from "@/lib/protocol-viem";
@@ -47,32 +47,9 @@ async function resolveImages(uris: string[]): Promise<Map<string, string>> {
   return out;
 }
 
-/**
- * Base pair name + logo for every rocket (maker 2026-11-19: the pair filter listed raw contracts). Listed pair coins use their
- * symbol + art; a rocket paired to another rocket uses that rocket's ticker + image; any other quote reads its ERC-20 symbol
- * once per address (cached for the process). Only a quote whose symbol can't be read keeps its short address.
- */
-const erc20Sym = parseAbi(["function symbol() view returns (string)"]);
-const quoteSyms = new Map<string, Promise<string | null>>();
-async function namePairs(pc: PublicClient, coins: HomeCoin[], quotes: string[]): Promise<void> {
-  const byToken = new Map(coins.map((c) => [c.token, c]));
-  await Promise.all(coins.map(async (c, i) => {
-    const logo = pairLogoBySymbol(c.pairSym);
-    if (logo) { c.pairIcon = logo; return; }
-    if (!c.pairSym.startsWith("0x")) return;
-    const q = quotes[i].toLowerCase();
-    const host = byToken.get(q);
-    if (host) { c.pairSym = host.ticker.replace(/^\$/, "").toUpperCase(); if (host.icon) c.pairIcon = host.icon; return; }
-    let p = quoteSyms.get(q);
-    if (!p) {
-      p = (pc.readContract({ address: q as Address, abi: erc20Sym, functionName: "symbol" }) as Promise<string>)
-        .then((s) => (s && s.trim() ? s.trim().slice(0, 16) : null), () => null);
-      quoteSyms.set(q, p);
-      p.then((s) => { if (s === null) quoteSyms.delete(q); });   // retry a failed read next build
-    }
-    const sym = await p;
-    if (sym) { c.pairSym = sym.toUpperCase(); const l = pairLogoBySymbol(sym); if (l) c.pairIcon = l; }
-  }));
+/** Base pair logo for every rocket: the 12 whitelisted pair coins (and USDG / ETH) carry their own art. */
+function namePairs(coins: HomeCoin[]): void {
+  for (const c of coins) { const l = pairLogoBySymbol(c.pairSym); if (l) c.pairIcon = l; }
 }
 
 export const EMPTY_HOME: HomeData = { at: 0, coins: [], hero: null, heroMode: "empty", next: [], chips: [] };
@@ -111,7 +88,7 @@ async function build(): Promise<HomeData> {
       stats: statsFromFills(fills, now, x.mcapUsd, fills.length >= FILLS_CAP),
     };
   });
-  await timeout(namePairs(pc, coins, list.map((x) => String(x.quote ?? ""))).catch(() => {}), 2_000, undefined);
+  namePairs(coins);
   // each coin's launch look (lib/coinLook), for the cards, the pad and the hero
   const looks = await timeout(coinLooksOf(coins.map((c) => c.token)).catch(() => ({} as Record<string, CoinLook>)), 1_500, {} as Record<string, CoinLook>);
   for (const c of coins) if (looks[c.token]) c.look = looks[c.token];

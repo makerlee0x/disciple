@@ -13,12 +13,9 @@ import type { HomeCoin, HomeData } from "@/lib/home/trending";
 import Icon from "@/components/icons/Icon";
 import DsSelect from "@/components/ui/DsSelect";
 import LiveCard from "./LiveCard";
-import { pairLogoBySymbol } from "@/lib/whitelistQuotes";
+import { WHITELIST_QUOTES } from "@/lib/whitelistQuotes";
 import { withBase } from "@/lib/base-path";
-import { isStoreSrc } from "@/lib/coinImages";
 
-/** A pair logo path (/whitelist/…) gets the base path; a stored rocket image is already absolute. */
-const pairImg = (src: string | null | undefined) => (!src ? undefined : isStoreSrc(src) || /^https?:/.test(src) ? src : withBase(src));
 import s from "./rocketGrid.module.css";
 
 /** Sort chips (maker 2026-11-18): Newest, Trending (24h climb), Volume (24h), Near orbit, Ascended (graduated). */
@@ -52,18 +49,8 @@ export default function RocketGrid({ initial }: { initial: HomeCoin[] }) {
   const [diff, setDiff] = useState<Diff>("all");
   const [pair, setPair] = useState("all");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
-  // the base pairs on the board right now (what each rocket is bought and sold in), most rockets first
-  const pairs = useMemo(() => {
-    const n = new Map<string, number>();
-    const icon = new Map<string, string>();
-    for (const c of coins) {
-      if (!c.pairSym || c.pairSym.startsWith("0x")) continue;   // an unnamed quote stays out of the list (no raw contracts)
-      n.set(c.pairSym, (n.get(c.pairSym) ?? 0) + 1);
-      if (c.pairIcon && !icon.has(c.pairSym)) icon.set(c.pairSym, c.pairIcon);
-    }
-    const keys = [...n.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k]) => k);
-    return keys.map((k) => ({ value: k, label: k.replace(/^MUSDG$/i, "USDG"), icon: pairImg(icon.get(k) ?? pairLogoBySymbol(k)) }));
-  }, [coins]);
+  // the 12 whitelisted pair coins, always in list order (maker 2026-11-19: built for mainnet, never a raw contract)
+  const pairs = useMemo(() => WHITELIST_QUOTES.map((q) => ({ value: q.symbol, label: q.symbol, icon: withBase(q.imagePath) })), []);
   const pairKeys = useMemo(() => pairs.map((p) => p.value), [pairs]);
   const [q, setQ] = useState("");
   const [shown, setShown] = useState(CHUNK);
@@ -115,10 +102,8 @@ export default function RocketGrid({ initial }: { initial: HomeCoin[] }) {
           </label>
           <DsSelect className="pill" value={diff} onChange={(v) => setDiff(v as Diff)} ariaLabel="Difficulty"
             options={DIFFS.map((d) => ({ value: d.k, label: d.label }))} />
-          {pairs.length > 0 && (
-            <DsSelect className="pill" value={pairKeys.includes(pair) ? pair : "all"} onChange={setPair} ariaLabel="Pair"
-              options={[{ value: "all", label: "Any pair" }, ...pairs]} />
-          )}
+          <DsSelect className="pill" value={pairKeys.includes(pair) ? pair : "all"} onChange={setPair} ariaLabel="Pair"
+            options={[{ value: "all", label: "Any pair" }, ...pairs]} />
           <button type="button" className="dsc3-chip" aria-pressed={verifiedOnly} onClick={() => setVerifiedOnly((v) => !v)} title="Hand-verified rockets only">
             <Icon name="verified" size={16} /> Verified
           </button>
