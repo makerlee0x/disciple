@@ -28,3 +28,14 @@ describe("whitelist quotes", () => {
     expect(buildLaunchWhitelist({ ETH: true }).map((c) => c.symbol).slice(-1)).toEqual(["ETH"]);
   });
 });
+
+describe("base pair on rocket cards (maker 2026-11-19)", () => {
+  it("names a whitelisted quote by its symbol and gives its logo", async () => {
+    const { pairSymOf, pairLogoSrc, isNamedPair } = await import("../lib/home/pairs");
+    expect(pairSymOf(whitelistQuoteBySymbol("PENGU")!.address.toLowerCase())).toBe("PENGU");
+    expect(pairSymOf("0x1234567890123456789012345678901234567890")).toMatch(/^0x1234…/);
+    expect(pairLogoSrc("SCHIFFY")).toBe("/whitelist/SCHIFFY.png");
+    expect(pairLogoSrc("mUSDG")).toBe("/whitelist/USDG.png");
+    expect(isNamedPair("0x1234…7890")).toBe(false);
+  });
+});

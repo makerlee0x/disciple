@@ -8,6 +8,7 @@ import Link from "next/link";
 import { difficultyOf } from "@/lib/difficulty";
 import { ROCKET_SRC, skySrc, tierProgress, type HomeCoin } from "@/lib/home/trending";
 import { withBase } from "@/lib/base-path";
+import { pairLogoSrc, isNamedPair } from "@/lib/home/pairs";
 import { altShort, crewFaces, flightHref, lit, Mark, orbitPct, pct } from "./rocketBits";
 import { useCrewAboard } from "@/components/crew/CrewAboard";
 import CoinRocket from "./CoinRocket";
@@ -37,7 +38,10 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
       </span>
 
       <span className={s.top}>
-        <span className={s.live}><i aria-hidden />{c.graduated ? "In orbit" : "Live"}</span>
+        <span className={s.tags}>
+          <span className={s.live}><i aria-hidden />{c.graduated ? "In orbit" : "Live"}</span>
+          {isNamedPair(c.pairSym) && <PairTag sym={c.pairSym} />}
+        </span>
         {chg != null && <span className={chg >= 0 ? s.up : s.dn}>{chg >= 0 ? "+" : "−"}{pct(Math.abs(chg))}</span>}
       </span>
 
@@ -61,5 +65,18 @@ export default function LiveCard({ c, testId, seat }: { c: HomeCoin; testId?: st
       </span>
       <span className={s.drop} aria-hidden>Drop in</span>
     </Link>
+  );
+}
+
+/** The rocket's base pair: the pair coin's logo + symbol (logo only on phones). */
+function PairTag({ sym }: { sym: string }) {
+  const logo = pairLogoSrc(sym);
+  const label = sym.replace(/^mUSDG$/, "USDG");
+  return (
+    <span className={s.pair} title={`Paired with ${label}`} aria-label={`Paired with ${label}`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {logo && <img src={withBase(logo)} alt="" width={16} height={16} loading="lazy" decoding="async" />}
+      <span>{label}</span>
+    </span>
   );
 }
