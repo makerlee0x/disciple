@@ -18,8 +18,8 @@ export const HIW_META = {
   description: "Multiplayer memecoins and 1v1 trading duels. Launch your own coin with a crew, or take on another trader for one minute.",
 };
 
-/** Mode tabs (maker 2026-11-18: "a tab for each game mode so people can see all the different modes"). #duel / #climb open those. */
-export type HiwMode = "launch" | "duel" | "climb";
+/** Mode tabs (maker 2026-11-18: "a tab for each game mode so people can see all the different modes"). #duel / #climb / #daily open those. */
+export type HiwMode = "launch" | "duel" | "climb" | "daily";
 export const HIW_TABS = { label: "Game mode", pilot: "Pilot", pro: "Pro" } as const;
 export const HIW_H1 = "How to play";
 
@@ -80,6 +80,20 @@ export const HIW_GAMES: HiwGame[] = [
     ],
     cta: { label: "Play Climb", href: "/turbo/climb" },
   },
+  {
+    id: "daily", tab: "Daily mission", tag: "Solo", art: "/art/modes/free.webp", tone: "#8FE3FF",
+    steps: [
+      { art: "today", title: "Same market", line: "One flight a day. Same for everyone." },
+      { art: "board", title: "Trade the bots", line: "They peel off before a big dump." },
+      { art: "rank", title: "Top the board", line: "Best $ PnL takes the day." },
+    ],
+    win: { ok: "Cash out green", bad: "Finish red" },
+    keys: [
+      { k: "Boost", keys: [["1", "10%"], ["2", "25%"], ["3", "50%"], ["4", "All"], ["Space", "Buy"]], tone: "up" },
+      { k: "Dump", keys: [["Z", "10%"], ["X", "25%"], ["C", "50%"], ["V", "100%"], ["Shift", "Sell"]], tone: "down" },
+    ],
+    cta: { label: "Fly today's mission", href: "/flight/sim?daily=1" },
+  },
 ];
 
 /** Launch only: the three difficulties a host picks (caps in contracts/src/libraries/Constants.sol). The max bag grows with
@@ -107,29 +121,53 @@ export const HIW_PRO = {
       ["Orbit (graduation)", "$33,333 mcap · 84.24% sold"],
       ["After orbit", "Uniswap v4 · LP locked forever"],
       ["Into the locked LP", "15.76% of supply + base"],
+      ["Max buy / sell", "None"],
+      ["Launch fee", "$0"],
     ] as [string, string][],
   },
   fees: {
     title: "Fees",
     rows: [
       ["Trade fee", "1% on every buy and sell"],
-      ["Fee split", "33 host · 33 LP · 33 treasury · 1 referrer"],
-      ["Host tax", "0–7%, set at launch, curve only"],
+      ["Fee split", "0.33% creator · 0.33% LP · 0.33% treasury · 0.01% referral"],
+      ["Creator tax", "0–7%, curve only, ends at Orbit"],
+      ["Creator fees go to", "Creator, locked pool or burn · locked at launch"],
       ["Anti-snipe", "99% → 0 over the first 7s"],
       ["Anti-snipe proceeds", "To the LP at orbit, else the rewards vault at 12 days"],
-      ["After orbit", "1%, no host tax"],
-      ["Slippage presets", "5 · 15 · 30 · 50%"],
+      ["After orbit", "1%, no creator tax"],
+      ["Price protection", "5 · 15 · 30 · 50% or Off"],
     ] as [string, string][],
   },
   modes: {
     title: "Difficulty rules (curve only, off at orbit)",
     cols: ["Easy", "Hard", "Expert"],
     rows: [
-      ["Hold cap per wallet", "1% → 3.33%", "3.33% → 7.77%", "None"],
-      ["Host first buy, max", "1.2% · locked to orbit", "3.33%", "7.77%"],
-      ["Crew tip", "0.777% of big winning sells, paid to holders", "—", "—"],
+      ["Max bag per wallet", "1% → 3.33%", "3.33% → 7.77%", "None"],
+      ["Creator Ticket, max", "1.2% · locked to orbit", "3.33%", "7.77%"],
+      ["Crew tip", "0.777% of big winning sells, to holders", "—", "—"],
     ] as [string, string, string, string][],
     overcap: ["Over-cap buys", "Partial fill, unused input refunded. No max buy or sell."] as [string, string],
+  },
+  anon: {
+    title: "Anon launch",
+    rows: [
+      ["Cost", "Free"],
+      ["Difficulty", "Easy, Hard or Expert"],
+      ["Creator Ticket", "None"],
+      ["Creator fees", "Locked pool or burn"],
+    ] as [string, string][],
+  },
+  turbo: {
+    title: "Turbo",
+    rows: [
+      ["Exchange", "Lighter · BTC perps"],
+      ["Fee", "1.1 bp round trip"],
+      ["Leverage", "Duel 50× · Climb 10–50×"],
+      ["Cash in / out", "Relay · USDG ⇄ USDC · from $5.10"],
+      ["Duel", "1v1 · 1 min · $20 / $50 / $150 fuel"],
+      ["Climb", "5 levels · 1 min · then free mode"],
+      ["Ranked", "Real money only"],
+    ] as [string, string][],
   },
   /** shown only when PRO_HUD_ENABLED (the Pro trader view is hidden for launch) */
   hud: {
@@ -153,7 +191,7 @@ export const HIW_PRO = {
       { k: "Custom boost", keys: [], v: "Type any $ amount" },
     ] as { k: string; keys: string[]; v: string }[],
   },
-  verify: { title: "Verify it yourself", body: "Contracts, curve math and full rules.", contracts: "Contracts", docs: "Read the docs" },
+  verify: { title: "Verify it yourself", body: "", contracts: "Contracts", docs: "Read the docs" },
 };
 
 export const HIW_FINAL = {
