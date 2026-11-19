@@ -1,6 +1,6 @@
 import "server-only";
 /**
- * Market and trade offers, server side (rules in lib/market.ts). Copies move between pilots inside Disciple's database;
+ * Market, private sales and cash offers, server side (rules in lib/market.ts). Copies move between pilots inside Disciple's database;
  * each move is written to the copy's permanent record (lib/server/collection copyRecord), so a copy can become exactly one
  * token later with its whole history.
  *
@@ -10,8 +10,9 @@ import "server-only";
  *   mkt:<chain>:by:<wallet>   zset score=at, id       a seller's listings
  *   mkt:<chain>:sales:<item>  zset score=at, Sale     price history per item
  *   mkt:<chain>:sales         zset score=at, Sale     recent sales, every item
- *   mkt:<chain>:o:<id>        JSON Offer              one trade offer
- *   mkt:<chain>:offers:<w>    zset score=at, id       offers a pilot sent or got
+ *   mkt:<chain>:for:<w>       zset score=at, id       private sales made for a pilot (Listing.to)
+ *   mkt:<chain>:o:<id>        JSON Offer              one cash offer
+ *   mkt:<chain>:offers:<w>    zset score=at, id       cash offers a pilot sent or got
  *   mkt:<chain>:hold:<id>     SET NX buyer            one buyer at a time while a payment is in flight
  *   mkt:<chain>:bought:<w>    zset score=at, id       listings a pilot bought (their Flight log)
  *   col:<chain>:listed:<uid>  listing id              (collection.ts) the copy is on the market
@@ -20,12 +21,16 @@ import "server-only";
  * Buying: the buyer signs ONE gasless USDG transfer (the same Permit2 withdraw the Cash panel uses): destination = the
  * seller, amount = price + network fee, fee = 7% + network fee, fee recipient = the relayer address. So the seller gets
  * exactly price - 7%, and the money never sits with Disciple. The copy moves only after the transfer is confirmed on chain.
+ *
+ * Private sales and cash offers (maker 2026-11-19) are listings too, so every move pays the 7%: a private sale is a listing
+ * with `to` (kept off the open set, only that wallet can buy); accepting a cash offer turns it into a private sale to the
+ * offerer that closes after OFFER_PAY_MS. Item-for-item swaps and one-way gifts are gone. Each step sends a push (kind "market").
  */
 import { randomBytes } from "node:crypto";
 import { ACTIVE_CHAIN, DEPLOYMENTS } from "@/lib/chains";
-import { itemById, type Copy } from "@/lib/collection";
+import { HULL_NAMES, itemById, type Copy } from "@/lib/collection";
 import {
-  MAX_PRICE_CENTS, MIN_PRICE_CENTS, OFFER_MAX, OFFER_TTL_MS, cantMove, centsToRaw, marketFeeCents, sellerCents,
+  MAX_PRICE_CENTS, MIN_PRICE_CENTS, OFFER_MAX, OFFER_PAY_MS, OFFER_TTL_MS, cantMove, centsToRaw, marketFeeCents, sellerCents, usd,
   type Listing, type MarketFilter, type Offer, type Sale,
 } from "@/lib/market";
 import { COLK, copyStore, wornCopies } from "./collection";
@@ -39,6 +44,7 @@ export const MKT = {
   open: () => `${ns()}:open`,
   by: (w: string) => `${ns()}:by:${w}`,
   sales: (item?: string) => (item ? `${ns()}:sales:${item}` : `${ns()}:sales`),
+  forYou: (w: string) => `${ns()}:for:${w}`,
   o: (id: string) => `${ns()}:o:${id}`,
   offers: (w: string) => `${ns()}:offers:${w}`,
   hold: (id: string) => `${ns()}:hold:${id}`,
@@ -68,8 +74,10 @@ async function checkMovable(w: string, inv: Copy[], uids: string[], s: Kv, o: { 
   const worn = new Set(Object.values(await wornCopies(w, inv, s)));
   for (const u of uids) {
     const c = inv.find((x) => x.uid === u);
-    const [listed, frozen] = await Promise.all([s.get(COLK.listed(u)), s.get(COLK.frozen(u))]);
-    const why = cantMove(c, { worn: worn.has(u), listed: !!listed && listed !== o.listing, frozen: !!frozen });
+    const [listedId, frozen] = await Promise.all([s.get(COLK.listed(u)), s.get(COLK.frozen(u))]);
+    let listed = !!listedId && listedId !== o.listing;
+    if (listed) { const l = await readListing(listedId!, s); if (!l || (await lapse(l, Date.now(), s)).state !== "open" && l.state !== "pending") listed = false; }
+    const why = cantMove(c, { worn: worn.has(u), listed, frozen: !!frozen });
     if (why) return why;
   }
   return null;
@@ -88,23 +96,44 @@ async function moveCopies(from: string, to: string, uids: string[], ev: { via: "
 
 export type ListResult = { ok: true; listing: Listing } | Fail;
 
-/** Put one copy on the market for a price in cents. */
-export async function listCopy(walletIn: string, uid: string, price: number, now = Date.now(), s: Kv = kv()): Promise<ListResult> {
+const priceErr = (price: number) => (!Number.isInteger(price) || price < MIN_PRICE_CENTS || price > MAX_PRICE_CENTS
+  ? `Pick a price from $${MIN_PRICE_CENTS / 100} to $${(MAX_PRICE_CENTS / 100).toLocaleString("en-US")}.` : null);
+
+/** Make the listing. Call under the seller's wallet lock with their inventory. */
+async function createListing(w: string, inv: Copy[], uid: string, price: number, now: number, s: Kv, extra: Pick<Listing, "to" | "offer" | "until"> = {}): Promise<ListResult> {
+  const why = await checkMovable(w, inv, [uid], s);
+  if (why) return fail(why);
+  const c = inv.find((x) => x.uid === uid)!;
+  const l: Listing = { id: newId(), uid, item: c.item, seller: w, price, at: now, state: "open", ...extra };
+  // a lapsed private sale may still hold the slot: checkMovable closed it, so this claims it again
+  if (!(await s.setNX(COLK.listed(uid), l.id))) return fail("It's already on the market.");
+  await s.set(MKT.l(l.id), JSON.stringify(l));
+  if (l.to) await s.zadd(MKT.forYou(l.to), [{ score: now, member: l.id }]);
+  else await s.zadd(MKT.open(), [{ score: now, member: l.id }]);
+  await s.zadd(MKT.by(w), [{ score: now, member: l.id }]);
+  return { ok: true, listing: l };
+}
+
+/** Put one copy on the market for a price in cents; with `to`, a private sale only that pilot can buy (off /market). */
+export async function listCopy(walletIn: string, uid: string, price: number, now = Date.now(), s: Kv = kv(), o: { to?: string } = {}): Promise<ListResult> {
   const w = lc(walletIn);
-  if (!Number.isInteger(price) || price < MIN_PRICE_CENTS || price > MAX_PRICE_CENTS) return fail(`Pick a price from $${MIN_PRICE_CENTS / 100} to $${(MAX_PRICE_CENTS / 100).toLocaleString("en-US")}.`);
-  const r = await withLock(w, s, async (): Promise<ListResult> => {
-    const inv = await copyStore.invOf(w, now, s);
-    const why = await checkMovable(w, inv, [uid], s);
-    if (why) return fail(why);
-    const c = inv.find((x) => x.uid === uid)!;
-    const l: Listing = { id: newId(), uid, item: c.item, seller: w, price, at: now, state: "open" };
-    if (!(await s.setNX(COLK.listed(uid), l.id))) return fail("It's already on the market.");
-    await s.set(MKT.l(l.id), JSON.stringify(l));
-    await s.zadd(MKT.open(), [{ score: now, member: l.id }]);
-    await s.zadd(MKT.by(w), [{ score: now, member: l.id }]);
-    return { ok: true, listing: l };
-  });
-  return r as ListResult;
+  const bad = priceErr(price); if (bad) return fail(bad);
+  let to: string | undefined;
+  if (o.to) {
+    const r = await resolvePilot(o.to);
+    if (!r) return fail("We couldn't find that pilot.");
+    if (r === w) return fail("That's you.");
+    to = r;
+  }
+  const r = await withLock(w, s, async () => createListing(w, await copyStore.invOf(w, now, s), uid, price, now, s, to ? { to } : {})) as ListResult;
+  if (r.ok && to) await tell(to, `priv:${r.listing.id}`, async () => pushCopy().privateSale(await nameOrShort(w), itemName(r.listing.item), r.listing.price), "/rocket#hg-trades", now, s);
+  return r;
+}
+
+/** A private sale made from an accepted offer closes once its pay window passes. Returns the listing as it is now. */
+async function lapse(l: Listing, now: number, s: Kv): Promise<Listing> {
+  if (l.state !== "open" || !l.until || now <= l.until || (await s.get(MKT.hold(l.id)))) return l;
+  return closeListing(l, "closed", s);
 }
 
 async function readListing(id: string, s: Kv) { return /^[a-f0-9]{12}$/.test(id) ? parse<Listing>(await s.get(MKT.l(id))) : null; }
@@ -112,6 +141,7 @@ async function closeListing(l: Listing, state: "sold" | "closed", s: Kv, extra: 
   const done: Listing = { ...l, ...extra, state };
   await s.set(MKT.l(l.id), JSON.stringify(done));
   await s.zrem(MKT.open(), l.id);
+  if (l.to) await s.zrem(MKT.forYou(l.to), l.id);
   await s.delIfEq(COLK.listed(l.uid), l.id);
   return done;
 }
@@ -160,16 +190,24 @@ async function withCopy(l: Listing, s: Kv): Promise<Listing | null> {
 }
 
 /** One listing (any state), with its copy. */
-export async function listingById(id: string, s: Kv = kv()): Promise<Listing | null> {
-  const l = await readListing(id, s);
-  if (!l) return null;
+export async function listingById(id: string, s: Kv = kv(), now = Date.now()): Promise<Listing | null> {
+  const r = await readListing(id, s);
+  if (!r) return null;
+  const l = await lapse(r, now, s);
   const rec = parse<{ copy: Copy }>(await s.get(COLK.copy(l.uid)));
-  return { ...l, copy: rec?.copy, sellerName: await usernameOf(l.seller).catch(() => null) };
+  return { ...l, copy: rec?.copy, sellerName: await usernameOf(l.seller).catch(() => null), ...(l.to ? { toName: await usernameOf(l.to).catch(() => null) } : {}) };
 }
-export async function myListings(walletIn: string, s: Kv = kv()): Promise<Listing[]> {
-  const ids = await s.zrange(MKT.by(lc(walletIn)), 100, true);
+/** Your listings (public and private) and the private sales made for you, newest first. */
+export async function myListings(walletIn: string, s: Kv = kv(), now = Date.now()): Promise<Listing[]> {
+  const w = lc(walletIn);
+  const [mine, forMe] = await Promise.all([s.zrange(MKT.by(w), 100, true), s.zrange(MKT.forYou(w), 40, true)]);
+  const ids = [...new Set([...forMe, ...mine])];
   const rows = (ids.length ? await s.mget(ids.map(MKT.l)) : []).map((v) => parse<Listing>(v)).filter((l): l is Listing => !!l);
-  return Promise.all(rows.map(async (l) => ({ ...l, copy: parse<{ copy: Copy }>(await s.get(COLK.copy(l.uid)))?.copy })));
+  const live = await Promise.all(rows.map((l) => lapse(l, now, s)));
+  return Promise.all(live.filter((l) => l.seller === w || l.state === "open").map(async (l) => ({
+    ...l, copy: parse<{ copy: Copy }>(await s.get(COLK.copy(l.uid)))?.copy,
+    sellerName: await usernameOf(l.seller).catch(() => null), ...(l.to ? { toName: await usernameOf(l.to).catch(() => null) } : {}),
+  })));
 }
 export async function salesOf(item?: string, limit = 50, s: Kv = kv()): Promise<Sale[]> {
   return (await s.zrange(MKT.sales(item), limit, true)).map((m) => parse<Sale>(m)).filter((x): x is Sale => !!x);
@@ -179,8 +217,9 @@ export async function salesOf(item?: string, limit = 50, s: Kv = kv()): Promise<
 
 /** What the buyer signs for: the seller gets sellerRaw (price - 7%) plus nothing else; the 7% (feeRaw) goes to the treasury. */
 export interface BuyTerms { listing: string; seller: string; price: number; fee: number; sellerGets: number; priceRaw: string; feeRaw: string; sellerRaw: string; decimals: number }
-export async function buyTerms(id: string, s: Kv = kv()): Promise<BuyTerms | Fail> {
-  const l = await readListing(id, s);
+export async function buyTerms(id: string, s: Kv = kv(), now = Date.now()): Promise<BuyTerms | Fail> {
+  const r = await readListing(id, s);
+  const l = r && await lapse(r, now, s);
   if (!l || l.state !== "open") return fail("That listing is gone.");
   const d = DEPLOYMENTS[ACTIVE_CHAIN.id]?.usdgDecimals ?? 6;
   const fee = marketFeeCents(l.price);
@@ -214,15 +253,17 @@ export type BuyResult = { ok: true; listing: Listing; tx?: string } | { ok: fals
  */
 export async function buyListing(buyerIn: string, id: string, raw: unknown, deps: BuyDeps, now = Date.now(), s: Kv = kv()): Promise<BuyResult> {
   const buyer = lc(buyerIn);
-  const l = await readListing(id, s);
+  const raw0 = await readListing(id, s);
+  const l = raw0 && await lapse(raw0, now, s);
   if (!l || l.state !== "open") return fail("That listing is gone.");
   if (l.seller === buyer) return fail("That's your own listing.");
+  if (l.to && l.to !== buyer) return fail("That sale is for another pilot.");
   if (await s.get(COLK.frozen(l.uid))) return fail("That copy is frozen while we look into it.");
   const treasury = deps.treasury();
   if (!treasury) return fail("Buying is switched off right now. Try again later.");
   let q: BuyRequest;
   try { q = deps.parse(raw); } catch { return fail("That payment didn't read right. Try again."); }
-  const t = await buyTerms(id, s);
+  const t = await buyTerms(id, s, now);
   if (isFail(t)) return t;
   if (lc(q.pay.signer) !== buyer || lc(q.cut.signer) !== buyer) return fail("Pay from the wallet you're signed in with.");
   if (lc(q.pay.destination) !== l.seller) return fail("That payment isn't to the seller.");
@@ -282,6 +323,7 @@ export async function settleSale(id: string, buyerIn: string, tx: string | undef
     await s.zadd(MKT.sales(l.item), [{ score: now, member: JSON.stringify(sale) }]);
     await s.zadd(MKT.sales(), [{ score: now, member: JSON.stringify(sale) }]);
     await s.zadd(MKT.bought(buyer), [{ score: now, member: l.id }]);
+    if (l.offer) { const o = await readOffer(l.offer, s); if (o && o.state === "accepted") await endOffer(o, "paid", now, s); }
     return done;
   });
   await s.delIfEq(MKT.hold(id), buyer);
@@ -292,13 +334,23 @@ export async function settleSale(id: string, buyerIn: string, tx: string | undef
 
 /** Tell the seller their item sold (push alert, kind "market"; the sale also lands in their Flight log). */
 async function notifySold(l: Listing, s: Kv) {
-  const { notify } = await import("./push");
-  const { pushCopy } = await import("@/lib/push");
-  const name = itemById(l.item)?.name ?? "Your item";
-  await notify(l.seller, "market", `sold:${l.id}`, { ...pushCopy.sold(name, sellerCents(l.price)), url: "/profile#hg-log" }, Date.now(), s);
+  await tell(l.seller, `sold:${l.id}`, async () => pushCopy().sold(itemName(l.item), sellerCents(l.price)), "/profile#hg-log", Date.now(), s);
 }
 
-/* --------------------------------------------------------------- trade offers --------------------------------------------------------------- */
+const itemName = (id: string) => { const it = itemById(id); return it ? (it.kind === "skin" ? `${HULL_NAMES[it.hull!]} | ${it.name}` : it.name) : "Your item"; };
+const nameOrShort = async (w: string) => { const n = await usernameOf(w).catch(() => null); return n ? `@${n}` : `${w.slice(0, 6)}…${w.slice(-4)}`; };
+let copyMod: typeof import("@/lib/push") | null = null;
+const pushCopy = () => copyMod!.pushCopy;
+/** One market push (kind "market", once per event). Never fails the action it's about. */
+async function tell(to: string, event: string, msg: () => Promise<{ title: string; body: string }>, url: string, now: number, s: Kv) {
+  try {
+    copyMod ??= await import("@/lib/push");
+    const { notify } = await import("./push");
+    await notify(to, "market", event, { ...(await msg()), url }, now, s);
+  } catch (e) { console.error("[market] push", event, e); }
+}
+
+/* --------------------------------------------------------------- cash offers --------------------------------------------------------------- */
 
 /** A wallet from "0x…", "@name" or "name". */
 export async function resolvePilot(v: string): Promise<string | null> {
@@ -310,72 +362,112 @@ export async function resolvePilot(v: string): Promise<string | null> {
 }
 
 export type OfferResult = { ok: true; offer: Offer } | Fail;
+type CopyRec = { copy: Copy; owner: string; burned: boolean };
 
-/** Offer some of your copies for some of theirs (either side can be empty, not both). */
-export async function makeOffer(fromIn: string, toIn: string, give: string[], want: string[], now = Date.now(), s: Kv = kv()): Promise<OfferResult> {
-  const from = lc(fromIn), to = await resolvePilot(toIn);
-  if (!to) return fail("We couldn't find that pilot.");
-  if (to === from) return fail("You can't trade with yourself.");
-  give = [...new Set(give)]; want = [...new Set(want)];
-  if (!give.length && !want.length) return fail("Pick at least one copy.");
-  if (give.length > OFFER_MAX || want.length > OFFER_MAX) return fail(`Up to ${OFFER_MAX} copies a side.`);
-  // both inventories are read (and, for a legacy collection, migrated) under both wallet locks, so two offers at once
-  // can't each mint a set of copies from the same legacy items
-  const r = await withBoth(from, to, s, async (): Promise<OfferResult> => {
-    const mine = await copyStore.invOf(from, now, s), theirs = await copyStore.invOf(to, now, s);
-    const a = await checkMovable(from, mine, give, s); if (a) return fail(a);
-    for (const u of want) { const c = theirs.find((x) => x.uid === u); const why = cantMove(c, { frozen: !!(await s.get(COLK.frozen(u))) }); if (why) return fail(why === "That copy isn't there any more." ? "They don't have one of those copies." : why); }
-    const o: Offer = { id: newId(), from, to, give, want, at: now, state: "open" };
+async function readOffer(id: string, s: Kv) {
+  const o = /^[a-f0-9]{12}$/.test(id) ? parse<Offer>(await s.get(MKT.o(id))) : null;
+  return o && typeof o.uid === "string" ? o : null;   // old item-for-item offers (cut 2026-11-19) read as gone
+}
+async function endOffer(o: Offer, state: Offer["state"], now: number, s: Kv, extra: Partial<Offer> = {}) {
+  const done: Offer = { ...o, ...extra, state, doneAt: now };
+  await s.set(MKT.o(o.id), JSON.stringify(done));
+  return done;
+}
+async function offerRows(w: string, s: Kv, n = 80) {
+  const ids = await s.zrange(MKT.offers(w), n, true);
+  return (ids.length ? await s.mget(ids.map(MKT.o)) : []).map((v) => parse<Offer>(v)).filter((o): o is Offer => !!o && typeof o.uid === "string");
+}
+
+/** Offer a price for one tradable copy another pilot holds. No money moves until they accept and you pay. */
+export async function makeOffer(fromIn: string, uid: string, price: number, now = Date.now(), s: Kv = kv()): Promise<OfferResult> {
+  const from = lc(fromIn);
+  const bad = priceErr(price); if (bad) return fail(bad);
+  const rec = /^[a-f0-9]{16}$/.test(uid) ? parse<CopyRec>(await s.get(COLK.copy(uid))) : null;
+  if (!rec || rec.burned) return fail("That copy isn't there any more.");
+  const to = lc(rec.owner);
+  if (to === from) return fail("That's yours.");
+  const why = cantMove(rec.copy, { frozen: !!(await s.get(COLK.frozen(uid))) });
+  if (why) return fail(why);
+  const lid = await s.get(COLK.listed(uid));
+  const listing = lid ? await readListing(lid, s) : null;
+  if (listing && listing.state === "open" && !listing.to && price >= listing.price) return fail(`It's listed at ${usd(listing.price)}. Buy it instead.`);
+  const r = await withLock(from, s, async (): Promise<OfferResult> => {
+    const mine = (await offerRows(from, s)).filter((o) => o.from === from && o.state === "open" && now - o.at <= OFFER_TTL_MS);
+    for (const o of mine.filter((x) => x.uid === uid)) await endOffer(o, "cancelled", now, s);   // a new offer on the same copy replaces yours
+    if (mine.filter((x) => x.uid !== uid).length >= OFFER_MAX) return fail(`You have ${OFFER_MAX} offers out. Cancel one first.`);
+    const o: Offer = { id: newId(), from, to, uid, item: rec.copy.item, price, at: now, state: "open" };
     await s.set(MKT.o(o.id), JSON.stringify(o));
     await s.zadd(MKT.offers(from), [{ score: now, member: o.id }]);
     await s.zadd(MKT.offers(to), [{ score: now, member: o.id }]);
     return { ok: true, offer: o };
-  });
+  }) as OfferResult;
+  if (r.ok) await tell(to, `offer:${r.offer.id}`, async () => pushCopy().offer(await nameOrShort(from), itemName(r.offer.item), r.offer.price, sellerCents(r.offer.price)), "/rocket#hg-trades", now, s);
   return r;
 }
 
-async function readOffer(id: string, s: Kv) { return /^[a-f0-9]{12}$/.test(id) ? parse<Offer>(await s.get(MKT.o(id))) : null; }
-async function endOffer(o: Offer, state: Offer["state"], now: number, s: Kv, note?: string) {
-  const done: Offer = { ...o, state, doneAt: now, ...(note ? { note } : {}) };
-  await s.set(MKT.o(o.id), JSON.stringify(done));
-  return done;
-}
-
-/** Accept (the pilot it was sent to), decline (them) or cancel (the sender). Accepting swaps both sides at once. */
+/**
+ * Accept or decline (the owner), or cancel (the pilot who offered). Accepting takes a public listing of the copy down and
+ * makes a private sale to the offerer at the offered price, open for OFFER_PAY_MS; the copy moves when they pay.
+ */
 export async function answerOffer(walletIn: string, id: string, op: "accept" | "decline" | "cancel", now = Date.now(), s: Kv = kv()): Promise<OfferResult> {
   const w = lc(walletIn), o = await readOffer(id, s);
   if (!o || (o.from !== w && o.to !== w)) return fail("That offer isn't yours.");
+  if (op === "cancel") {
+    if (o.from !== w) return fail("Only the pilot who made it can cancel it.");
+    if (o.state === "accepted" && o.listing) {
+      const l = await readListing(o.listing, s);
+      if (l && l.state === "pending") return fail("Your payment is going through.");
+      if (l && l.state === "open") await withLock(o.to, s, async () => { const cur = await readListing(l.id, s); if (cur?.state === "open" && !(await s.get(MKT.hold(l.id)))) await closeListing(cur, "closed", s); });
+      return { ok: true, offer: await endOffer(o, "cancelled", now, s) };
+    }
+    if (o.state !== "open") return fail("That offer is already closed.");
+    return { ok: true, offer: await endOffer(o, "cancelled", now, s) };
+  }
+  if (o.to !== w) return fail("Only the pilot it was sent to can answer it.");
   if (o.state !== "open") return fail("That offer is already closed.");
   if (now - o.at > OFFER_TTL_MS) return { ok: true, offer: await endOffer(o, "expired", now, s) };
-  if (op === "cancel") return o.from === w ? { ok: true, offer: await endOffer(o, "cancelled", now, s) } : fail("Only the pilot who sent it can cancel it.");
-  if (o.to !== w) return fail("Only the pilot it was sent to can answer it.");
-  if (op === "decline") return { ok: true, offer: await endOffer(o, "declined", now, s) };
-  const r = await withBoth(o.from, o.to, s, async (): Promise<OfferResult> => {
+  if (op === "decline") {
+    const done = await endOffer(o, "declined", now, s);
+    await tell(o.from, `declined:${o.id}`, async () => pushCopy().offerDeclined(itemName(o.item), o.price), "/rocket#hg-trades", now, s);
+    return { ok: true, offer: done };
+  }
+  const r = await withLock(w, s, async (): Promise<OfferResult> => {
     const cur = await readOffer(id, s);
     if (!cur || cur.state !== "open") return fail("That offer is already closed.");
-    const a = await checkMovable(o.from, await copyStore.invOf(o.from, now, s), o.give, s);
-    if (a) return { ok: false, reason: `It can't go through: ${a.charAt(0).toLowerCase()}${a.slice(1)}` };
-    const b = await checkMovable(o.to, await copyStore.invOf(o.to, now, s), o.want, s);
-    if (b) return { ok: false, reason: `It can't go through: ${b.charAt(0).toLowerCase()}${b.slice(1)}` };
-    if (o.give.length) await moveCopies(o.from, o.to, o.give, { via: "trade", offer: o.id }, now, s);
-    if (o.want.length) await moveCopies(o.to, o.from, o.want, { via: "trade", offer: o.id }, now, s);
-    return { ok: true, offer: await endOffer(cur, "accepted", now, s) };
-  });
-  return r as OfferResult;
+    const inv = await copyStore.invOf(w, now, s);
+    if (!inv.some((c) => c.uid === o.uid)) return fail("You don't have that copy any more.");
+    // a public listing of it comes down first (not while someone's payment is in flight)
+    const lid = await s.get(COLK.listed(o.uid));
+    if (lid) {
+      const l = await readListing(lid, s);
+      if (l && (l.state === "pending" || (await s.get(MKT.hold(l.id))))) return fail("Someone is buying it right now.");
+      if (l && l.state === "open") await closeListing(l, "closed", s);
+    }
+    const made = await createListing(w, inv, o.uid, o.price, now, s, { to: o.from, offer: o.id, until: now + OFFER_PAY_MS });
+    if (!made.ok) return { ok: false, reason: `It can't go through: ${made.reason.charAt(0).toLowerCase()}${made.reason.slice(1)}` };
+    return { ok: true, offer: await endOffer(cur, "accepted", now, s, { listing: made.listing.id }) };
+  }) as OfferResult;
+  if (r.ok) await tell(o.from, `accepted:${o.id}`, async () => pushCopy().offerAccepted(itemName(o.item), o.price), `/market?l=${r.offer.listing}`, now, s);
+  return r;
 }
 
-/** A pilot's offers, newest first, with the copies filled in. Open offers past a week show as expired. */
+/** A pilot's cash offers (sent and got), newest first, with the copy and names filled in and stale states settled. */
 export async function offersOf(walletIn: string, now = Date.now(), s: Kv = kv()): Promise<Offer[]> {
   const w = lc(walletIn);
-  const ids = await s.zrange(MKT.offers(w), 60, true);
-  const rows = (ids.length ? await s.mget(ids.map(MKT.o)) : []).map((v) => parse<Offer>(v)).filter((o): o is Offer => !!o);
-  const rec = async (u: string) => parse<{ copy: Copy }>(await s.get(COLK.copy(u)))?.copy;
-  return Promise.all(rows.map(async (o) => ({
-    ...o, state: o.state === "open" && now - o.at > OFFER_TTL_MS ? "expired" as const : o.state,
-    giveCopies: (await Promise.all(o.give.map(rec))).filter((c): c is Copy => !!c),
-    wantCopies: (await Promise.all(o.want.map(rec))).filter((c): c is Copy => !!c),
-    fromName: await usernameOf(o.from).catch(() => null), toName: await usernameOf(o.to).catch(() => null),
-  })));
+  const rows = await offerRows(w, s, 60);
+  return Promise.all(rows.map(async (o) => {
+    const rec = parse<CopyRec>(await s.get(COLK.copy(o.uid)));
+    let state = o.state;
+    // open past a week, or the copy changed hands since: expired
+    if (state === "open" && (now - o.at > OFFER_TTL_MS || !rec || rec.burned || lc(rec.owner) !== o.to)) state = "expired";
+    if (state === "accepted" && o.listing) {
+      const l = await readListing(o.listing, s);
+      const cur = l && await lapse(l, now, s);
+      if (cur?.state === "sold") state = "paid";
+      else if (!cur || cur.state === "closed") state = "lapsed";
+    }
+    return { ...o, state, copy: rec?.copy, fromName: await usernameOf(o.from).catch(() => null), toName: await usernameOf(o.to).catch(() => null) };
+  }));
 }
 
 /* ------------------------------------------------------------------ admin ------------------------------------------------------------------ */

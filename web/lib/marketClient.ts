@@ -29,7 +29,7 @@ export async function listingDetail(id: string): Promise<{ listing: Listing; sal
   try { const j = await (await fetch(withBase(`/api/market?listing=${id}`), { cache: "no-store" })).json(); return j?.ok ? { listing: j.listing, sales: j.sales ?? [] } : null; } catch { return null; }
 }
 
-/** Your listings and trade offers (signed in). */
+/** Your listings, private sales for you and cash offers (signed in). */
 export function useMine(wallet: string | null) {
   const [mine, setMine] = useState<{ listings: Listing[]; offers: Offer[] } | null>(null);
   const load = useCallback(async () => {

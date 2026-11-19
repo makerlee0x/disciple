@@ -15,7 +15,7 @@ import {
   type Collection as Col, type Copy,
 } from "@/lib/collection";
 import { isNativeApp } from "@/lib/native";
-import { MARKET_FEE_BPS, OFFER_PAY_MS, parsePrice, sellerCents, usd, type Listing, type Offer } from "@/lib/market";
+import { MARKET_FEE_BPS, OFFER_PAY_MS, parsePrice, sellerCents, usd, type Listing } from "@/lib/market";
 import { marketAction, useMine } from "@/lib/marketClient";
 import UserPicker from "@/components/ui/UserPicker";
 import type { Recipient } from "@/lib/send/recipient";

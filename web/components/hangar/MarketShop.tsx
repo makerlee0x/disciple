@@ -268,6 +268,7 @@ function Sheet({ l, rows, me, onPick, onClose }: { l: Listing; rows: Listing[]; 
   let cta: ReactNode;
   if (l.state === "sold" || step === "done") cta = null;
   else if (mine) cta = <p className="mk-note">{l.to ? <>Your listing · <span className="mkt-priv-tx">@{l.toName ?? short(l.to)}</span></> : "Your listing."}</p>;
+  else if (l.to && (!me || l.to !== me.toLowerCase())) cta = <p className="mk-note">Private sale</p>;
   else if (!me) cta = <button type="button" className="dsc3-btn dsc3-btn-primary mk-buy" onClick={signIn} data-testid="buy-signin">Sign in to buy</button>;
   else if (step === "confirm" || step === "busy") cta = (
     <div className="mk-confirm">
@@ -287,7 +288,7 @@ function Sheet({ l, rows, me, onPick, onClose }: { l: Listing; rows: Listing[]; 
     if (r.ok) { setSentOffer(offerCents); setOffering(false); } else setNote(r.reason ?? "Couldn't send it.");
   };
   // cash offer on someone else's open listing (not a private sale already priced for you)
-  const offerBox = me && !mine && !forMe && c && l.state === "open" && step === "idle" ? (
+  const offerBox = me && !mine && !l.to && c && l.state === "open" && step === "idle" ? (
     sentOffer ? <p className="mk-offer-sent" data-testid="offer-sent"><b>Offer sent · {usd(sentOffer)}</b><span>Paid from Cash if {who(l.sellerName, l.seller)} takes it</span></p>
     : offering ? (
       <div className="mk-offer" data-testid="offer-box">

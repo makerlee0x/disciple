@@ -1,14 +1,14 @@
 export const runtime = "nodejs";
 /**
- * Market and trade offers (lib/server/market.ts). The market (list, buy) is website-only: requests from the iPhone app
- * (its user agent carries "DiscipleApp/") are refused. Trade offers work everywhere.
+ * Market, private sales and cash offers (lib/server/market.ts). Listing and buying are website-only: requests from the
+ * iPhone app (its user agent carries "DiscipleApp/") are refused. Offers can be made and answered everywhere; paying is on the web.
  *
  * GET                      → { ok, listings, sales }            open listings (filters: item, kind, rar, series, trak=1, sort)
  * GET ?listing=<id>        → { ok, listing, sales }             one listing and its item's price history
  * GET ?terms=<id>&signer=  → { ok, terms, treasury, quote }     what to sign to buy it (seller's share, 7% to the treasury, network fee)
- * GET ?mine=1  (Bearer)    → { ok, listings, offers }           your listings and trade offers
- * GET ?pilot=<name|0x…>    → { ok, wallet }                     who a trade offer goes to
- * POST (Bearer) { op: "list", copy, price } | { op: "unlist", listing } | { op: "offer", to, give, want }
+ * GET ?mine=1  (Bearer)    → { ok, listings, offers }           your listings, private sales for you, cash offers
+ * GET ?pilot=<name|0x…>    → { ok, wallet }                     who a private sale goes to
+ * POST (Bearer) { op: "list", copy, price, to? } | { op: "unlist", listing } | { op: "offer", copy, price }
  *             | { op: "accept" | "decline" | "cancel", offer } | { op: "buy", listing, request }  (buy also needs privy-id-token)
  */
 import { NextResponse } from "next/server";
@@ -27,7 +27,6 @@ export const dynamic = "force-dynamic";
 const out = (status: number, b: Record<string, unknown>) => NextResponse.json(b, { status, headers: { "cache-control": "no-store" } });
 const isAddr = (a: unknown): a is string => typeof a === "string" && /^0x[0-9a-fA-F]{40}$/.test(a);
 const hex = (v: unknown) => (typeof v === "string" && /^[a-f0-9]{12,16}$/.test(v) ? v : "");
-const ids = (v: unknown) => (Array.isArray(v) ? v.slice(0, 20).map(hex).filter(Boolean) : []);
 const APP_ONLY = "The market is on the website. Open disciple.vip to buy and sell.";
 const ID_TOKEN_RE = /^[A-Za-z0-9_\-.]+$/;
 function identityToken(req: Request): string | null {
@@ -99,16 +98,16 @@ export async function POST(req: Request) {
   if (!rl.ok) return out(429, { ok: false, reason: "Too many requests, try again shortly." });
   const a = await who(req); if (a.res) return a.res;
   await ensureCatalog().catch(() => null);
-  let b: { op?: unknown; copy?: unknown; price?: unknown; listing?: unknown; offer?: unknown; to?: unknown; give?: unknown; want?: unknown; request?: unknown };
+  let b: { op?: unknown; copy?: unknown; price?: unknown; listing?: unknown; offer?: unknown; to?: unknown;  request?: unknown };
   try { b = await req.json(); } catch { return out(400, { ok: false, reason: "Bad JSON" }); }
   const app = isNativeAppUa(req.headers.get("user-agent"));
   try {
     if (b.op === "list") {
       if (app) return out(403, { ok: false, reason: APP_ONLY });
-      const r = await listCopy(a.wallet, hex(b.copy), Number(b.price)); return out(r.ok ? 200 : 409, r);
+      const r = await listCopy(a.wallet, hex(b.copy), Number(b.price), undefined, undefined, typeof b.to === "string" && b.to ? { to: b.to.slice(0, 64) } : {}); return out(r.ok ? 200 : 409, r);
     }
     if (b.op === "unlist") { const r = await unlist(a.wallet, hex(b.listing)); return out(r.ok ? 200 : 409, r); }
-    if (b.op === "offer") { const r = await makeOffer(a.wallet, typeof b.to === "string" ? b.to : "", ids(b.give), ids(b.want)); return out(r.ok ? 200 : 409, r); }
+    if (b.op === "offer") { const r = await makeOffer(a.wallet, hex(b.copy), Number(b.price)); return out(r.ok ? 200 : 409, r); }
     if (b.op === "accept" || b.op === "decline" || b.op === "cancel") { const r = await answerOffer(a.wallet, hex(b.offer), b.op); return out(r.ok ? 200 : 409, r); }
     if (b.op === "buy") {
       if (app) return out(403, { ok: false, reason: APP_ONLY });
