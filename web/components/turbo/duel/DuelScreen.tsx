@@ -23,7 +23,7 @@ import { COLLECTION_CHANGED_EVENT } from "@/lib/collectionClient";
 import { withBase } from "@/lib/base-path";
 import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "./engineLoader";
 import { LighterMatch, lighterFetcher, lighterWanted } from "@/lib/lighter/duel";
-import GeoBanner from "@/components/turbo/GeoBanner";
+import { mountRealSwitch } from "@/lib/turbo/realSwitch";
 import { FEE, LEV, PCTS, pctUsd, fuelOf } from "@/lib/duel/rules";
 
 const trailRgb = (id?: string) => TRAILS.find((t) => trailId(t.id) === id)?.rgb;
@@ -303,15 +303,17 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
       settings: () => setGear(true),   // the lobby gear (components/turbo/LobbySettings)
     };
 
+    let offSwitch = () => {};
     loadEngine().then(() => {
       if (dead || !ref.current || !window.DuelEngine) return;
       api = window.DuelEngine.mount(ref.current, host);
+      if (!guest) offSwitch = mountRealSwitch(ref.current);
       void refreshMe();
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load the duel. Refresh to try again."; });
     setDuelGuest(guest);
     const offPrivy = guest ? () => {} : onPrivy(() => { void refreshMe(); });
 
-    return () => { dead = true; setDuelGuest(false); stopQueue(); unfollow(); stopPrice(); offPrivy(); api?.destroy(); };
+    return () => { dead = true; offSwitch(); setDuelGuest(false); stopQueue(); unfollow(); stopPrice(); offPrivy(); api?.destroy(); };
   }, []);
-  return <><GeoBanner /><div ref={ref} /><LobbySettings mode="duel" open={gear} onClose={() => setGear(false)} /></>;
+  return <><div ref={ref} /><LobbySettings mode="duel" open={gear} onClose={() => setGear(false)} /></>;
 }

@@ -28,6 +28,11 @@ export function lighterWanted(): boolean {
   return !turboBlockedCached();
 }
 
+/** the lobby's Simulator / Real money switch (lib/turbo/realSwitch): same setting as ?lighter=1 / ?lighter=0 */
+export function setLighterWanted(on: boolean) {
+  try { if (on) localStorage.setItem(FLAG, "1"); else localStorage.removeItem(FLAG); } catch { /* private mode */ }
+}
+
 let tok: { t: string; at: number } | null = null;
 async function token() {
   if (tok && Date.now() - tok.at < 30_000) return tok.t;

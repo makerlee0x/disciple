@@ -58,7 +58,7 @@ Network fees on trades are paid in USDG, from a balance kept for that purpose. A
 
 You must be at least 18, or the age of adulthood where you live, whichever is higher. The law where you live also has to allow you to use DISCIPLE. You may not use it if you are on a sanctions list. Meeting this rule is up to you.
 
-Real-money trading in Turbo (Duel and Climb) is not offered in some regions, including the United States. From those regions the game runs on play money only, and a banner at the top of the screen says so. Using a VPN or other tool to get around this is not allowed.
+Real-money trading in Turbo (Duel and Climb) is not offered in some regions, including the United States. From those regions Turbo runs on simulator cash only. Using a VPN or other tool to get around this is not allowed.
 
 ## What you must not do
 
