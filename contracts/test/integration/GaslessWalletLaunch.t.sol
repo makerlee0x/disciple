@@ -145,11 +145,11 @@ contract GaslessWalletLaunchTest is IntegrationBase {
         harvest.launchWithPermit2(player, pm, p, w, sig);
     }
 
-    function test_feeAboveOneDollar_refused() public {
+    function test_feeAboveThreeDollars_refused() public {
         ILaunchpad.LaunchParams memory p = _params(address(quote), block.timestamp + 1 hours);
-        CreatorFeeHarvest.GaslessLaunch memory w = CreatorFeeHarvest.GaslessLaunch(keccak256(abi.encode(p)), 0, 0, 0, 0, U + 1);
+        CreatorFeeHarvest.GaslessLaunch memory w = CreatorFeeHarvest.GaslessLaunch(keccak256(abi.encode(p)), 0, 0, 0, 0, 3 * U + 1);
         IPermit2Witness.PermitTransferFrom memory pm =
-            IPermit2Witness.PermitTransferFrom(IPermit2Witness.TokenPermissions(address(quote), U + 1), 0, block.timestamp + 1 hours);
+            IPermit2Witness.PermitTransferFrom(IPermit2Witness.TokenPermissions(address(quote), 3 * U + 1), 0, block.timestamp + 1 hours);
         bytes memory sig = _sign(pm, w);
         vm.prank(relayer);
         vm.expectRevert(CreatorFeeHarvest.BadPermit.selector);

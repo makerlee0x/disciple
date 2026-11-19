@@ -273,11 +273,11 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step, EIP712 {
     ) external nonReentrant returns (ILaunchpad.LaunchResult memory result, uint256 usdgRefund) {
         address u = router.usdg();
         uint256 total = w.usdgIn + w.gasFee;
-        // the network fee is at most $1 (a launch costs far more gas than a trade)
+        // the network fee is at most $3 (a launch is ~6.7M gas; room for an ETH or gas price spike)
         if (
             signer == address(0) || u == address(0) || w.paramsHash != keccak256(abi.encode(params))
                 || permit.permitted.token != u || permit.permitted.amount != total
-                || w.gasFee > 10 ** IERC20Metadata(u).decimals()
+                || w.gasFee > 3 * 10 ** IERC20Metadata(u).decimals()
         ) revert BadPermit();
         IPermit2Witness(PERMIT2).permitWitnessTransferFrom(
             permit,

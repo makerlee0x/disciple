@@ -610,9 +610,12 @@ contract BondingModesTest is IntegrationBase {
         BondingCurve.SellQuote memory sq = c.quoteSellFor(alice, ONE_PCT * 4 / 10);
         assertGt(sq.profitTax, 0);
         uint256 tr0 = feeRouter.treasuryAccrued(address(quote));
+        vm.prank(alice);
+        t.approve(address(c), ONE_PCT * 4 / 10);
         vm.expectEmit(true, true, false, true, address(c));
         emit CrewTipToCommunity(address(t), community, sq.profitTax);
-        _sellT(c, t, alice, ONE_PCT * 4 / 10);
+        vm.prank(alice);
+        c.sell(ONE_PCT * 4 / 10, 0, vm.getBlockTimestamp() + 1 hours);
         assertEq(quote.balanceOf(community), sq.profitTax, "tip to the community Safe");
         assertEq(feeRouter.treasuryAccrued(address(quote)), tr0, "treasury not paid");
         assertEq(c.rewardsHeld(), 0);

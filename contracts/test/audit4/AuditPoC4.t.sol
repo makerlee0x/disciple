@@ -89,7 +89,9 @@ contract AuditPoC4 is IntegrationBase {
         console2.log(a1);
         console2.logInt(o1);
         assertEq(a0, 0, "without the drag the band refuses an 11% pump");
-        assertGt(a1, 0, "after one flash drag the same pump is flushed");
-        assertGe(m1 >= 0 ? int256(m1) : -int256(m1), 1000, "one call moved the reference 1000 ticks");
+        // Fixed (audit round 4: anchored reference + 120 s cap): one refused flush moves the reference at most
+        // REF_MAX_CATCHUP worth (200 ticks), so the same pump is still refused.
+        assertEq(a1, 0, "after one flash drag the same pump is still refused");
+        assertLe(m1 >= 0 ? int256(m1) : -int256(m1), 200, "one call moves the reference at most 200 ticks");
     }
 }

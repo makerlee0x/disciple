@@ -60,8 +60,9 @@ contract AuditPoC4Router is IntegrationBase {
 
         // Fixed: the USDG routing is set once. The Team cannot re-point the registry at a fake curve.
         EvilCurve evil = new EvilCurve(address(quote));
+        address reg = address(new EvilRegistry(address(evil)));
         vm.expectRevert(DiscipleRouter.BadParam.selector);
-        router.setUsdgRouting(address(quote), address(new EvilRegistry(address(evil))));
+        router.setUsdgRouting(address(quote), reg);
         c; // silence
     }
 }
