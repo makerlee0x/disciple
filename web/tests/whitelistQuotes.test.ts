@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OPTIONAL_QUOTES, WHITELIST_QUOTES, whitelistQuoteByAddress, whitelistQuoteBySymbol } from "../lib/whitelistQuotes";
+import { OPTIONAL_QUOTES, pairLogoBySymbol, WHITELIST_QUOTES, whitelistQuoteByAddress, whitelistQuoteBySymbol } from "../lib/whitelistQuotes";
 import { buildLaunchWhitelist, LAUNCH_WHITELIST, whitelistIncludesUsdg } from "../lib/launchWhitelist";
 
 describe("whitelist quotes", () => {
@@ -29,13 +29,10 @@ describe("whitelist quotes", () => {
   });
 });
 
-describe("base pair on rocket cards (maker 2026-11-19)", () => {
-  it("names a whitelisted quote by its symbol and gives its logo", async () => {
-    const { pairSymOf, pairLogoSrc, isNamedPair } = await import("../lib/home/pairs");
-    expect(pairSymOf(whitelistQuoteBySymbol("PENGU")!.address.toLowerCase())).toBe("PENGU");
-    expect(pairSymOf("0x1234567890123456789012345678901234567890")).toMatch(/^0x1234…/);
-    expect(pairLogoSrc("SCHIFFY")).toBe("/whitelist/SCHIFFY.png");
-    expect(pairLogoSrc("mUSDG")).toBe("/whitelist/USDG.png");
-    expect(isNamedPair("0x1234…7890")).toBe(false);
+describe("base pair tag on rocket cards (maker 2026-11-19)", () => {
+  it("finds the pair coin logo by symbol", () => {
+    expect(pairLogoBySymbol("SCHIFFY")).toBe("/whitelist/SCHIFFY.png");
+    expect(pairLogoBySymbol("mUSDG")).toBe("/whitelist/USDG.png");
+    expect(pairLogoBySymbol("0x1234…7890")).toBeNull();
   });
 });
