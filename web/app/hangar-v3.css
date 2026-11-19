@@ -423,3 +423,15 @@ button.mkt-chip:hover { border-color: color-mix(in srgb, var(--sw) 45%, #262A33)
 }
 .hgu-copy-rows li:has(.mkt-sell.open) { grid-template-columns: 52px minmax(0, 1fr); }
 .hgu-copy-rows li:has(.mkt-sell.open) > .hgu-copy-act { grid-column: 1 / -1; justify-content: flex-end; }
+.hgu-copy-act:has(.mkt-sell.open) > :not(.mkt-sell) { display: none; }
+.hgu-trades .hgu-trade-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.hgu-trades .hgu-copy-act .hgu-buy.sm, .hgu-trades .hgu-copy-act .hgu-owned { white-space: nowrap; }
+.hgu-trades .mkt-tabs { margin: 0; flex-wrap: wrap; }
+.hgu-trades .mkt-empty { margin: 4px 0; color: var(--dsc-muted); }
+.hgu-trades .mkt-row .hgu-buy.sm { margin-top: 0; }
+.mkt-tabs button { position: relative; }
+.mkt-dot { position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; border-radius: 50%; background: #F0307F; box-shadow: 0 0 0 2px var(--dsc3-panel-bg, #15171C); }
+@media (max-width: 720px) {
+  .hgu-trades .mkt-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 4px 4px 2px 0; margin: -4px 0 0; }
+  .hgu-trades .mkt-tabs button { flex: none; }
+}

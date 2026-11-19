@@ -8,7 +8,7 @@
  *   The /market storefront itself is ./MarketShop.
  */
 import Link from "next/link";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { withBase } from "@/lib/base-path";
 import {
   HULL_NAMES, RARITY_COLOR as SW, burnGrade, itemById,
@@ -167,6 +167,11 @@ export function OfferComposer({ wallet, onDone, preset }: { wallet: string; onDo
   );
 }
 
+type Tab = "priv" | "req" | "offers" | "listings";
+/** Last time you opened each Trades tab (per browser): a tab with anything newer gets a dot. */
+const SEEN_KEY = "disciple.trades.seen";
+const readSeen = (): Partial<Record<Tab, number>> => { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || "{}") ?? {}; } catch { return {}; } };
+const markSeen = (t: Tab) => { try { localStorage.setItem(SEEN_KEY, JSON.stringify({ ...readSeen(), [t]: Date.now() })); } catch { /* private mode */ } };
 const left = (until?: number) => { if (!until) return ""; const h = Math.max(0, Math.ceil((until - Date.now()) / 3_600_000)); return `${h}h left`; };
 
 /** Trades panel beside the rocket card on /rocket: private sales for you, offers on your copies, offers you sent, your listings. */
@@ -176,9 +181,16 @@ export function HangarTrades({ wallet, mine }: { col?: Col | null; wallet: strin
   const [note, setNote] = useState("");
   const [composing, setComposing] = useState(false);
   const [preset, setPreset] = useState<Parameters<typeof OfferComposer>[0]["preset"]>();
+  const [tab, setTab] = useState<Tab | null>(null);
+  const [seen, setSeen] = useState<Partial<Record<Tab, number>>>({});
+  useEffect(() => setSeen(readSeen()), []);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  // keep the open tab in view when the tab row scrolls (phones)
+  useEffect(() => { const r = tabsRef.current, b = r?.querySelector<HTMLElement>("[aria-selected=true]"); if (r && b) r.scrollTo({ left: b.offsetLeft - r.offsetLeft - 8 }); });
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
-    (window as unknown as { __offerDev?: (p: typeof preset) => void }).__offerDev = (p) => { setPreset(p); setComposing(true); };
+    (window as unknown as { __offerDev?: (p: typeof preset) => void }).__offerDev = (p) => { setPreset(p); setComposing(true); setTab("offers"); };
+    (window as unknown as { __tradesTab?: (t: Tab) => void }).__tradesTab = setTab;
   }, []);
   if (!wallet) return null;
   const me = wallet.toLowerCase();
@@ -197,29 +209,36 @@ export function HangarTrades({ wallet, mine }: { col?: Col | null; wallet: strin
   const buyBtn = (l: Listing) => web
     ? <Link href={`/market?l=${l.id}`} className="dsc3-btn dsc3-btn-primary hgu-buy sm" data-testid="private-buy">Buy {usd(l.price)}</Link>
     : <span className="hgu-owned">{usd(l.price)} · on the web</span>;
+  const newest: Record<Tab, number> = {
+    priv: Math.max(0, ...forYou.map((l) => l.at)),
+    req: Math.max(0, ...incoming.map((o) => o.at)),
+    offers: Math.max(0, ...sent.filter((o) => o.state === "accepted").map((o) => o.doneAt ?? o.at)),
+    listings: Math.max(0, ...sold.map((l) => l.soldAt ?? l.at)),
+  };
+  const fresh = (t: Tab) => newest[t] > (seen[t] ?? 0);
+  const cur: Tab = tab ?? (["priv", "req", "offers", "listings"] as Tab[]).find(fresh) ?? (forYou.length ? "priv" : incoming.length ? "req" : sent.length ? "offers" : "listings");
+  const TABS: [Tab, string, number][] = [["priv", "Private sales", forYou.length], ["req", "Trade requests", incoming.length], ["offers", "Your offers", sent.length], ["listings", "Your listings", mineOpen.length]];
+  const pick = (t: Tab) => { setTab(t); markSeen(t); setSeen(readSeen()); };
   return (
     <section className="dsc3-panel hg-panel hgu-trades" aria-labelledby="hg-trades" data-testid="hangar-trades">
       <header className="hg-panelh"><h2 id="hg-trades">Trades</h2>{web && <Link href="/market" data-testid="open-market">Market</Link>}</header>
-      <ul className="hgu-trade-stats" data-testid="trade-stats">
-        <li><b>{mineOpen.length}</b><span>Listed</span></li>
-        <li><b>{incoming.length}</b><span>Offers</span></li>
-        <li><b>{sold.length}</b><span>Sold</span></li>
-      </ul>
+      <div className="hg-ranges hgu-hulls mkt-tabs" role="tablist" aria-label="Trades" ref={tabsRef}>
+        {TABS.map(([k, label, n]) => <button key={k} type="button" role="tab" aria-selected={cur === k} className={cur === k ? "on" : ""} onClick={() => pick(k)} data-testid={`tab-${k}`}>
+          {label}{n ? ` · ${n}` : ""}{fresh(k) && cur !== k && <i className="mkt-dot" aria-label="New" />}</button>)}
+      </div>
       {note && <p className="hg-sub" role="status">{note}</p>}
-      {forYou.length > 0 && (
-        <div className="hgu-trades-list" data-testid="for-you">
-          <h3>For you</h3>
-          <ul className="hgu-copy-rows">{forYou.map((l) => (
+      {cur === "priv" && (forYou.length ? (
+        <ul className="hgu-copy-rows" data-testid="for-you">
+          {forYou.map((l) => (
             <Row key={l.id} item={l.item} copy={l.copy} testid="for-you-row"
               line={<>{pilot(l.sellerName, l.seller)} · {copyLine(l.copy)}{l.until ? ` · ${left(l.until)}` : ""}</>}
               act={buyBtn(l)} />
-          ))}</ul>
-        </div>
-      )}
-      {incoming.length > 0 && (
-        <div className="hgu-trades-list" data-testid="offers-in">
-          <h3>Offers <span className="hgu-chip">{FEE} fee</span></h3>
-          <ul className="hgu-copy-rows">{incoming.map((o) => (
+          ))}
+        </ul>
+      ) : <p className="mk-note mkt-empty">No private sales</p>)}
+      {cur === "req" && (incoming.length ? (
+        <ul className="hgu-copy-rows" data-testid="offers-in">
+          {incoming.map((o) => (
             <Row key={o.id} item={o.item} copy={o.copy} testid="offer-row"
               line={<>{pilot(o.fromName, o.from)} · {copyLine(o.copy)}</>}
               act={<>
@@ -227,13 +246,12 @@ export function HangarTrades({ wallet, mine }: { col?: Col | null; wallet: strin
                 <button type="button" className="dsc3-btn dsc3-btn-primary hgu-buy sm" disabled={busy} onClick={() => act({ op: "accept", offer: o.id }, "Accepted. It sells when they pay.")} data-testid="offer-accept">Accept</button>
                 <button type="button" className="dsc3-btn hgu-scrap" disabled={busy} onClick={() => act({ op: "decline", offer: o.id }, "Declined.")}>Decline</button>
               </>} />
-          ))}</ul>
-        </div>
-      )}
-      {sent.length > 0 && (
-        <div className="hgu-trades-list" data-testid="offers-out">
-          <h3>Your offers</h3>
-          <ul className="hgu-copy-rows">{sent.map((o) => (
+          ))}
+        </ul>
+      ) : <p className="mk-note mkt-empty">No requests</p>)}
+      {cur === "offers" && (<>
+        {sent.length > 0 ? (
+          <ul className="hgu-copy-rows" data-testid="offers-out">{sent.map((o) => (
             <Row key={o.id} item={o.item} copy={o.copy} testid="offer-out-row"
               line={<>{pilot(o.toName, o.to)} · {copyLine(o.copy)}</>}
               act={o.state === "accepted" && o.listing
@@ -241,23 +259,20 @@ export function HangarTrades({ wallet, mine }: { col?: Col | null; wallet: strin
                 : <><span className="mkt-amt"><b>{usd(o.price)}</b><small>Waiting</small></span>
                   <button type="button" className="dsc3-btn hgu-scrap" disabled={busy} onClick={() => act({ op: "cancel", offer: o.id }, "Cancelled.")}>Cancel</button></>} />
           ))}</ul>
-        </div>
-      )}
-      {(mineOpen.length > 0 || sold.length > 0) && (
-        <div className="hgu-trades-list">
-          <h3>Your listings <span className="hgu-chip">{FEE} fee</span></h3>
-          <ul className="hgu-copy-rows">{[...mineOpen, ...sold.slice(0, 5)].map((l) => (
-            <Row key={l.id} item={l.item} copy={l.copy}
-              line={<>{copyLine(l.copy)}{l.to ? <> · <span className="mkt-priv-tx">@{l.toName ?? short(l.to)}</span></> : null}</>}
-              act={<><span className="hgu-owned">{l.state === "sold" ? `Sold ${usd(l.price)}` : l.state === "pending" ? "Selling…" : usd(l.price)}</span>
-                {l.state === "open" && web && <button type="button" className="dsc3-btn hgu-scrap" disabled={busy} onClick={() => act({ op: "unlist", listing: l.id }, "Taken down.")}>Take down</button>}</>} />
-          ))}</ul>
-        </div>
-      )}
-      {composing
-        ? <div className="hgu-trades-list"><h3>New offer <button type="button" className="mk-link mkt-x" onClick={() => { setComposing(false); setPreset(undefined); }}>Cancel</button></h3>
-            <OfferComposer wallet={wallet} preset={preset} onDone={(m) => { setComposing(false); setPreset(undefined); setNote(m); }} /></div>
-        : <div className="mkt-row"><button type="button" className="dsc3-btn dsc3-btn-primary hgu-buy" onClick={() => setComposing(true)} data-testid="compose-offer">Make an offer</button></div>}
+        ) : !composing && <p className="mk-note mkt-empty">No offers out</p>}
+        {composing
+          ? <div className="hgu-trades-list"><h3>New offer <button type="button" className="mk-link mkt-x" onClick={() => { setComposing(false); setPreset(undefined); }}>Cancel</button></h3>
+              <OfferComposer wallet={wallet} preset={preset} onDone={(m) => { setComposing(false); setPreset(undefined); setNote(m); }} /></div>
+          : <div className="mkt-row"><button type="button" className="dsc3-btn dsc3-btn-primary hgu-buy sm" onClick={() => setComposing(true)} data-testid="compose-offer">Make an offer</button></div>}
+      </>)}
+      {cur === "listings" && ((mineOpen.length || sold.length) ? (
+        <ul className="hgu-copy-rows">{[...mineOpen, ...sold.slice(0, 5)].map((l) => (
+          <Row key={l.id} item={l.item} copy={l.copy}
+            line={<>{copyLine(l.copy)}{l.to ? <> · <span className="mkt-priv-tx">@{l.toName ?? short(l.to)}</span></> : null}</>}
+            act={<><span className="hgu-owned">{l.state === "sold" ? `Sold ${usd(l.price)}` : l.state === "pending" ? "Selling…" : usd(l.price)}</span>
+              {l.state === "open" && web && <button type="button" className="dsc3-btn hgu-scrap" disabled={busy} onClick={() => act({ op: "unlist", listing: l.id }, "Taken down.")}>Take down</button>}</>} />
+        ))}</ul>
+      ) : <p className="mk-note mkt-empty">Nothing listed</p>)}
     </section>
   );
 }
