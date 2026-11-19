@@ -7,6 +7,7 @@
  */
 import { useEffect, useState } from "react";
 import PhoneChart from "./PhoneChart";
+import CoinStats, { COIN_STATS_H } from "./CoinStats";
 import { useHudMode } from "@/lib/game/hudMode";
 import { isPhoneUI } from "@/lib/game/cardLayoutStore";
 
@@ -30,17 +31,20 @@ export default function DeskChart({ ticker }: { ticker: string }) {
     addEventListener("disciple:pnlview", h); return () => removeEventListener("disciple:pnlview", h);
   }, []);
   const on = !phone && hud === "pilot";
-  const h = big ? DESK_CHART_BIG_H : DESK_CHART_H;
+  // a live coin page: the stats strip (Price · 24H · Vol · Liquidity · Holders) sits under the chart card
+  const [coin, setCoin] = useState("");
+  useEffect(() => { setCoin((/^\/coin\/(0x[0-9a-fA-F]{40})/.exec(location.pathname)?.[1] ?? "").toLowerCase()); }, []);
+  const ch = big ? DESK_CHART_BIG_H : DESK_CHART_H, h = ch + (coin ? COIN_STATS_H + 8 : 0);
   // the Pilot crew feed starts under this card
   useEffect(() => { const root = document.documentElement; root.style.setProperty("--ap-pilot-chart-h", on ? `${h + 14}px` : "0px");
     root.style.setProperty("--ap-pilot-feed-w", on ? `min(${DESK_CHART_W}px, 34vw)` : "300px");
-    if (on) root.dataset.deskChart = "1"; else delete root.dataset.deskChart;   // the feed under the chart shows its 4 newest rows
+    if (on) root.dataset.deskChart = "1"; else delete root.dataset.deskChart;
     return () => { root.style.removeProperty("--ap-pilot-chart-h"); root.style.removeProperty("--ap-pilot-feed-w"); delete root.dataset.deskChart; }; }, [on, h]);
   if (!on) return null;
   return (
     <div className="dsk-chart" data-testid="desk-chart" style={{ position: "fixed", right: 20, top: "calc(var(--ap-hud-rt, 58px) + 34px)", width: `min(${DESK_CHART_W}px, 34vw)`, height: h, zIndex: 33, transition: "height .25s ease" }}>
       <style>{`
-        .dsk-chart .pc { position: absolute; inset: 0; border-radius: 16px; background: rgba(12,13,28,.92); border: 1px solid rgba(255,255,255,.14); box-shadow: 0 12px 30px rgba(0,0,0,.35); overflow: hidden; cursor: zoom-in; box-sizing: border-box; }
+        .dsk-chart .pc { position: absolute; left: 0; right: 0; top: 0; height: ${ch}px; border-radius: 16px; background: rgba(12,13,28,.92); border: 1px solid rgba(255,255,255,.14); box-shadow: 0 12px 30px rgba(0,0,0,.35); overflow: hidden; cursor: zoom-in; box-sizing: border-box; }
         .dsk-chart .pc[data-big="1"] { cursor: zoom-out; }
         .dsk-chart .pc canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
         .dsk-chart .pc-lab { position: absolute; left: 14px; top: 12px; display: flex; gap: 8px; align-items: baseline; font: 700 14px/1 'Barlow Condensed', 'Arial Narrow', sans-serif; letter-spacing: 1.4px; color: rgba(215,217,228,.85); pointer-events: none; }
@@ -49,9 +53,9 @@ export default function DeskChart({ ticker }: { ticker: string }) {
         .dsk-chart .pc-tf button { all: unset; box-sizing: border-box; min-width: 34px; height: 26px; padding: 0 9px; border-radius: 8px; text-align: center; background: rgba(255,255,255,.08); color: rgba(215,217,228,.85); font: 800 14px/26px 'Barlow Condensed', 'Arial Narrow', sans-serif; letter-spacing: .4px; cursor: pointer; }
         .dsk-chart .pc-tf button.on { background: #F2F3F7; color: #121327; }
         .dsk-chart .pc-tf button:focus-visible { outline: 2px solid #F2C14E; }
-        html[data-desk-chart="1"] [data-testid="chat-dock"][data-hud="pilot"] [data-testid="chat-list"] > :nth-child(n+5) { display: none !important; }
       `}</style>
       <PhoneChart tf={tf} onTf={setTf} big={big} onBig={() => setBig((b) => !b)} entry={entry} ticker={ticker} badge={null} />
+      {coin && <div style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}><CoinStats coin={coin} /></div>}
     </div>
   );
 }

@@ -77,6 +77,8 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
   const pair = sp.get("pair") || chain?.pair || (demo ? "ETH" : "STRATEGY");
   const tk = sp.get("cs") || chain?.symbol || (demo ? "AI" : "");
   const name = sp.get("nm") || chain?.name || (demo && tk === "AI" ? "Artificial Inu" : tk);
+  // the engine's header card draws the name (window.__coinName, worker-mirrored), the desktop row itself stays hidden
+  useEffect(() => { const w = window as unknown as { __coinName?: string }; w.__coinName = name || ""; return () => { w.__coinName = ""; }; }, [name]);
   if (!icon && !tk) return null;
   const bp = basePair(pair);
   // Dollars-only rule (no ETH / gas wording on player surfaces): an ETH / WETH pair gets no pair badge or pair label;

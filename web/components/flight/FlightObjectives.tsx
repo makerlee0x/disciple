@@ -6,14 +6,14 @@
  * pilots who boosted after you, "Hold through a bomb" counts down the 10 minutes. A hint never pays: the card says
  * "confirming" until the server agrees. Pilot HUD on desktop only (Pro keeps YOUR BAG in this slot; phones have the pill).
  */
-import { useEffect, useMemo, useState } from "react";
-import { HUD, hudCard, hudLabel } from "@/lib/game/hudStyle";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { HUD } from "@/lib/game/hudStyle";
 import { useHudMode } from "@/lib/game/hudMode";
 import { usePilotWallet, useXp } from "@/lib/xpClient";
 import { dayPeriod, missionById, missionsFor, weekPeriod, type MissionKind, type MissionStatus } from "@/lib/xp";
 
 const NEW_KINDS = new Set<MissionKind>(["start_run", "first_crew", "hold_bomb", "cash_out_higher"]);
-const ROWS = 3, NARROW = 760;
+const ROWS = 3, NARROW = 760, FLASH_MS = 4000;
 type Live = { run: { n: number; until: number } | null; hold: { until: number } | null };
 
 const mmss = (ms: number) => { const s = Math.max(0, Math.ceil(ms / 1000)); return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `${s} s`; };
@@ -76,33 +76,37 @@ export default function FlightObjectives({ replay, practice }: { replay: boolean
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [xp, Math.floor(now / 3600_000)]);
 
+  // a mission finished while you watch flashes its +XP for FLASH_MS, then leaves; one already done on load never shows
+  const doneAt = useRef<Map<string, number>>(new Map()), loaded = useRef(false);
+  const rows = missions.map((m) => { const kind = missionById(m.id)?.kind; return { m, kind, ...hint(m, kind, live, aboard, now) }; });
+  for (const r of rows) if ((r.m.done || r.localDone) && !doneAt.current.has(r.m.id)) doneAt.current.set(r.m.id, loaded.current ? now : 0);
+  if (xp || !wallet) loaded.current = true;
+
   if (replay || narrow || hud === "pro" || !missions.length) return null;
 
-  const rows = missions.map((m) => { const kind = missionById(m.id)?.kind; return { m, kind, ...hint(m, kind, live, aboard, now) }; });
-  // unfinished first (today before this week), finished after; three rows
-  const shown = [...rows.filter((r) => !r.m.done && !r.localDone), ...rows.filter((r) => r.m.done || r.localDone)].slice(0, ROWS);
-  const main = shown.find((r) => !r.m.done && !r.localDone);
+  const fresh = (id: string) => { const t = doneAt.current.get(id); return t != null && t > 0 && now - t < FLASH_MS; };
+  const open = rows.filter((r) => !r.m.done && !r.localDone);
+  // the ones you just finished (flashing), then what's left; three rows at most; nothing left = no card
+  const shown = [...rows.filter((r) => (r.m.done || r.localDone) && fresh(r.m.id)), ...open].slice(0, ROWS);
+  if (!shown.length) return null;
+  const main = open[0];
 
+  // maker 2026-11-18 ("such a big black box … much more subtle"): no panel. One line per objective over the sky (title ·
+  // +XP, a hairline bar); only the one you're on shows its hint.
   return (
     <aside aria-label="Flight objectives" data-testid="flight-objectives"
-      style={{ ...hudCard, position: "fixed", top, left: "calc(var(--ap-rail-w, 64px) + 20px)", zIndex: 30, width: 300, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8, backdropFilter: "blur(6px)", pointerEvents: "none" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-        <span style={{ ...hudLabel, fontSize: 12 }}>Flight objectives</span>
-        <span style={{ font: `500 11px/1.3 ${HUD.ui}`, color: HUD.dim }}>{practice ? "Practice · counts on live rockets" : wallet ? "XP lands in ~2 min" : "Sign in to earn XP"}</span>
-      </div>
+      style={{ position: "fixed", top, left: "calc(var(--ap-rail-w, 64px) + 24px)", zIndex: 30, width: 260, display: "flex", flexDirection: "column", gap: 9, pointerEvents: "none",
+        color: HUD.text, textShadow: "0 1px 3px rgba(0,0,0,.65)" }}>
       {shown.map(({ m, kind, sub, f, localDone }) => {
         const done = m.done || !!localDone, isMain = main?.m.id === m.id;
         return (
-          <div key={m.id} data-mission={m.id}
-            style={{ display: "flex", flexDirection: "column", gap: 4, padding: "8px 9px", borderRadius: 9, transition: "border-color .3s, background .3s",
-              background: done ? "rgba(95,240,160,.08)" : isMain ? "rgba(242,193,78,.07)" : "rgba(255,255,255,.04)",
-              border: `1px solid ${done ? "rgba(95,240,160,.5)" : isMain ? "rgba(242,193,78,.4)" : "transparent"}` }}>
+          <div key={m.id} data-mission={m.id} style={{ display: "flex", flexDirection: "column", gap: 3, opacity: done || isMain ? 1 : 0.62, transition: "opacity .3s" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-              <span style={{ font: `700 16px/1.05 ${HUD.game}`, letterSpacing: ".02em", color: HUD.text }}>{m.title}</span>
-              <span style={{ font: `700 13px/1 ${HUD.game}`, color: done ? HUD.up : HUD.gold, whiteSpace: "nowrap" }}>+{m.xp} XP{kind && NEW_KINDS.has(kind) ? " · new" : ""}</span>
+              <span style={{ font: `700 ${isMain ? 15 : 14}px/1.1 ${HUD.game}`, letterSpacing: ".02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.title}</span>
+              <span style={{ font: `700 12px/1 ${HUD.game}`, color: done ? HUD.up : HUD.gold, whiteSpace: "nowrap" }}>{done ? "✓ " : ""}+{m.xp} XP{!done && kind && NEW_KINDS.has(kind) ? " · new" : ""}</span>
             </div>
-            <div style={{ font: `500 11px/1.3 ${HUD.ui}`, color: HUD.dim }}>{done ? (m.done ? "Done · XP added" : "Done · confirming") : sub}</div>
-            <div aria-hidden="true" style={{ height: 4, borderRadius: 3, background: "rgba(255,255,255,.12)", overflow: "hidden", marginTop: 2 }}>
+            {isMain && sub && <div style={{ font: `500 11px/1.3 ${HUD.ui}`, color: HUD.dim }}>{sub}{practice ? " · live rockets only" : !wallet ? " · sign in to earn" : ""}</div>}
+            <div aria-hidden="true" style={{ height: 2, borderRadius: 2, background: "rgba(255,255,255,.14)", overflow: "hidden" }}>
               <i style={{ display: "block", height: "100%", width: `${Math.round(Math.max(0, Math.min(1, done ? 1 : f)) * 100)}%`, background: done ? HUD.up : HUD.gold, transition: "width .4s" }} />
             </div>
           </div>

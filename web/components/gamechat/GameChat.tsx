@@ -61,7 +61,7 @@ export function feedAge(ms: number) { const s = Math.max(0, Math.floor(ms / 1000
 /** two-letter avatar from a name / address ("WhaleMoby" → WM, "0x51…6f72" → 51) */
 export function initials(name: string) { const n = name.replace(/^0x/i, "").replace(/[^A-Za-z0-9 ·.-]/g, ""); const caps = n.match(/[A-Z]/g);
   if (caps && caps.length >= 2) return (caps[0] + caps[1]); const w = n.split(/[\s·.-]+/).filter(Boolean); return (w.length >= 2 ? w[0][0] + w[1][0] : n.slice(0, 2)).toUpperCase(); }
-const PILOT_ROWS = 8;
+const PILOT_ROWS = 60;   // the Pilot feed scrolls (maker 2026-11-18: "you should be able to scroll through the feed")
 type HolderItem = { who: string; address: string; usd: number; pct: number; label: HolderLabel; mine: boolean };
 /** rows: legacy [name, $] (session boosters on mock / sim / pool); items: REAL holders from on-chain balances (live coins:
  *  engine realHolders ← components/flight/HoldersBridge) — ranked rows first, labelled pool / curve / locker / burn rows after (friendly names: lib/flight/holders holderLabelText). */
@@ -304,7 +304,9 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
           </span>
         </div>
         {showHolders ? <div role="tabpanel" id="community-panel-holders" style={{ maxHeight: 360, display: "flex", flexDirection: "column", borderRadius: 12, background: HUD.glass, border: `1px solid ${HUD.border}` }}><HoldersView h={holders} /></div>
-          : <div data-testid="chat-list" role="log" aria-live="polite" style={{ display: "flex", flexDirection: "column", gap: 6, flex: "0 1 auto", minHeight: 0, overflow: "hidden" }}>
+          : <div data-testid="chat-list" className="pilot-feed" role="log" aria-live="polite" style={{ display: "flex", flexDirection: "column", gap: 6, flex: "0 1 auto", minHeight: 0, overflowY: "auto", overscrollBehavior: "contain", scrollbarWidth: "none" }}>
+            {/* rows never shrink (a squeezed row was drawn cropped); the list scrolls instead */}
+            <style>{`.pilot-feed > * { flex: none; } .pilot-feed::-webkit-scrollbar { display: none; }`}</style>
             {!api && !tradesOnly && <p role="status" style={{ opacity: 0.6, margin: "4px 6px" }}>Chat is connecting…</p>}
             {pending.map((p) => <PilotTrade key={"p" + p.id} buy={p.side === "buy"} who="You" own amt={p.amt} op={1} sent />)}
             {!list.length && !pending.length && (api || tradesOnly) && <p style={{ opacity: 0.6, margin: "4px 6px" }}>Quiet up here. Be the first boost.</p>}
