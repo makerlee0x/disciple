@@ -4,18 +4,18 @@
  * pre-signed orders (LighterTaps), sent over Lighter's WebSocket, so a press reaches Lighter in ~350 ms.
  *
  * Hidden while it's tested on Lighter testnet: `?lighter=1` turns it on for this browser, `?lighter=0` off. It only
- * runs for a signed-in pilot whose Lighter set-up is finished (/lighter), and never in the iPhone app.
+ * runs for a signed-in pilot whose Lighter set-up is finished (/lighter), and never from a blocked country (lib/turbo/region).
  */
 import { withBase } from "@/lib/base-path";
 import { privyAccessToken } from "@/lib/aa/sessionState";
-import { isNativeApp } from "@/lib/native";
 import { turboBlockedCached, turboRegion } from "@/lib/turbo/region";
 import { LighterTaps, lighterClose, lighterStatus, type TapKind } from "./client";
 
 const FLAG = "disciple.lighter";
 /** reads / applies the ?lighter= switch */
 export function lighterWanted(): boolean {
-  if (typeof window === "undefined" || isNativeApp()) return false;
+  // the iPhone app too, outside blocked countries (maker 2026-11-19); the lobby switch (lib/turbo/realSwitch) sets it
+  if (typeof window === "undefined") return false;
   try {
     const q = new URLSearchParams(location.search).get("lighter");
     if (q === "1") localStorage.setItem(FLAG, "1");
@@ -27,9 +27,10 @@ export function lighterWanted(): boolean {
   void turboRegion();
   return !turboBlockedCached();
 }
-/** the ?lighter= switch is on but this visitor's country blocks real-money Turbo (say so, don't fail silently) */
-export function lighterBlockedHere(): boolean {
-  try { return typeof window !== "undefined" && !isNativeApp() && localStorage.getItem(FLAG) === "1" && turboBlockedCached(); } catch { return false; }
+
+/** the lobby's Simulator / Real money switch (lib/turbo/realSwitch): same setting as ?lighter=1 / ?lighter=0 */
+export function setLighterWanted(on: boolean) {
+  try { if (on) localStorage.setItem(FLAG, "1"); else localStorage.removeItem(FLAG); } catch { /* private mode */ }
 }
 
 let tok: { t: string; at: number } | null = null;
