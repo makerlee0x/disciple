@@ -37,6 +37,14 @@ export async function armMatch(pid: string, kind: MatchKind, id: string, markets
   return { ...a, fresh: !again };
 }
 
+/** Did this pilot arm match `id` on Lighter (a real-money match)? Read before the buzzer disarms it. */
+export async function armedFor(pid: string, id: string, s: Kv = kv()): Promise<boolean> {
+  const cfg = lighterConfig();
+  if (!cfg.enabled) return false;
+  const raw = await s.get(key(cfg.network, pid)).catch(() => null);
+  try { return !!raw && (JSON.parse(raw) as Armed).id === id; } catch { return false; }
+}
+
 /** Closes what the armed match `id` left open on Lighter, then disarms. Quiet when nothing is armed or open. */
 export async function buzzer(pid: string, id: string, s: Kv = kv()): Promise<boolean> {
   const cfg = lighterConfig();

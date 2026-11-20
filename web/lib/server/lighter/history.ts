@@ -13,6 +13,18 @@ import type { LighterConfig } from "./config";
 import { getPlayer, open } from "./keys";
 import { LighterError, markets } from "./rest";
 import { signerFor } from "./signer";
+import { cashHistory } from "@/lib/server/cashHistory";
+
+/**
+ * Our own record of Turbo cash moves (the Flight log's "To Turbo" / "From Turbo" rows, lib/server/cashHistory). Lighter
+ * only answers once set-up's key step is done (the first real trade), so before that these are the only rows; after it they
+ * fill in any kind Lighter returned nothing for (a bridge deposit isn't listed under the player's own address).
+ */
+async function ownMoves(pid: string): Promise<HistoryItem[]> {
+  const { rows } = await cashHistory(pid, 4_000).catch(() => ({ rows: [] as Awaited<ReturnType<typeof cashHistory>>["rows"] }));
+  return rows.flatMap((r): HistoryItem[] => r.kind === "turbo-in" ? [{ kind: "deposit", at: r.ts, usd: r.usd, fee: null, status: null, tx: r.tx ?? null }]
+    : r.kind === "turbo-out" ? [{ kind: "withdraw", at: r.ts, usd: r.usd, fee: null, status: null, tx: r.tx ?? null }] : []);
+}
 
 export type HistoryItem =
   | { kind: "fill"; at: number; market: string; side: "buy" | "sell"; size: number; price: number; usd: number; fee: number | null; pnl: number | null; liq: boolean; tx: string | null }
@@ -60,7 +72,7 @@ export function transferOf(t: Raw, me: number): HistoryItem {
 
 export async function history(cfg: LighterConfig, pid: string): Promise<History> {
   const p = await getPlayer(cfg, pid);
-  if (!p?.keyReady) return { account: p?.account ?? null, items: [], missing: [] };
+  if (!p?.keyReady) return { account: p?.account ?? null, items: (await ownMoves(pid)).sort((a, b) => b.at - a.at), missing: [] };
   const w = await signerFor(open(cfg.keySecret, p.enc), cfg.chainId, p.keyIndex, p.account);
   const tok = w.CreateAuthToken(Math.floor(Date.now() / 1000) + 600, p.keyIndex, p.account);
   if (!tok.authToken) throw new Error(`lighter auth: ${tok.error}`);
@@ -82,6 +94,33 @@ export async function history(cfg: LighterConfig, pid: string): Promise<History>
   for (const d of rows(deps, "deposits", "deposits")) items.push({ kind: "deposit", at: ms(d.timestamp), usd: num(d.amount), fee: null, status: str(d.status), tx: str(d.l1_tx_hash) });
   for (const d of rows(wds, "withdraws", "withdrawals")) items.push({ kind: "withdraw", at: ms(d.timestamp), usd: num(d.amount), fee: null, status: str(d.status), tx: str(d.l1_tx_hash) });
   for (const t of rows(xfers, "transfers", "transfers")) items.push(transferOf(t, me));
+  const has = (k: HistoryItem["kind"][]) => items.some((i) => k.includes(i.kind));
+  const own = await ownMoves(pid);
+  if (!has(["deposit", "in"])) items.push(...own.filter((i) => i.kind === "deposit"));
+  if (!has(["withdraw", "out"])) items.push(...own.filter((i) => i.kind === "withdraw"));
   items.sort((a, b) => b.at - a.at);
   return { account: me, items: items.slice(0, 120), missing };
+}
+
+/**
+ * Up to `pages` × 100 of this account's fills, newest first (the Turbo page's trades and PnL). null = no Turbo account
+ * yet (or set-up not done); throws when Lighter doesn't answer.
+ */
+export async function fillsOf(cfg: LighterConfig, pid: string, pages = 5): Promise<Extract<HistoryItem, { kind: "fill" }>[] | null> {
+  const p = await getPlayer(cfg, pid);
+  if (!p?.keyReady) return null;
+  const w = await signerFor(open(cfg.keySecret, p.enc), cfg.chainId, p.keyIndex, p.account);
+  const tok = w.CreateAuthToken(Math.floor(Date.now() / 1000) + 600, p.keyIndex, p.account);
+  if (!tok.authToken) throw new Error(`lighter auth: ${tok.error}`);
+  const symbols = new Map((await markets(cfg).catch(() => [])).map((m) => [m.market_id, m.symbol] as const));
+  const out: Extract<HistoryItem, { kind: "fill" }>[] = [];
+  let cursor: string | null = null;
+  for (let i = 0; i < pages; i++) {
+    const j = await read(cfg, "/api/v1/trades", { account_index: p.account, sort_by: "timestamp", sort_dir: "desc", limit: 100, ...(cursor ? { cursor } : {}) }, tok.authToken);
+    const rows = Array.isArray(j.trades) ? (j.trades as Raw[]) : [];
+    for (const t of rows) { const f = fillOf(t, p.account, symbols); if (f.kind === "fill") out.push(f); }
+    cursor = str(j.next_cursor);
+    if (!cursor || rows.length < 100) break;
+  }
+  return out;
 }

@@ -32,7 +32,8 @@ export function menuPos(from: number, t: number): number {
 
 /** Screens where the game runs its own sound (flight radio, Duel/Royale/Climb engines). Menu music stays off there. */
 export function isGameRoute(path: string): boolean {
-  return /^\/(coin|flight|fly|duel|vs|d|turbo)(\/|$)/.test(path);
+  // /turbo itself is the Turbo page (a menu); its games live under /turbo/
+  return /^\/(coin|flight|fly|duel|vs|d)(\/|$)/.test(path) || path.startsWith("/turbo/");
 }
 
 export function menuMusicLevel(s: GameSettings = getGameSettings()): number {

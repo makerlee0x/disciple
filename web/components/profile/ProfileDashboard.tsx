@@ -351,7 +351,10 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
     <button type="button" className="hg-ghost" onClick={() => setEdit({ focus: null })} data-testid="edit-profile-btn">{C["profile.action.edit"]}</button>
     <button type="button" className="hg-ghost" onClick={() => setSettingsOpen(true)} data-testid="hangar-settings-btn">Settings</button>
     {points && points.username && <button type="button" className="hg-ghost" onClick={() => setPointsCard(true)} data-testid="hangar-points-share">Share points</button>}
-  </> : <Link href={`/u/${encodeURIComponent(username ?? "")}/stats`} className="hg-ghost" data-testid="profile-stats-link"><Icon name="leaderboard" size={16} /> Stats</Link>;
+  </> : <>
+    <Link href={`/u/${encodeURIComponent(username ?? "")}/stats`} className="hg-ghost" data-testid="profile-stats-link"><Icon name="leaderboard" size={16} /> Stats</Link>
+    <Link href={`/u/${encodeURIComponent(username ?? "")}/turbo`} className="hg-ghost" data-testid="profile-turbo-link"><Icon name="bolt" size={16} /> Turbo</Link>
+  </>;
   // the cockpit dash (Hangar banner take A): only numbers we really have
   const dash = [
     points ? { k: `Points · #${points.rank.toLocaleString("en-US")}`, v: points.pts.toLocaleString("en-US") } : null,

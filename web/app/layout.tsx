@@ -26,7 +26,7 @@ import IconSprite from "@/components/icons/IconSprite";
 import { sponsorshipConfig } from "@/lib/server/sponsorshipConfig";
 import { SPONSORSHIP_CONFIG_ID } from "@/lib/aa/sponsorshipMode";
 
-const GAME_ROUTE_JS = `(function(){try{var b=${JSON.stringify(process.env.NEXT_PUBLIC_BASE_PATH || "")},p=location.pathname;if(b&&p.indexOf(b)===0)p=p.slice(b.length)||"/";if(/^\\/(coin\\/|rocket\\/robinhood\\/|flight|turbo(\\/|$))/.test(p))document.body.classList.add("game")}catch(e){}})()`;
+const GAME_ROUTE_JS = `(function(){try{var b=${JSON.stringify(process.env.NEXT_PUBLIC_BASE_PATH || "")},p=location.pathname;if(b&&p.indexOf(b)===0)p=p.slice(b.length)||"/";if(/^\\/(coin\\/|rocket\\/robinhood\\/|flight|turbo\\/)/.test(p))document.body.classList.add("game")}catch(e){}})()`;
 
 /** The iPhone app (Capacitor shell, user agent tail "DiscipleApp/", lib/native) gets html.app before the first paint: its
  *  own home (components/app/AppSwitch) and tab bar (LobbyTopBar). */

@@ -17,19 +17,18 @@ import Icon, { type IconName } from "@/components/icons/Icon";
 import HelpButton from "@/components/HelpButton";
 import SiteSearch from "@/components/search/SiteSearch";
 import { QUICK_PLAY_EVENT } from "@/components/app/events";
-import { CLIMB_HREF, DUEL_HREF, FLIGHTS_HREF, MARKET_ENABLED, ROYALE_ENABLED } from "@/lib/features";
-import { DUEL_RANKED_LIVE } from "@/lib/duel/season";
+import { FLIGHTS_HREF, MARKET_ENABLED } from "@/lib/features";
 import { isTurboEnabled, turboEnvOn } from "@/lib/turbo/flag";
 
 // Nav rework (maker 2026-11-16, order 2026-11-18): the DISCIPLE mark is the way to the lobby, so there is no Lobby tab.
-// Desktop tabs: Turbo (a small menu: Duel, Climb), Market (MARKET_ENABLED), Top pilots, Hangar. Launch is not a desktop tab
+// Desktop tabs: Turbo (the Turbo page, where Duel and Climb start; maker 2026-11-20 "no more dropdown"), Market (MARKET_ENABLED), Top pilots, Hangar. Launch is not a desktop tab
 // (maker 2026-11-18): the gold LAUNCH NOW button on the right opens the launch flow. Signed in on narrow desktops (≤1024px)
 // the button is hidden for room, so the Launch tab comes back there (lb-launch-tab, CSS). Phones keep Launch first in the
 // bottom tab bar, then Turbo, Market, Top pilots, Hangar (signed-out phones get How to play there). Live flights is out of
 // the bar (maker 2026-11-18); /live still works. How to play is also the "?" (HelpButton).
 // Turbo shows for everyone now (lib/turbo/flag.ts, on since 2026-11-16).
 // icons show only in the phone bottom tab bar (≤760px); desktop keeps the text tabs.
-// phone: phone bottom bar only. desk: desktop top bar only. you: signed-in only. out: signed-out only.
+// phone: phone bottom bar only. desk: desktop top bar only. you: signed-in only. out: signed-out only. menu: the Turbo tab (Turbo flag; lit on every /turbo route).
 type Tab = { href: string; key: string; label: string; short?: string; icon: IconName; phone?: boolean; desk?: boolean; you?: boolean; out?: boolean; menu?: boolean; cls?: string };
 
 const TABS: readonly Tab[] = [
@@ -43,13 +42,6 @@ const TABS: readonly Tab[] = [
   { href: "/how-it-works", key: "hiw", label: "How to play", icon: "info", phone: true, out: true },
 ];
 
-/** The Turbo tab's modes. Royale is held for launch (ROYALE_ENABLED); with one mode the tab is a plain link to it, no menu. */
-export const TURBO_MODES: readonly { href: string; label: string; sub: string }[] = [
-  { href: DUEL_HREF, label: "Duel", sub: DUEL_RANKED_LIVE ? "Ranked" : "1v1" },
-  { href: CLIMB_HREF, label: "Climb", sub: "Solo" },
-  ...(ROYALE_ENABLED ? [{ href: "/turbo/royale", label: "Royale", sub: "Practice" }] : []),
-];
-const TURBO_MENU = TURBO_MODES.length > 1;
 
 // The iPhone app's own tab bar (app home concept C, maker 2026-11-16): Top pilots, Play (the app home, big in the middle) and
 // Hangar on the right (maker 2026-11-17). Shown only with html.app (root layout APP_JS); the website's bars are hidden there. Launch lives on the Play tab.
@@ -111,38 +103,13 @@ export default function LobbyTopBar() {
   // Turbo: the localStorage part of the flag is read after mount (server and first paint match)
   const [turbo, setTurbo] = useState(turboEnvOn);   // on in this build: the tab is in the first paint (no pop-in)
   useEffect(() => { setTurbo(isTurboEnabled()); }, []);
-  // the Turbo menu: one open at a time, placed under its tab (top bar) or above it (phone tab bar). position: fixed, because
-  // the tab row scrolls sideways and would clip it.
-  const [menu, setMenu] = useState<{ dock: boolean; x: number; y: number } | null>(null);
-  useEffect(() => { setMenu(null); }, [pathname]);
-  useEffect(() => {
-    if (!menu) return;
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape") setMenu(null); };
-    const down = (e: PointerEvent) => { const t = e.target as Element | null; if (!t?.closest?.(".lb-menu, .lb-tab-btn")) setMenu(null); };
-    const gone = () => setMenu(null);
-    addEventListener("keydown", key); addEventListener("pointerdown", down, true); addEventListener("resize", gone);
-    return () => { removeEventListener("keydown", key); removeEventListener("pointerdown", down, true); removeEventListener("resize", gone); };
-  }, [menu]);
-  const openMenu = (dock: boolean, el: HTMLElement) => {
-    if (menu?.dock === dock) { setMenu(null); return; }
-    const r = el.getBoundingClientRect();
-    // phone: centred over the tab, kept 12px inside the screen (the menu is 260px wide)
-    setMenu(dock ? { dock, x: Math.max(12, Math.min(r.left + r.width / 2 - 130, innerWidth - 272)), y: innerHeight - r.top + 8 } : { dock, x: r.left, y: r.bottom + 6 });
-  };
   const turboOn = pathname.startsWith("/turbo");
 
   const nav = (dock: boolean) => (
     <nav className={`lb-tabs${dock ? " lb-dock" : " lb-top"}`} aria-label="Main">
       {/* signed-in / signed-out tabs are both rendered and shown by html[data-you] (CSS), so they never pop in after load */}
-      {TABS.filter((t) => (dock ? !t.desk : !t.phone) && (!t.menu || turbo)).map((t) => t.menu && TURBO_MENU ? (
-        <button key={t.key} type="button" className={`lb-tab-btn${turboOn || menu?.dock === dock ? " on" : ""}`} aria-haspopup="menu"
-          aria-expanded={menu?.dock === dock} data-testid={`nav-${t.key}`} onClick={(e) => openMenu(dock, e.currentTarget)}>
-          <Icon name={t.icon} size={22} className="lb-ico" />
-          <span className="lb-lbl">{t.label}</span>
-          {!dock && <Icon name="chevron-down" size={16} className="lb-caret" />}
-        </button>
-      ) : (
-        <Link key={t.key} href={t.menu ? TURBO_MODES[0].href : t.href} className={[(t.menu ? turboOn : isOn(t.href)) ? "on" : "", t.you ? "lb-you-only" : "", t.out ? "lb-out-only" : "", t.cls ?? ""].filter(Boolean).join(" ") || undefined} aria-current={at(t.href) ? "page" : undefined}
+      {TABS.filter((t) => (dock ? !t.desk : !t.phone) && (!t.menu || turbo)).map((t) => (
+        <Link key={t.key} href={t.href} className={[(t.menu ? turboOn : isOn(t.href)) ? "on" : "", t.you ? "lb-you-only" : "", t.out ? "lb-out-only" : "", t.cls ?? ""].filter(Boolean).join(" ") || undefined} aria-current={at(t.href) ? "page" : undefined}
           onPointerDown={dock ? () => press(t.href) : undefined} data-testid={`nav-${t.key}`}>
           <Icon name={t.icon} size={22} className="lb-ico" />
           <span className="lb-lbl">{dock && t.short ? t.short : t.label}</span>
@@ -166,16 +133,6 @@ export default function LobbyTopBar() {
     </header>
     {/* phones: the bottom tab bar lives outside the header, so nothing about the header (scroll, compositing) can move it */}
     {nav(true)}
-    {menu && (
-      <div className={`lb-menu${menu.dock ? " lb-menu-dock" : ""}`} role="menu" aria-label="Turbo modes" data-testid="turbo-menu"
-        style={menu.dock ? { left: menu.x, bottom: menu.y } : { left: menu.x, top: menu.y }}>
-        {TURBO_MODES.map((m) => (
-          <Link key={m.href} role="menuitem" href={m.href} className={at(m.href) ? "on" : undefined} onClick={() => setMenu(null)}>
-            <b>{m.label}</b><span>{m.sub}</span>
-          </Link>
-        ))}
-      </div>
-    )}
     <nav className="lb-tabs lb-dock lb-appdock" aria-label="Main">
       {APP_TABS.map((t) => (
         <Link key={t.key} href={t.href} className={`${t.key === "play" ? "lb-play " : ""}${isOn(t.href) ? "on" : ""}`.trim() || undefined}

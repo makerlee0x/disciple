@@ -35,15 +35,17 @@ test.describe("first visit", () => {
     await expect(bar.getByTestId("nav-turbo").first()).toBeVisible();
   });
 
-  test("Turbo tab opens a menu with Duel and Climb", async ({ page }) => {
+  test("Turbo tab opens the Turbo page with Duel and Climb", async ({ page }) => {
     await page.goto("/");
     const tab = page.locator(isPhone(page) ? ".lb-dock [data-testid=nav-turbo]" : ".lb-top [data-testid=nav-turbo]").first();
+    await expect(tab).toHaveAttribute("href", /\/turbo$/);
     await hydrated(tab);
     await tab.click();
-    const menu = page.getByTestId("turbo-menu");
-    await expect(menu.getByRole("menuitem", { name: /duel/i })).toHaveAttribute("href", /\/turbo\/duel/);
-    await expect(menu.getByRole("menuitem", { name: /climb/i })).toHaveAttribute("href", /\/turbo\/climb/);
-    await expect(menu.getByRole("menuitem", { name: /royale/i })).toHaveCount(0);
+    await expect(page).toHaveURL(/\/turbo$/);
+    const play = page.getByTestId("turbo-play");
+    await expect(play.getByTestId("turbo-play-duel")).toHaveAttribute("href", /\/turbo\/duel/);
+    await expect(play.getByTestId("turbo-play-climb")).toHaveAttribute("href", /\/turbo\/climb/);
+    await expect(play.getByTestId("turbo-play-royale")).toHaveCount(0);
   });
 
   test("Live flights opens every rocket", async ({ page }) => {

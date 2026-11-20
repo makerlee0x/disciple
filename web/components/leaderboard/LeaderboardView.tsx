@@ -103,6 +103,8 @@ function ago(ts: number) {
 }
 const nameOf = (p: { username?: string | null; wallet: string }) => displayName(p.username ?? null, p.wallet);
 const hrefOf = (p: { username?: string | null; wallet: string }) => (p.username ? profileUrl(p.username) : `/u/${p.wallet}`);
+/** Duel / Royale / Climb rows open the pilot's Turbo page (maker 2026-11-20) */
+const turboHrefOf = (p: { username?: string | null; wallet: string }) => `${hrefOf(p).replace(/\?.*$/, "")}/turbo`;
 
 /** Pilot face: their profile picture, else their initial on their light colour. */
 function Face({ p, big }: { p: { username?: string | null; wallet: string } & Named; big?: boolean }) {
@@ -251,9 +253,9 @@ const sp = (n: number) => `${Math.round(n).toLocaleString("en-US")} ${LEADERBOAR
 const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
 /** One ranked row on a points / level board (Overall, Royale, Climb): rank, face, name + chip, the number. */
-function PointRow({ p, chip, chipColor, prev, value, self }: { p: { wallet: string; username: string | null; rank: number } & Named; chip?: string; chipColor?: string; prev?: string; value: string; self?: boolean }) {
+function PointRow({ p, chip, chipColor, prev, value, self, turbo }: { p: { wallet: string; username: string | null; rank: number } & Named; chip?: string; chipColor?: string; prev?: string; value: string; self?: boolean; turbo?: boolean }) {
   const router = useRouter();
-  const go = () => router.push(hrefOf(p));
+  const go = () => router.push(turbo ? turboHrefOf(p) : hrefOf(p));
   return (
     <div className={`tp-trow${self ? " self" : ""}`} role="link" tabIndex={0} onClick={go} onKeyDown={(e) => { if (e.key === "Enter") go(); }} aria-label={`#${p.rank} ${nameOf(p)}`}>
       <Rank n={p.rank} />
@@ -323,8 +325,8 @@ function ModeBoard({ d, me }: { d: ModeResponse; me: string | null }) {
       <THead v={d.sort === "climb" ? LEADERBOARD_COPY.head.level : LEADERBOARD_COPY.sp} />
       <div className="tp-trows">
         {d.rows.map((r: ModeRow) => d.sort === "climb"
-          ? <PointRow key={r.wallet} p={r} chip={r.clearMs != null ? secs(r.clearMs) : undefined} value={(r.climbLevel ?? 1) >= CLIMB_FREE ? "Free" : `Lvl ${r.climbLevel ?? 1}`} self={r.wallet === meLc} />
-          : <PointRow key={r.wallet} p={r} value={sp(r.pts ?? 0)} self={r.wallet === meLc} />)}
+          ? <PointRow key={r.wallet} p={r} chip={r.clearMs != null ? secs(r.clearMs) : undefined} value={(r.climbLevel ?? 1) >= CLIMB_FREE ? "Free" : `Lvl ${r.climbLevel ?? 1}`} self={r.wallet === meLc} turbo />
+          : <PointRow key={r.wallet} p={r} value={sp(r.pts ?? 0)} self={r.wallet === meLc} turbo />)}
       </div>
     </section>
   );
@@ -374,7 +376,7 @@ function DuelTable({ d, meLc }: { d: DuelBoardRes; meLc?: string }) {
   const c = DUEL_BOARD_COPY.cols;
   const pinned = d.me && !d.rows.some((r) => r.wallet === d.me!.wallet) ? d.me : null;
   const row = (r: DuelRow, self: boolean) => (
-    <Link key={r.wallet} href={`/u/${r.wallet}`} prefetch={false} className={`tp-row${self ? " tp-me" : ""}`} aria-label={`#${r.rank} ${r.name}`}>
+    <Link key={r.wallet} href={`/u/${r.wallet}/turbo`} prefetch={false} className={`tp-row${self ? " tp-me" : ""}`} aria-label={`#${r.rank} ${r.name}`}>
       <span className="tp-rk">{r.rank}</span>
       <div className="tp-who">
         <span className="tp-av sm" style={{ background: lightOf(r.wallet) }} aria-hidden>{(r.name.replace(/^@/, "")[0] ?? "?").toUpperCase()}</span>
