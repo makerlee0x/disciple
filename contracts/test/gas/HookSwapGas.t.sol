@@ -10,12 +10,14 @@ import {BondingCurve} from "../../src/BondingCurve.sol";
 ///         than they do today"). Every contract the swap may touch is cooled before each measured swap, so each one is
 ///         priced like a fresh transaction (EIP-2929 cold account + cold slots). Only pre-existing test helpers are
 ///         used, so this exact file also runs on the pre-change commit (75e08bc) to produce the BEFORE numbers.
-///         BEFORE (75e08bc, #461 hook → FeeRouter.routeHookFee → LockedLP credit), same file, forge 1.7.0 / solc 0.8.26:
-///         buy 211,709 / sell 202,884. AFTER (this hook: 6909 mint + one SSTORE): buy 152,649 / sell 144,270.
+///         BEFORE (75e08bc, #461 hook → FeeRouter.routeHookFee → LockedLP credit), same file: forge 1.9.0 buy 324,385 /
+///         sell 289,332; forge 1.5.1 buy 211,721 / sell 202,884. AFTER (this hook: 6909 mint + one SSTORE): forge 1.9.0
+///         buy 255,404 / sell 222,943; forge 1.5.1 buy 152,752 / sell 146,507. Forge versions price cold access
+///         differently, so the bound is the forge 1.9.0 BEFORE (the newest toolchain); the new hook is ~21-28% cheaper on both.
 contract HookSwapGasTest is IntegrationBase {
     /// @dev Measured on 75e08bc with this file (see the PR). The new hook must not exceed them.
-    uint256 internal constant BEFORE_BUY = 211_709;
-    uint256 internal constant BEFORE_SELL = 202_884;
+    uint256 internal constant BEFORE_BUY = 324_385;
+    uint256 internal constant BEFORE_SELL = 289_332;
 
     function _coolAll(Token tok, address trader) internal {
         address[11] memory a = [
