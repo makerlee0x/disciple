@@ -258,11 +258,15 @@ contract Deploy is NetworkConfig {
         if (poker != address(0)) pricer.setPoker(poker, true);
         // USDG-in/out routing (buyWithUsdg / sellToUsdg): USDG + curve registry, and the USDG/defaultQuote hop pool.
         router.setUsdgRouting(o.usdg, address(launchpad));
-        // maker 2026-11-19: flat $0.01 USDG network fee on gasless trades, paid to the relayer fee wallet (off if unset)
+        // maker 2026-11-19: flat USDG network fee on gasless trades, paid to the relayer fee wallet (off if unset).
+        // maker 2026-11-20: start mainnet at $0.02 (GASLESS_GAS_FEE_CENTS, default 2 on 4663, 1 elsewhere); the Team
+        // can retune it later with router.setGasFee (max $0.25). Web NEXT_PUBLIC_GASLESS_GAS_FEE must match.
         // Audit delta-2 D2-L10: on 4663 the fee is always on; it defaults to the relayer EOA (PRICER_POKER signs the
         // crons and relays gasless trades) and the read-back below fails the deploy if it is off.
         address gasFeeTo = vm.envOr("GASLESS_FEE_TO", mainnet ? poker : address(0));
-        if (gasFeeTo != address(0)) router.setGasFee(gasFeeTo, router.gasFee());
+        uint256 gasFeeCents = vm.envOr("GASLESS_GAS_FEE_CENTS", mainnet ? uint256(2) : uint256(1));
+        require(gasFeeCents != 0 && gasFeeCents <= 25, "Deploy: GASLESS_GAS_FEE_CENTS must be 1-25");
+        if (gasFeeTo != address(0)) router.setGasFee(gasFeeTo, uint96(router.gasFee() * gasFeeCents)); // gasFee() = $0.01
         // Curve trades via the router act for the real trader (bonding modes: caps / cost basis / attribution).
         launchpad.setTrustedRouter(address(router), true);
         feeRouter.setClaimRouter(address(router), true); // claimCreatorFeesToUsdg (separate allowlist, audit r121 Low)
