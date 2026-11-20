@@ -130,15 +130,9 @@ export async function linkXpAccount(account: string): Promise<{ duplicate?: { me
       method: "POST", cache: "no-store", headers: { "content-type": "application/json", ...h },
       body: JSON.stringify({ address: account.toLowerCase() }),
     });
-    const j = (await r.json().catch(() => null)) as { ok?: boolean; joined?: number; carried?: boolean; duplicate?: { method: string; join: string; email: string } } | null;
+    const j = (await r.json().catch(() => null)) as { ok?: boolean; joined?: number; duplicate?: { method: string; join: string; email: string } } | null;
     if (j?.duplicate && typeof j.duplicate === "object") return { duplicate: j.duplicate };
     if (j?.ok && (j.joined ?? 0) > 0) window.dispatchEvent(new Event("disciple:xp-changed"));   // lib/xpClient XP_CHANGED_EVENT
-    // the @username / profile moved onto this wallet from an older one on the account: pill, menu and Hangar re-read it
-    if (j?.ok && j.carried) {
-      const { username } = await fetchUsernameStatus(account);
-      if (username) { set(K.username, username); set(K.usernameFor, account.toLowerCase()); }
-      notifyProfileChanged();
-    }
   } catch { /* XP still reads this wallet's own ledger */ }
   return {};
 }
