@@ -99,6 +99,10 @@
 .badgeBig { width: 86px; height: 86px; border-radius: 50%; overflow: hidden; flex: none; background: radial-gradient(circle at 40% 35%, #3A3570, #16163A);
   box-shadow: 0 10px 26px rgba(0, 0, 0, .5), 0 0 0 1px rgba(243, 223, 168, .25); }
 .badgeBig img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* drag-to-crop step under the badge row after a non-square upload */
+.cropStep { display: flex; align-items: flex-end; gap: 14px; margin-top: 14px; }
+.cropStep :global(.sq-crop) { flex: none; }
+.cropDone { min-height: 44px; padding: 0 20px; font-size: 18px; }
 .takes { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px 8px; }
 .take { position: relative; aspect-ratio: 1; max-width: 46px; width: 100%; justify-self: center; padding: 0; border-radius: 50%; border: 0; background: transparent; cursor: pointer; overflow: visible;
   box-shadow: 0 0 0 1px rgba(232, 234, 238, .12); transition: transform .12s, box-shadow .12s; }

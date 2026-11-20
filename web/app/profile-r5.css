@@ -122,6 +122,13 @@
   background: #16181C; border: 2px solid rgba(201,206,214,.55); box-shadow: 0 0 0 3px #121316; }
 /* absolute so a tall or wide photo can't size the grid row: it always fills the circle and crops (maker 2026-11-20: portrait pfp spilled out the bottom) */
 .p5-epfp img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+/* picture crop step: the square that gets uploaded, with the circle the Hangar shows */
+.p5-crop { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 8px 0 4px; }
+.p5-crop-frame { position: relative; overflow: hidden; border-radius: 14px; }
+.p5-crop-ring { position: absolute; inset: 2px; border-radius: 50%; box-shadow: 0 0 0 999px rgba(8,9,11,.5); border: 2px solid rgba(242,193,78,.85); pointer-events: none; }
+.p5-crop-frame .sq-crop { overflow: hidden; }
+.p5-crop-act { display: flex; gap: 10px; width: 240px; }
+.p5-crop-act .p5-btn { flex: 1; height: 44px; }
 .p5-epfp .pen { position: absolute; inset: 0; border-radius: 50%; background: rgba(11,12,14,.45); display: grid; place-items: center; color: #fff; }
 .p5-fld { display: flex; flex-direction: column; gap: 8px; }
 .p5-fld .lab { font-size: 13px; font-weight: 600; color: var(--dsc-text); }
@@ -407,6 +414,8 @@ button.cp-prow:hover .n b { color: #FFFFFF; }
 .cp-sec { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 16px; border: 1px solid #2A2E38; background: rgba(8,9,14,.4); }
 .cp-h { margin: 0; font: 700 14px/1 var(--dsc-font-game); letter-spacing: .12em; text-transform: uppercase; color: #9095A0; }
 .cp-img { display: flex; align-items: center; gap: 14px; }
+.cp-crop { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.cp-crop-act { display: flex; gap: 8px; }
 .cp-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .cp-locked { display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 14px; color: #9095A0; background: rgba(201,206,214,.04) !important; }
 .cp .p5-inp { padding: 11px 14px; font-size: 14px; }

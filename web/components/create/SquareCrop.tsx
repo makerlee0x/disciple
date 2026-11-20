@@ -46,7 +46,7 @@ export default function SquareCrop({ img, pos, onChange, size = 220 }: {
       role="img" aria-label="Square crop — drag to reposition"
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={img.src} alt="" draggable={false} style={{ position: "absolute", left: ox, top: oy, width: dw, height: dh, userSelect: "none", pointerEvents: "none" }} />
+      <img src={img.src} alt="" draggable={false} style={{ position: "absolute", left: ox, top: oy, width: dw, height: dh, maxWidth: "none", maxHeight: "none", userSelect: "none", pointerEvents: "none" }} />
       {movable && <span className="sq-hint">drag to reposition</span>}
     </div>
   );
