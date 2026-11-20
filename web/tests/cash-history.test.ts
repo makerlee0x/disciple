@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cashRows, type CashTags, type UsdgLeg } from "@/lib/cashHistory";
+import { cashRows, RELAY_SOLVER, type CashTags, type UsdgLeg } from "@/lib/cashHistory";
 
 const W = "0x" + "a1".repeat(20), S = "0x" + "b2".repeat(20), RELAYER = "0x" + "c3".repeat(20), ROUTER = "0x" + "d4".repeat(20);
 const TURBO = "0x" + "e5".repeat(20), EXT = "0x" + "f6".repeat(20), FEES = "0x" + "07".repeat(20), SOLVER = "0x" + "18".repeat(20);
@@ -43,5 +43,9 @@ describe("flight log cash rows", () => {
 
   it("labels creator fee claims", () => {
     expect(cashRows(W, [leg(50, FEES, W, 3.1)], tags())[0].kind).toBe("fees");
+  });
+  it("a card top-up paid out by Relay's solver reads Card, not its address", () => {
+    const rows = cashRows(W, [leg(9, RELAY_SOLVER, W, 16.48)], tags());
+    expect(rows[0]).toMatchObject({ kind: "deposit", text: "Card" });
   });
 });
