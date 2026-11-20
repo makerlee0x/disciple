@@ -20,11 +20,11 @@ async function req(o: Partial<{ isBuy: boolean; amountIn: bigint; recipient: Add
 const chk = (q: GaslessRequest) => checkGaslessRequest(q, { usdg, usdgDecimals: 6, nowSec: NOW });
 
 describe("Permit2 witness (0x Gasless pattern)", () => {
-  it("type strings match DiscipleRouter.sol (TokenPermissions sorts before Trade)", () => {
+  it("with no gas fee set, the site signs the old 6-field Trade (TokenPermissions sorts before Trade)", () => {
+    // DiscipleRouter.sol now has the 7-field Trade (maxGasFee); tests/gasless-permit2-gasfee.test.ts checks that form
     expect(TRADE_WITNESS_TYPE).toBe("Trade witness)TokenPermissions(address token,uint256 amount)Trade(address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline)");
     const sol = readFileSync(new URL("../../contracts/src/DiscipleRouter.sol", import.meta.url), "utf8");
     expect(sol).toContain('"Trade witness)TokenPermissions(address token,uint256 amount)"');
-    expect(sol).toContain('"Trade(address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline)"');
     expect(sol).toContain("0x000000000022D473030F116dDEE9F6B43aC78BA3");
   });
   it("viem's EIP-712 digest == Permit2's PermitWitnessTransferFrom digest with our witness hash", async () => {

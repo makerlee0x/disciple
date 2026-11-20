@@ -1,4 +1,4 @@
-/** With no NEXT_PUBLIC_RHT_PERMIT_FORWARDER override, testnet uses the deployed DisciplePermitForwarder (contracts/deployments/rh-testnet-46630.json). */
+/** With no NEXT_PUBLIC_RHT/RH_PERMIT_FORWARDER override, testnet and mainnet use their deployed forwarders; testnet uses the deployed DisciplePermitForwarder (contracts/deployments/rh-testnet-46630.json). */
 import { describe, expect, it, vi } from "vitest";
 vi.hoisted(() => { delete process.env.NEXT_PUBLIC_RHT_PERMIT_FORWARDER; delete process.env.NEXT_PUBLIC_RH_PERMIT_FORWARDER; });
 import { readFileSync } from "node:fs";
@@ -13,8 +13,9 @@ describe("deployed testnet forwarder is the default", () => {
     expect(relaySpender(46630)).toEqual({ kind: "forwarder", address: forwarderFor(46630) });
     expect(relaySpender(46630, { legacy: false }).kind).toBe("forwarder");
   });
-  it("mainnet still has none, so its relays still refuse", () => {
-    expect(forwarderFor(4663)).toBeNull();
-    expect(() => relaySpender(4663)).toThrow();
+  it("mainnet uses its deployed forwarder (Team deploy 2026-11-20, lib/chains)", () => {
+    expect(forwarderFor(4663)?.toLowerCase()).toBe("0x346e7ff1c9d088113a659b5b0ac2c2f4efd52b4b");
+    expect(relaySpender(4663)).toEqual({ kind: "forwarder", address: forwarderFor(4663) });
+    expect(relaySpender(4663, { legacy: false }).kind).toBe("forwarder");
   });
 });

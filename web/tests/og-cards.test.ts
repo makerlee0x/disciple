@@ -33,7 +33,7 @@ describe("link preview cards", () => {
     expect(tierName(20_000)).toBe("STRATOSPHERE");
   });
 
-  it("draws every card as a 1200x630 PNG, with or without numbers", async () => {
+  it("draws every card as a 1200x630 JPEG, with or without numbers", async () => {
     const cards = [
       { kind: "site" as const },
       { kind: "rocket" as const, ticker: "EMBER", name: "Ember Wolf", host: "kiko", mcapUsd: 21_000, orbitPct: 62, graduated: false, aboard: 48, icon: null },
@@ -42,10 +42,21 @@ describe("link preview cards", () => {
       { kind: "invite" as const, from: null },
     ];
     for (const c of cards) {
-      const png = await renderOgCard(c);
-      expect(png.subarray(1, 4).toString()).toBe("PNG");
-      expect(png.readUInt32BE(16)).toBe(1200);
-      expect(png.readUInt32BE(20)).toBe(630);
+      const jpg = await renderOgCard(c);   // lib/server/og/card encodes JPEG (smaller to unfurl than PNG)
+      expect(jpg[0]).toBe(0xff); expect(jpg[1]).toBe(0xd8);   // JPEG start of image
+      expect(jpegSize(jpg)).toEqual({ w: 1200, h: 630 });
     }
   }, 30_000);
 });
+
+/** Width / height from the JPEG's first start-of-frame marker. */
+function jpegSize(b: Buffer): { w: number; h: number } | null {
+  let i = 2;
+  while (i + 9 < b.length) {
+    if (b[i] !== 0xff) return null;
+    const m = b[i + 1];
+    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { h: b.readUInt16BE(i + 5), w: b.readUInt16BE(i + 7) };
+    i += 2 + b.readUInt16BE(i + 2);
+  }
+  return null;
+}
