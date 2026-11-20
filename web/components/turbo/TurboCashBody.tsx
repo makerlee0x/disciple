@@ -57,7 +57,7 @@ function Tx({ hash }: { hash: string }) {
   );
 }
 
-function Row({ it }: { it: HistoryItem }) {
+export function Row({ it }: { it: HistoryItem }) {
   if (it.kind === "fill") {
     const buy = it.side === "buy";
     return (

@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import LobbySettings from "@/components/turbo/LobbySettings";
 import ClimbAdvanced from "@/components/turbo/climb/ClimbAdvanced";
+import RunFills from "@/components/turbo/climb/RunFills";
 import { getTurboAdapter } from "@/lib/turbo";
 import { getGameRadio } from "@/lib/game/radio";
 import { useTurboMusic } from "@/lib/game/turboMusic";
@@ -40,6 +41,8 @@ export default function ClimbScreen() {
   const [run, setRun] = useState(0);
   // the engine's lobby once mounted, and whether this run is on Real money (the Advanced record, ClimbAdvanced)
   const [eng, setEng] = useState<{ root: HTMLElement; real: boolean } | null>(null);
+  // when the current real-money run began: the result card lists Lighter fills from then on (RunFills)
+  const [runAt, setRunAt] = useState<number | null>(null);
   useTurboMusic();
   useEffect(() => {
     // real-money Turbo is off where Lighter refuses (lib/turbo/region), so the country is known before the run is set up
@@ -162,7 +165,7 @@ export default function ClimbScreen() {
           }
           const cash = await lighterCash(f, run.fuel, run.gear);
           if (!cash.ok) { why = cashNote(cash.need); return null; }
-          startCash = r.cash; realRun = true;
+          startCash = r.cash; realRun = true; setRunAt(Date.now());
           const lx = new LighterMatch(f, "BTC", sizesFor, run.fuel); lx.start(); return lx;
         })().catch(() => { why = "Can't reach Lighter right now. Try again in a moment."; return null; });
         return lxP.then(() => why);
@@ -245,5 +248,5 @@ export default function ClimbScreen() {
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load Climb. Refresh to try again."; });
     return () => { dead = true; setEng(null); offSwitch(); offPill(); picker?.off(); offTurbo(); removeEventListener("focus", onFocus); stopPrice(); stopBackup(); offWallet(); offFuel(); api?.destroy(); };
   }
-  return <><GeoBanner /><div ref={ref} /><ClimbAdvanced root={eng?.root ?? null} real={!!eng?.real} /><LobbySettings mode="climb" open={gear} onClose={() => setGear(false)} /></>;
+  return <><GeoBanner /><div ref={ref} /><ClimbAdvanced root={eng?.root ?? null} real={!!eng?.real} /><RunFills root={eng?.root ?? null} since={runAt} /><LobbySettings mode="climb" open={gear} onClose={() => setGear(false)} /></>;
 }
