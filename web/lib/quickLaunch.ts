@@ -209,13 +209,13 @@ export const CREATOR_FEE_DESTINATION_LIVE = true;
  * CreatorFeeHarvest.launchAnon / launchAnonWithMode (lib/trade/freeAnonLaunch). The v6 testnet harvest predates those, so
  * "Hide my name" stays switched off until the harvest that has them is deployed (mainnet deploy, or a testnet redeploy).
  */
-export const PRIVATE_FEE_ROUTING_LIVE = false;
+export const PRIVATE_FEE_ROUTING_LIVE = Number(process.env.NEXT_PUBLIC_CHAIN_ID || 0) === 4663; // mainnet harvest has launchAnon (2026-11-20)
 /**
  * CreatorFeeHarvest.launchWithUsdg reverts when usdgIn > 0 on the deployed harvest (audit CH-02: its leftover check
  * reads the balance after the USDG swap, then underflows once the Launchpad pulls the First BOOST). Until a fixed
  * harvest is deployed (fix in PR #371), pool / burn launches can't take a First BOOST paid in dollars. Flip with the redeploy.
  */
-export const HARVEST_USDG_BOOST_LIVE = false;
+export const HARVEST_USDG_BOOST_LIVE = Number(process.env.NEXT_PUBLIC_CHAIN_ID || 0) === 4663; // mainnet harvest has the CH-02 fix (2026-11-20)
 
 /** Can this launch send creator fees to the pool or the burn? Needs the flag(s) and a harvest address on this chain. */
 export function creatorFeeRoutingAvailable(o: { private?: boolean; harvest?: string | null }): boolean {

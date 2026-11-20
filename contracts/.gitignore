@@ -2,7 +2,7 @@
 cache/
 out/
 broadcast/
-lib/
+/lib
 
 # Local env
 .env

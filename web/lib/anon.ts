@@ -19,6 +19,15 @@ import { secp256k1 } from "@noble/curves/secp256k1";
 export type AnonAddons = { anonLauncher: Address; anonLauncherLegacy: Address; olderLaunchers: Address[]; marketLens: Address; announcer: Address; v2DeployBlock: bigint };
 /** Add-ons for RH testnet 46630 (contracts/deployments/rh-testnet-46630.json contracts.AnonLauncher / MarketLens, v6). */
 export const ANON_ADDONS: Record<number, AnonAddons> = {
+  // Mainnet 4663, deployed 2026-11-20 (/mnt/project-files/mainnet/addresses-4663.md). One launcher, no older ones.
+  4663: {
+    anonLauncher: "0x04860a3D09617270E9e6CD2D91A143D2F7556511",
+    anonLauncherLegacy: "0x0000000000000000000000000000000000000000",
+    olderLaunchers: [],
+    marketLens: "0x9576996a4bd1700572a9D3bF5098fb6B5069bD06",
+    announcer: "0x55649E01B5Df198D18D95b5cc5051630cfD45564", // AnonLauncher(4663).announcer()
+    v2DeployBlock: BigInt("118816228"), // mainnet deploy block
+  },
   46630: {
     anonLauncher: "0x526784706e5ef369412abe65213ed65256182c6b", // v6 contracts.AnonLauncher
     anonLauncherLegacy: "0x73a2a6e049aa21A5C440F3bc358dE37FE3f7C509", // v5 AnonLauncher (older private coins: claims only)
@@ -31,7 +40,7 @@ export const ANON_ADDONS: Record<number, AnonAddons> = {
 /** Every AnonLauncher this chain still lists (current first). */
 export const anonLaunchers = (chainId: number): Address[] => {
   const a = ANON_ADDONS[chainId];
-  return a ? [a.anonLauncher, a.anonLauncherLegacy, ...a.olderLaunchers] : [];
+  return a ? [a.anonLauncher, a.anonLauncherLegacy, ...a.olderLaunchers].filter((x) => !/^0x0{40}$/i.test(x)) : [];
 };
 export const isLegacyLauncher = (chainId: number, addr: string) =>
   !!ANON_ADDONS[chainId] && [ANON_ADDONS[chainId].anonLauncherLegacy, ...ANON_ADDONS[chainId].olderLaunchers].some((x) => x.toLowerCase() === addr.toLowerCase());
