@@ -71,7 +71,7 @@ export default function AccountMenu({ wallet, name, initial, onClose, onSignOut 
         <div className="am-who">
           {pfp.img
             // eslint-disable-next-line @next/next/no-img-element
-            ? <span className={`am-av has-img${pfp.nft ? " pfp-hex" : ""}`} aria-hidden><img src={pfp.img} alt="" width={48} height={48} /></span>
+            ? <span className={`am-av has-img${pfp.nft ? " pfp-hex" : ""}`} aria-hidden><img className="pfp-img" src={pfp.img} alt="" width={48} height={48} /></span>
             : <span className="am-av" aria-hidden>{initial}</span>}
           <div className="am-id">
             <b>{name}</b>

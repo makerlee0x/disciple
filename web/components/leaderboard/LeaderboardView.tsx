@@ -111,7 +111,7 @@ function Face({ p, big }: { p: { username?: string | null; wallet: string } & Na
   return (
     <span className={`tp-av ${big ? "md" : "sm"}`} style={{ background: lightOf(p.wallet) }} aria-hidden>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {p.pfp ? <img src={withBase(p.pfp)} alt="" loading="lazy" decoding="async" /> : (nameOf(p).replace(/^@/, "")[0] ?? "?").toUpperCase()}
+      {p.pfp ? <img className="pfp-img" src={withBase(p.pfp)} alt="" loading="lazy" decoding="async" /> : (nameOf(p).replace(/^@/, "")[0] ?? "?").toUpperCase()}
     </span>
   );
 }

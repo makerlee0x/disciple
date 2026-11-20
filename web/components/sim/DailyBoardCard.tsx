@@ -20,7 +20,7 @@ function Rank({ n }: { n: number }) {
 function Face({ id, name, pfp, big }: { id: string; name: string; pfp?: string | null; big?: boolean }) {
   return <span className={`tp-av ${big ? "md" : "sm"}`} style={{ background: lightOf(id) }} aria-hidden>
     {/* eslint-disable-next-line @next/next/no-img-element */}
-    {pfp ? <img src={withBase(pfp)} alt="" loading="lazy" decoding="async" /> : (name.replace(/^@/, "")[0] ?? "?").toUpperCase()}</span>;
+    {pfp ? <img className="pfp-img" src={withBase(pfp)} alt="" loading="lazy" decoding="async" /> : (name.replace(/^@/, "")[0] ?? "?").toUpperCase()}</span>;
 }
 /** the signed-in pilot's own picture and name from the top bar's saved pill: a run that isn't saved to the board yet has no
  *  owner on the server, so the pinned "Your rank" face drew a "Y" for You (maker 2026-11-18: "my pfp is blank") */

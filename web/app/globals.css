@@ -1013,3 +1013,6 @@ html.ap-flight input, html.ap-flight textarea, html.ap-flight [contenteditable="
 
 /* warm moon mark (logo option B, picked by maker 2026-11-14): the moon glows softly, the words stay silver */
 #apSide .ap-mark { filter: drop-shadow(0 0 5px rgba(255, 214, 140, .5)); }
+/* every pilot picture frames the same way (Hangar, pill, stats, boards, search): fill the frame, keep the top of a tall
+   photo so the face stays in (maker 2026-11-20: achievements + pill cropped differently from the Hangar) */
+img.pfp-img { object-fit: cover; object-position: 50% 0; }

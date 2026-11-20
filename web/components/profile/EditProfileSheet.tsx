@@ -148,7 +148,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
         <div className="who">
           <button type="button" className="p5-epfp hg-epfp" aria-label={EDIT_COPY.changePicture} disabled={!!busy} onClick={() => pfpFile.current?.click()} data-testid="edit-pfp">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            {img ? <img src={withBase(img)} alt="" width={84} height={84} /> : <IdentitySigil id={NO_IDENTITY.primary.id} size={44} tip={false} />}
+            {img ? <img className="pfp-img" src={withBase(img)} alt="" width={84} height={84} /> : <IdentitySigil id={NO_IDENTITY.primary.id} size={44} tip={false} />}
             <span className="pen">{busy === "pfp" ? "…" : <PencilGlyph size={14} />}</span>
           </button>
           <div className="nm">

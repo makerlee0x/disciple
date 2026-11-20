@@ -72,7 +72,7 @@ function Avatar({ src, nft, text }: { src: string | null; nft?: boolean; text: s
   return (
     <span className={`ss-av${nft ? " ss-av-nft" : ""}`} aria-hidden>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {src ? <img src={withBase(src)} alt="" loading="lazy" decoding="async" /> : <b>{text.slice(0, 1).toUpperCase()}</b>}
+      {src ? <img className="pfp-img" src={withBase(src)} alt="" loading="lazy" decoding="async" /> : <b>{text.slice(0, 1).toUpperCase()}</b>}
     </span>
   );
 }

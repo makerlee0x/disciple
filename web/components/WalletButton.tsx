@@ -76,7 +76,7 @@ function usePilotParts(wallet: string | null, last: LastPill | null) {
   const info = xp?.level ?? (was?.level ? { ...levelInfo(0), level: was.level, progress: was.progress ?? 0 } : levelInfo(0));
   return { info, avatar: img
     // eslint-disable-next-line @next/next/no-img-element
-    ? <span className={nft ? "wb-pfp pfp-hex" : "wb-pfp"}><img src={img} alt="" width={36} height={36} /></span>
+    ? <span className={nft ? "wb-pfp pfp-hex" : "wb-pfp"}><img className="pfp-img" src={img} alt="" width={36} height={36} /></span>
     : <LevelRing info={{ ...info, progress: 0 }} size={36} />, hasPfp: !!img, img, nft };
 }
 /** Gold progress stroke around the pill's border, starting top-centre, clockwise. Sized to the pill (ResizeObserver). */

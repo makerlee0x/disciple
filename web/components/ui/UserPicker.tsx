@@ -26,7 +26,7 @@ export function Avatar({ r, size = 40 }: { r: Pick<Recipient, "pfp" | "username"
   return (
     <span className="up-av" style={{ width: size, height: size, fontSize: Math.round(size * 0.42) }} aria-hidden>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {r.pfp ? <img src={/^https?:/.test(r.pfp) ? r.pfp : withBase(r.pfp)} alt="" width={size} height={size} /> : ch}
+      {r.pfp ? <img className="pfp-img" src={/^https?:/.test(r.pfp) ? r.pfp : withBase(r.pfp)} alt="" width={size} height={size} /> : ch}
     </span>
   );
 }

@@ -65,7 +65,7 @@ function Face({ a }: { a: string }) {
   return (
     <i className={s.face} style={{ background: lightOf(a) }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {img ? <img src={withBase(img)} alt="" loading="lazy" decoding="async" /> : null}
+      {img ? <img className="pfp-img" src={withBase(img)} alt="" loading="lazy" decoding="async" /> : null}
     </i>
   );
 }
