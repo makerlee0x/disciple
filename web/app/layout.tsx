@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import IosZoomLock from "@/components/app/IosZoomLock";
 import "./brand-tokens.css";
 import "./brand-tokens-v2.css";
@@ -106,6 +107,7 @@ export default function RootLayout({
           <ChatBridge />
           <LevelUpFlash />
         </PrivyProviders>
+        <Analytics />
       </body>
     </html>
   );
