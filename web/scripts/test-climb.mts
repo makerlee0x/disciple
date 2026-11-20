@@ -39,9 +39,10 @@ test("test out: a hit unlocks that level", () => {
   assert.equal(R.unlockAfterTest(1, 4, -5), 1);
 });
 
-test("goals are checked in cents, like the screen: +$0.1196 shows +$0.12 and clears level 1", () => {
-  assert.equal(R.unlockAfter(1, 1, 0.1196), 2);
-  assert.equal(R.unlockAfter(1, 1, 0.114), 1);
+test("goals are checked on the rounded-down screen number: +$0.1196 shows +$0.119 and misses; +$0.12 clears", () => {
+  assert.equal(R.unlockAfter(1, 1, 0.1196), 1);
+  assert.equal(R.unlockAfter(1, 1, 0.12), 2);
+  assert.equal(R.unlockAfter(1, 1, 0.1204), 2);
 });
 
 test("levels scale with the balance: level 5 = 83% of the balance (the rest backs the NUKE line), same % goals; tiny or no balance uses the $1,200 ladder", () => {

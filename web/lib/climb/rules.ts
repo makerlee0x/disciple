@@ -88,9 +88,10 @@ export const CLIMB_RUN_MS = 60_000;
 export const CLIMB_FEE = 0.000055;
 export const CLIMB_FEE_LABEL = "1.1 bp round trip";
 
-/** goals are checked in whole cents, the way the run screen shows PnL: +$0.12 on screen clears a $0.12 goal
- *  (maker 2026-11-18 playtest: "i got .12 but it said i didnt unlock the next level") */
-export const hits = (pnl: number, goal: number): boolean => Math.round(pnl * 100) >= Math.round(goal * 100);
+/** goals are checked on the number the screen shows (maker 2026-11-18: "i got .12 but it said i didnt unlock"). The
+ *  screen rounds money down to $0.001 (maker 2026-11-20: "round conservatively"), so a goal clears only when the PnL
+ *  really reached it: +$0.1196 shows +$0.119 and doesn't clear a $0.12 goal; +$0.12 does. */
+export const hits = (pnl: number, goal: number): boolean => Math.floor(pnl * 1000 + 1e-6) >= Math.round(goal * 1000);
 
 /** the highest level a pilot has unlocked after a run: clearing `level` opens the next one, and a PnL past any
  *  level's goal opens that level. Never goes down. */

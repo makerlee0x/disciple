@@ -32,8 +32,10 @@ const CSS = `
 .duel-root .cl-stake label{flex-direction:row;gap:2px;cursor:text}
 .duel-root .cl-stake label b{font:800 18px/1 var(--f-game);color:var(--muted)}
 .duel-root .cl-stake label.on b{color:var(--text)}
-.duel-root .cl-stake input{width:100%;min-width:0;background:none;border:0;outline:none;color:var(--text);font:800 18px/1 var(--f-game);padding:0;-moz-appearance:textfield}
-.duel-root .cl-stake input::placeholder{color:var(--muted);opacity:1;letter-spacing:.06em;font-size:14px}
+.duel-root .cl-stake input{width:100%;min-width:0;background:none;border:0;outline:none;color:var(--text);font:800 18px/1 var(--f-game);padding:0;text-align:center;-moz-appearance:textfield}
+.duel-root .cl-stake input::placeholder{color:var(--text);opacity:1;font:800 18px/1 var(--f-game);text-transform:uppercase}
+.duel-root .cl-stake label:not(.on):not(:focus-within) b{display:none}
+.duel-root .cl-stake label.on input,.duel-root .cl-stake label:focus-within input{width:5ch;text-align:left}
 .duel-root .cl-stake input::-webkit-outer-spin-button,.duel-root .cl-stake input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .duel-root .cl-stake button:focus-visible,.duel-root .cl-stake label:focus-within{outline:3px solid #fff;outline-offset:2px}
 @media (max-width:420px){.duel-root .cl-stake .row{gap:6px}.duel-root .cl-stake button,.duel-root .cl-stake label,.duel-root .cl-stake input,.duel-root .cl-stake label b{font-size:16px}}

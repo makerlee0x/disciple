@@ -251,7 +251,7 @@ function mount(root,host){
     // Climb: banking the goal is the finish line, the run ends there (maker 2026-11-18)
     if(pl.me&&G.solo&&CLR&&CLR.goal!=null) setTimeout(()=>{ if(G&&G.solo&&!G.over&&!G.me.pos&&cHit(profitOf(G.me))) end(); },900);
   }
-  const cHit=v=>CLR&&CLR.goal!=null&&Math.round(v*100)>=Math.round(CLR.goal*100);
+  const cHit=v=>CLR&&CLR.goal!=null&&Math.floor(v*1000+1e-6)>=Math.round(CLR.goal*1000);   // the shown (rounded-down) PnL reached the goal: lib/climb/rules hits
   function vBomb(pl,side,lost,price){
     G.marks.push({t:G.t,p:price,me:pl.me,k:"x"});
     moment(pl,`${pl.me?"you":esc(pl.name)} got NUKED on a ${side>0?"BOOST":"DUMP"}`,-lost);
