@@ -19,6 +19,7 @@ DISCIPLE runs on Robinhood Chain mainnet (chain id 4663).
 | FeeRouter | [`0x2EDf61eD533E57bBa79445472762de95DE8AE8DF`](https://explorer.robinhood.com/address/0x2EDf61eD533E57bBa79445472762de95DE8AE8DF) |
 | CreatorFeeHarvest | [`0x65E6D7a4935c28036450121d7a608d071Ed388ba`](https://explorer.robinhood.com/address/0x65E6D7a4935c28036450121d7a608d071Ed388ba) |
 | RewardsVault | [`0x187d88984f1dC461Fa53Ff6159186822bD3bb605`](https://explorer.robinhood.com/address/0x187d88984f1dC461Fa53Ff6159186822bD3bb605) |
+| SpotLaunchPricer (launch price) | [`0x96490D44AdB6aBD00393BbC21b7Fd20453aEDDB5`](https://explorer.robinhood.com/address/0x96490D44AdB6aBD00393BbC21b7Fd20453aEDDB5) |
 | QuotePricer | [`0x95b6FeCef5E94254A4e676ADc6af91fDd70e0f27`](https://explorer.robinhood.com/address/0x95b6FeCef5E94254A4e676ADc6af91fDd70e0f27) |
 | QuoteProbe | [`0x47134F86CE3b3F8aD72a9399006Eea99C4E1a5F6`](https://explorer.robinhood.com/address/0x47134F86CE3b3F8aD72a9399006Eea99C4E1a5F6) |
 | CurveDeployer | [`0xC1610bBEd004128B1748E1BA4f338Ba82AFE94e9`](https://explorer.robinhood.com/address/0xC1610bBEd004128B1748E1BA4f338Ba82AFE94e9) |

@@ -6,7 +6,6 @@
     "app/api/lighter/ping/fra1/route.ts": { "regions": ["fra1"] }
   },
   "crons": [
-    { "path": "/api/cron/poke-pricer", "schedule": "* * * * *" },
     { "path": "/api/cron/name-lock", "schedule": "*/5 * * * *" },
     { "path": "/api/cron/achievements", "schedule": "*/10 * * * *" },
     { "path": "/api/cron/push", "schedule": "*/5 * * * *" },
