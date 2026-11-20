@@ -409,7 +409,7 @@ function mount(root,host){
       ui();
     }
     if(G&&!G.started) G.t=now_()-G.startAt;
-    if(preEl.hidden||preEl.classList.contains("out")){ drawSky(dt,now); if(!G||!G.chartAt||now-G.chartAt>60){ drawChart(); if(G)G.chartAt=now; } if(CLIP&&CLIP.on&&G&&G.started&&!G.over) clipFrame(now,dt); }
+    if((preEl.hidden||preEl.classList.contains("out"))&&!(G&&G.solo&&G.over)){ drawSky(dt,now); if(!G||!G.chartAt||now-G.chartAt>60){ drawChart(); if(G)G.chartAt=now; } if(CLIP&&CLIP.on&&G&&G.started&&!G.over) clipFrame(now,dt); }
     if(!dead) requestAnimationFrame(frame);
   }
 
@@ -1097,7 +1097,7 @@ function mount(root,host){
   // right away; a duel's trades stay open until the clock ends (the server settles a leaver's book at the buzzer).
   // SIMULATOR pill, top left in flight, on every play-money run (maker 2026-11-20: "otherwise people will think it's real")
   { const app=$("app"); app.insertAdjacentHTML("beforeend",'<div class="simpill" id="simPill" hidden>SIMULATOR</div>');
-    const s2=document.createElement("style"); s2.textContent=".duel-root .simpill{position:absolute;z-index:30;top:calc(env(safe-area-inset-top,0px) + 14px);left:14px;padding:6px 12px 5px;border-radius:999px;border:1.5px solid rgba(242,193,78,.75);background:rgba(11,10,22,.82);color:#F2C14E;font:800 13px/1 var(--f-game),sans-serif;letter-spacing:.08em;pointer-events:none;box-shadow:0 2px 10px rgba(0,0,0,.35)}@media (max-width:899px){.duel-root .simpill{left:12px;top:calc(var(--ch) + 86px + env(safe-area-inset-top,0px));padding:6px 10px 5px;font-size:12px}.duel-root .app:has(#simPill:not([hidden])) .feed{top:calc(var(--ch) + 120px + env(safe-area-inset-top,0px))}}"; st.after(s2); offs.push(()=>s2.remove()); }
+    const s2=document.createElement("style"); s2.textContent=".duel-root .simpill{position:absolute;z-index:30;top:calc(env(safe-area-inset-top,0px) + 14px);left:14px;padding:6px 12px 5px;border-radius:999px;border:1.5px solid rgba(242,193,78,.75);background:rgba(11,10,22,.82);color:#F2C14E;font:800 13px/1 var(--f-game),sans-serif;letter-spacing:.08em;pointer-events:none;box-shadow:0 2px 10px rgba(0,0,0,.35)}.duel-root .pre:not([hidden]):not(.out)~.simpill{display:none}@media (max-width:899px){.duel-root .simpill{left:12px;top:calc(var(--ch) + 86px + env(safe-area-inset-top,0px));padding:6px 10px 5px;font-size:12px}.duel-root .app:has(#simPill:not([hidden])) .feed{top:calc(var(--ch) + 120px + env(safe-area-inset-top,0px))}}"; st.after(s2); offs.push(()=>s2.remove()); }
   { const app=$("app"); app.insertAdjacentHTML("beforeend",'<button class="mute quit" id="quitB" type="button" aria-label="Leave"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>'
       +'<div class="ov quitov" id="quitOv" hidden><div class="card qcard" role="dialog" aria-modal="true" aria-labelledby="qH"><h2 id="qH">LEAVE?</h2><p class="qwarn" id="qW" hidden></p>'
       +'<div class="rrow"><button class="sec" type="button" id="qStay">STAY</button><button class="go" type="button" id="qGo">LEAVE</button></div></div></div>');
@@ -1426,8 +1426,10 @@ function mount(root,host){
   const lvl=n=>LVS.find(l=>l.n===n)||null;
   const pctOf=l=>"+"+(l.pct!=null?l.pct:Math.round(l.goal/l.fuel*1000)/10)+"%";
   let cFree={fuel:LVS.length?LVS[LVS.length-1].fuel:100,gear:MAXG}, cFreeSet=false;
-  function climbChip(){ const u=CL.state().unlocked, l=lvl(u);
-    $("lRat").textContent=u>=FREE?"FREE":"LVL "+u; $("lRec").textContent=l?`${m2(l.fuel)} · ${gx(l.gear)}`:`${gx(MAXG)} MAX`; }
+  // the level sits under the CLIMB title, centred (maker 2026-11-20: "CLIMB / LEVEL 1", no stake · gear line); the
+  // top-right chip is hidden in Climb (.duel-root.climb .me-chip)
+  function climbChip(){ const u=CL.state().unlocked;
+    const t=root.querySelector(".pre-title"); if(t) t.innerHTML=`CLIMB<small class="ptl">${u>=FREE?"FREE MODE":"LEVEL "+u}</small>`; }
   function climbHome(err){ clearInterval(pwIv); if(CLR&&CL.lighter) CL.lighter.end(); M=null; CLR=null; show("climb"); climbChip();
     const u=CL.state().unlocked, rows=[];
     const fr=u>=FREE;
@@ -1444,9 +1446,8 @@ function mount(root,host){
   function climbFreeSetup(){ $("cres").dataset.k="free"; show("cres");
     const gears=[]; for(let g=10;g<=MAXG;g+=10) gears.push(g);
     const opt=(k,v,lab)=>`<button class="opt${cFree[k]===v?" on":""}" type="button" data-${k}="${v}">${lab}</button>`;
-    $("cres").innerHTML=`<div class="opts" role="group" aria-label="Gear"><span>GEAR</span>${gears.map(g=>opt("gear",g,gx(g)+`<small class="ob">NUKE −${Math.round(liqF(g)/g*1000)/10}%</small>`)).join("")}</div>`
-      +`<div class="choices"><button class="choice main" type="button" id="cFly"><i class="ci">${ICO.bolt}</i><span class="ct"><b>FLY · ${gx(cFree.gear)}</b><small>${m2(cFree.fuel)} fuel · no clock</small></span>${ICO.go}</button></div>`
-      +`<button class="sec wide" type="button" id="cBack" style="margin-top:8px">LEVELS</button>`;
+    $("cres").innerHTML=`<button class="cback" type="button" id="cBack"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>BACK TO LEVELS</button><div class="opts" role="group" aria-label="Gear"><span>GEAR</span>${gears.map(g=>opt("gear",g,gx(g)+`<small class="ob">NUKE −${Math.round(liqF(g)/g*1000)/10}%</small>`)).join("")}</div>`
+      +`<div class="choices"><button class="choice main" type="button" id="cFly"><i class="ci">${ICO.bolt}</i><span class="ct"><b>FLY · ${gx(cFree.gear)}</b></span>${ICO.go}</button></div>`;
     $("cres").querySelectorAll("[data-fuel],[data-gear]").forEach(b=>b.addEventListener("click",()=>{ if(b.dataset.fuel){ cFree.fuel=+b.dataset.fuel; cFreeSet=true; } if(b.dataset.gear) cFree.gear=+b.dataset.gear; climbFreeSetup(); }));
     $("cBack").addEventListener("click",climbHome);
     $("cFly").addEventListener("click",()=>climbPlay(FREE)); }
@@ -1465,9 +1466,11 @@ function mount(root,host){
       go(); }); }
   function climbPanel(){ $("lCancel").hidden=false;
     $("lH").textContent=CLR.free?"FREE MODE":"LEVEL "+CLR.level;
-    $("lSub").textContent=`${m2(CLR.fuel)} · ${gx(CLR.gear)}`+(CLR.goal!=null?` · make +${m2(CLR.goal)}`:isFinite(CLR.len)?"":" · no clock")+(CLR.real||(CL.real&&CLR.real==null)?"":" · play money"); }
+    const c=[`${m2(CLR.fuel)} PER ROUND`,`${gx(CLR.gear)} LEVERAGE`]; if(CLR.goal!=null) c.push(`GOAL +${m2(CLR.goal)}`); else if(!isFinite(CLR.len)) c.push("NO CLOCK");
+    if(!(CLR.real||(CL.real&&CLR.real==null))) c.push("PLAY MONEY");
+    $("lSub").innerHTML=`<span class="lchips cl-sub">${c.map(t=>`<em class="lc">${t}</em>`).join("")}</span>`; }
   function climbLaunch(){ root.classList.add("climb"); climbPanel();
-    const who=$("meN").parentElement; who.innerHTML=(CLR.free?"FREE · ":`LEVEL ${CLR.level} · ${m2(CLR.fuel)} · `)+`<span id="meN" style="color:var(--gold)">${gx(CLR.gear)}</span>`;
+    const who=$("meN").parentElement; who.innerHTML=(CLR.free?"FREE · ":`LEVEL ${CLR.level} · `)+`<span id="meN" style="color:var(--gold)">${gx(CLR.gear)}</span>`;
     const nx=lvl(CLR.level+1); $("botLab").innerHTML=(CLR.free?"FUEL":"TO GOAL")+'<span id="botN"></span>';
     $("botP").textContent=CLR.free?m2(CLR.fuel):"0%"; $("botP").style.color="var(--gold)";
     $("landB").hidden=!CLR.free;
@@ -1500,8 +1503,10 @@ function mount(root,host){
   // rocket a beat behind, which is what makes the clouds and stars rush past while you climb.
   const SOLO_UP=2.4, SOLO_DN=1.7, SOLO_ANCHOR=.84, SOLO_TOP=.14, SOLO_BOT=.9;
   function soloW(v){ if(CLR.goal==null) return 0; const u=v/CLR.goal;
-    if(u>=0) return SOLO_UP*(1-Math.pow(1-Math.min(u,1),1.35))+Math.max(0,u-1)*1.2;   // ease-out: the first cents climb the most
-    const lossTo=G.me.pos?LIQ*G.me.pos.coll:CLR.goal*3; return -SOLO_DN*Math.pow(Math.min(1.2,-v/lossTo),.7); }
+    // square-root ease both ways (maker 2026-11-20: at a $2 stake "the rocket barely moves ... even when down 1% or up
+    // 1%"): 5% of the way to the goal already lifts the rocket half a room, and a 1% loss on the bet sinks it a third of one
+    if(u>=0) return SOLO_UP*Math.sqrt(Math.min(u,1))+Math.max(0,u-1)*1.2;
+    const lossTo=G.me.pos?LIQ*G.me.pos.coll:CLR.goal*3; return -SOLO_DN*Math.pow(Math.min(1.2,-v/lossTo),.3); }
   function soloRoom(){ const a=LAY.under+40, z=LAY.barTop-10; return [a,z,z-a]; }
   function soloYOf(v){ const [a,z,H]=soloRoom();
     if(CLR.goal==null) return a+soloFrac(v)*(z-a);
@@ -1556,7 +1561,9 @@ function mount(root,host){
       if(sw){ const x2=x1-4-sw; sx.font="700 12px "+GF+",sans-serif"; sx.fillStyle="rgba(11,10,22,.86)"; rr(x2,ly+2,sw,hh-4,6); sx.fill(); sx.fillStyle=`rgba(${l.col},1)`; sx.fillText(l.sub,x2+6,ly+hh/2+1); } } }
   // On Lighter (host.climb.lighter.result) the run's result is the real money: the account's cash after the close
   // minus before the run, read back from Lighter (at most ~6 s); the game's own number only if Lighter can't say
-  function climbEnd(){ G.over=true; if(G.me.pos) close(G.me); const lx=CL.lighter; const done=lx?lx.end():null; music(false); ui();
+  // the buzzer: the sky stops on this frame and TIME shows while Lighter's result comes back (maker 2026-11-20: "keeps
+  // flying after the timer ends"); frame() skips drawSky for a finished solo run
+  function climbEnd(){ G.over=true; if(G.me.pos) close(G.me); { const c=$("count"); c.hidden=false; c.textContent=G.nuked?"NUKED":isFinite(G.len)&&G.t>=G.len?"TIME":"LANDED"; } const lx=CL.lighter; const done=lx?lx.end():null; music(false); ui();
     const game=profitOf(G.me);
     if(lx&&lx.result){ const g=G; Promise.race([Promise.resolve(done).then(()=>lx.result()),new Promise(r=>setTimeout(()=>r(null),6000))])
       .catch(()=>null).then(v=>{ if(dead||G!==g) return; climbResult(typeof v==="number"&&isFinite(v)?v:game); }); return; }
@@ -1564,20 +1571,21 @@ function mount(root,host){
   function climbResult(pnl){ if(!CLR) return; const run=CLR, before=CL.state().unlocked;
     const res=run.free?{unlocked:before}:CL.finish({level:run.level,pnl,test:run.test});
     const up=res.unlocked>before, n=res.unlocked, nl=lvl(n), clr=!run.free&&cHit(pnl);
-    setTimeout(()=>{ if(dead) return; $("cres").dataset.k="res"; show("cres"); climbChip(); sfx(up||clr?"win":"lose");
+    setTimeout(()=>{ if(dead) return; $("count").hidden=true; $("cres").dataset.k="res"; show("cres"); climbChip(); sfx(up||clr?"win":"lose");
       let big;
-      if(run.free) big=`<small>LANDED</small><b class="${pnl>=0?"up":"dn"}">${usd(pnl,true)}</b><strong>${m2(run.fuel)} · ${gx(run.gear)}</strong>`;
-      else if(up) big=`<small>${n-run.level>1?"LEVEL JUMP":"LEVEL UP"}</small><b>${n>=FREE?"FREE MODE":"LEVEL "+n}</b><strong>${n>=FREE?"UNLOCKED":`${m2(nl.fuel)} · ${gx(nl.gear)} UNLOCKED`}</strong><em>${usd(pnl,true)}${nl?` · NEXT GOAL +${m2(nl.goal)}`:""}</em>`;
+      if(run.free) big=`<small>LANDED</small><b class="${pnl>=0?"up":"dn"}">${usd(pnl,true)}</b>`;
+      else if(up) big=`<small>${n-run.level>1?"LEVEL JUMP":"LEVEL UP"}</small><b>${n>=FREE?"FREE MODE":"LEVEL "+n}</b><strong>UNLOCKED</strong><em>${usd(pnl,true)}${nl?` · NEXT GOAL +${m2(nl.goal)}`:""}</em>`;
       else if(clr) big=`<small>CLEARED</small><b class="up">${usd(pnl,true)}</b><em style="color:var(--muted)">GOAL +${m2(run.goal)}</em>`;
       else big=`<small>${G.nuked?"NUKED":"MISSED"}</small><b class="${pnl>=0?"up":"dn"}">${usd(pnl,true)}</b><em style="color:var(--muted)">GOAL +${m2(run.goal)}</em>`;
       const again=run.free?"FLY AGAIN":up?(n>=FREE?"FREE MODE":"PLAY LEVEL "+n):"AGAIN";
-      const sub=run.free?`${m2(run.fuel)} · ${gx(run.gear)}`:up&&nl?`${m2(nl.fuel)} · ${gx(nl.gear)}`:up?`up to ${gx(MAXG)} · no clock`:`${m2(run.fuel)} · ${gx(run.gear)}`;
-      $("cres").innerHTML=`<div class="cbig">${big}</div><div class="choices"><button class="choice main" type="button" id="cAgain"><i class="ci">${ICO.bolt}</i><span class="ct"><b>${again}</b><small>${sub}</small></span>${ICO.go}</button></div><button class="sec wide" type="button" id="cBack" style="margin-top:8px">LEVELS</button>`;
+      // the run's own Lighter fills go in #cFills (host: ClimbScreen's RunFills), real money only; back to the levels is
+      // a small link in the card (maker 2026-11-20)
+      $("cres").innerHTML=`<button class="cback" type="button" id="cBack"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>BACK TO LEVELS</button><div class="cbig">${big}</div><div class="choices"><button class="choice main" type="button" id="cAgain"><i class="ci">${ICO.bolt}</i><span class="ct"><b>${again}</b></span>${ICO.go}</button></div>${run.real?'<div class="cfills" id="cFills"></div>':""}`;
       $("cBack").addEventListener("click",climbHome);
       $("cAgain").addEventListener("click",()=>{ ensureAudio(); if(run.free) climbPlay(FREE); else if(up&&n>=FREE) climbFreeSetup(); else climbPlay(up?n:run.level); });
     },G.nuked&&!G.me.fuel?1400:700); }
   if(CL){
-    const sty=document.createElement("style"); sty.textContent=CLIMB_CSS; st.after(sty); offs.push(()=>sty.remove());
+    const sty=document.createElement("style"); sty.textContent=CLIMB_CSS+".duel-root.climb .me-chip{display:none}.duel-root .cback{display:inline-flex;align-items:center;gap:4px;margin:-4px 0 10px -4px;padding:6px 8px;border:0;border-radius:8px;background:none;color:var(--muted);font:800 13px/1 var(--f-game),sans-serif;letter-spacing:.08em;cursor:pointer}.duel-root .cback:hover{color:var(--text);background:rgba(255,255,255,.06)}.duel-root .cl-sub{justify-content:center;margin-top:2px}.duel-root .cfills{margin-top:12px}.duel-root .pre-title{text-align:center}.duel-root .pre-title .ptl{display:block;margin-top:6px;font:800 16px/1 var(--f-game),sans-serif;letter-spacing:.08em;color:var(--gold)}"; st.after(sty); offs.push(()=>sty.remove());
     const pnl=root.querySelector(".panel"); pnl.insertAdjacentHTML("beforeend",'<div class="pane" id="climb" hidden></div><div class="pane" id="cres" hidden></div>');
     PANES.push("climb","cres");
     $("chatB").insertAdjacentHTML("afterend",'<button class="mute chatb land" id="landB" type="button" hidden>LAND</button>');

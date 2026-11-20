@@ -29,7 +29,7 @@ export default function ClimbAdvanced({ root, real }: { root: HTMLElement | null
     let resWas = false;
     const vis = () => {
       const res = !cr.hidden && cr.dataset.k === "res";
-      setShow(!lv.hidden || res);
+      setShow(!lv.hidden);   // the result card lists the run's own fills (RunFills)
       if (res && !resWas) setN((k) => k + 1);   // a new result: read the record again
       resWas = res;
     };
