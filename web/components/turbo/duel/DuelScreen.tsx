@@ -5,6 +5,7 @@
  * server call (lib/duel/client), feeds live BTC from the Turbo adapter, and passes the room's events through.
  * Practice bots run inside the engine and are always labelled as bots.
  */
+import { mountTurboPill } from "@/lib/turbo/turboPill";
 import { useEffect, useRef, useState } from "react";
 import LobbySettings from "@/components/turbo/LobbySettings";
 import { getTurboAdapter } from "@/lib/turbo";
@@ -25,7 +26,6 @@ import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "./engineLoader";
 import { LighterMatch, lighterFetcher, lighterWanted } from "@/lib/lighter/duel";
 import GeoBanner from "@/components/turbo/GeoBanner";
 import { mountRealSwitch } from "@/lib/turbo/realSwitch";
-import { mountTurboPill } from "@/lib/turbo/turboPill";
 import { FEE, LEV, PCTS, pctUsd, fuelOf } from "@/lib/duel/rules";
 
 const trailRgb = (id?: string) => TRAILS.find((t) => trailId(t.id) === id)?.rgb;
