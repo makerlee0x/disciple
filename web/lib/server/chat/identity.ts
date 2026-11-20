@@ -7,6 +7,7 @@ import "server-only";
  * Server returns an HMAC-SHA256 token (CHAT_TOKEN_SECRET) valid 12h: base64url(payload).base64url(mac).
  */
 import { createHmac, timingSafeEqual } from "crypto";
+import { serverReadTransport } from "@/lib/rpc/serverRead";
 import { createPublicClient, http, type Address } from "viem";
 import { ACTIVE_CHAIN, deployment } from "@/lib/chains";
 import { verifyAccountSignature, type VerifyClient } from "@/lib/aa/verify";
@@ -24,7 +25,7 @@ export const issueLoginNonce = (addr: string) => issueNonce(kv(), LOGIN_NONCE_PR
 
 const isAddr = (a: string) => /^0x[0-9a-fA-F]{40}$/.test(a);
 let pcInst: ReturnType<typeof createPublicClient> | null = null;
-export const serverPc = () => (pcInst ??= createPublicClient({ chain: ACTIVE_CHAIN, transport: http(process.env.CHAT_RPC_URL || ACTIVE_CHAIN.rpcUrls.default.http[0]) }));
+export const serverPc = () => (pcInst ??= createPublicClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport({ primary: process.env.CHAT_RPC_URL || ACTIVE_CHAIN.rpcUrls.default.http[0] }) }));
 
 function secret(): string | null {
   const s = process.env.CHAT_TOKEN_SECRET;

@@ -17,6 +17,7 @@
  */
 import { custom, http, type Transport } from "viem";
 import { READ_METHODS } from "./readMethods";
+import { serverReadTransport } from "./serverRead";
 
 export const RPC_PROXY_PATH = "/api/rpc";
 export type RpcVia = "direct" | "proxy";
@@ -145,9 +146,14 @@ export function readFailure(e: unknown): { read?: string; url?: string; attempts
   return { read, url: attempts?.[attempts.length - 1]?.url ?? url, attempts };
 }
 
-/** The app's read transport for `directUrl` (the chain's RPC): proxy failover in a browser, direct-only elsewhere. */
+/** The app's read transport for `directUrl` (the chain's RPC): proxy failover in a browser, the second node on the server. */
 export function appReadTransport(directUrl: string): Transport {
-  return (cfg) => readTransport({ directUrl, proxyUrl: browserProxyUrl() })(cfg);
+  return (cfg) => {
+    const proxyUrl = browserProxyUrl();
+    // server: no /api/rpc to fail over to, so fail over to the chain's second node (lib/rpc/serverRead)
+    if (!proxyUrl) return serverReadTransport({ primary: directUrl, timeout: 8_000, retryCount: 0, primaryTimeoutMs: 2_500 })(cfg);
+    return readTransport({ directUrl, proxyUrl })(cfg);
+  };
 }
 
 /* ---------- tap path: hedged + bounded reads (lee Oct 30: "Get rid of the delay entirely") ----------

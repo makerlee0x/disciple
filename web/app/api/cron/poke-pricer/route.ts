@@ -10,6 +10,7 @@
  * Response includes the relayer address + balance (public) so low funds are visible in the cron logs.
  */
 import { NextResponse } from "next/server";
+import { serverReadTransport } from "@/lib/rpc/serverRead";
 import { createHash, timingSafeEqual } from "crypto";
 import { createPublicClient, createWalletClient, formatEther, http, parseAbi, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -45,16 +46,16 @@ export async function GET(req: Request) {
   // Launches price from live spot once the Launchpad points at SpotLaunchPricer (maker 2026-11-20): then nothing reads
   // the TWAP for a launch, so no poke is ever sent (zero gas). Only while it still points at the TWAP QuotePricer.
   {
-    const pc0 = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
+    const pc0 = createPublicClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport() });
     const cur = await pc0.readContract({ address: d.launchpad, abi: launchpadPricerAbi, functionName: "pricer" }).catch(() => null);
     if (cur && cur.toLowerCase() !== d.quotePricer.toLowerCase()) return NextResponse.json({ ok: true, skipped: "spot pricer", pricer: cur });
   }
   const store = kv(), lp = d.launchpad.toLowerCase();
   if (!(await store.setNX("pricer:lock", "1", 50))) return NextResponse.json({ ok: true, skipped: "locked" });
   try {
-    const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
+    const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport() });
     const relayer = privateKeyToAccount(key);
-    const wc = createWalletClient({ chain: ACTIVE_CHAIN, transport: http(undefined, { retryCount: 0 }), account: relayer });   // no transport-level resend of a signed tx (AUDIT Info)
+    const wc = createWalletClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport({ retryCount: 0 }), account: relayer });   // no transport-level resend of a signed tx (AUDIT Info)
 
     // 1) new bases from launches since the cursor
     const latest = await pc.getBlockNumber();

@@ -10,6 +10,7 @@ import "server-only";
  * fails, delays, or strikes a trade. Self-referral and first-touch stay enforced on-chain.
  */
 import { createPublicClient, createWalletClient, encodeFunctionData, http, parseAbi, type Address, type Hex } from "viem";
+import { serverReadTransport } from "@/lib/rpc/serverRead";
 import { privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, deployment } from "../chains";
 import { waitUntilFn } from "./defer";
@@ -56,9 +57,9 @@ const alreadySettled = (e: { selector?: string; message?: string; ok?: boolean }
 
 async function defaultSend(to: Address, data: Hex, key: Hex): Promise<{ ok: boolean; message?: string }> {
   const account = privateKeyToAccount(key);
-  const wc = createWalletClient({ account, chain: ACTIVE_CHAIN, transport: http(undefined, { timeout: 20_000, retryCount: 1 }) });
+  const wc = createWalletClient({ account, chain: ACTIVE_CHAIN, transport: serverReadTransport({ timeout: 20_000, retryCount: 1 }) });
   const hash = await wc.sendTransaction({ to, data, gas: 80_000n, chain: ACTIVE_CHAIN });
-  const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http(undefined, { timeout: 20_000, retryCount: 1 }) });
+  const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport({ timeout: 20_000, retryCount: 1 }) });
   const rc = await pc.waitForTransactionReceipt({ hash });
   return { ok: rc.status === "success" };
 }

@@ -1,6 +1,7 @@
 import "server-only";
 /** Production wiring for lib/server/verification: Upstash KV, Privy env, and on-chain creator/account lookups. */
 import { createPublicClient, http, parseAbi, type Address } from "viem";
+import { serverReadTransport } from "@/lib/rpc/serverRead";
 import { launchpadAbi } from "@/lib/abi";
 import { ACTIVE_CHAIN, deployment } from "@/lib/chains";
 import { MAV2_FACTORY } from "@/lib/aa/constants";
@@ -10,7 +11,7 @@ import type { Deps } from "./verification";
 
 const factoryAbi = parseAbi(["function getAddressSemiModular(address owner, uint256 salt) view returns (address)"]);
 const Z = "0x0000000000000000000000000000000000000000";
-const pc = () => createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
+const pc = () => createPublicClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport() });
 
 export function verifyDeps(): Deps {
   return {

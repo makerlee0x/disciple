@@ -8,6 +8,7 @@
  * rotated. Auth: Bearer CRON_SECRET (constant-time; unset in production ⇒ 503). LP_FLUSH_KEEPER_DISABLED=1 turns it off.
  */
 import { NextResponse } from "next/server";
+import { serverReadTransport } from "@/lib/rpc/serverRead";
 import { createHash, timingSafeEqual } from "crypto";
 import { createPublicClient, createWalletClient, http, parseAbi, toFunctionSelector, type Address, type Hex, type PublicClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -44,11 +45,11 @@ export async function GET(req: Request) {
   const store = kv(), lp = d.lockedLP.toLowerCase();
   if (!(await store.setNX("lpflush:lock", "1", 55))) return NextResponse.json({ ok: true, skipped: "locked" });
   try {
-    const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() }) as PublicClient;
+    const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport() }) as PublicClient;
     const code = await pc.getCode({ address: d.lockedLP }).catch(() => undefined);
     if (!codeHasSelector(code, toFunctionSelector("flush(address)"))) return NextResponse.json({ ok: true, skipped: "LockedLP has no flush" });
     const relayer = privateKeyToAccount(key);
-    const wc = createWalletClient({ chain: ACTIVE_CHAIN, transport: http(undefined, { retryCount: 0 }), account: relayer });
+    const wc = createWalletClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport({ retryCount: 0 }), account: relayer });
 
     // 1) graduated pools since the cursor
     const latest = await pc.getBlockNumber();
