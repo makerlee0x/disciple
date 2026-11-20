@@ -11,7 +11,7 @@
 import { LEAGUES, leagueBy, leagueProgress } from "@/lib/duel/season";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { withBase } from "@/lib/base-path";
 import { onWallet } from "@/lib/walletState"; // = lib/wallet's, without viem
 import { displayName } from "@/lib/defaultUsername";
@@ -26,12 +26,15 @@ import { DUEL_RANKED_LIVE, seasonAt } from "@/lib/duel/season";
 import { skinArt } from "@/lib/collection";
 import AnimClip from "@/components/ui/AnimClip";
 import { CLIMB_FREE } from "@/lib/climb/rules";
+import { PAIR_SORTS, type PairSort } from "@/lib/home/pairBoard";
+import type { PairBoardResponse } from "@/lib/server/pairBoard";
 
 /** Mode tabs (maker 2026-11-18): Overall = season points from every mode (lib/season/points); each mode ranks on its own number. */
-type Mode = "overall" | "rockets" | "duel" | "royale" | "climb" | "crews";
+type Mode = "overall" | "rockets" | "pairs" | "duel" | "royale" | "climb" | "crews";
 const MODES: { k: Mode; label: string }[] = [
   { k: "overall", label: "Overall" },
   { k: "rockets", label: "Rockets" },
+  { k: "pairs", label: "Pairs" },
   { k: "duel", label: "Duel" },
   ...(ROYALE_ENABLED ? [{ k: "royale" as Mode, label: "Royale" }] : []),   // held for launch (lib/features)
   { k: "climb", label: "Climb" },
@@ -68,6 +71,7 @@ export const LEADERBOARD_COPY = {
   head: { pnl: "PnL", pts: "Points", level: "Level" },
   play: "Play now",
   duel: "Play a duel",
+  pairs: { coin: "Coin", cut: "Elimination zone", by: { volume: "Volume", burned: "Burned", rockets: "Rockets", traders: "Traders" } as Record<PairSort, string> },
 } as const;
 
 /** +$2,279,655.33 / -$846.33 */
@@ -423,6 +427,66 @@ function SeasonLadder({ d }: { d: SeasonRes }) {
   );
 }
 
+
+/* ── Pairs (maker 2026-11-20): the pair coins ranked by what their rockets did this season. Top PAIR_SAFE are safe; the
+   rest sit under the elimination line. The line only shows on the ranking that decides it (PAIR_CUT_BY). ───────────── */
+const compact = (v: number) => {
+  const a = Math.abs(v);
+  if (a >= 1e9) return `${(v / 1e9).toFixed(1).replace(/\.0$/, "")}B`;
+  if (a >= 1e6) return `${(v / 1e6).toFixed(1).replace(/\.0$/, "")}M`;
+  if (a >= 1e4) return `${(v / 1e3).toFixed(1).replace(/\.0$/, "")}K`;
+  return Math.round(v).toLocaleString("en-US");
+};
+const usdCompact = (v: number) => `$${compact(v)}`;
+const burnPct = (p: number) => (p <= 0 ? "0%" : p < 0.0001 ? "<0.01%" : `${(p * 100).toFixed(p < 0.01 ? 2 : 1)}%`);
+type PairRowT = PairBoardResponse["rows"][number];
+const PAIR_VALUE: Record<PairSort, (r: PairRowT) => string> = {
+  volume: (r) => usdCompact(r.volumeUsd),
+  burned: (r) => (r.burnedPct > 0 ? burnPct(r.burnedPct) : compact(r.burned)),
+  rockets: (r) => r.rockets.toLocaleString("en-US"),
+  traders: (r) => r.traders.toLocaleString("en-US"),
+};
+/** The other three numbers as chips: a word each, no sentences. */
+const PAIR_CHIP: Record<PairSort, (r: PairRowT) => string> = {
+  volume: (r) => `${usdCompact(r.volumeUsd)} vol`,
+  burned: (r) => `${compact(r.burned)} burned`,
+  rockets: (r) => `${r.rockets.toLocaleString("en-US")} ${r.rockets === 1 ? "rocket" : "rockets"}`,
+  traders: (r) => `${r.traders.toLocaleString("en-US")} ${r.traders === 1 ? "trader" : "traders"}`,
+};
+function PairRow({ r, by, out }: { r: PairRowT; by: PairSort; out: boolean }) {
+  return (
+    <div className={`tp-trow tp-pair${out ? " out" : ""}`} data-testid={`lb-pair-${r.symbol}`} aria-label={`#${r.rank} $${r.symbol}`}>
+      {out ? <span className="tp-rk tp-rkout">{r.rank}</span> : <Rank n={r.rank} />}
+      <span className="tp-av md tp-pairlogo" aria-hidden>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={withBase(r.icon)} alt="" loading="lazy" decoding="async" />
+      </span>
+      <div className="tp-tname">
+        <b>${r.symbol}</b>
+        <div className="tp-pairchips">{PAIR_SORTS.filter((k) => k !== by).map((k) => <span key={k} className={`k-${k}`}>{PAIR_CHIP[k](r)}</span>)}</div>
+      </div>
+      <div className="tp-tpnl"><b className={`r2-g ${out ? "tp-red" : "tp-white"}`}>{PAIR_VALUE[by](r)}</b></div>
+    </div>
+  );
+}
+function PairsBoard({ d }: { d: PairBoardResponse }) {
+  const line = d.by === d.cutBy;
+  const C = LEADERBOARD_COPY.pairs;
+  return (
+    <section className="tp-card tp-traders tp-pairs" aria-label="Pairs" data-testid="lb-pairs">
+      <div className="tp-thead" aria-hidden><span>#</span><span>{C.coin}</span><span>{C.by[d.by]}</span></div>
+      <div className="tp-trows">
+        {d.rows.map((r) => (
+          <Fragment key={r.address}>
+            {line && r.rank === d.safe + 1 && <div className="tp-cut" data-testid="lb-pair-cut"><i aria-hidden /><b className="r2-g">{C.cut}</b><i aria-hidden /></div>}
+            <PairRow r={r} by={d.by} out={line && r.rank > d.safe} />
+          </Fragment>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default function LeaderboardView() {
   const [win, setWin] = useState<BoardWindow>("day");
   const [mode, setMode] = useState<Mode>("overall");
@@ -439,6 +503,8 @@ export default function LeaderboardView() {
   const [crews, setCrews] = useState<CrewBoardResponse | null>(null);
   const [duel, setDuel] = useState<DuelBoardRes | null>(null);
   const [season, setSeason] = useState<SeasonRes | null>(null);
+  const [pairBy, setPairBy] = useState<PairSort>("volume");
+  const [pairs, setPairs] = useState<PairBoardResponse | null>(null);
   const picked = useRef(false);
   useEffect(() => onWallet((a) => setMe(a ?? null)), []);
   // Duel: ranked = real money only (lib/duel/season DUEL_RANKED_LIVE); until then the tab says so
@@ -452,7 +518,14 @@ export default function LeaderboardView() {
   }, [me, mode]);
 
   useEffect(() => {
-    if (mode === "duel") return;
+    if (mode !== "pairs") return;
+    let alive = true;
+    fetch(withBase(`/api/leaderboard?sort=pairs&by=${pairBy}`)).then((r) => (r.ok ? r.json() : null)).then((d: PairBoardResponse | null) => { if (alive && d?.rows) setPairs(d); }).catch(() => {});
+    return () => { alive = false; };
+  }, [mode, pairBy]);
+
+  useEffect(() => {
+    if (mode === "duel" || mode === "pairs") return;
     let alive = true;
     const sort = mode === "rockets" ? (sub === "traders" ? "pnl" : "positions") : mode === "overall" && view === "lifetime" ? "lifetime" : mode;
     const q = new URLSearchParams({ window: win, sort });
@@ -487,7 +560,8 @@ export default function LeaderboardView() {
   }, [win, mode, sub, view, me]);
 
   const rockets = mode === "rockets";
-  const loading = mode === "duel" ? DUEL_RANKED_LIVE && !duel
+  const loading = mode === "pairs" ? !pairs || pairs.by !== pairBy
+    : mode === "duel" ? DUEL_RANKED_LIVE && !duel
     : mode === "crews" ? !crews || crews.window !== win
     : mode === "overall" ? (view === "lifetime" ? !life : !overall)
     : mode === "royale" || mode === "climb" ? !boards[mode]
@@ -508,6 +582,7 @@ export default function LeaderboardView() {
 
   let body: React.ReactNode;
   if (loading) body = <div className="tp-loading" aria-busy="true" />;
+  else if (mode === "pairs") body = <PairsBoard d={pairs!} />;
   else if (mode === "duel") body = DUEL_RANKED_LIVE && duel && duel.rows.length ? <>{season && <SeasonLadder d={season} />}<DuelTable d={duel} meLc={me?.toLowerCase()} /></> : <RealOnly mode="duel" />;
   else if (mode === "royale" || mode === "climb") body = boards[mode]?.rows.length ? <ModeBoard d={boards[mode]!} me={me} /> : <RealOnly mode={mode} />;
   else if (mode === "overall" && view === "lifetime") body = life && (life.rows.length || life.me) ? <Lifetime d={life} me={me} /> : emptyBoard;
@@ -534,7 +609,11 @@ export default function LeaderboardView() {
           <button key={m.k} type="button" role="tab" aria-selected={mode === m.k} className={mode === m.k ? "on" : ""} onClick={() => setMode(m.k)} data-testid={`lb-mode-${m.k}`}>{m.label}</button>
         ))}
       </div>
-      {(rockets || mode === "crews") ? (
+      {mode === "pairs" ? (
+        <div className="tp-bar tp-pairbar"><div className="tp-tabs" role="tablist" aria-label="Rank by">
+          {PAIR_SORTS.map((k) => <button key={k} type="button" role="tab" aria-selected={pairBy === k} className={pairBy === k ? "on" : ""} onClick={() => setPairBy(k)} data-testid={`lb-pairby-${k}`}>{LEADERBOARD_COPY.pairs.by[k]}</button>)}
+        </div></div>
+      ) : (rockets || mode === "crews") ? (
         <div className="tp-bar">
           {rockets ? <div className="tp-tabs" role="tablist" aria-label="Board">
             {SUBS.map((s) => <button key={s.k} type="button" role="tab" aria-selected={sub === s.k} className={sub === s.k ? "on" : ""} onClick={() => setSub(s.k)}>{s.label}</button>)}

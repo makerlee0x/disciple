@@ -1,8 +1,10 @@
-/** GET /api/leaderboard?window=day|week|month|all&sort=pnl|pctGain|orbits|crews|positions|overall|lifetime|royale|climb[&me=0x…] → lib/server/leaderboard BoardResponse (CrewBoardResponse for crews). */
+/** GET /api/leaderboard?window=day|week|month|all&sort=pnl|pctGain|orbits|crews|positions|overall|lifetime|royale|climb[&me=0x…] (sort=pairs&by=volume|burned|rockets|traders: lib/server/pairBoard) → lib/server/leaderboard BoardResponse (CrewBoardResponse for crews). */
 import { NextResponse } from "next/server";
 import { getCrewBoard, getLeaderboard, getLifetime, getModeBoard, getOverall, getPositions } from "@/lib/server/leaderboard";
 import { BOARD_SORTS, BOARD_WINDOWS, type BoardSort, type BoardWindow } from "@/lib/home/topPilots";
 import { kv } from "@/lib/server/kv";
+import { getPairBoard } from "@/lib/server/pairBoard";
+import { PAIR_SORTS, type PairSort } from "@/lib/home/pairBoard";
 import { PUBLIC_GET_LIMITS, clientIp, hitLimit } from "@/lib/server/limits";
 
 export const runtime = "nodejs";
@@ -16,6 +18,11 @@ export async function GET(req: Request) {
   const window = (q.get("window") ?? "day") as BoardWindow;
   const sort = (q.get("sort") ?? "pnl") as BoardSort | "crews" | "positions" | "overall" | "lifetime" | "royale" | "climb";
   const me = q.get("me");
+  if (q.get("sort") === "pairs") {
+    const by = (q.get("by") ?? "volume") as PairSort;
+    if (!PAIR_SORTS.includes(by)) return NextResponse.json({ error: "bad query" }, { status: 400 });
+    return NextResponse.json(await getPairBoard(by), { headers: { "cache-control": "public, max-age=0, s-maxage=30, stale-while-revalidate=60" } });
+  }
   if (!BOARD_WINDOWS.some((w) => w.k === window) || (!["crews", "positions", "overall", "lifetime", "royale", "climb"].includes(sort) && !BOARD_SORTS.includes(sort as BoardSort))) return NextResponse.json({ error: "bad query" }, { status: 400 });
   if (me !== null && !/^0x[0-9a-fA-F]{40}$/.test(me)) return NextResponse.json({ error: "bad me" }, { status: 400 });
   const data = sort === "overall" ? await getOverall(me) : sort === "lifetime" ? await getLifetime(me) : sort === "royale" || sort === "climb" ? await getModeBoard(sort) : sort === "positions" ? await getPositions(window) : sort === "crews" ? await getCrewBoard(window, me) : await getLeaderboard(window, sort, me);
