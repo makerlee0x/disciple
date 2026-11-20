@@ -2,7 +2,9 @@
  *  (and the ranked highest-level board) move to the server with the Lighter / Nova adapter. */
 import { CLIMB_FREE } from "./rules";
 
-const KEY = "disciple.climb.v1";
+// v2 (2026-11-20): starts everyone back at level 1. A real-money run on a stale $0 Lighter read counted a Turbo
+// deposit as profit and jumped a pilot to level 5 (fixed in ClimbScreen's begin/result).
+const KEY = "disciple.climb.v2";
 
 export function readClimbLevel(): number {
   try {

@@ -22,6 +22,7 @@ import GeoBanner from "@/components/turbo/GeoBanner";
 import { mountRealSwitch } from "@/lib/turbo/realSwitch";
 import { mountTurboPill } from "@/lib/turbo/turboPill";
 import { lighterStatus } from "@/lib/lighter/client";
+import { onTurboCash } from "@/lib/turbo/turboCash";
 import { LIGHTER_PRICE_HOST, streamLighterBook, streamLighterMids } from "@/lib/turbo/royalePrices";
 import { onWallet } from "@/lib/walletState";
 
@@ -111,21 +112,48 @@ export default function ClimbScreen() {
         if (h && h !== LIGHTER_PRICE_HOST) { stopPrice(); stopPrice = lxStreams(h); }
       }).catch(() => {});
     });
-    let startCash: number | null = null, ended: Promise<void> = Promise.resolve();
+    // Turbo cash moves while the page is open (a deposit from the Turbo pill, a withdraw, another tab): re-read Lighter so
+    // the levels match the balance. maker 2026-11-20: the page read $0 before a $5.95 deposit landed, so Level 1 asked
+    // for $12 and the run's "result" counted the deposit as profit.
+    const reread = () => { if (!lf || dead) return; void readLighter().then((r) => { if (!dead && r && r.s.step === "ready" && r.cash != null) { host.climb.real = true; realCash = r.cash; setBalance(r.cash); } }).catch(() => {}); };
+    let lastSeen = -1;
+    const offTurbo = onLighter ? onTurboCash((t) => { if (Math.abs(t.usd - lastSeen) > 0.005) { lastSeen = t.usd; reread(); } }) : () => {};
+    const onFocus = () => reread();
+    if (onLighter) addEventListener("focus", onFocus);
+    // startCash: Lighter cash read fresh as this run began. realRun: this run really placed orders on Lighter, the only
+    // case where Lighter's cash delta is the run's result (a run that fell back to play money never reads it)
+    let startCash: number | null = null, realRun = false, ended: Promise<void> = Promise.resolve();
     const sizesFor = (fuel: number) => PCTS.map((p) => (p === 0 ? fuel / (1 + gear * CLIMB_FEE) : pctUsd(p, fuel)) * gear / CLIMB_MAX_GEAR);
     const lighter = !lighterWanted() ? undefined : {
       /** Lighter's smallest BTC order, a position in $ (read once the account is ready); the engine rounds bets up to it */
       minUsd: 0,
-      begin: (run: { fuel: number; gear: number }) => {
-        gear = run.gear; startCash = realCash;
+      /** before the countdown: reads Lighter fresh, and resolves to null when the run's real orders are set, or to the
+       *  reason they aren't. A real-money run (host.climb.real) doesn't start without them (the engine goes back to the
+       *  levels with the reason); it never quietly flies on play money. */
+      begin: (run: { level: number; fuel: number; gear: number; free?: boolean }): Promise<string | null> => {
+        gear = run.gear; startCash = null; realRun = false;
+        let why: string | null = null;
         lxP = (async () => {
-          if (!wallet) { api?.error?.("Sign in to fly on Lighter."); return null; }
+          if (!wallet) { why = "Sign in to fly on Lighter."; return null; }
           const f = lighterFetcher(wallet);
-          if (!(await LighterMatch.ready(f))) { api?.error?.("Lighter isn't set up for this wallet. Finish set-up on /lighter."); return null; }
+          lf = f;
+          const r = await readLighter().catch(() => null);
+          if (!r || r.s.step !== "ready" || r.cash == null) { why = r ? "Lighter isn't set up for this wallet. Finish set-up on /lighter." : "Can't reach Lighter right now. Try again in a moment."; return null; }
+          if (r.entry != null) { why = "You still have a BTC position open on Lighter. Close it first."; return null; }
+          host.climb.real = true;
+          const moved = realCash == null || Math.abs(r.cash - realCash) > 0.005;
+          realCash = r.cash;
+          if (moved) {
+            setBalance(r.cash);
+            const now = run.free ? null : levels.find((l) => l.n === run.level);
+            if (now && Math.abs(now.fuel - run.fuel) > 0.005) { why = "Your Turbo cash changed, so your levels did too."; return null; }
+          }
           const cash = await lighterCash(f, run.fuel, run.gear);
-          if (!cash.ok) { api?.error?.(cashNote(cash.need)); return null; }
+          if (!cash.ok) { why = cashNote(cash.need); return null; }
+          startCash = r.cash; realRun = true;
           const lx = new LighterMatch(f, "BTC", sizesFor, run.fuel); lx.start(); return lx;
-        })().catch(() => null);
+        })().catch(() => { why = "Can't reach Lighter right now. Try again in a moment."; return null; });
+        return lxP.then(() => why);
       },
       arm: (endAt: number) => {
         const id = `climb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -157,7 +185,7 @@ export default function ClimbScreen() {
       /** the run's real result: Lighter cash once the BTC position is gone, minus the cash before the run */
       result: async (): Promise<number | null> => {
         await ended;
-        if (startCash == null) return null;
+        if (!realRun || startCash == null) return null;
         for (let i = 0; i < 8; i++) {
           const r = await readLighter().catch(() => null);
           if (r && r.cash != null && r.entry == null) { realCash = r.cash; setBalance(r.cash); return Math.round((r.cash - startCash) * 1e6) / 1e6; }
@@ -192,7 +220,7 @@ export default function ClimbScreen() {
       offSwitch = mountRealSwitch(ref.current);
       offPill = mountTurboPill(ref.current);
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load Climb. Refresh to try again."; });
-    return () => { dead = true; offSwitch(); offPill(); stopPrice(); stopBackup(); offWallet(); offFuel(); api?.destroy(); };
+    return () => { dead = true; offSwitch(); offPill(); offTurbo(); removeEventListener("focus", onFocus); stopPrice(); stopBackup(); offWallet(); offFuel(); api?.destroy(); };
   }
   return <><GeoBanner /><div ref={ref} /><LobbySettings mode="climb" open={gear} onClose={() => setGear(false)} /></>;
 }

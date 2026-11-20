@@ -35,6 +35,8 @@ import { streamLighterMids } from "@/lib/turbo/royalePrices";
 
 type Tick = { ts: number; p: number };
 interface EngineApi {
+  /** real orders on Lighter for this match: hides the SIMULATOR pill in flight */
+  real?(on: boolean): void;
   price(p: number, ts: number): void;
   setMe(rec: { w: number; l: number; rating: number; streak: number } | null, signed: boolean): void;
   setClock(serverNow: number): void;
@@ -134,7 +136,7 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
       if (!lighterOn || !me) return;
       const book = room.books[me];
       if ((room.status === "lobby" || room.status === "live") && lxFor !== room.id) {
-        lx?.stop(); lx = null; lxFor = room.id; lxBombs = null;
+        lx?.stop(); lx = null; lxFor = room.id; lxBombs = null; api?.real?.(false);
         const f = lighterFetcher(me);
         if (!(await LighterMatch.ready(f))) { if (lxStatus !== "no") { lxStatus = "no"; api?.error("Lighter isn't set up for this wallet. Finish set-up on /lighter."); } return; }
         // a joined link skips the lobby check: still never trade real money the NUKE can't close before Lighter liquidates
@@ -142,6 +144,7 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
         if (!cash.ok) { api?.error(cashNote(cash.need)); return; }
         if (lxFor !== room.id || dead) return;
         lx = new LighterMatch(f, "BTC", sizesFor, book?.fuel ?? fuelOf(room)); lx.start(); lxStatus = "on";
+        api?.real?.(true);   // the flight's SIMULATOR pill comes off only now (maker 2026-11-20)
         void lx.arm("duel", room.id); // the duel's own buzzer closes the real position server-side
       }
       if (lx && book) {
@@ -150,10 +153,11 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
         lxBombs = book.bombs;
         lx.fuel(book.fuel);
       }
-      if (lx && (room.status === "done" || room.status === "cancelled")) { const x = lx; lx = null; lxFor = null; await x.closeAll(); x.stop(); }
+      if (lx && (room.status === "done" || room.status === "cancelled")) { const x = lx; lx = null; lxFor = null; api?.real?.(false); await x.closeAll(); x.stop(); }
     };
     const unfollow = () => {
       if (rematchT) { clearTimeout(rematchT); rematchT = null; } fol?.stop(); fol = null; roomId = null;
+      api?.real?.(false);
       if (lx) { const x = lx; lx = null; lxFor = null; void x.closeAll().finally(() => x.stop()); }
     };
     const follow = (id: string) => {
