@@ -15,8 +15,17 @@ export const LEV = 50;
 export const FEE = 0.000055;
 /** Every duel fill waits this long after the tap, like a Lighter Standard/Plus taker order (300 ms speed bump). */
 export const FILL_MS = 300;
-/** NUKE when the open position has lost 80% of the fuel in it. */
-export const LIQ = 0.8;
+/**
+ * NUKE line by gear (maker 2026-11-20): positions are on Lighter cross margin, and our NUKE closes them with a 0.42%
+ * BTC move to spare before Lighter's own liquidation (maintenance 1.2%, 1% fee), when Turbo cash is 1.2x the stake.
+ * Share of the fuel in the position lost at the NUKE: 50x 39% (a 0.777% move), 40x 55%, 30x 71%, 20x and under 80%.
+ */
+export const NUKE_GAP = 0.0042, LX_MAINT = 0.012, CASH_X = 1.2;
+export const liqFrac = (gear: number) => Math.min(0.8, CASH_X - (LX_MAINT + NUKE_GAP) * gear);
+/** the Turbo cash a stake at `gear` needs so the NUKE always closes before Lighter liquidates (1.2x the stake at 50x) */
+export const cashNeed = (stake: number, gear: number) => Math.ceil(stake * (liqFrac(gear) + (LX_MAINT + NUKE_GAP) * gear) * 100) / 100;
+/** duels fly at LEV: NUKE at 39% of the fuel in the position */
+export const LIQ = liqFrac(LEV);
 export const OT_MS = 30_000;
 export const COUNTDOWN_MS = 3_500;
 
@@ -39,11 +48,12 @@ export const isLength = (l: unknown): l is LengthMs => l === DUEL_LEN_MS;
 export const toLength = (l: unknown): LengthMs | null => (l === DUEL_LEN_MS || l === 180_000 ? DUEL_LEN_MS : null);
 
 /* ---- custom budgets (maker, 2026-11-15: "challenge someone to a $100 budget, or a $1k, or whatever") ----
- * Friend duels can set their own fuel, whole dollars from $5 to $10,000 (maker: "as low as $5"). Ranked keeps the three tiers, so matchmaking
+ * Friend duels can set their own fuel, any whole dollars from $5 up, no top (maker: "as low as $5"; 2026-11-20: "they can do unlimited"). Ranked keeps the three tiers, so matchmaking
  * pools stay fixed. It's each pilot's own budget, never a pot: nobody pays the winner. Trade sizes scale with it: the
  * biggest button is half the budget rounded down to a 1-2-5 step, then the three steps below it, plus ALL
  * ($20 → 1/2/5/10, $100 → 5/10/20/50, $1,000 → 50/100/200/500). */
-export const CUSTOM_FUEL_MIN = 5, CUSTOM_FUEL_MAX = 10_000;
+/** CUSTOM_FUEL_MAX is not a game limit: it only keeps numbers sane (no Turbo size cap, maker 2026-11-20) */
+export const CUSTOM_FUEL_MIN = 5, CUSTOM_FUEL_MAX = 1_000_000_000;
 export const isCustomFuel = (n: unknown): n is number => typeof n === "number" && Number.isInteger(n) && n >= CUSTOM_FUEL_MIN && n <= CUSTOM_FUEL_MAX;
 const nice = (v: number) => { if (v < 1) return 1; const k = 10 ** Math.floor(Math.log10(v)), m = v / k; return (m >= 5 ? 5 : m >= 2 ? 2 : 1) * k; };
 const stepDown = (v: number) => { const k = 10 ** Math.floor(Math.log10(v)), m = Math.round(v / k); return m === 5 ? 2 * k : m === 2 ? k : 5 * (k / 10); };

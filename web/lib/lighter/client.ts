@@ -32,6 +32,8 @@ export const lighterOpen = (f: Fetcher, market: string, side: "long" | "short", 
   call<{ hash: string; base: number; price: number; fill: number; lev: number; ms: Record<string, number> }>(f, { op: "open", market, side, usd });
 export const lighterClose = (f: Fetcher, market: string) => call<{ hash: string; price: number; ms: Record<string, number> }>(f, { op: "close", market });
 /** Loads the player into the server ahead of a duel so the first tap is warm. */
+/** close all, checked by the server against Lighter's account (no partial close can be left behind) */
+export const lighterFlatten = (f: Fetcher, market: string) => call<{ flat: boolean; closes: number }>(f, { op: "flatten", market });
 export const lighterWarm = (f: Fetcher) => call(f, { op: "warm" });
 
 /**

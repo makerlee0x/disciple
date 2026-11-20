@@ -21,12 +21,13 @@ Level up | Clear 5 to unlock free mode.
 | 2 | 2.75% | 20× | +3% |
 | 3 | 6.4% | 30× | +5% |
 | 4 | 27.75% | 40× | +7.5% |
-| 5 | Your whole balance | 50× | +10% |
+| 5 | 83% of your balance | 50× | +10% |
 
 Fuel scales with your Turbo cash, so the ladder fits a $20 balance or a $2,000 one. The smallest level fuel is $2.
 
 - Clear a level and the next one opens. Beat a higher level's goal and you jump straight there.
 - Unlocked levels stay unlocked.
 - **Free mode** (after level 5): any fuel, any gear up to 50×, no clock.
+- **NUKE:** closes the position before Lighter would liquidate it: 39% of the fuel at 50×, 55% at 40×, 71% at 30×, 80% at 20× and under.
 
 Same keys as [Duel](/docs/turbo/duel). Miss the goal or get NUKED and you can run it back.

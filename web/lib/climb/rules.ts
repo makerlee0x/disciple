@@ -11,11 +11,11 @@ export const CLIMB_LEVELS: readonly ClimbLevel[] = [
   { n: 2, fuel: 33, gear: 20, goal: 1 },      // +3%, 0.15%
   { n: 3, fuel: 77, gear: 30, goal: 3.85 },   // +5%, 0.17%
   { n: 4, fuel: 333, gear: 40, goal: 25 },    // +7.5%, 0.19%
-  { n: 5, fuel: 1200, gear: 50, goal: 120 },  // +10%, 0.20%
+  { n: 5, fuel: 1000, gear: 50, goal: 100 },  // +10%, 0.20%. 83% of the balance: the rest backs the cross-margin NUKE line (maker 2026-11-20)
 ];
 /** the ladder above is drawn for a $1,200 balance. Levels scale with the pilot's balance (maker 2026-11-18: "if they
  *  have $20 or $1k starting, their levels should scale with their deposit"): every level keeps its gear and its % goal,
- *  and its fuel is the same share of the balance (level 5 = the whole balance). Under CLIMB_MIN_BALANCE (play money, an
+ *  and its fuel is the same share of the balance (level 5 = 83% of it, 1/1.2). Under CLIMB_MIN_BALANCE (play money, an
  *  empty wallet) the $1,200 ladder is used. Unlocked levels are kept whatever the balance does. */
 export const CLIMB_BASE = 1200;
 export const CLIMB_MIN_BALANCE = 5;

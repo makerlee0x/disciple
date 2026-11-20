@@ -31,7 +31,7 @@ export class RoyaleLighter {
       case "start": return void this.start(d);
       case "guns": return void this.guns(d);
       case "boost": case "dump": return void this.press(d.op, d.i ?? 0);
-      case "close": return void this.press("close", 0);
+      case "close": return void this.closeFull();
       case "end": return void this.end();
     }
   }
@@ -74,6 +74,14 @@ export class RoyaleLighter {
       if (small) { if (this.quiet.has(this.mk ?? "")) return; this.quiet.add(this.mk ?? ""); }
       this.say(r.error);
     }
+  }
+
+  /** cash out, a NUKE, a storm cut or knocked out: the whole position closes, checked against Lighter */
+  private async closeFull() {
+    const lx = this.lx; // the coin this close is for, even if a jump swaps this.lx while we wait
+    if (!lx || !(await this.ok)) return;
+    const r = await lx.closeAll();
+    if (!r.flat) this.say("Lighter: couldn't confirm the close. Check your Turbo cash.");
   }
 
   async end() {

@@ -9,7 +9,8 @@
 import { withBase } from "@/lib/base-path";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import { turboBlockedCached, turboRegion } from "@/lib/turbo/region";
-import { LighterTaps, lighterClose, lighterStatus, type TapKind } from "./client";
+import { cashNeed } from "@/lib/duel/rules";
+import { LighterTaps, lighterFlatten, lighterStatus, type TapKind } from "./client";
 
 const FLAG = "disciple.lighter";
 /** reads / applies the ?lighter= switch */
@@ -45,6 +46,14 @@ export function lighterFetcher(wallet: string) {
     return fetch(withBase(input), { ...init, cache: "no-store", headers: { ...((init?.headers as Record<string, string>) ?? {}), authorization: `Bearer ${t}`, "x-wallet": wallet } });
   };
 }
+
+/** cross margin: Turbo cash backs the position, so it must cover the stake plus room for our NUKE to close first
+ *  (lib/duel/rules cashNeed: $24 for a $20 duel at 50x). */
+export async function lighterCash(f: ReturnType<typeof lighterFetcher>, stake: number, gear: number): Promise<{ ok: boolean; need: number }> {
+  const need = cashNeed(stake, gear);
+  try { return { ok: Number((await lighterStatus(f)).collateral ?? 0) + 1e-9 >= need, need }; } catch { return { ok: false, need }; }
+}
+export const cashNote = (need: number) => `You need $${need.toFixed(2)} in Turbo cash for this match.`;
 
 export type MatchAction = "boost" | "dump" | "close";
 /**
@@ -94,11 +103,14 @@ export class LighterMatch {
     this.chain = p;
     return p;
   }
-  /** buzzer / leaving: close whatever is open on Lighter (pre-signed close, else the server's close) */
-  async closeAll(): Promise<void> {
+  /** NUKE / buzzer / leaving: close everything open on Lighter, fully. The pre-signed close goes first (fastest), then
+   *  the server reads the real position and closes whatever is left until Lighter shows nothing open. */
+  async closeAll(): Promise<{ flat: boolean }> {
     await this.chain.catch(() => {});
-    const t = this.taps.ticket ?? (await this.taps.refresh());
-    if (t?.close) { const r = await this.press("close", 0, 0); if (!("error" in r)) return; }
-    await lighterClose(this.f, this.taps.market).catch(() => {}); // "Nothing open." is fine
+    const t = this.taps.ticket ?? (await this.taps.refresh().catch(() => null));
+    if (t?.close) await this.press("close", 0, 0);
+    const done = this.chain.then(() => lighterFlatten(this.f, this.taps.market)).then((r) => ({ flat: r.flat }), () => ({ flat: false }));
+    this.chain = done;
+    return done;
   }
 }

@@ -163,7 +163,7 @@ export const HIW_PRO = {
       ["Exchange", "Lighter · BTC perps"],
       ["Fee", "1.1 bp round trip"],
       ["Leverage", "Duel 50× · Climb 10–50×"],
-      ["Cash in / out", "Relay · USDG ⇄ USDC · from $5.10"],
+      ["Cash in / out", "Relay · USDG ⇄ USDC · from $6"],
       ["Duel", "1v1 · 1 min · $20 / $50 / $150 fuel"],
       ["Climb", "5 levels · 1 min · then free mode"],
       ["Ranked", "Real money only"],

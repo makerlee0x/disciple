@@ -45,6 +45,10 @@ signed order goes through `relay`. The trading key stays on the server. The shor
   there with the normal gasless cash-out, then set-up finishes on its own. Mainnet only; minimum $5 new, $3 after.
 - **Buzzer** (`match.ts`): a match arms itself (`op: arm`); when it ends the server closes that pilot's positions on its
   markets. Duel: the duel store calls it when the room settles. Climb / Royale: a server timer for the match length.
+- **Full close** (`flattenMarket`, op `flatten`): reads Lighter's account, closes exactly what's there (reduce-only), reads
+  again, up to 4 rounds. Every NUKE, end-of-game close and buzzer uses it, so a close is never partial.
+- **Backup buzzer**: each arm is listed by end time; a 1-minute cron (`GET /api/lighter/buzz`, fra1) closes any match past
+  its end that the timer or the duel's settle missed.
 
 ## Testing
 Hidden page `/lighter` (not linked): sign in, then Set up, Long / Short / Close with timings. The env vars must be on the

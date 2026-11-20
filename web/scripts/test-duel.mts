@@ -39,10 +39,21 @@ test("rules: boost, add averages the entry, no flips (cash out first), close boo
 test("rules: % trade sizes and the stakes the server takes", () => {
   assert.deepEqual([...R.PCTS], [10, 25, 50, 0]);
   assert.equal(R.pctUsd(25, 50), 12.5); assert.equal(R.pctUsd(10, 18.17), 1.81); assert.equal(R.pctUsd(0, 7.3), 7.3);
-  for (const ok of [0, 1, 2.5, 12.34, 500]) assert.ok(R.okStake(ok), `${ok}`);
-  for (const bad of [0.5, -1, 1.234, NaN, Infinity, 20000]) assert.ok(!R.okStake(bad), `${bad}`);
+  for (const ok of [0, 1, 2.5, 12.34, 500, 20000, 250000]) assert.ok(R.okStake(ok), `${ok}`);
+  for (const bad of [0.5, -1, 1.234, NaN, Infinity]) assert.ok(!R.okStake(bad), `${bad}`);
 });
-test("rules: ALL uses everything, NUKE at 80% of the fuel in it", () => {
+test("rules: NUKE line by gear keeps 0.42% before Lighter liquidates; cash need is 1.2x the stake at 50x", () => {
+  const near = (a: number, b: number, e = 1e-9) => assert.ok(Math.abs(a - b) < e, `${a} vs ${b}`);
+  near(R.liqFrac(50), 0.39); near(R.liqFrac(40), 0.552); near(R.liqFrac(30), 0.714); near(R.liqFrac(20), 0.8); near(R.liqFrac(10), 0.8);
+  near(R.LIQ, 0.39); near(R.liqFrac(50) / 50, 0.0078);
+  assert.equal(R.cashNeed(20, 50), 24); assert.equal(R.cashNeed(150, 50), 180); assert.equal(R.cashNeed(1000, 50), 1200);
+  // with that cash at any gear, Lighter's line (cash - 1.2% of notional) sits 0.42% of a move past the NUKE
+  for (const g of [10, 20, 30, 40, 50]) {
+    const stake = 100, n = stake * g, cash = R.cashNeed(stake, g), nukeMove = R.liqFrac(g) * stake / n, lineMove = (cash - 0.012 * n) / n;
+    assert.ok(lineMove - nukeMove >= 0.0042 - 1e-6, `gear ${g}: gap ${lineMove - nukeMove}`);
+  }
+});
+test("rules: ALL uses everything, NUKE at 39% of the fuel in it (50x)", () => {
   let b = R.applyTrade(R.newBook(20), "boost", 0, 68000, 0)!.book;
   assert.ok(b.fuel < 0.01);
   const lp = R.liqPrice(b.pos!); assert.ok(lp < 68000);
@@ -275,7 +286,7 @@ test("custom budgets: sizes scale on 1-2-5 steps; friend room books start at the
   assert.deepEqual(R.sizesFor(100), [5, 10, 20, 50, 0]);
   assert.deepEqual(R.sizesFor(1000), [50, 100, 200, 500, 0]);
   assert.deepEqual(R.sizesFor(10_000), [500, 1000, 2000, 5000, 0]);
-  assert.ok(!R.isCustomFuel(4) && R.isCustomFuel(5) && !R.isCustomFuel(10_001) && !R.isCustomFuel(99.5) && R.isCustomFuel(250));
+  assert.ok(!R.isCustomFuel(4) && R.isCustomFuel(5) && R.isCustomFuel(10_001) && R.isCustomFuel(250_000) && !R.isCustomFuel(99.5) && R.isCustomFuel(250));
   const a = pilot("c"), b = pilot("d");
   const room = await S.createInvite(a, "pro", 60_000, undefined, 1000);
   assert.equal(room.fuel, 1000); assert.equal(room.books[a.pid].fuel, 1000);

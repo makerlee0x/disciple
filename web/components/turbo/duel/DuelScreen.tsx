@@ -22,10 +22,10 @@ import { EARN, RARITY_COLOR, RARITY_NAME, TRAILS, crateArt, frozenOf, itemById, 
 import { COLLECTION_CHANGED_EVENT } from "@/lib/collectionClient";
 import { withBase } from "@/lib/base-path";
 import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "./engineLoader";
-import { LighterMatch, lighterFetcher, lighterWanted } from "@/lib/lighter/duel";
+import { LighterMatch, cashNote, lighterCash, lighterFetcher, lighterWanted } from "@/lib/lighter/duel";
 import GeoBanner from "@/components/turbo/GeoBanner";
 import { mountRealSwitch } from "@/lib/turbo/realSwitch";
-import { FEE, LEV, PCTS, pctUsd, fuelOf } from "@/lib/duel/rules";
+import { FEE, LEV, PCTS, pctUsd, fuelOf, TIERS } from "@/lib/duel/rules";
 
 const trailRgb = (id?: string) => TRAILS.find((t) => trailId(t.id) === id)?.rgb;
 import { useTurboMusic } from "@/lib/game/turboMusic";
@@ -119,21 +119,36 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
     const lookOf = (pid: string | null, other: string | null) => (pid ? ships.get(pid) ?? (pid.startsWith("g_") ? guestLook(pid, other) : null) : null);
     // Lighter (hidden, ?lighter=1): each press is also a real order on the pilot's own Lighter account (lib/lighter/duel)
     const lighterOn = !guest && lighterWanted();
-    let lx: LighterMatch | null = null, lxFor: string | null = null, lxStatus: string | null = null;
+    let lx: LighterMatch | null = null, lxFor: string | null = null, lxStatus: string | null = null, lxBombs: number | null = null;
     // button i → $ of fuel, the way the engine sizes a press (ALL keeps the fee back, like rules openStep)
     const sizesFor = (fuel: number) => PCTS.map((p) => (p === 0 ? fuel / (1 + LEV * FEE) : pctUsd(p, fuel)));
+    /** real money: Turbo cash must cover the match before it starts (lib/lighter/duel lighterCash) */
+    const covered = async (fuel: number | undefined) => {
+      if (!lighterOn || !me || !fuel) return true;
+      const c = await lighterCash(lighterFetcher(me), fuel, LEV);
+      if (!c.ok) api?.error(cashNote(c.need));
+      return c.ok;
+    };
     const lighterRoom = async (room: DuelRoom) => {
       if (!lighterOn || !me) return;
       const book = room.books[me];
       if ((room.status === "lobby" || room.status === "live") && lxFor !== room.id) {
-        lx?.stop(); lx = null; lxFor = room.id;
+        lx?.stop(); lx = null; lxFor = room.id; lxBombs = null;
         const f = lighterFetcher(me);
         if (!(await LighterMatch.ready(f))) { if (lxStatus !== "no") { lxStatus = "no"; api?.error("Lighter isn't set up for this wallet. Finish set-up on /lighter."); } return; }
+        // a joined link skips the lobby check: still never trade real money the NUKE can't close before Lighter liquidates
+        const cash = await lighterCash(f, book?.fuel ?? fuelOf(room), LEV);
+        if (!cash.ok) { api?.error(cashNote(cash.need)); return; }
         if (lxFor !== room.id || dead) return;
         lx = new LighterMatch(f, "BTC", sizesFor, book?.fuel ?? fuelOf(room)); lx.start(); lxStatus = "on";
         void lx.arm("duel", room.id); // the duel's own buzzer closes the real position server-side
       }
-      if (lx && book) lx.fuel(book.fuel);
+      if (lx && book) {
+        // a NUKE is a liquidation: the server's book dropped the position, so the real one closes too, fully
+        if (lxBombs != null && book.bombs > lxBombs && room.status === "live") void lx.closeAll();
+        lxBombs = book.bombs;
+        lx.fuel(book.fuel);
+      }
       if (lx && (room.status === "done" || room.status === "cancelled")) { const x = lx; lx = null; lxFor = null; await x.closeAll(); x.stop(); }
     };
     const unfollow = () => {
@@ -236,11 +251,15 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
       guest,
       embed,
       signIn: () => { if (guest) { guestReady = false; void refreshMe(); return; } try { privyLogin(); } catch (e) { api?.error((e as Error).message); } },
-      quickMatch: (tier: TierId, len: LengthMs, casual?: boolean) => { stopQueue(); queued = { tier, len, casual: !!casual }; void pollQueue(); },
+      quickMatch: async (tier: TierId, len: LengthMs, casual?: boolean) => {
+        if (!(await covered(TIERS[tier]?.fuel))) return;
+        stopQueue(); queued = { tier, len, casual: !!casual }; void pollQueue();
+      },
       cancelSearch: () => { const q = stopQueue(); if (q) void duelApi.cancel(q.tier, q.len, q.casual); },
       createLink: async (tier: TierId, len: LengthMs, fuel?: number) => {
         if (!(await ensureGuest())) return;
         if (guest && !me) await refreshMe();
+        if (!(await covered(fuel ?? TIERS[tier]?.fuel))) return;
         const r = await duelApi.invite(tier, len, fuel);
         if (!r.ok) { api?.error(r.reason); return; }
         api?.invite(r.code, location.origin + r.path, r.share ? location.origin + r.share : undefined); follow(r.room.id);

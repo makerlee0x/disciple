@@ -1,10 +1,11 @@
 /**
  * Duel buzzer, run in fra1 (Lighter refuses signed txs from US IPs; duel routes run in iad1). Called by
  * lib/server/duel/store when a duel settles. Auth: Bearer CRON_SECRET. Body { id, pids }.
+ * GET is the Vercel cron (vercel.json, every minute): the backup buzzer for any armed match past its end (sweepArmed).
  */
 import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { buzzer } from "@/lib/server/lighter/match";
+import { buzzer, sweepArmed } from "@/lib/server/lighter/match";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const preferredRegion = "fra1";
@@ -21,4 +22,11 @@ export async function POST(req: Request) {
   if (!id || !pids.length) return NextResponse.json({ ok: false }, { status: 400 });
   await Promise.all(pids.map((pid) => buzzer(pid, id).catch((e) => console.error("[lighter] buzz", e))));
   return NextResponse.json({ ok: true });
+}
+
+export async function GET(req: Request) {
+  const s = process.env.CRON_SECRET;
+  if (!s || !same(req.headers.get("authorization") || "", `Bearer ${s}`)) return NextResponse.json({ ok: false }, { status: 401 });
+  try { return NextResponse.json({ ok: true, ...(await sweepArmed()) }); }
+  catch (e) { console.error("[lighter] sweep", e); return NextResponse.json({ ok: false }, { status: 500 }); }
 }

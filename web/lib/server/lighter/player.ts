@@ -249,6 +249,33 @@ export async function closeMarket(cfg: LighterConfig, pid: string, m: LighterMar
 }
 
 /**
+ * Closes the whole position on a market and checks it's gone (maker 2026-11-20: "there can never be a partial close").
+ * Every round reads the account fresh (never this instance's guess, which can trail a tap made on another instance),
+ * sends a reduce-only market close for exactly what Lighter holds, then reads again. Reduce-only makes a repeat safe:
+ * an extra close with nothing open does nothing. Gives up after FLAT_TRIES and says so.
+ */
+export const FLAT_TRIES = 4;
+export async function flattenMarket(cfg: LighterConfig, pid: string, m: LighterMarket, tries = FLAT_TRIES, wait = sleepMs): Promise<{ flat: boolean; closes: number }> {
+  const [h, mk] = await Promise.all([hotPlayer(cfg, pid), marketBySymbol(cfg, LIGHTER_MARKETS[m].symbol)]);
+  let closes = 0;
+  for (let i = 0; i < tries; i++) {
+    const a = await account(cfg, h.p.account);
+    const x = a?.positions.find((q) => q.market_id === mk.market_id && Number(q.position) !== 0);
+    if (!x) { if (h.pos) delete h.pos[mk.market_id]; return { flat: true, closes }; }
+    h.pos = { ...(h.pos ?? {}), [mk.market_id]: { sign: x.sign, base: Math.round(Math.abs(Number(x.position)) * 10 ** mk.size_decimals), at: Date.now() } };
+    books.delete(`${cfg.network}:${mk.market_id}`); // price the close off a fresh book
+    try { await closeMarket(cfg, pid, m); closes++; }
+    catch (e) { if (!(e instanceof LighterError && e.status === 409)) console.error("[lighter] flatten close", m, e); }
+    await wait(700); // Plus orders wait ~300 ms, and the account read trails the fill
+  }
+  const a = await account(cfg, h.p.account).catch(() => null);
+  const left = a?.positions.find((q) => q.market_id === mk.market_id && Number(q.position) !== 0);
+  if (left) console.error("[lighter] flatten: still open after", tries, "tries", { pid, market: m, position: left.position });
+  return { flat: !left, closes };
+}
+const sleepMs = (ms: number) => new Promise<void>((ok) => setTimeout(ok, ms));
+
+/**
  * Pre-signed tap orders. The server signs the player's next long, short and close ahead of time, all at the same nonce
  * (so only one of them can ever go through), each with a tight price cap, Disciple's fee and a short expiry. The browser
  * holds the set and a tap sends one straight to Lighter: no trip through Disciple's server on the tap. The trading key

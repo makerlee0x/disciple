@@ -107,3 +107,29 @@ test("Relay deposit quote: deposit address, what lands, its fee; bad answers thr
   assert.throws(() => parseRelayDeposit({ steps: [{ id: "deposit", depositAddress: "0x12" }], details: { currencyOut: { amount: "1" } } }));
   assert.throws(() => parseRelayDeposit({ steps: [{ id: "deposit", depositAddress: "0xf907095ab72a27899bb909f0f4e94bfe15ddb5ce" }] }));
 });
+
+test("backup buzzer: the sweep closes armed matches past their end, keeps one still open, skips ones not due", async () => {
+  process.env.LIGHTER_ENABLED = "1";
+  process.env.LIGHTER_NETWORK = "testnet";
+  const { kv } = await import("../lib/server/kv");
+  const { armMatch, sweepArmed, SWEEP_GRACE_MS, SWEEP_GIVE_UP_MS } = await import("../lib/server/lighter/match");
+  const s = kv();
+  const now = Date.now(), tag = `t${now.toString(36)}`;
+  const k = "lighter:armed:testnet";
+  for (const m of await s.zrange(k)) await s.zrem(k, m); // a clean list for this run
+  await armMatch(`0xa${tag}`, "climb", `${tag}-done`, ["BTC"], now - SWEEP_GRACE_MS - 1, s);
+  await armMatch(`0xb${tag}`, "climb", `${tag}-stuck`, ["BTC"], now - SWEEP_GRACE_MS - 2, s);
+  await armMatch(`0xc${tag}`, "royale", `${tag}-later`, ["BTC"], now + 60_000, s);
+  const fired: string[] = [];
+  const fire = async (_pid: string, id: string) => { fired.push(id); return !id.endsWith("stuck"); };
+  const r = await sweepArmed(now, s, fire);
+  assert.deepEqual(fired.sort(), [`${tag}-done`, `${tag}-stuck`]);
+  assert.deepEqual(r, { checked: 2, closed: 1, kept: 1 });
+  const left = await s.zrange(k);
+  assert.equal(left.length, 2);
+  assert.ok(left.some((m) => m.endsWith(`${tag}-stuck`)) && left.some((m) => m.endsWith(`${tag}-later`)));
+  // still open long after the end: dropped from the list (logged), so one stuck account can't clog the sweep forever
+  const r2 = await sweepArmed(now + 60_000 + SWEEP_GIVE_UP_MS + 1, s, async () => false);
+  assert.equal(r2.closed, 2);
+  for (const m of await s.zrange(k)) await s.zrem(k, m);
+});

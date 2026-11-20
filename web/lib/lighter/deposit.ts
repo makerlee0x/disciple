@@ -3,7 +3,7 @@
  * the usual gasless cash-out (no gas, no new signature prompt), Lighter's bridge credits it as USDC (the first deposit
  * creates the Lighter account), then the rest of Lighter set-up runs on its own (silent signatures).
  * Lighter on Robinhood Chain: an intent address on our own chain (1 USDG min). Lighter main: a Relay deposit address
- * that swaps it to USDC on Arbitrum and delivers it to the wallet's Lighter intent address ($5.10 min). The server picks
+ * that swaps it to USDC on Arbitrum and delivers it to the wallet's Lighter intent address ($6 min). The server picks
  * (lib/server/lighter/bridge.ts).
  */
 import { formatUnits, parseUnits, type Address } from "viem";

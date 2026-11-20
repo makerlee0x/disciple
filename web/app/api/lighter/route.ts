@@ -7,6 +7,7 @@
  *   tier                                → { ok }        moves the account to Plus
  *   open { market, side: long|short, usd } → { hash, base, price, lev }
  *   close { market }                    → { hash }
+ *   flatten { market }                  → { flat, closes }  closes the whole position and reads Lighter until it's gone
  *   warm                                → loads key, signer, market and nonce into this instance before a duel
  *   presign { market, sizes: [usd…] (or usd), used?: { nonce, kind, i }, floor? } → ticket: the next long, short and close, signed at one
  *                                         nonce with a short expiry; the browser sends the one it taps straight to Lighter
@@ -38,7 +39,7 @@ import { body, out, pilotOf, requirePass } from "@/lib/server/duel/http";
 import { DuelError } from "@/lib/server/duel/store";
 import { lighterConfig, isLighterMarket } from "@/lib/server/lighter/config";
 import { LighterError } from "@/lib/server/lighter/rest";
-import { closeMarket, finishSigned, tierInfo, openMarket, MAX_SIZES, presign, relay, setTier, startApprove, startKey, status, warm, type Used } from "@/lib/server/lighter/player";
+import { closeMarket, flattenMarket, finishSigned, tierInfo, openMarket, MAX_SIZES, presign, relay, setTier, startApprove, startKey, status, warm, type Used } from "@/lib/server/lighter/player";
 export const runtime = "nodejs";
 /** Lighter refuses signed txs from US IPs, and our other functions run in iad1 (Washington) */
 export const preferredRegion = "fra1";
@@ -91,6 +92,12 @@ export async function POST(req: Request) {
     // real-money Turbo is off where Lighter refuses the player (lib/turbo/region): no new orders from there; close still
     // runs so an open position can always be exited
     if ((b.op === "open" || b.op === "presign" || b.op === "relay") && turboBlockedReq(req)) return out(451, { ok: false, reason: TURBO_BLOCKED_NOTE });
+    if (b.op === "flatten") {
+      // close all, checked: reads Lighter until the market shows nothing open (never trusts a guessed size)
+      const pid = await fastPilot(req);
+      if (!isLighterMarket(b.market)) throw new LighterError(400, "Bad market.");
+      return out(200, { ok: true, ...(await flattenMarket(cfg, pid, b.market)) });
+    }
     if (b.op === "open" || b.op === "close" || b.op === "warm" || b.op === "presign" || b.op === "relay") {
       const pid = await fastPilot(req);
       const authMs = Math.round(performance.now() - t0);
@@ -122,7 +129,7 @@ export async function POST(req: Request) {
       case "withdraw-info": return out(200, { ok: true, ...(await withdrawable(cfg, me.pid)) });
       case "withdraw-start": {
         const usd = Number(b.usd);
-        if (!(usd > 0 && usd <= 100_000) || typeof b.to !== "string") throw new LighterError(400, "Bad amount.");
+        if (!(usd > 0 && usd <= MAX_USD) || typeof b.to !== "string") throw new LighterError(400, "Bad amount.");
         return out(200, { ok: true, ...(await startWithdraw(cfg, me.pid, usd, b.to, b.raw === true)) });
       }
       case "withdraw-finish": {
@@ -137,9 +144,11 @@ export async function POST(req: Request) {
 }
 
 type Cfg = ReturnType<typeof lighterConfig>;
+/** not a trade limit (maker 2026-11-20: no Turbo size cap); only rejects junk. Lighter's own book and margin decide. */
+const MAX_USD = 1_000_000_000;
 function openGuarded(cfg: Cfg, pid: string, b: { market?: unknown; side?: unknown; usd?: unknown }) {
   const usd = Number(b.usd);
-  if (!isLighterMarket(b.market) || (b.side !== "long" && b.side !== "short") || !(usd >= 1 && usd <= 10_000)) throw new LighterError(400, "Bad order.");
+  if (!isLighterMarket(b.market) || (b.side !== "long" && b.side !== "short") || !(usd >= 1 && usd <= MAX_USD)) throw new LighterError(400, "Bad order.");
   return openMarket(cfg, pid, b.market, b.side, usd);
 }
 function closeGuarded(cfg: Cfg, pid: string, b: { market?: unknown }) {
@@ -148,7 +157,7 @@ function closeGuarded(cfg: Cfg, pid: string, b: { market?: unknown }) {
 }
 function presignGuarded(cfg: Cfg, pid: string, b: { market?: unknown; usd?: unknown; sizes?: unknown; used?: unknown; floor?: unknown }) {
   const sizes = (Array.isArray(b.sizes) ? b.sizes : [b.usd]).map(Number);
-  if (!isLighterMarket(b.market) || !sizes.length || sizes.length > MAX_SIZES || !sizes.every((u) => u >= 0 && u <= 10_000) || !sizes.some((u) => u > 0)) throw new LighterError(400, "Bad order.");
+  if (!isLighterMarket(b.market) || !sizes.length || sizes.length > MAX_SIZES || !sizes.every((u) => u >= 0 && u <= MAX_USD) || !sizes.some((u) => u > 0)) throw new LighterError(400, "Bad order.");
   const u = b.used as Partial<Used> | undefined;
   const ok = u && Number.isSafeInteger(u.nonce) && (u.nonce as number) >= 0 && (u.kind === "long" || u.kind === "short" || u.kind === "close")
     && (u.i === undefined || (Number.isSafeInteger(u.i) && (u.i as number) >= 0 && (u.i as number) < MAX_SIZES));

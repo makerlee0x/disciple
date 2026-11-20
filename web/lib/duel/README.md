@@ -6,7 +6,7 @@ buzzer = one 30 s overtime. No cash pot: rewards are rating, XP and trophies onl
 
 | Path | What |
 |---|---|
-| `lib/duel/rules.ts` | pure rules: fills, flip, NUKE (80%), settle, overtime, Elo, match window, invite codes |
+| `lib/duel/rules.ts` | pure rules: fills, flip, NUKE (by gear: 39% at 50x), settle, overtime, Elo, match window, invite codes |
 | `lib/duel/types.ts` | room + event shapes |
 | `lib/duel/client.ts` | browser API calls + `followRoom` (SSE, polling fallback) |
 | `lib/server/duel/store.ts` | KV: ranked queue, friend codes, rooms (locked JSON), event log, ratings |

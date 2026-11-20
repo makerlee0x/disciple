@@ -17,7 +17,7 @@ export type TurboCash = {
   canAdd: boolean;
   /** Turbo cash can go back to Cash (a venue whose withdrawals pay USDG on our chain, set-up finished) */
   canWithdraw: boolean;
-  /** smallest move into Turbo, from the server (lib/server/lighter/bridge depositMins): $5, or $5.10 on Lighter main
+  /** smallest move into Turbo, from the server (lib/server/lighter/bridge depositMins): $5, or $6 on Lighter main
    *  (Relay's few cents must not take it under Lighter's 5 USDC floor); Lighter on Robinhood Chain $1 */
   minIn: number;
   /** Lighter set-up step, once read ("deposit" = no Lighter account yet) */
