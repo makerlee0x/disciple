@@ -21,6 +21,8 @@ export default function DiscipleFeed({ token }: { token: string }) {
     // First State already sent (chain read or the server fallback below): the engine has a price to fly at.
     let sent = false;
     const send = (e: Parameters<typeof toEngine>[0]) => { sent = true; toEngine(e); };
+    // a State left over from another coin (client-side navigation) must not fly this one
+    (window as unknown as { __discipleLastState?: unknown }).__discipleLastState = undefined;
     let marked = false;
     const onMark = () => { marked = true; };
     addEventListener("disciple:mark", onMark);
@@ -28,7 +30,16 @@ export default function DiscipleFeed({ token }: { token: string }) {
     // ever reached the engine and it drew nothing). /api/coin/stats reads the same mcap server side; it only fills the gap
     // until the chain path answers, which keeps retrying below.
     const fallback = window.setTimeout(async () => {
-      if (sent || !alive) return;
+      if (marked || !alive) return;
+      // the chain State went out but the engine wasn't listening yet: send the newest one again until it shows a price
+      const last = (window as unknown as { __discipleLastState?: { mcapUsd?: number } }).__discipleLastState;
+      if (sent && last && Number(last.mcapUsd) > 0) {
+        for (let i = 0; i < 10 && alive && !marked; i++) {
+          window.dispatchEvent(new CustomEvent("disciple:event", { detail: (window as unknown as { __discipleLastState?: unknown }).__discipleLastState }));
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        return;
+      }
       const [stats, g] = await Promise.all([
         fetch(`/api/coin/stats?coin=${token}`).then((r) => (r.ok ? r.json() : null)).catch(() => null) as Promise<{ mcapUsd?: number | null } | null>,
         fetchGrad(token),

@@ -589,7 +589,9 @@ export async function tradeHistory(token: Address, curve: Address, pc: PublicCli
 export function toEngine(e: ProtocolEvent) {
   if (typeof window === "undefined") return;
   if (e.type === "Trade") publishTraderName(e.trader);   // live retest #5: feed names (window.__discipleNames, cached lookup)
-  window.dispatchEvent(new CustomEvent("disciple:event", {
-    detail: JSON.parse(JSON.stringify(e, (_, v) => (typeof v === "bigint" ? v.toString() : v))),
-  }));
+  const detail = JSON.parse(JSON.stringify(e, (_, v) => (typeof v === "bigint" ? v.toString() : v)));
+  // The engine script can start AFTER the first State went out (maker 2026-11-20: blank $SPACE page; the chain reads beat
+  // the engine load, the one State was dispatched to nobody). Keep the newest State; engine.js DiscipleSource.start replays it.
+  if ((e as { type: string }).type === "State") (window as unknown as { __discipleLastState?: unknown }).__discipleLastState = detail;
+  window.dispatchEvent(new CustomEvent("disciple:event", { detail }));
 }

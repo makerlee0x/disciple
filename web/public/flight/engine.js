@@ -519,7 +519,9 @@ class DiscipleSource {
               prePrice:(pre||e.mcapUsd)*this.paper/this.supply,postPrice:this.shown()/this.supply,impactPct:e.impactPct,trader:e.trader,mine:isMine(e.trader)}); }
       else if(e.type==='Graduate'){ this.graduated=true; setGraduated(true,e); emit({t:'status',source:this.name,ok:true,msg:'ASCENDED → v4'}); }
       else if(e.type==='State'){ this.mcap=e.mcapUsd; emit({t:'swap',block:this.block,ts:Date.now(),txHash:'(state)',side:'buy',usd:0,mcap:this.shown(),price:this.shown()/this.supply}); } };
-    addEventListener('disciple:event',this.h); }
+    addEventListener('disciple:event',this.h);
+    // a State sent before this script ran (lib/events toEngine keeps the newest): fly at it now
+    setTimeout(()=>{ const last=window.__discipleLastState; if(last&&last.type==='State'&&!(this.mcap>0)) this.h({detail:last}); },0); }   /* next tick: the rest of the engine (chart, HUD) is initialised by then */
   stop(){ removeEventListener('disciple:event',this.h); clearInterval(this.dv); }
   realMcap(){ return this.mcap; }
   // price ratio of a trade on the curve / post-grad pool at the shown price (ghost, thrust; was a linear usd/(mcap·0.25) guess)
