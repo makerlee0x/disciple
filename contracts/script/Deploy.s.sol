@@ -84,8 +84,8 @@ contract DevToken is ERC20, ERC20Permit {
 ///   RENOUNCE_HARVEST    renounce CreatorFeeHarvest ownership at the end of deploy (always on mainnet 4663)
 ///   RENOUNCE_HOOK_ADMIN drop the DiscipleHook admin once wired (always on 4663)
 ///   RENOUNCE_LOCKED_LP  renounce LockedLP ownership (treasury + compound caps fixed) at the end (always on 4663)
-///   KOL_CREATOR_SHARE_BPS launch-KOL slice of the creator share, bps (forced 0 on 4663, env ignored; maker 2026-11-17: KOLs
-///                       are paid by hand; elsewhere the FeeRouter default 200). Fixed for good on 4663 by lockSettings().
+///   KOL_CREATOR_SHARE_BPS launch-KOL slice of the creator share, bps (forced 0 on 4663, env ignored; default 0 elsewhere,
+///                       maker 2026-11-17/20: KOLs and referrers are paid by hand from the community Safe). Fixed for good on 4663 by lockSettings().
 ///   LOCK_FEE_SETTINGS   FeeRouter.lockSettings(): KOL share, referral sink and claim routers fixed (always on 4663)
 ///   SAFE                protocol Safe (optional). Set: every contract that keeps an owner is NOMINATED to it
 ///                       (two-step) and the Safe calls acceptOwnership() on each (one batched Safe tx); it is also the
@@ -299,7 +299,7 @@ contract Deploy is NetworkConfig {
         (o.rewardsVault, o.anonLauncher, o.marketLens) =
             _addons(deployer, treasury, feeRouter, hook, launchpad, migration, pricer, o.usdg, usdgDec);
         CurveFeeVault feeVault = new CurveFeeVault(address(feeRouter), o.anonLauncher);
-        o.curveDeployer = address(new CurveDeployer(address(feeVault)));
+        o.curveDeployer = address(new CurveDeployer(address(feeVault), address(launchpad)));
         launchpad.setCurveDeployer(o.curveDeployer);
         launchpad.setQuoteProbe(address(probe));
         launchpad.setDefaultQuote(o.defaultQuote);
@@ -318,11 +318,12 @@ contract Deploy is NetworkConfig {
             // maker 2026-11-19: the 1% of every curve trade goes to the community rewards Safe (referrers are still paid
             // by hand from the referral spreadsheet). Set before lockSettings() below.
             // audit 2026-11-18 R461b-04: on 4663 the env is ignored (sink = community Safe, KOL = 0 forced, then locked).
-            address sink = mainnet ? community : vm.envOr("REFERRAL_SINK", address(0));
+            address sink = mainnet ? community : vm.envOr("REFERRAL_SINK", community); // testnet: community too (default TREASURY)
             if (sink != address(0)) feeRouter.setReferralSink(sink);
             // maker 2026-11-17: no automatic KOL cut either ("pay it by hand"). Mainnet sets the launch-KOL slice of
             // the creator share to 0 before lockSettings(), so creators keep their full 33% and KOLs are paid by hand.
-            uint256 kolBps = mainnet ? 0 : vm.envOr("KOL_CREATOR_SHARE_BPS", uint256(feeRouter.kolCreatorShareBps()));
+            // maker 2026-11-20: testnet too (default 0; env can still set it on testnet/local only).
+            uint256 kolBps = mainnet ? 0 : vm.envOr("KOL_CREATOR_SHARE_BPS", uint256(0));
             if (kolBps != feeRouter.kolCreatorShareBps()) feeRouter.setKolCreatorShareBps(kolBps);
         }
         if (mainnet || vm.envOr("LOCK_FEE_SETTINGS", false)) feeRouter.lockSettings();

@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {Test} from "forge-std/Test.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {Token} from "../../src/Token.sol";
 import {Constants} from "../../src/libraries/Constants.sol";
 
@@ -26,7 +27,9 @@ contract TokenBurnTest is Test {
     address bob = makeAddr("bob");
 
     function _token(bool pve) internal returns (Token t) {
-        t = new Token("Coin", "C", creator, address(this), address(this), pve, address(0), address(0));
+        Token impl = new Token(address(this), address(0), address(0));
+        t = Token(Clones.clone(address(impl)));
+        t.initialize("Coin", "C", creator, address(this), pve);
     }
 
     function test_burn_dropsTotalSupply() public {

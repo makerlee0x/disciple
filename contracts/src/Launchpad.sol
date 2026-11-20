@@ -148,15 +148,13 @@ contract Launchpad is ILaunchpad, Owned2Step, EIP712 {
         antiSnipe = antiSnipe_;
         migration = migration_;
         // Pre-orbit v4 block (maker 2026-11-19): each Token refuses transfers into the PoolManager until orbit, except
-        // LockedLP seeding the real pool. Read once here so the launch path only passes two words.
-        (_v4PoolManager, _v4LockedLP) = _v4Pointers(migration_);
-        tokenDeployer = new TokenDeployer(); // EIP-170: Token creation code lives there, not in this runtime
+        // LockedLP seeding the real pool. Read once here and fixed in the Token implementation.
+        (address pm, address llp) = _v4Pointers(migration_);
+        // maker 2026-11-20: every coin is a clone of one Token implementation, made by this factory
+        tokenDeployer = new TokenDeployer(pm, llp);
     }
 
     TokenDeployer public immutable tokenDeployer;
-
-    address internal immutable _v4PoolManager;
-    address internal immutable _v4LockedLP;
 
     function _v4Pointers(address m) private view returns (address pm, address llp) {
         if (m.code.length == 0) return (address(0), address(0));
@@ -333,9 +331,7 @@ contract Launchpad is ILaunchpad, Owned2Step, EIP712 {
         }
 
         Token t = Token(
-            tokenDeployer.deploy(
-                params.name, params.ticker, creator, mode == Constants.MODE_PVE, _v4PoolManager, _v4LockedLP
-            )
+            tokenDeployer.deploy(params.name, params.ticker, creator, mode == Constants.MODE_PVE)
         );
 
         // USD price is derived on-chain (never caller-supplied); reverts if no USDG reference pool.

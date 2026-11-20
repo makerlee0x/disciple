@@ -31,7 +31,7 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), address(0));
         // the vault is built with the AnonLauncher (H1); swap it in exactly as DeployLpAccrue does
         feeVault = new CurveFeeVault(address(feeRouter), address(anon));
-        address d = address(new CurveDeployer(address(feeVault)));
+        address d = address(new CurveDeployer(address(feeVault), address(launchpad)));
         vm.startPrank(owner);
         vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
         launchpad.setCurveDeployer(d);

@@ -18,19 +18,22 @@ interface IPveCurveHook {
 ///         2026-10-24). PVE (Easy) coins can burn before graduation too:
 ///         the curve books a burn as a send to 0x…dEaD, so the burned NET leaves circulation (maker 2026-11-19).
 /// @dev EIP-2612 permit enabled (single-tx sells via BondingCurve.sellWithPermit).
-///      Standard CREATE deployment (no vanity). Entire supply minted once to `recipient` (the curve).
+///      maker 2026-11-20: every coin is an EIP-1167 clone of one implementation (TokenDeployer), set up by
+///      `initialize`. Per-launchpad values (launchpad, PoolManager, LockedLP) are immutables of the implementation, so
+///      every clone reads them from the shared code. The permit domain is ("DISCIPLE Rocket", "1", chainid, the clone's
+///      own address), which `eip712Domain()` reports. Entire supply minted once to `recipient` (the Launchpad).
 contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
     address internal constant DEAD = 0x000000000000000000000000000000000000dEaD;
-    address public immutable override creator;
     address public immutable override launchpad;
-    /// @notice True for PVE coins: pre-graduation wallet→wallet transfers notify the curve. Immutable, so TRENCH /
-    ///         PVP tokens pay nothing extra on transfers.
-    bool public immutable pveHooks;
     /// @notice maker 2026-11-19: no Uniswap v4 pool before orbit, in every mode. Until the curve graduates, the token
     ///         refuses transfers INTO the v4 PoolManager (so nobody can seed or trade a side pool), except LockedLP's
     ///         seeding of the real pool inside the graduation transaction. address(0) (no Migration found) = off.
     address public immutable poolManager;
     address internal immutable _lockedLP;
+    /// @notice The coin creator of record at launch (the Launchpad tracks later transfers) and whether pre-graduation
+    ///         wallet→wallet transfers notify the curve (PVE coins). One packed slot, written once by `initialize`.
+    address public override creator;
+    bool public pveHooks;
     /// @notice The coin's curve (set once by the Launchpad, every mode; the name is kept for the ABI) and whether the
     ///         coin is still pre-orbit (cleared by the curve at graduation). One packed slot. PVE transfer
     ///         notifications run only while `pveHooks && pveLive`.
@@ -40,6 +43,8 @@ contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
     ///         (`pveLive` cleared by the curve) the creator's balance can never drop below it: no curve sell, no
     ///         transfer. Tokens the creator buys later stay free. Set once by the curve; same slot as pveCurve.
     uint88 public creatorLocked;
+    string private _cloneName;
+    string private _cloneSymbol;
 
     error ZeroAddress();
     error OnlyLaunchpad();
@@ -49,29 +54,42 @@ contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
     /// @notice The coin is still on its curve: no v4 pool may hold it yet.
     error PoolBeforeOrbit();
 
-    constructor(
-        string memory name_,
-        string memory symbol_,
-        address creator_,
-        address launchpad_,
-        address recipient_,
-        bool pveHooks_,
-        address poolManager_,
-        address lockedLP_
-    )
-        ERC20(name_, symbol_)
-        ERC20Permit(name_)
+    /// @dev Implementation only. `creator` is set to the dead address so `initialize` can never run on it.
+    constructor(address launchpad_, address poolManager_, address lockedLP_)
+        ERC20("", "")
+        ERC20Permit("DISCIPLE Rocket")
     {
-        if (creator_ == address(0) || launchpad_ == address(0) || recipient_ == address(0)) {
-            revert ZeroAddress();
-        }
-        creator = creator_;
+        if (launchpad_ == address(0)) revert ZeroAddress();
         launchpad = launchpad_;
-        pveHooks = pveHooks_;
         poolManager = poolManager_; // address(0) leaves the pre-orbit v4 block off
         _lockedLP = lockedLP_;
+        creator = DEAD;
+    }
+
+    /// @notice One-time setup of a fresh clone by its TokenDeployer: name, ticker, creator, PVE flag, full supply.
+    function initialize(
+        string calldata name_,
+        string calldata symbol_,
+        address creator_,
+        address recipient_,
+        bool pveHooks_
+    ) external {
+        if (creator != address(0)) revert AlreadySet();
+        if (creator_ == address(0) || recipient_ == address(0)) revert ZeroAddress();
+        creator = creator_;
+        pveHooks = pveHooks_;
+        _cloneName = name_;
+        _cloneSymbol = symbol_;
         // Fixed supply at launch; no further mint (§2).
         _mint(recipient_, Constants.TOTAL_SUPPLY);
+    }
+
+    function name() public view override returns (string memory) {
+        return _cloneName;
+    }
+
+    function symbol() public view override returns (string memory) {
+        return _cloneSymbol;
     }
 
     /// @notice Launchpad wires the coin's curve once (before any tokens leave the Launchpad), every mode.

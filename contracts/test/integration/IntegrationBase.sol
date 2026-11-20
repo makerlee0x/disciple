@@ -173,7 +173,7 @@ abstract contract IntegrationBase is Test {
         launchpad.setQuoteProbe(address(quoteProbe));
         launchpad.setPricer(address(pricer));
         feeVault = new CurveFeeVault(address(feeRouter), address(0)); // AnonLauncher tests deploy their own vault
-        launchpad.setCurveDeployer(address(new CurveDeployer(address(feeVault))));
+        launchpad.setCurveDeployer(address(new CurveDeployer(address(feeVault), address(launchpad))));
         launchpad.setTrustedRouter(address(router), true);
         feeRouter.setClaimRouter(address(router), true);
         vm.stopPrank();

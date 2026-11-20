@@ -38,7 +38,7 @@ contract DeployLpAccrue is Script {
 
         vm.startBroadcast();
         vault = new CurveFeeVault(feeRouter, anon);
-        deployer = new CurveDeployer(address(vault));
+        deployer = new CurveDeployer(address(vault), address(lp));
         if (wire) {
             lp.setCurveDeployer(address(deployer)); // onlyOwner
             if (lp.snipeEscrowTimeout() != 12 days) lp.setSnipeEscrowTimeout(12 days); // onlyOwner

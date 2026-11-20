@@ -33,7 +33,7 @@ contract CreatorPayeeTest is IntegrationBase {
         CurveFeeVault v = new CurveFeeVault(address(feeRouter), address(anon));
         vm.startPrank(owner);
         vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
-        launchpad.setCurveDeployer(address(new CurveDeployer(address(v))));
+        launchpad.setCurveDeployer(address(new CurveDeployer(address(v), address(launchpad))));
         harvest.wire(address(launchpad), address(feeRouter), address(lockedLP), address(router), address(manager));
         feeRouter.setClaimRouter(address(harvest), true);
         feeRouter.setCreatorFeeHarvest_51(address(harvest));

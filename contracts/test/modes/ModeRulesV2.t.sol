@@ -167,30 +167,31 @@ contract ModeRulesV2Test is IntegrationBase {
 
     // ───────── deployment ─────────
 
-    /// The chunked CurveDeployer must deploy byte-for-byte the same runtime as `new BondingCurve(...)`.
-    function test_curveDeployer_runtimeIdenticalToNew() public {
+    /// maker 2026-11-20: every curve is an EIP-1167 clone of CurveDeployer's one implementation, and neither the clone
+    /// nor the implementation can be initialized again.
+    function test_curveDeployer_clonesImplementation() public {
         (BondingCurve c, Token t) = _launchM(Constants.MODE_PVE);
-        (uint256 ts, uint256 sc, uint256 x0, uint256 y0) = c.curveParams();
-        CurveMath.Params memory p = CurveMath.Params(ts, sc, x0, y0, c.quotePriceUsd(), c.curveTail());
-        vm.prank(address(launchpad));
-        BondingCurve ref = new BondingCurve(
-            address(t),
-            address(quote),
-            creator,
-            address(launchpad),
-            address(feeRouter),
-            address(migration),
-            c.creatorTaxBps(),
-            p,
-            c.walletCapBps(),
-            c.mode(),
-            c.trustedRouter(),
-            c.crewTipThresholdBps(),
-            c.snipeEscrowTimeout(),
-            address(c.feeVault())
-        );
-        assertEq(keccak256(address(c).code), keccak256(address(ref).code), "same runtime incl. immutables");
-        assertLe(address(c).code.length, 24_576, "EIP-170");
+        address impl = launchpad.curveDeployer().implementation();
+        assertEq(address(c).code, abi.encodePacked(hex"363d3d373d3d3d363d73", impl, hex"5af43d82803e903d91602b57fd5bf3"), "1167 clone");
+        assertLe(impl.code.length, 24_576, "EIP-170");
+        assertEq(c.token(), address(t));
+        assertEq(c.launchpad(), address(launchpad));
+        assertEq(address(c.feeRouter()), address(feeRouter));
+        CurveMath.Params memory p;
+        (p.totalSupply, p.sCurve, p.x0, p.y0) = c.curveParams();
+        p.quotePriceUsd = c.quotePriceUsd();
+        p.tail = c.curveTail();
+        vm.expectRevert();
+        c.initialize(address(t), address(quote), creator, 0, p, 0, 0, address(0), 50, 0);
+        vm.expectRevert();
+        BondingCurve(impl).initialize(address(t), address(quote), creator, 0, p, 0, 0, address(0), 50, 0);
+        // Token: clone of TokenDeployer's implementation, initialize locked on both
+        address timpl = launchpad.tokenDeployer().implementation();
+        assertEq(address(t).code, abi.encodePacked(hex"363d3d373d3d3d363d73", timpl, hex"5af43d82803e903d91602b57fd5bf3"), "token clone");
+        vm.expectRevert(Token.AlreadySet.selector);
+        t.initialize("x", "x", creator, creator, false);
+        vm.expectRevert(Token.AlreadySet.selector);
+        Token(timpl).initialize("x", "x", creator, creator, false);
     }
 
     // ───────── caps ─────────

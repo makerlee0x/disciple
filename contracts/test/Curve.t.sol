@@ -94,7 +94,7 @@ contract CurveTest is Test {
         vm.prank(owner);
         launchpad.setPricer(address(pricer_));
         feeVault = new CurveFeeVault(address(feeRouter), address(0));
-        CurveDeployer cd_ = new CurveDeployer(address(feeVault));
+        CurveDeployer cd_ = new CurveDeployer(address(feeVault), address(launchpad));
         vm.prank(owner);
         launchpad.setCurveDeployer(address(cd_));
 

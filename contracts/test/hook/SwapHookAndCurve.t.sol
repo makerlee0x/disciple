@@ -108,7 +108,7 @@ contract SwapHookAndCurveTest is IntegrationBase {
 
     function test_newCurveDeployer_forNewCoins_andLock() public {
         (BondingCurve c1,) = _launch(0, 0);
-        CurveDeployer d2 = new CurveDeployer(address(feeVault));
+        CurveDeployer d2 = new CurveDeployer(address(feeVault), address(launchpad));
         vm.prank(trader1);
         vm.expectRevert(Owned2Step.OnlyOwner.selector);
         launchpad.setCurveDeployer(address(d2));
@@ -121,7 +121,7 @@ contract SwapHookAndCurveTest is IntegrationBase {
         assertGt(t2.balanceOf(trader2), 0, "new coin trades on the new curve code");
         _graduate(c2);
 
-        CurveDeployer d3 = new CurveDeployer(address(feeVault));
+        CurveDeployer d3 = new CurveDeployer(address(feeVault), address(launchpad));
         vm.startPrank(owner);
         launchpad.lockCurveDeployer();
         vm.expectRevert(Owned2Step.OnlyOwner.selector);

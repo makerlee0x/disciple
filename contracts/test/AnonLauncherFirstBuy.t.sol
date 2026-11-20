@@ -56,7 +56,7 @@ contract AnonLauncherFirstBuyTest is IntegrationBase {
         // lp-accrue: the CurveFeeVault is built with this AnonLauncher (as DeployLpAccrue / Deploy do), so private
         // coins' curve-phase creator fees are claimable by the coin's owner there
         feeVault = new CurveFeeVault(address(feeRouter), address(anon));
-        address d = address(new CurveDeployer(address(feeVault)));
+        address d = address(new CurveDeployer(address(feeVault), address(launchpad)));
         vm.prank(owner);
         vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
         launchpad.setCurveDeployer(d);

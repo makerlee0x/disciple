@@ -34,6 +34,10 @@ Hook claims are public: `claimCreatorFees`, `claimLockedLiquidityFees`, `claimTr
 (one coin each) and `claimAll(address[])` (every share with something owed). The caller never receives anything, so a
 keeper, a bot or a person can run them. Nothing needs a cron for trading to work.
 
+Launch-KOL cut: `FeeRouter.kolCreatorShareBps` = 0 on every network (maker 2026-11-20: "Turn it off (manual only)").
+Creators keep the full 33%. All KOL and referral pay is manual from the community Safe. Deploy sets it before
+`lockSettings()`.
+
 Referrers are still paid by hand from the daily referral spreadsheet (`/api/cron/referral-payout`), which reads the
 router's trade event and `ReferralRegistry`.
 
@@ -52,7 +56,7 @@ maker 2026-11-19: a bug fix in the curve or the hook is one new deploy, nothing 
 
 | Fix | Deploy | Then the Team calls | Lock forever |
 |---|---|---|---|
-| Curve | new `CurveDeployer(feeVault)` (holds the new BondingCurve code) | `Launchpad.setCurveDeployer(newDeployer)` | `Launchpad.lockCurveDeployer()` |
+| Curve | new `CurveDeployer(feeVault, launchpad)` (deploys the new BondingCurve implementation; coins get clones of it) | `Launchpad.setCurveDeployer(newDeployer)` | `Launchpad.lockCurveDeployer()` |
 | Hook | new `DiscipleHook` (CREATE2-mined flags, same PoolManager), then on it `setMigration(migration)`, `setCreatorFeeHarvest(harvest)`, `setPricer(pricer)`, `renounceAdmin()` | `Migration.setHook(newHook)` | `Migration.lockHook()` |
 | Router | new `DiscipleRouter` | `Launchpad.setTrustedRouter(newRouter, true)` | |
 
@@ -114,7 +118,7 @@ for row in \
   "src/addons/CreatorFeeHarvest.sol:CreatorFeeHarvest <harvest>" \
   "src/addons/AnonLauncher.sol:AnonLauncher <anonLauncher>" \
   "src/addons/MarketLens.sol:MarketLens <marketLens>" \
-  "src/TokenDeployer.sol:TokenDeployer <launchpad.tokenDeployer()>"; do
+  "src/TokenDeployer.sol:TokenDeployer <launchpad.tokenDeployer()>"; do  # TokenDeployer: created by Launchpad, pass --constructor-args (poolManager, lockedLP) if guessing fails
   set -- $row
   forge verify-contract "$2" "$1" --chain-id 4663 --verifier blockscout --verifier-url "$EXPLORER" \
     --rpc-url https://rpc.mainnet.chain.robinhood.com --guess-constructor-args --watch
@@ -123,9 +127,11 @@ done
 
 Also verify, once each:
 
-- **Token and BondingCurve** of the first coin (canary launch). Every later coin has the same bytecode, so Blockscout
-  matches them automatically. BondingCurve is created by CurveDeployer from its stored code, so verify it with
-  `--constructor-args` taken from the curve's creation input (the bytes after the creation code).
+- **Token and BondingCurve implementations** (maker 2026-11-20: every coin and curve is a 45-byte EIP-1167 clone).
+  `launchpad.tokenDeployer().implementation()` as `src/Token.sol:Token`, args `(launchpad, poolManager, lockedLP)`;
+  `curveDeployer.implementation()` as `src/BondingCurve.sol:BondingCurve`, args `(launchpad, feeRouter, migration,
+  feeVault)`. They are created inside other contracts, so pass `--constructor-args $(cast abi-encode ...)`. Coins and
+  curves then show as proxies of the verified code; nothing per coin to verify.
 - **DisciplePermitForwarder**, deployed separately by `script/DeployPermitForwarder.s.sol`.
 
 Check: each address shows "Contract source code verified" on the explorer, and DiscipleHook's page shows the

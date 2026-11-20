@@ -125,7 +125,7 @@ contract CreatorFeeRoutingTest is IntegrationBase {
         CurveFeeVault v = new CurveFeeVault(address(feeRouter), address(anon));
         vm.startPrank(owner);
         vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
-        launchpad.setCurveDeployer(address(new CurveDeployer(address(v))));
+        launchpad.setCurveDeployer(address(new CurveDeployer(address(v), address(launchpad))));
         _clearSlotHolding(address(harvest), address(feeVault)); // test-only: the vault pointer is write-once
         harvest.setFeeVault(address(v));
         vm.stopPrank();
