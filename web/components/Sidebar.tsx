@@ -12,7 +12,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { SETTINGS_KEYS } from "@/lib/config";
-import { aaSession, onPrivy, onSessionChange, privyAuthenticated } from "@/lib/aa/sessionState";
+import { aaSession, hasSavedSession, onPrivy, onSessionChange, privyAuthenticated, privyLoaded } from "@/lib/aa/sessionState";
 import Icon, { type IconName } from "@/components/icons/Icon";
 import SignInMarks from "@/components/SignInMarks";
 import { GuildTagFor } from "@/components/guilds/GuildChip";
@@ -95,7 +95,9 @@ export default function Sidebar({ forceCollapsed }: { forceCollapsed?: boolean }
   // Sign out only while signed in: false until Privy reports ready+authenticated (or a session exists), so no flash on load
   const [signedIn, setSignedIn] = useState(false);
   useEffect(() => {
-    const sync = () => setSignedIn(privyAuthenticated() || !!aaSession());
+    // until Privy answers, a browser with a saved session counts as signed in (same guess as the wallet pill), so the
+    // sidebar doesn't flash Sign in on every page load
+    const sync = () => setSignedIn(privyAuthenticated() || !!aaSession() || (!privyLoaded() && hasSavedSession()));
     sync();
     const a = onPrivy(sync), b = onSessionChange(sync);
     return () => { a(); b(); };

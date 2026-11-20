@@ -1523,7 +1523,7 @@ function loadAsset(n){ if(started[n]) return; started[n]=1; inflight++; const im
   im.onload=()=>{ if(im.bitmap) IMG[n]=im.bitmap; fin(); };   // worker: shim decodes via createImageBitmap
   im.onerror=()=>{ im.bad=true; console.warn('asset failed',n); fin(); }; IMG[n]=im; im.src=(window.__DISCIPLE_BASE_PATH__||'')+(SKY_SRC[n]||'/assets/'+n+'.png'); }
 function tierIxOf(mcap){ if(!(mcap>0)) return 0; for(let i=TIERS.length-1;i>=0;i--) if(mcap>=TIERS[i].lo) return i; return 0; }
-function nearTiers(){ const c=tierIxOf(S&&S.confirmed?S.confirmed.mcap:0); return [c,c+1,c-1].filter(i=>i>=0&&i<TIERS.length).map(i=>TIERS[i].bg); }
+function nearTiers(){ const c=tierIxOf(S&&S.confirmed?S.confirmed.mcap:0); return [TIERS[c].bg]; }   // first-frame gate: the current zone's plate only (neighbours stream after it)
 /* Speed pass (2026-11-14): the plates only stream in a window around the current zone (PLATE_AHEAD tiers either side, re-centred
    as you climb), not all 18, and not at all on the phone throttle layout, which draws the lobby photo skies instead (@phone-sky)
    and was downloading ~3.3 MB of plates it never showed. ALL_PLATES = the old "everything" stream, for the replay/test tools
@@ -1532,6 +1532,8 @@ const PLATE_AHEAD=3; let ALL_PLATES=false, pumpTier=-1;
 function platesWanted(){ return ALL_PLATES||!(window.__phoneHud&&window.__phoneHud.thr); }   // = !PH_THR() (declared further down)
 function pumpAssets(){ const c=tierIxOf(S&&S.confirmed?S.confirmed.mcap:0); pumpTier=c;
   const want=platesWanted(), q=['rocket',...TIERS.map((t,i)=>[t.bg,Math.abs(i-c)+(i<c?0.5:0)]).filter(x=>want&&(ALL_PLATES||x[1]<=PLATE_AHEAD+0.5)).sort((a,b)=>a[1]-b[1]).map(x=>x[0])];
+  // speed pass 2026-11-20: the rocket and the current zone's plate get the bandwidth to themselves; the neighbours wait for them
+  const first=['rocket',want?TIERS[c].bg:null].filter(Boolean); if(first.some(n=>!done[n])){ for(const n of first) loadAsset(n); return; }
   for(const n of q){ if(inflight>=3) break; if(!started[n]) loadAsset(n); } }
 function skyReady(){ if(!done.rocket) return false;
   if(!IS_TURBO&&window.__phoneHud&&window.__phoneHud.thr){ const k=tierIxOf(S&&S.confirmed?S.confirmed.mcap:0), im=phSkyImg(k); if(im||PHS.img[k].bad) return true; return false; }   // phone: wait for its own photo sky, not the plates
@@ -2951,7 +2953,9 @@ function frame(now){
   // jump into a zone whose plate isn't in yet used to blank the whole flight to the loading fill; drawBg already paints the
   // night fill for a missing plate, so after the first frame the flight keeps drawing while the plate streams in
   const skyOk=skyReady();
-  if (S.confirmed.mcap===null || (!S.drewOnce && !skyOk)){ S.t+=rawDt; drawLoading(); RAF(frame); return; }
+  // the first-frame wait for the plate is capped at 1 s once a price is in: past that the flight starts on the night fill
+  if (S.confirmed.mcap!==null && S._skyWait0==null) S._skyWait0=now;
+  if (S.confirmed.mcap===null || (!S.drewOnce && !skyOk && !(done.rocket && now-S._skyWait0>1000))){ S.t+=rawDt; drawLoading(); RAF(frame); return; }
   S.drewOnce=true;
   acc+=rawDt; let n=0;
   while (acc>=SIM_DT-1e-9 && n<MAX_STEPS){ for(const k of LERP_KEYS) PREV[k]=S[k]; S.particles.snap(); S.shards.snap(); S.bfx.snap(); simStep(SIM_DT); acc-=SIM_DT; n++; }

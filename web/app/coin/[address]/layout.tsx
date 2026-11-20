@@ -1,3 +1,4 @@
+import { preload } from "react-dom";
 import type { Metadata } from "next";
 import { DEMO_POOL } from "@/lib/config";
 import { cardMeta, titleCase } from "@/lib/ogMeta";
@@ -24,5 +25,8 @@ export async function generateMetadata({ params }: { params: Promise<{ address: 
 }
 
 export default function CoinLayout({ children }: { children: React.ReactNode }) {
+  // The page under it renders client-side only (useSearchParams), so the engine preload has to come from here to be in
+  // the first HTML; the flight engine then downloads while the page JS does (it used to start after hydration).
+  preload(`${process.env.NEXT_PUBLIC_BASE_PATH || ""}${process.env.NEXT_PUBLIC_FLIGHT_ENGINE || "/flight/engine.js"}`, { as: "script" });
   return children;
 }
