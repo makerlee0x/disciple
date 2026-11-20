@@ -32,10 +32,11 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
     return () => { alive = false; };
   }, [readImage, address]);
   const icon = pickCoinIcon(stored, sp.get("icon"), demo && !sp.get("cs") ? AI_ICON : null);
-  // 1e: a direct /coin/0x… link has no ?cs/?nm ⇒ read name / symbol / pair from chain so the name always shows
+  // 1e: always read name / symbol / pair from chain; ?nm / ?cs are first paint only and the chain values win. Gating the read
+  // on ?cs showed "SPACE" for "Space Cowboy" (the launch redirect sent ?cs but no ?nm; maker 2026-11-20 mainnet test launch).
   const [chain, setChain] = useState<{ name: string; symbol: string; pair?: string } | null>(null);
   const [legacy, setLegacy] = useState(false);
-  const needRead = !demo && !sp.get("cs") && isDeployed() && isAddress(address);
+  const needRead = !demo && isDeployed() && isAddress(address);
   useEffect(() => {
     if (!needRead) return;
     let alive = true;
@@ -75,8 +76,8 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
     return () => { ro?.disconnect(); removeEventListener("resize", pub); w.__coinIdH = 0; };
   });
   const pair = sp.get("pair") || chain?.pair || (demo ? "ETH" : "STRATEGY");
-  const tk = sp.get("cs") || chain?.symbol || (demo ? "AI" : "");
-  const name = sp.get("nm") || chain?.name || (demo && tk === "AI" ? "Artificial Inu" : tk);
+  const tk = chain?.symbol || sp.get("cs") || (demo ? "AI" : "");
+  const name = chain?.name || sp.get("nm") || (demo && tk === "AI" ? "Artificial Inu" : tk);
   const bp = basePair(pair);
   // Dollars-only rule (no ETH / gas wording on player surfaces): an ETH / WETH pair gets no pair badge or pair label;
   // the chip is the coin's own art + name. Other pairs keep their badge.

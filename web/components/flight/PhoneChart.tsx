@@ -14,6 +14,8 @@
  * The series is kept in a module store while the flight is open (a re-render or a sheet open never loses it). Drawn at
  * ~4 fps on a small canvas, paused while the tab is hidden.
  */
+import { coinFromPath } from "@/lib/coinPath";
+import { CopyCaButton } from "./CopyCaChip";
 import { useEffect, useRef, useState } from "react";
 import { fetchHistory } from "@/lib/chart/history";
 
@@ -69,15 +71,17 @@ function series(): Pt[] {
   const lastH = store.hist[store.hist.length - 1].t;
   return [...store.hist, ...store.pts.filter((p) => p.t > lastH)];
 }
-const coinOfPath = () => (/^\/coin\/(0x[0-9a-fA-F]{40})/.exec(location.pathname)?.[1] ?? "").toLowerCase();
+const coinOfPath = () => coinFromPath(location.pathname);
 
 const money = (v: number) => (!(v > 0) ? "$0" : v >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(2)}K` : `$${v.toFixed(0)}`);
 const G = "800 13px 'Barlow Condensed', 'Arial Narrow', sans-serif";
 
-export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge, bottom = 0, children }: {
+export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge, bottom = 0, ca, children }: {
   tf: number; onTf: (i: number) => void; big: boolean;
   /** tap the card to make it taller; left out (live coin flight on desktop) the card stays its normal size */
   onBig?: () => void; entry: number | null; ticker: string;
+  /** coin contract address: a copy chip after the ticker (maker 2026-11-20) */
+  ca?: string | null;
   badge: { t: string; c: string } | null;
   /** px kept clear at the bottom of the plot (desktop: the stats pills sit there) */
   bottom?: number; children?: React.ReactNode;
@@ -174,7 +178,7 @@ export default function PhoneChart({ tf, onTf, big, onBig, entry, ticker, badge,
   return (
     <div className="pc" data-testid="phone-chart" data-big={big ? "1" : "0"} data-grow={onBig ? "1" : "0"} role="group" aria-label={onBig ? "Market cap chart. Tap to make it bigger." : "Market cap chart"} onClick={onBig}>
       <canvas ref={cv} aria-hidden />
-      <span className="pc-lab"><span ref={lab}>MARKET CAP</span>{ticker ? <b>{ticker}</b> : null}</span>
+      <span className="pc-lab"><span ref={lab}>MARKET CAP</span>{ticker ? <b>{ticker}</b> : null}{ca ? <CopyCaButton address={ca} size={20} style={{ alignSelf: "center", marginTop: -4 }} /> : null}</span>
       {badge && <span className="pc-badge" data-testid="phone-mode" style={{ borderColor: badge.c }}><i style={{ background: badge.c }} />{badge.t}</span>}
       <div className="pc-tf" role="tablist" aria-label="Chart time">
         {CHART_TFS.map((t, i) => <button key={t.k} type="button" role="tab" aria-selected={tf === i} className={tf === i ? "on" : ""} data-testid={`chart-tf-${t.k}`}

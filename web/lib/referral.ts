@@ -1,10 +1,12 @@
 /**
  * Referral attribution (first touch, 30 days).
  *   /r/<username|0xwallet>  → server sets cookie `disciple_ref` = {u,a,t} (only if absent) and redirects to /
- *   /coin/<token>?ref=<0xwallet> ("Share this trade") → <RefCapture/> records the same first touch client-side
+ *   /rocket/robinhood/<token>?r=<username|0xwallet> (coin share links; old /coin/<token>?ref=<0xwallet> too) → <RefCapture/>
+ *   records the same first touch client-side
  *   <RefCapture/> (AppShell) copies the cookie into localStorage `disciple.refv2` (only if absent/expired).
  * Trade calls read `referrerWallet()`; see protocol-viem trade() for how it reaches the chain.
  */
+import { rocketPath } from "./coinPath";
 export const REF_COOKIE = "disciple_ref";
 export const REF_LS = "disciple.refv2";
 export const REF_TTL_MS = 30 * 24 * 3600 * 1000;
@@ -70,16 +72,30 @@ export function refLink(username: string | null | undefined, wallet?: string | n
 }
 /** "Share this trade" link: the coin page itself, carrying the sharer as ?ref=<wallet> (username-only ⇒ /r/<username>). */
 export function coinRefLink(coin: string, username: string | null | undefined, wallet?: string | null, origin?: string) {
-  if (!isAddr(wallet)) return refLink(username, wallet, origin);
+  // maker 2026-11-20: disciple.vip/rocket/robinhood/<CA>?r=<username> (wallet until a username exists), like other launchpads
   const o = origin ?? (typeof window !== "undefined" ? window.location.origin : "https://disciple.vip");
-  return `${o}/coin/${coin.toLowerCase()}?ref=${wallet.toLowerCase()}`;
+  const r = username ? encodeURIComponent(username.toLowerCase().replace(/^@/, "")) : isAddr(wallet) ? wallet.toLowerCase() : "";
+  return `${o}${rocketPath(coin)}${r ? `?r=${r}` : ""}`;
 }
-/** ?ref=<0xwallet> on any page (coin share links): first touch, same 30-day rule as /r/. Usernames go through /r/. */
+/** ?r= / ?ref=<0xwallet> on any page (coin share links): first touch, same 30-day rule as /r/. A username in ?r= is
+ *  resolved by captureRefUsernameFromQuery (async). */
 export function captureRefFromQuery(search: string): RefTouch | null {
   try {
-    const a = new URLSearchParams(search).get("ref");
+    const q = new URLSearchParams(search), a = q.get("ref") || q.get("r");
     if (!isAddr(a)) return null;
     rememberRefTouch({ u: null, a: a.toLowerCase() });
+    return currentRef();
+  } catch { return null; }
+}
+/** ?r=<username>: look the wallet up (/api/profile/username?resolve=) and remember it as the first touch. */
+export async function captureRefUsernameFromQuery(search: string, fetcher: typeof fetch = fetch): Promise<RefTouch | null> {
+  try {
+    const raw = (new URLSearchParams(search).get("r") || "").trim().toLowerCase().replace(/^@/, "");
+    if (!raw || isAddr(raw) || !/^[a-z0-9_]{1,32}$/.test(raw) || currentRef()) return null;
+    const r = await fetcher(`/api/profile/username?resolve=${encodeURIComponent(raw)}`);
+    const j = r.ok ? ((await r.json()) as { address?: string | null }) : null;
+    if (!isAddr(j?.address)) return null;
+    rememberRefTouch({ u: raw, a: j!.address!.toLowerCase() });
     return currentRef();
   } catch { return null; }
 }

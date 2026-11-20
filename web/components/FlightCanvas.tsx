@@ -44,6 +44,8 @@ declare global {
     __flight?: unknown;
     __flightLooksReq?: (wallet: string) => void;
     __rocketDecal?: { canvas: HTMLCanvasElement; t0: number; fallback: boolean };
+    /** engine.js reads its params from this instead of location.search when set (also TurboFlight, replay.js) */
+    Q_OVERRIDE?: URLSearchParams | null;
   }
 }
 
@@ -76,6 +78,7 @@ export default function FlightCanvas({ search }: Props) {
     let scriptEl: HTMLScriptElement | null = null;
     let stopWorker: (() => void) | null = null;
     let cv: HTMLCanvasElement | null = null;
+    let engineQ: URLSearchParams | null = null;
     // The canvas is created per boot (not by React): a canvas can be transferred to a worker only once,
     // and Strict Mode / fallback need a fresh one.
     const freshCanvas = () => {
@@ -117,21 +120,21 @@ export default function FlightCanvas({ search }: Props) {
         };
         const to = window.setTimeout(() => finish(false, "worker start timeout"), 10000);
         try {
-          stopWorker = startWorkerRender({ canvas: c, wrap: wrapRef.current!, basePath: BASE_PATH, globals,
+          stopWorker = startWorkerRender({ canvas: c, wrap: wrapRef.current!, basePath: BASE_PATH, globals, search: engineQ ? `?${engineQ}` : undefined,
             onReady: () => finish(true), onError: (m) => (done ? console.error("[flight worker]", m) : finish(false, m)) });
         } catch (e) { finish(false, String(e)); }
       });
 
     async function boot() {
       try {
-        // Sync URL search so engine's location.search / Q reads work if it falls back
+        // The engine's params (the address bar's own + the page's: coin, source, ticker, quote, feeBps, …) go to the engine
+        // directly (window.Q_OVERRIDE on the main thread, the worker's init `search`). They used to be written into the address
+        // bar, so a shared coin link read ?cs=…&coin=…&source=disciple&ticker=…&quote=…&feeBps=100 (maker 2026-11-20).
         const qs = search.startsWith("?") ? search : search ? `?${search}` : "";
-        if (qs && typeof window !== "undefined") {
-          const url = new URL(window.location.href);
-          const incoming = new URLSearchParams(qs.slice(1));
-          incoming.forEach((v, k) => url.searchParams.set(k, v));
-          window.history.replaceState(window.history.state, "", url.pathname + "?" + url.searchParams.toString());   // keep the router's own state
-        }
+        const merged = new URLSearchParams(window.location.search);
+        new URLSearchParams(qs.slice(1)).forEach((v, k) => merged.set(k, v));
+        window.Q_OVERRIDE = merged;
+        engineQ = merged;
 
         const needReplay =
           new URLSearchParams(qs.slice(1)).get("replay") === "1" ||
@@ -242,6 +245,7 @@ export default function FlightCanvas({ search }: Props) {
       cancelled = true;
       if (askT != null) clearTimeout(askT);
       delete window.__flightLooksReq;
+      if (engineQ && window.Q_OVERRIDE === engineQ) window.Q_OVERRIDE = null;
       stopWorker?.();
       cv?.remove();
       // Stop RAF / intervals by reloading is heavy; clear known hooks

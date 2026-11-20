@@ -79,6 +79,6 @@ test("right after a launch the flight opens with the trade bar and a small share
   await expect(toast).toContainText(/\$COMET is flying/i);
   await expect(page.getByTestId("trade-bar").filter({ visible: true }).first()).toBeVisible();
   // (phones: the first flight's How to fly card is gone; a finger on the lever teaches instead and blocks nothing)
-  await toast.getByRole("button", { name: "Close" }).click();
-  await expect(toast).toHaveCount(0);
+  // closes itself after 3 s (maker 2026-11-20)
+  await expect(toast).toHaveCount(0, { timeout: 8_000 });
 });

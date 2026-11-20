@@ -1,5 +1,6 @@
 "use client";
 
+import { rocketPath } from "@/lib/coinPath";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { newStealthOwner } from "@/lib/privateLaunch";
 import { ANON_ANY_MODE_LIVE } from "@/lib/anonModes";
@@ -424,7 +425,8 @@ export default function LaunchRocketPage() {
       }
       // straight to trading (maker, 2026-11-15): a short liftoff, then the flight. Sharing waits there as a toast.
       const ticker = callSign.trim().toUpperCase();
-      const dest = `/coin/${res.token}?cs=${encodeURIComponent(ticker)}`;
+      // the clean public link (maker 2026-11-20): name / ticker / pair are read on chain, the share toast reads the handoff
+      const dest = rocketPath(res.token);
       saveLaunchHandoff(res.token, { name: name.trim(), ticker, mode: MODE_LABEL[launchMode] ?? "Easy", note });
       // no wait for the liftoff clip (maker 2026-11-18: too many screens): it plays while the flight route loads
       setPhase("lifting");

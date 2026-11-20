@@ -6,6 +6,7 @@
  * Click the card to make it taller (not on a live coin: maker 2026-11-19, the taller card pushed the stats pills and the crew
  * chat down, so live flight keeps the normal size); the 1M / 5M / 1H / 1D pick and the size are remembered on this device.
  */
+import { coinFromPath } from "@/lib/coinPath";
 import { useEffect, useState } from "react";
 import PhoneChart from "./PhoneChart";
 import CoinStats, { COIN_STATS_H } from "./CoinStats";
@@ -34,7 +35,7 @@ export default function DeskChart({ ticker }: { ticker: string }) {
   const on = !phone && hud === "pilot";
   // a live coin page: the stats pills (Price · 24H · Vol · Liquidity · Holders) sit inside the chart card, along its bottom
   const [coin, setCoin] = useState("");
-  useEffect(() => { setCoin((/^\/coin\/(0x[0-9a-fA-F]{40})/.exec(location.pathname)?.[1] ?? "").toLowerCase()); }, []);
+  useEffect(() => { setCoin(coinFromPath(location.pathname)); }, []);
   const grow = !coin;
   const h = (big && grow ? DESK_CHART_BIG_H : DESK_CHART_H) + (coin ? COIN_STATS_H : 0);
   // the Pilot crew feed starts under this card

@@ -48,9 +48,10 @@ test("no trades ⇒ zeros, no NaN", () => {
   assert.deepEqual([s.realizedPnlUsd, s.winRate, s.closedTrades, s.bombsDropped], [0, 0, 0, 0]);
 });
 
-test("Share this trade links to the coin page with ?ref=<wallet> (not /r/, which opens home)", async () => {
+test("Share this trade links to the rocket page with ?r=<username | wallet> (maker 2026-11-20)", async () => {
   const { coinRefLink } = await import("../lib/referral");
   assert.equal(coinRefLink("0xAbC0000000000000000000000000000000000001", "pilot", "0x00000000000000000000000000000000000000AA", "https://disciple.vip"),
-    "https://disciple.vip/coin/0xabc0000000000000000000000000000000000001?ref=0x00000000000000000000000000000000000000aa");
-  assert.equal(coinRefLink("0xabc0000000000000000000000000000000000001", "pilot", null, "https://disciple.vip"), "https://disciple.vip/r/pilot");
+    "https://disciple.vip/rocket/robinhood/0xabc0000000000000000000000000000000000001?r=pilot");
+  assert.equal(coinRefLink("0xabc0000000000000000000000000000000000001", null, "0x00000000000000000000000000000000000000AA", "https://disciple.vip"),
+    "https://disciple.vip/rocket/robinhood/0xabc0000000000000000000000000000000000001?r=0x00000000000000000000000000000000000000aa");
 });

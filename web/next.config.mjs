@@ -54,6 +54,10 @@ const nextConfig = {
     async headers() {
       return securityHeaders();
     },
+    // public coin link (maker 2026-11-20): /rocket/robinhood/<0x…> shows the /coin/<0x…> page and keeps the short URL
+    async rewrites() {
+      return [{ source: "/rocket/robinhood/:address(0x[0-9a-fA-F]{40})", destination: "/coin/:address" }];
+    },
   }),
   // PR 470 (Solana mint libs) pushed the Vercel build near its RAM cap: one preview build was OOM-killed during the type
   // check. Next's webpack memory optimizations trade a little build time for a lower peak.
