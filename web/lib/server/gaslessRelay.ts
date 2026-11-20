@@ -172,8 +172,12 @@ async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: 
   // fails at 900k is re-simulated at the 3M cap and, if that passes, is sent with 3M.
   const sim = Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", async (): Promise<bigint> => {
     try { await simulateDirect(r.address, to, data, GASLESS_GAS_LIMIT); return GASLESS_GAS_LIMIT; }
-    catch (e) {
-      if ((e as { data?: string }).data) throw legacyLogin(e);   // a real revert reason: refuse as before
+    catch {
+      // Any 900k failure is re-simulated at the 3M cap, revert data or not: a Uniswap v4 hook that runs out of gas comes
+      // back WRAPPED with data (WrappedError(hook, afterSwap, WrappedError(token, transfer, …), HookCallFailed)), which the
+      // old "has data ⇒ real revert" rule refused. That blocked every buy of STRATEGY-paired coins on mainnet: the route's
+      // MSTR→STRATEGY pool hook runs a ~550k-gas buyback loop (maker's $SPACE test buy, 2026-11-20; ~1.26M gas total).
+      // A real revert fails at 3M too and is refused with that error.
       await simulateDirect(r.address, to, data, GASLESS_GRAD_GAS_LIMIT).catch(e2 => { throw legacyLogin(e2); });
       return GASLESS_GRAD_GAS_LIMIT;
     }

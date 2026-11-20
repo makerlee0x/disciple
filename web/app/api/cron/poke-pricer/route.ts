@@ -30,6 +30,7 @@ const SCAN_CHUNK = BigInt(50_000);
 const LOW_BALANCE = BigInt(2e15);
 /** launchPriceUsd runs the on-chain freshness check (StalePrice) that launches use; not in the bundled ABI. */
 const freshAbi = parseAbi(["function launchPriceUsd(address quote) view returns (uint256)"]);
+const launchpadPricerAbi = parseAbi(["function pricer() view returns (address)"]);
 
 export async function GET(req: Request) {
   const s = process.env.CRON_SECRET;
@@ -41,6 +42,13 @@ export async function GET(req: Request) {
   let key: `0x${string}`;
   try { key = relayerKey(); } catch (e) { return NextResponse.json({ error: isRelayerNotConfigured(e) ? "relayer_not_configured" : "relayer_error" }, { status: 503 }); }
 
+  // Launches price from live spot once the Launchpad points at SpotLaunchPricer (maker 2026-11-20): then nothing reads
+  // the TWAP for a launch, so no poke is ever sent (zero gas). Only while it still points at the TWAP QuotePricer.
+  {
+    const pc0 = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
+    const cur = await pc0.readContract({ address: d.launchpad, abi: launchpadPricerAbi, functionName: "pricer" }).catch(() => null);
+    if (cur && cur.toLowerCase() !== d.quotePricer.toLowerCase()) return NextResponse.json({ ok: true, skipped: "spot pricer", pricer: cur });
+  }
   const store = kv(), lp = d.launchpad.toLowerCase();
   if (!(await store.setNX("pricer:lock", "1", 50))) return NextResponse.json({ ok: true, skipped: "locked" });
   try {

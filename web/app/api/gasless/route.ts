@@ -83,7 +83,8 @@ export async function POST(req: Request) {
     await flushRelayTrust().catch(() => undefined);
     const x = e as { message?: string; notSent?: boolean; txHash?: string; unclear?: boolean; data?: unknown; limited?: boolean };
     const reason = diagnosticText(x.message ?? String(e));
-    console.info("[disciple] gasless relay rejected " + JSON.stringify({ method: body.method, reason, notSent: x.notSent === true, txHash: x.txHash, unclear: x.unclear }));
+    console.info("[disciple] gasless relay rejected " + JSON.stringify({ method: body.method, reason, notSent: x.notSent === true, txHash: x.txHash, unclear: x.unclear,
+      ...(typeof x.data === "string" ? { revert: x.data.slice(0, 2000) } : {}) }));   // the revert bytes: the reason text alone was cut off in the logs
     const status = x.limited || /rate limited/.test(reason) ? 429 : x.notSent ? 403 : 502;
     return NextResponse.json({ jsonrpc: "2.0", id, error: { code: status === 429 ? -32005 : -32003, message: reason,
       data: { notSent: x.notSent === true, ...(x.txHash ? { txHash: x.txHash } : {}), ...(x.unclear ? { unclear: true } : {}), ...(typeof x.data === "string" ? { revert: x.data } : {}) } } }, { status });

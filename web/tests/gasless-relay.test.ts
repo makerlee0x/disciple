@@ -440,6 +440,26 @@ describe("play-test fixes (maker 2026-11-14: buys stuck on \"didn't go through\"
     expect(parseTransaction(raw!).gas).toBe(GASLESS_GRAD_GAS_LIMIT);
   });
 
+  it("a 900k failure WITH revert data (a v4 hook out of gas comes back wrapped) is re-simulated at 3M and sent (maker $SPACE buy 2026-11-20)", async () => {
+    const wrapped = "0x90bfb8650000000000000000000000004e3468951d49f2eea976ed0d6e75ffcb44a9a544" as Hex;
+    h.call.mockImplementation(async ({ gas }: { gas?: bigint }) => {
+      if (gas === GASLESS_GAS_LIMIT) throw Object.assign(new Error("execution reverted"), { walk: (f: (x: unknown) => boolean) => f({ data: wrapped }) });
+      return { data: "0x" };
+    });
+    let raw: Hex | undefined;
+    h.send.mockImplementation(async (r: Hex) => { raw = r; return okRc(); });
+    await relayGaslessTrade(await wire());
+    expect(parseTransaction(raw!).gas).toBe(GASLESS_GRAD_GAS_LIMIT);
+  });
+
+  it("a revert at BOTH caps is refused, nothing sent", async () => {
+    const slip = keccak256(toBytes("Slippage()")).slice(0, 10) as Hex;
+    h.call.mockImplementation(async () => { throw Object.assign(new Error("execution reverted"), { walk: (f: (x: unknown) => boolean) => f({ data: slip }) }); });
+    h.send.mockClear();
+    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true });
+    expect(h.send).not.toHaveBeenCalled();
+  });
+
   it("an included SLIPPAGE revert (rapid taps) is reported to the client and does not count toward the 2-revert breaker", async () => {
     const slip = keccak256(toBytes("Slippage()")).slice(0, 10) as Hex;
     let sims = 0;

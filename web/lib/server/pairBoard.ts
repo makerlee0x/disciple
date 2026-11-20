@@ -91,7 +91,9 @@ async function prices(): Promise<Record<string, number>> {
   const d = deployment(), pc = serverPc();
   const v: Record<string, number> = {};
   if (d.quotePricer && d.quotePricer !== ZERO) await Promise.all(PAIR_COINS.map(async (p) => {
-    const w = await pc.readContract({ address: d.quotePricer, abi: quotePricerAbi, functionName: "quotePriceUsd", args: [p.address as Address] }).catch(() => null);
+    // live spot (maker 2026-11-20: no keeper keeps the TWAP warm once launches price from spot); TWAP as a fallback
+    const w = await pc.readContract({ address: d.quotePricer, abi: quotePricerAbi, functionName: "spotPriceUsd", args: [p.address as Address] })
+      .catch(() => pc.readContract({ address: d.quotePricer, abi: quotePricerAbi, functionName: "quotePriceUsd", args: [p.address as Address] })).catch(() => null);
     if (w != null) v[p.address] = (Number(w) / 1e18) * (10 ** p.decimals / 1e18);
   }));
   if (Object.keys(v).length) g.__dscPairPrice = { at: Date.now(), v };
