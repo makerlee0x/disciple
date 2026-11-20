@@ -419,6 +419,9 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     /// @notice Stealth owner picks where this coin's creator fees go. address(0) clears it.
     function setPayee(address token, address payee) external {
         if (stealthOwnerOf[token] != msg.sender || msg.sender == address(0)) revert NotStealthOwner();
+        unchecked {
+            ++nonces[msg.sender]; // audit delta-2 L-01: a direct change voids pending signed SetPayee / transfers
+        }
         _setPayee(token, msg.sender, payee);
     }
 

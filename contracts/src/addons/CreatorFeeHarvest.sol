@@ -13,6 +13,10 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IPermit2Witness} from "../interfaces/IPermit2Witness.sol";
 
+interface ILaunchpadEpoch {
+    function creatorEpoch(address token) external view returns (uint256);
+}
+
 interface ILaunchpadFor {
     function launchFor(address creator, ILaunchpad.LaunchParams calldata params, uint8 mode)
         external
@@ -121,6 +125,8 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step, EIP712 {
     ///         creator. Only the current `creatorOf` sets it. A new creator after `transferCreator` starts with no
     ///         pick (the old creator's pick only applies to the old creator's own leftover fees).
     mapping(address token => mapping(address creator => address payee)) internal _payeeOf;
+    /// @dev Launchpad.creatorEpoch(token) when `_payeeOf[token][creator]` was set (audit delta-2 M-01).
+    mapping(address token => mapping(address creator => uint256)) internal _payeeEpoch;
 
     error ZeroAddress();
     error AlreadyWired();
@@ -639,6 +645,9 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step, EIP712 {
     ///         token). address(0) or the creator's own address clears it. Any wallet or contract can be picked.
     function setCreatorFeeRecipient(address token, address recipient) external {
         if (msg.sender != launchpad.creatorOf(token) || msg.sender == address(0)) revert NotCreator();
+        unchecked {
+            ++sigNonces[msg.sender]; // audit delta-2 L-01: a direct pick voids pending signed picks
+        }
         _setPayee(token, msg.sender, recipient);
     }
 
@@ -664,13 +673,18 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step, EIP712 {
     function _setPayee(address token, address c, address recipient) internal {
         if (recipient == c) recipient = address(0);
         _payeeOf[token][c] = recipient;
+        _payeeEpoch[token][c] = ILaunchpadEpoch(address(launchpad)).creatorEpoch(token);
         emit CreatorFeeRecipientSet(token, c, recipient);
     }
 
     /// @notice Where `creator`'s fees for `token` are paid: their pick, else `creator`.
     function creatorFeeRecipientOf(address token, address creator) external view returns (address) {
         address p = _payeeOf[token][creator];
-        return p == address(0) ? creator : p;
+        // audit delta-2 M-01: a pick made in an earlier creator epoch (A → B → A) is void
+        if (p == address(0) || _payeeEpoch[token][creator] != ILaunchpadEpoch(address(launchpad)).creatorEpoch(token)) {
+            return creator;
+        }
+        return p;
     }
 
     function _record(address token, uint8 dest) internal {

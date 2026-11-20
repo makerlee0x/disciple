@@ -13,6 +13,7 @@ import {LockedLP} from "../src/LockedLP.sol";
 import {FeeRouter} from "../src/FeeRouter.sol";
 import {Migration} from "../src/Migration.sol";
 import {Launchpad} from "../src/Launchpad.sol";
+import {Token} from "../src/Token.sol";
 import {CurveDeployer} from "../src/CurveDeployer.sol";
 import {CurveFeeVault} from "../src/CurveFeeVault.sol";
 import {TrampWallManager} from "../src/TrampWallManager.sol";
@@ -71,10 +72,11 @@ contract DevToken is ERC20, ERC20Permit {
 ///   COMMUNITY_SAFE      community rewards Safe (required on 4663, must be a contract; default TREASURY elsewhere). Fixed in
 ///                       DiscipleHook (the hook's 1%), FeeRouter.referralSink (the curve 1% + no-holder crew tip) and
 ///                       the default REWARDS_VAULT_OWNER (unclaimed sniper fees). maker 2026-11-19.
-///   REFERRAL_SINK       FeeRouter.referralSink. Forced to COMMUNITY_SAFE on 4663 (env ignored). Was TREASURY (old note: (maker 2026-11-16: the referral 1% goes
-///                       to treasury, referrers are paid by hand), address(0) elsewhere (referrer / launch KOL get
-///                       the 1%). Non-zero redirects the WHOLE referral 1% incl. the launch-KOL 1% (lee, 2026-10-24).
-///                       Fixed for good on 4663 by lockSettings().
+///   REFERRAL_SINK       FeeRouter.referralSink. Forced to COMMUNITY_SAFE on 4663 (env ignored, then lockSettings()).
+///                       Elsewhere it defaults to COMMUNITY_SAFE (= TREASURY when that is unset). It takes the WHOLE
+///                       referral 1%; referrers are paid by hand (maker 2026-11-19).
+///   GASLESS_FEE_TO      wallet paid the flat $0.01 USDG gasless network fee. 4663: defaults to PRICER_POKER (relayer)
+///                       and must be set; elsewhere unset = fee off.
 ///   DEFAULT_QUOTE       default launch quote (RH: STRATEGY 0x168661C52E5922288dFb2b3f323b6Cf90eb21e18)
 ///   DEFAULT_QUOTE_POOL_FEE / DEFAULT_QUOTE_POOL_TICK_SPACING / DEFAULT_QUOTE_POOL_HOOKS (not read on 4663: there all
 ///                       12 pair coins, the default quote included, get the script/whitelist/MainnetRoutes.sol routes)
@@ -93,7 +95,6 @@ contract DevToken is ERC20, ERC20Permit {
 ///                       mainnet): the deployer keeps those roles; run script/HandoverToSafe.s.sol later (mainnet: 2-of-3 Safe, no timelock
 ///                       at launch, maker 2026-11-17). The renounces
 ///                       and the FeeRouter lock still happen at deploy on 4663. Audit 2026-11-17 R461-05 / (g).
-///   GASLESS_FEE_TO      relayer fee wallet that receives the flat $0.01 USDG gasless network fee (unset = no fee)
 ///   PRICER_POKER        QuotePricer keeper (required on 4663): launches revert StalePrice without fresh pokes
 ///   REWARDS_VAULT_OWNER community RewardsVault owner (default deployer): TEMP wallet on testnet, multisig (Safe) on
 ///                       mainnet (lee 2026-11-10). Receives the sniper tax + curve LP fees of coins not graduated
@@ -258,7 +259,9 @@ contract Deploy is NetworkConfig {
         // USDG-in/out routing (buyWithUsdg / sellToUsdg): USDG + curve registry, and the USDG/defaultQuote hop pool.
         router.setUsdgRouting(o.usdg, address(launchpad));
         // maker 2026-11-19: flat $0.01 USDG network fee on gasless trades, paid to the relayer fee wallet (off if unset)
-        address gasFeeTo = vm.envOr("GASLESS_FEE_TO", address(0));
+        // Audit delta-2 D2-L10: on 4663 the fee is always on; it defaults to the relayer EOA (PRICER_POKER signs the
+        // crons and relays gasless trades) and the read-back below fails the deploy if it is off.
+        address gasFeeTo = vm.envOr("GASLESS_FEE_TO", mainnet ? poker : address(0));
         if (gasFeeTo != address(0)) router.setGasFee(gasFeeTo, router.gasFee());
         // Curve trades via the router act for the real trader (bonding modes: caps / cost basis / attribution).
         launchpad.setTrustedRouter(address(router), true);
@@ -327,6 +330,12 @@ contract Deploy is NetworkConfig {
             if (kolBps != feeRouter.kolCreatorShareBps()) feeRouter.setKolCreatorShareBps(kolBps);
         }
         if (mainnet || vm.envOr("LOCK_FEE_SETTINGS", false)) feeRouter.lockSettings();
+        // Audit delta-2 D2-1a / D2-1b: a swapped curve deployer or hook is trusted by CurveFeeVault / FeeRouter / LockedLP
+        // credit paths, so a bad swap could drain them. Mainnet locks both swaps in the deploy tx (no env opt-out).
+        if (mainnet || vm.envOr("LOCK_COMPONENT_SWAPS", false)) {
+            launchpad.lockCurveDeployer();
+            migration.lockHook();
+        }
         if (safe != address(0)) {
             _nominate(address(launchpad), safe);
             _nominate(address(feeRouter), safe);
@@ -343,6 +352,21 @@ contract Deploy is NetworkConfig {
         require(router.usdg() == o.usdg, "verify: router.usdg"); // round 5: the write-once USDG half
         _verify(mainnet, feeRouter, hook, lockedLP, harvest, launchpad, router, AnonLauncher(o.anonLauncher));
         if (mainnet) _verifyMainnetRoutes(pricer, router);
+        if (mainnet) {
+            require(launchpad.curveDeployerLocked(), "verify: curve swap not locked");
+            require(migration.hookLocked(), "verify: hook swap not locked");
+            require(address(launchpad.curveDeployer()) == o.curveDeployer, "verify: curve deployer");
+            require(address(migration.hook()) == address(hook), "verify: migration hook");
+            // Audit delta-2 D2-L12 / D2-L10: the rest of the hook wiring and the gasless fee.
+            require(hook.migration() == address(migration), "verify: hook.migration");
+            require(address(hook.pricer()) == address(pricer), "verify: hook.pricer");
+            require(router.hook() == address(hook), "verify: router.hook");
+            require(router.gasFeeTo() != address(0) && router.gasFee() != 0, "verify: gasless fee off");
+            // Audit delta-2 4/4 D2-04(4): the coin implementation's pre-orbit PoolManager block points at the real PoolManager.
+            require(
+                Token(launchpad.tokenDeployer().implementation()).poolManager() == o.manager, "verify: token impl poolManager"
+            );
+        }
 
         vm.stopBroadcast();
 
@@ -479,7 +503,7 @@ contract Deploy is NetworkConfig {
         feeRouter.setRewardsVault(address(vault));
         // maker 2026-11-19: unclaimed sniper fees belong to the community rewards Safe on mainnet.
         address vOwner = block.chainid == 4663
-            ? vm.envOr("REWARDS_VAULT_OWNER", vm.envAddress("COMMUNITY_SAFE"))
+            ? vm.envAddress("COMMUNITY_SAFE") // audit delta-2 4/4 D2-04(3): env override ignored on 4663
             : vm.envOr("REWARDS_VAULT_OWNER", vm.envOr("SAFE", deployer));
         // Owned2Step: this only nominates; REWARDS_VAULT_OWNER must call vault.acceptOwnership() afterwards.
         if (vOwner != deployer) vault.transferOwnership(vOwner);

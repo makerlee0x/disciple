@@ -127,6 +127,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     error OnlyLockedLP();
     error ZeroAddress();
     error NothingToClaim();
+    event ClaimFailed(address indexed token, uint8 share);
 
     modifier onlyPoolManager() {
         if (msg.sender != address(poolManager)) revert OnlyPoolManager();
@@ -173,6 +174,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     function renounceAdmin() external {
         if (msg.sender != admin) revert OnlyAdmin();
         require(migration != address(0), "DiscipleHook: mig");
+        require(creatorFeeHarvest != address(0), "DiscipleHook: harvest"); // audit delta-2 D2-I1
         admin = address(0);
         delete pendingAdmin;
         emit AdminTransferred(address(0));
@@ -279,6 +281,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             to = IHookLaunchpad(IMigrationLockedLP(migration).launchpad()).creatorOf(token);
             if (to == address(0)) to = m.creator;
             if (h != address(0)) to = IHookCreatorFeeDestination(h).creatorFeeRecipientOf(token, to); // Pays to
+            if (to == address(0)) revert ZeroAddress(); // audit delta-2 D2-I2
             if (quoteAmount != 0) creatorQuotePaidTo[token][to] += quoteAmount;
             _pay(m.quote, token, to, quoteAmount, tokenAmount);
         }
@@ -311,10 +314,14 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             for (uint8 s; s < 4; ++s) {
                 (uint256 q, uint256 k) = claimable(t, s);
                 if (q == 0 && k == 0) continue;
-                if (s == SHARE_CREATOR) claimCreatorFees(t);
-                else if (s == SHARE_LOCKED_LP) claimLockedLiquidityFees(t);
-                else if (s == SHARE_TREASURY) claimTreasuryFees(t);
-                else claimCommunityFees(t);
+                // audit delta-2 L-02: best effort. One reverting recipient (e.g. a blacklisted payee) skips only that
+                // share; every other share and coin in the batch still pays. Each share stays claimable on its own.
+                bool ok;
+                if (s == SHARE_CREATOR) (ok,) = address(this).call(abi.encodeCall(this.claimCreatorFees, (t)));
+                else if (s == SHARE_LOCKED_LP) (ok,) = address(this).call(abi.encodeCall(this.claimLockedLiquidityFees, (t)));
+                else if (s == SHARE_TREASURY) (ok,) = address(this).call(abi.encodeCall(this.claimTreasuryFees, (t)));
+                else (ok,) = address(this).call(abi.encodeCall(this.claimCommunityFees, (t)));
+                if (!ok) emit ClaimFailed(t, s);
             }
         }
     }
@@ -354,6 +361,12 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     }
 
     /// @dev share of the running total (33/33/33/1, each rounded down) minus what it already claimed.
+    /// @dev Cumulative-total minus claimed per share (the MasterChef "reward debt" pattern).
+    ///      Audit delta-2 L-03 (accepted): each share's target is floor(total * pct / DENOM) on the running total, so
+    ///      the four targets sum to at most `total` and the unpaid remainder is the sum of four fractional parts: under
+    ///      4 raw units per currency per pool at any time. It does not grow with volume (it is recomputed from the
+    ///      cumulative total) and no share can over-claim. Computing one share as the remainder was rejected: it makes
+    ///      that share's target non-monotonic, which could put `claimedOf` above the target and revert the subtraction.
     function _owed(PoolId id, uint8 share) internal view returns (uint256 a0, uint256 a1) {
         Fees memory f = feesOf[id];
         Fees memory c = claimedOf[id][share];

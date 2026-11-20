@@ -80,6 +80,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     /// @notice FeeRouter's ReferralRegistry: a referred trader's fee is settled in the same trade so their referrer's
     ///         1% is attributed exactly as today (the referrer only exists at trade time).
     IReferrerOf public immutable referrals;
+    /// @dev Audit delta-2 D2-L4: the CurveDeployer that created the implementation; only it initializes clones.
+    address internal immutable _cloner;
 
     // slot A
     address public override token;
@@ -223,6 +225,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         feeVault = ICurveFeeVault(feeVault_);
         referrals = IReferrerOf(IFeeRouterCurve(feeRouter_).referrals());
         token = address(1);
+        _cloner = msg.sender;
     }
 
     /// @notice One-time setup of a fresh clone by its CurveDeployer (same transaction as the clone).
@@ -239,6 +242,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         uint256 snipeEscrowTimeout_
     ) external {
         if (token != address(0)) revert BadParams();
+        if (msg.sender != _cloner) revert BadParams();
         if (
             token_ == address(0) || mode_ > Constants.MODE_PVP || walletCapBps_ > Constants.BPS_DENOM
                 || creatorTaxBps_ > Constants.CREATOR_TAX_MAX_BPS || crewTipThresholdBps_ > type(uint16).max

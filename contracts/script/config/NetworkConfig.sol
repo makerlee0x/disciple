@@ -34,7 +34,9 @@ abstract contract NetworkConfig is Script {
     function _checkCoreConfig() internal view returns (bool mainnet) {
         mainnet = _checkNetwork();
         if (!mainnet) return false;
-        _requiredAddress("TREASURY");
+        // Audit delta-2 4/4 D2-04(2): the treasury is fixed forever in the hook and LockedLP, so it must be a Safe (a
+        // contract), not an EOA or a typo.
+        _requiredContract("TREASURY");
         // maker 2026-11-19: the community rewards Safe (1% of every fee, unclaimed sniper fees, no-holder crew tips).
         // A Safe is a contract, so a typo'd EOA fails here; it is fixed in the hook forever.
         _requiredContract("COMMUNITY_SAFE");

@@ -12,9 +12,10 @@
 //   BUNDLE        web-bundle dir (default deployments/web-bundle, or deployments/fork/web-bundle with FORK=1)
 //   QUOTE         quote token for the smoke coin (default the bundle's USDG; the floor is USDG-only)
 //   GRADUATE=1    buy through graduation (default on with FORK=1)
-//   EXPECT_REFERRAL_SINK  default the bundle's community.wallet when set, else 0x000…000 (referrer / launch-KOL routing)
+//   EXPECT_REFERRAL_SINK  default the bundle's community.wallet when set, else FeeRouter.treasury() (Deploy's default sink
+//                         is COMMUNITY_SAFE, which is TREASURY when unset; audit delta-2 D2-L11)
 //   EXPECT_REWARDS_VAULT  default the bundle's community.wallet when set, else contracts.RewardsVault
-//   EXPECT_KOL_CREATOR_SHARE_BPS  default the bundle's community.kolCreatorShareBps when set, else 200
+//   EXPECT_KOL_CREATOR_SHARE_BPS  default the bundle's community.kolCreatorShareBps when set, else 0 (maker 2026-11-20)
 //   (bundle `community` = post-deploy owner wiring of FeeRouter.rewardsVault / referralSink to the community wallet, an EOA on
 //   testnet; a fresh redeploy's bundle has no `community`, so the defaults are Deploy.s.sol's wiring)
 //   EXPECT_REWARDS_VAULT_OWNER  set after REWARDS_VAULT_OWNER ran acceptOwnership() (runbook §5): checks owner() == it and
@@ -85,14 +86,14 @@ check("USDG decimals == 6", dec === 6, `USDG ${USDG} decimals ${dec}`);
 const qDec = await rd(Q, erc20, "decimals");
 const U = (x) => BigInt(Math.round(x * 1e6)) * 10n ** BigInt(qDec) / 1_000_000n; // human → quote raw
 const fmt = (x) => formatUnits(x, qDec);
-const sinkWant = getAddress(process.env.EXPECT_REFERRAL_SINK ?? COMMUNITY ?? zeroAddress);
+const sinkWant = getAddress(process.env.EXPECT_REFERRAL_SINK ?? COMMUNITY ?? (await rd(B.FeeRouter, frAbi, "treasury")));
 const sink = await rd(B.FeeRouter, frAbi, "referralSink");
 check(`FeeRouter.referralSink == ${COMMUNITY && sinkWant === COMMUNITY ? "community wallet" : "expected"}`, sink === sinkWant, `${sink} (expected ${sinkWant}; 0 = referrer/launch-KOL routing)`);
 // redeploy pack (lee 2026-10-24): no legacy AntiSnipe; owner-settable KOL creator-share cut; launchAnon maxFee; Token.burn
 check("Launchpad.antiSnipe() == 0 (legacy AntiSnipe not deployed)", (await rd(B.Launchpad, lpAbi, "antiSnipe")) === zeroAddress, "pack item 8");
 check("no AntiSnipe in the bundle", !("AntiSnipe" in B), Object.keys(B).length + " contracts");
 check("no stale AntiSnipe ABI in the bundle", !fs.existsSync(path.join(BUNDLE, "abi", "AntiSnipe.json")), "AUDIT stale ABIs");
-const kolWant = BigInt(process.env.EXPECT_KOL_CREATOR_SHARE_BPS ?? bundle.community?.kolCreatorShareBps ?? 200);
+const kolWant = BigInt(process.env.EXPECT_KOL_CREATOR_SHARE_BPS ?? bundle.community?.kolCreatorShareBps ?? 0);
 const kolBps = BigInt(await rd(B.FeeRouter, frAbi, "kolCreatorShareBps"));
 check(`FeeRouter.kolCreatorShareBps == ${kolWant}`, kolBps === kolWant, `${kolBps} bps of the creator share (want ${kolWant}; range 0-500)`);
 check("AnonLauncher.launchAnon has maxFee (v2 ABI)", abi("AnonLauncher").some((x) => x.type === "function" && x.name === "launchAnon" && x.inputs.length === 6), "launchAnon(p, stealthOwner, buyRecipient, eph, viewTag, maxFee unused)");
