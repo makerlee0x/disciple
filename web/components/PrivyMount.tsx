@@ -10,12 +10,10 @@
  * Robinhood Chain testnet (46630) is a custom viem defineChain (lib/chains.ts) passed as default/supported chain.
  */
 import { useEffect, useMemo, useRef } from "react";
-import { PrivyProvider, getIdentityToken, toViemAccount, useCreateWallet, useExportWallet, useFundWallet, useLinkAccount, useMfaEnrollment, usePrivy, useWallets } from "@privy-io/react-auth";
-import { deployment, isDeployed } from "@/lib/chains";
+import { PrivyProvider, getIdentityToken, toViemAccount, useCreateWallet, useExportWallet, useFiatOnramp, useLinkAccount, useMfaEnrollment, usePrivy, useWallets } from "@privy-io/react-auth";
 import { useDepositAddress } from "@privy-io/react-auth/hooks";
 import { DEPOSIT_ACK_EVENT, DEPOSIT_CALL_EVENT, DEPOSIT_REPLY_EVENT, type DepositAddress, type DepositCall, type DepositOutcome, type DepositReply } from "@/lib/deposit";
-import { FUND_ACK_EVENT, FUND_COPY, FUND_DEFAULT_USD, FUND_DONE_EVENT, FUND_EVENT, fundErrorLine, type FundRequest, type FundResult } from "@/lib/fund";
-const FUND_CLOSED = FUND_COPY.closed;
+import { FUND_ACK_EVENT, FUND_CARD_FEE_EST, FUND_COPY, FUND_DEFAULT_USD, FUND_DONE_EVENT, FUND_EVENT, fundErrorResult, parseCardTarget, payHint, type FundRequest, type FundResult } from "@/lib/fund";
 import { currentInApp } from "@/lib/inAppBrowser";
 import { isNativeApp, nativePlugin } from "@/lib/native";
 import { needsEmbeddedWallet, ownerWalletAddress, type LinkedLike } from "@/lib/privyOwner";
@@ -155,26 +153,41 @@ function PrivyBridge() {
   return null;
 }
 
-/** Card / Apple Pay on-ramp (lib/fund): opens Privy's funding flow for the player's cash address, buying USDG on the
- *  active chain. Answers every request with FUND_DONE_EVENT so Cash can show what happened. */
+/** Card / Apple Pay on-ramp (lib/fund): card providers don't sell USDG on Robinhood Chain, so the card buys USDC on
+ *  Base into a Relay deposit address from our server (POST /api/cash/card) that swaps it into USDG in the player's cash
+ *  address. Answers every request with FUND_DONE_EVENT so Cash can show what happened. */
 function FundBridge() {
   const done = (r: FundResult) => dispatchEvent(new CustomEvent<FundResult>(FUND_DONE_EVENT, { detail: r }));
-  // closing the window says nothing about a payment that's still settling, so Cash shows the neutral "closed" line
-  const { fundWallet } = useFundWallet({ onUserExited: () => done({ ok: false, message: FUND_CLOSED }) });
-  const fundRef = useRef(fundWallet); fundRef.current = fundWallet;
+  const { fund } = useFiatOnramp();
+  const { getAccessToken } = usePrivy();
+  const ref = useRef({ fund, getAccessToken }); ref.current = { fund, getAccessToken };
   useEffect(() => {
     const on = (e: Event) => {
       const req = (e as CustomEvent<FundRequest>).detail;
       dispatchEvent(new Event(FUND_ACK_EVENT));
-      if (!req?.address) return done({ ok: false });
-      const usd = String(req.usd && req.usd > 0 ? req.usd : FUND_DEFAULT_USD);
-      const usdg = isDeployed() ? (deployment().usdg as `0x${string}` | undefined) : undefined;
-      fundRef.current({
-        address: req.address,
-        options: usdg
-          ? { chain: ACTIVE_CHAIN, amount: usd, asset: { erc20: usdg }, defaultFundingMethod: "card", uiConfig: { receiveFundsTitle: "Add cash" } }
-          : { chain: ACTIVE_CHAIN, amount: usd, defaultFundingMethod: "card" },
-      }).then(() => done({ ok: true })).catch((err) => done({ ok: false, message: fundErrorLine(err) }));
+      if (!req?.address) return done({ ok: false, message: FUND_COPY.unavailable });
+      const usd = req.usd && req.usd > 0 ? req.usd : FUND_DEFAULT_USD;
+      const { fund: buy, getAccessToken: token } = ref.current;
+      const run = async (): Promise<FundResult> => {
+        const t = await token();
+        if (!t) return { ok: false, message: FUND_COPY.signIn };
+        // quote what's likely to land after the card seller's cut; Relay fills whatever amount arrives
+        const r = await fetch(withBase("/api/cash/card"), { method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${t}`, "x-wallet": req.address },
+          body: JSON.stringify({ usd: Math.round(usd * (1 - FUND_CARD_FEE_EST) * 100) / 100 }) });
+        const target = parseCardTarget(await r.json().catch(() => null));
+        if (!target) return { ok: false, message: FUND_COPY.unavailable };
+        try {
+          await buy({
+            source: { assets: ["usd"], defaultAsset: "usd" },
+            destination: target,
+            defaultAmount: String(usd),
+            preferredPaymentMethod: payHint(navigator.userAgent),
+          });
+        } catch (err) { return fundErrorResult(err); }
+        return { ok: true };
+      };
+      run().then(done).catch((err) => done(fundErrorResult(err)));
     };
     addEventListener(FUND_EVENT, on);
     return () => removeEventListener(FUND_EVENT, on);
