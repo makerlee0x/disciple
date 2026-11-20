@@ -342,7 +342,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
   const launched = home && (wallet || slugAddr) ? [...home.values()].filter((c) => c.creatorAddr === (wallet || slugAddr) || (isPrivate && hidden.has(c.token))).sort((x, y) => y.block - x.block) : null;
   const avatar = img
     // eslint-disable-next-line @next/next/no-img-element
-    ? <img src={withBase(img)} alt="" width={72} height={72} fetchPriority="high" />
+    ? <img className="pfp-img" src={withBase(img)} alt="" width={72} height={72} fetchPriority="high" />
     : <IdentitySigil id={NO_IDENTITY.primary.id} size={34} tip={false} />;
   const bio = meta.bio ? <p className="hg-bio" data-testid="profile-bio"><BioText text={meta.bio} /></p>
     : isPrivate ? <button type="button" className="hg-addbio" onClick={() => setEdit({ focus: "bio" })}><Icon name="plus" size={14} /> {C["profile.bio.empty.own"]}</button> : null;

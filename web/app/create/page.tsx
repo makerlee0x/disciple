@@ -9,7 +9,7 @@ import { contrastWarning } from "@/lib/decal";
 import { houseBadgeDataUri } from "@/lib/decalDefault";
 import { BADGE_TAKES, badgeDataUri, badgeSpecs } from "@/lib/badgeForge";
 import { precheckWithin, preloadModeration } from "@/lib/moderation-client";
-import { cropSquare } from "@/components/create/SquareCrop";
+import SquareCrop, { cropSquare } from "@/components/create/SquareCrop";
 import LaunchPad from "@/components/create/LaunchPad";
 import LookPicker, { LookChip, lookOptions, type LookChoice } from "@/components/create/LookPicker";
 import { useCollection } from "@/lib/collectionClient";
@@ -84,6 +84,8 @@ export default function LaunchRocketPage() {
   const [file, setFile] = useState<File | null>(null);
   const [iconSrc, setIconSrc] = useState<HTMLImageElement | null>(null);
   const [crop, setCrop] = useState({ x: 0.5, y: 0.5 });
+  // drag-to-crop step after picking a non-square image (maker 2026-11-20)
+  const [cropOpen, setCropOpen] = useState(false);
   const [contrast, setContrast] = useState<string | null>(null);
   const [mod, setMod] = useState<{ state: "idle" | "checking" | ModerationVerdict; uri?: string; note?: string }>({ state: "idle" });
   const [advanced, setAdvanced] = useState(false);
@@ -234,7 +236,7 @@ export default function LaunchRocketPage() {
 
 
   async function onPickFile(f: File | null) {
-    setFile(f); setIconSrc(null); setContrast(null); setMod({ state: "idle" });
+    setFile(f); setIconSrc(null); setContrast(null); setMod({ state: "idle" }); setCropOpen(false);
     if (!f) return;
     if (!(MODERATION.mimeTypes as readonly string[]).includes(f.type)) return setMod({ state: "block", note: "Only PNG, JPG, WEBP or GIF." });
     if (f.size > MODERATION.maxBytes) return setMod({ state: "block", note: "Max 2 MB." });
@@ -259,6 +261,7 @@ export default function LaunchRocketPage() {
     setCroppedUri(uri);
     setUploadedUri(uri);
     storeUpload(uri);
+    if (img.naturalWidth !== img.naturalHeight) setCropOpen(true);
     setMod({ state: "allow", uri, note: pending ? `pending server review (${ms} ms)` : `approved in ${ms} ms` });
     if (!IS_STATIC_PREVIEW) {
       const fd = new FormData(); fd.append("file", f);
@@ -629,6 +632,13 @@ export default function LaunchRocketPage() {
               </div>
               <input ref={fileRef} className={s.file} type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-label="upload rocket icon" onChange={(e) => onPickFile(e.target.files?.[0] || null)} />
             </div>
+            {cropOpen && iconSrc && usingUpload && (
+              <div className={L.cropStep} data-testid="badge-crop">
+                <SquareCrop img={iconSrc} pos={crop} onChange={setCrop} size={200} />
+                <button type="button" className={`${L.btn} ${L.gold} ${L.cropDone}`} data-testid="badge-crop-done"
+                  onClick={() => { const u = cropSquare(iconSrc, crop); setCroppedUri(u); setUploadedUri(u); storeUpload(u); setCropOpen(false); }}>Done</button>
+              </div>
+            )}
             {mod.state === "checking" ? <span className={L.help}>Checking image…</span>
               : blocked ? <span role="alert" className={`${L.help} ${L.bad}`}>{mod.note || C.imageReverted}</span>
               : contrast ? <span className={`${L.help} ${L.bad}`}><Icon name="warning" size={12} /> {contrast}</span>

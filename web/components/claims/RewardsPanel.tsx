@@ -30,7 +30,7 @@ import { creatorClaimCalls, signedAnonClaimCalls } from "@/lib/claims/creatorFee
 import { partitionRelayableCalls, blockedCallsMessage } from "@/lib/trade/gaslessAction";
 import { formatActionFeeNote, quoteGaslessAction } from "@/lib/trade/gaslessActionClient";
 import { IMAGE_COPY, launchImageFrom, type ModerateResponse } from "@/lib/launchImage";
-import { cropSquare } from "@/components/create/SquareCrop";
+import SquareCrop, { cropSquare } from "@/components/create/SquareCrop";
 import UserPicker, { RecipientCard } from "@/components/ui/UserPicker";
 import type { Recipient } from "@/lib/send/recipient";
 import { SampleTag, isCashAsset, pc, shortA } from "./ui";
@@ -59,7 +59,7 @@ const T = {
   payTo: "Pays to", yourWallet: "Your wallet", someoneElse: "Someone else", change: "Change", payToLabel: "Wallet or @username",
   payToWarn: (coin: string) => `$${coin} fees pay here. Sent rewards can't be pulled back.`,
   save: "Save", saving: "Saving…", saved: "Saved",
-  coinPage: "Coin page", coinInfo: "Coin info", changeImage: "Change image", name: "Name", ticker: "Ticker",
+  coinPage: "Coin page", coinInfo: "Coin info", changeImage: "Change image", cropUse: "Use image", cropCancel: "Cancel", name: "Name", ticker: "Ticker",
   description: "Description", links: "Links", saveInfo: "Save info",
   creator: "Creator", transfer: "Transfer creator", newCreator: "New creator",
   transferWarn: (who: string) => `Unclaimed and future fees, coin info and creator rights move to ${who}. You can't undo this.`,
@@ -132,18 +132,20 @@ function HoldButton({ label, busyLabel, busy, disabled, onDone, ms = 1200, testI
   );
 }
 
-/** Square-crop a picked file and store it through /api/moderate-image (same as the launch form). */
-async function uploadCoinImage(f: File): Promise<string> {
+/** Decode a picked file (object URL stays alive for the crop step; the caller revokes it). */
+async function loadImage(f: File): Promise<HTMLImageElement> {
   const url = URL.createObjectURL(f);
-  try {
-    const img = await new Promise<HTMLImageElement>((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => bad(new Error(IMAGE_COPY.upload)); i.src = url; });
-    const fd = new FormData(); fd.append("uri", cropSquare(img, { x: 0.5, y: 0.5 }));
-    const v = await fetch("/api/moderate-image", { method: "POST", body: fd, signal: AbortSignal.timeout?.(65_000) })
-      .then(async (r) => (await r.json().catch(() => null)) as ModerateResponse).catch(() => null);
-    const li = launchImageFrom(v);
-    if (!li.ok) throw new Error(IMAGE_COPY[li.reason]);
-    return li.uri;
-  } finally { URL.revokeObjectURL(url); }
+  return new Promise<HTMLImageElement>((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => { URL.revokeObjectURL(url); bad(new Error(IMAGE_COPY.upload)); }; i.src = url; });
+}
+
+/** Square-crop at the dragged position and store it through /api/moderate-image (same as the launch form). */
+async function uploadCoinImage(img: HTMLImageElement, pos: { x: number; y: number }): Promise<string> {
+  const fd = new FormData(); fd.append("uri", cropSquare(img, pos));
+  const v = await fetch("/api/moderate-image", { method: "POST", body: fd, signal: AbortSignal.timeout?.(65_000) })
+    .then(async (r) => (await r.json().catch(() => null)) as ModerateResponse).catch(() => null);
+  const li = launchImageFrom(v);
+  if (!li.ok) throw new Error(IMAGE_COPY[li.reason]);
+  return li.uri;
 }
 
 export default function RewardsPanel({ open, onClose, r, start }: { open: boolean; onClose: () => void; r: Rewards; start?: View }) {
@@ -431,11 +433,20 @@ function CoinView({ coin, me, demo, icon, ready, onClaim, onPayTo, onTransfer, o
     return () => { alive = false; };
   }, [coin, me, demo]); // eslint-disable-line react-hooks/exhaustive-deps
   const dirty = !!meta && !!draft && JSON.stringify(meta) !== JSON.stringify(draft);
+  // drag-to-crop step for a non-square image before it uploads (maker 2026-11-20)
+  const [crop, setCrop] = useState<{ img: HTMLImageElement; pos: { x: number; y: number } } | null>(null);
+  const applyImage = async (im: HTMLImageElement, pos: { x: number; y: number }) => {
+    setBusy("img"); setErr(null);
+    try { const uri = demo ? cropSquare(im, pos) : await uploadCoinImage(im, pos); setDraft((d) => (d ? { ...d, imageURI: uri } : d)); }
+    catch (e) { setErr((e as Error).message); } finally { setBusy(null); URL.revokeObjectURL(im.src); }
+  };
   const pickImage = async (f: File | undefined) => {
     if (!f) return;
-    setBusy("img"); setErr(null);
-    try { const uri = demo ? URL.createObjectURL(f) : await uploadCoinImage(f); setDraft((d) => (d ? { ...d, imageURI: uri } : d)); }
-    catch (e) { setErr((e as Error).message); } finally { setBusy(null); }
+    setErr(null);
+    let im: HTMLImageElement;
+    try { im = await loadImage(f); } catch (e) { setErr((e as Error).message); return; }
+    if (im.naturalWidth !== im.naturalHeight) setCrop({ img: im, pos: { x: 0.5, y: 0.5 } });
+    else void applyImage(im, { x: 0.5, y: 0.5 });
   };
   const save = async () => {
     if (!draft || !me && !demo) return;
@@ -470,6 +481,15 @@ function CoinView({ coin, me, demo, icon, ready, onClaim, onPayTo, onTransfer, o
         <button type="button" className="p5-btn sm" disabled={!!busy} onClick={() => file.current?.click()} data-testid="coin-image"><Icon name="refresh" size={14} /> {busy === "img" ? T.saving : T.changeImage}</button>
         <input ref={file} type="file" accept="image/*" hidden onChange={(e) => { void pickImage(e.target.files?.[0]); e.target.value = ""; }} />
       </div>
+      {crop && (
+        <div className="cp-crop" data-testid="coin-crop">
+          <SquareCrop img={crop.img} pos={crop.pos} onChange={(pos) => setCrop((c) => (c ? { ...c, pos } : c))} size={200} />
+          <div className="cp-crop-act">
+            <button type="button" className="p5-btn sm" onClick={() => { URL.revokeObjectURL(crop.img.src); setCrop(null); }}>{T.cropCancel}</button>
+            <button type="button" className="p5-btn sm primary" onClick={() => { const c = crop; setCrop(null); void applyImage(c.img, c.pos); }} data-testid="coin-crop-use">{T.cropUse}</button>
+          </div>
+        </div>
+      )}
       <div className="cp-two">
         <div className="p5-fld"><span className="lab">{T.name}</span><span className="p5-inp cp-locked">{coin.name}<Icon name="lock" size={14} /></span></div>
         <div className="p5-fld"><span className="lab">{T.ticker}</span><span className="p5-inp cp-locked">${coin.ticker}<Icon name="lock" size={14} /></span></div>

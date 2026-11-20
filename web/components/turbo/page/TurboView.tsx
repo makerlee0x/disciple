@@ -76,7 +76,7 @@ function Face({ name, pfp, big }: { name: string; pfp: string; big?: boolean }) 
   return (
     <span className={big ? s.face : s.av}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {pfp ? <img src={withBase(pfp)} alt="" /> : <span>{(name.replace(/^@/, "")[0] ?? "?").toUpperCase()}</span>}
+      {pfp ? <img className="pfp-img" src={withBase(pfp)} alt="" /> : <span>{(name.replace(/^@/, "")[0] ?? "?").toUpperCase()}</span>}
     </span>
   );
 }

@@ -17,10 +17,14 @@ import NftPicker from "@/components/nft/NftPicker";
 import { EMPTY_HOLDER, fetchHolder } from "@/lib/nft/client";
 import { DISCIPLES_LIVE, type HolderStatus } from "@/lib/nft/config";
 import { isNativeApp } from "@/lib/native";
+import SquareCrop, { cropSquare } from "@/components/create/SquareCrop";
+import { PFP_ERROR, pfpPrecheck } from "@/lib/pfpUpload";
 
 /** Edit profile copy (profile r3 README copy list). */
 export const EDIT_COPY = {
   title: "Edit profile",
+  cropUse: "Use photo",
+  cropCancel: "Cancel",
   addBanner: "Add a banner",
   name: "Name",
   bio: "Bio",
@@ -93,6 +97,29 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
   // Escape / tapping outside just close, and unsaved edits are dropped
   const tryClose = () => onClose();
 
+  // picture: pick → drag-to-crop square (maker 2026-11-20) → upload the 512 px square, so every avatar shows the same framing
+  const [crop, setCrop] = useState<{ img: HTMLImageElement; pos: { x: number; y: number }; name: string } | null>(null);
+  async function pickPfp(f: File | undefined) {
+    if (pfpFile.current) pfpFile.current.value = "";
+    if (!f) return;
+    setErr("");
+    const pre = pfpPrecheck(f);
+    if (pre) { setErr(PFP_ERROR[pre]); return; }
+    const url = URL.createObjectURL(f);
+    const im = new Image(); im.src = url;
+    try { await im.decode(); } catch { URL.revokeObjectURL(url); setErr(PFP_ERROR.format); return; }
+    setCrop({ img: im, pos: { x: 0.5, y: 0 }, name: (f.name || "picture").replace(/\.[^.]*$/, "") });
+  }
+  function closeCrop() { if (crop) URL.revokeObjectURL(crop.img.src); setCrop(null); }
+  async function applyCrop() {
+    if (!crop) return;
+    const uri = cropSquare(crop.img, crop.pos, 512);
+    const blob = await (await fetch(uri)).blob();
+    const ext = blob.type === "image/webp" ? "webp" : "png";
+    closeCrop();
+    await pick("pfp", new File([blob], `${crop.name}.${ext}`, { type: blob.type }));
+  }
+
   async function pick(kind: "pfp" | "banner", f: File | undefined) {
     if (!f) return;
     setBusy(kind); setErr("");
@@ -148,7 +175,7 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
         <div className="who">
           <button type="button" className="p5-epfp hg-epfp" aria-label={EDIT_COPY.changePicture} disabled={!!busy} onClick={() => pfpFile.current?.click()} data-testid="edit-pfp">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            {img ? <img src={withBase(img)} alt="" width={84} height={84} /> : <IdentitySigil id={NO_IDENTITY.primary.id} size={44} tip={false} />}
+            {img ? <img className="pfp-img" src={withBase(img)} alt="" width={84} height={84} /> : <IdentitySigil id={NO_IDENTITY.primary.id} size={44} tip={false} />}
             <span className="pen">{busy === "pfp" ? "…" : <PencilGlyph size={14} />}</span>
           </button>
           <div className="nm">
@@ -158,9 +185,20 @@ export default function EditProfileSheet({ open, onClose, wallet, meta, focus, h
           </div>
         </div>
       </header>
-      <input ref={pfpFile} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => void pick("pfp", e.target.files?.[0])} data-testid="pfp-file" />
+      <input ref={pfpFile} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => void pickPfp(e.target.files?.[0])} data-testid="pfp-file" />
 
-        {picking && wallet ? (
+        {crop ? (
+          <div className="p5-crop" data-testid="pfp-crop">
+            <div className="p5-crop-frame">
+              <SquareCrop img={crop.img} pos={crop.pos} onChange={(pos) => setCrop((c) => (c ? { ...c, pos } : c))} size={240} />
+              <span className="p5-crop-ring" aria-hidden />
+            </div>
+            <div className="p5-crop-act">
+              <button type="button" className="p5-btn" onClick={closeCrop}>{EDIT_COPY.cropCancel}</button>
+              <button type="button" className="p5-btn primary p5-gold" onClick={() => void applyCrop()} data-testid="pfp-crop-use">{EDIT_COPY.cropUse}</button>
+            </div>
+          </div>
+        ) : picking && wallet ? (
           <NftPicker wallet={wallet} status={holder} onStatus={setHolder} onClose={() => setPicking(false)}
             onPicked={(id) => { setDraft((d) => ({ ...d, pfp: id })); setPicking(false); }} />
         ) : (

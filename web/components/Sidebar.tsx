@@ -79,7 +79,7 @@ function Avatar({ address, name, size }: { address: string; name: string; size: 
     <span className="ap-av" style={{ width: size, height: size }} aria-hidden="true">
       {img
         // eslint-disable-next-line @next/next/no-img-element
-        ? <img src={withBase(img)} alt="" width={size} height={size} />
+        ? <img className="pfp-img" src={withBase(img)} alt="" width={size} height={size} />
         : <span className="ap-av-in">{(name.replace(/^@/, "")[0] || "?").toUpperCase()}</span>}
     </span>
   );

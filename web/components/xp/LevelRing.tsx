@@ -16,7 +16,7 @@ export default function LevelRing({ info, size = 40, stroke, img }: { info: Pick
       </svg>
       {img ? <>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img className="xp-ring-pfp" src={img} alt="" style={{ inset: sw + 1 }} />
+        <img className="xp-ring-pfp pfp-img" src={img} alt="" style={{ left: sw + 1, top: sw + 1, width: size - 2 * (sw + 1), height: size - 2 * (sw + 1) }} />
         <span className="xp-ring-badge">{info.level}</span>
       </> : <span className="xp-ring-n" style={{ fontSize: Math.round(size * 0.4) }}>{info.level}</span>}
     </span>

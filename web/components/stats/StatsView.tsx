@@ -92,7 +92,7 @@ function Hero({ d, lg, onShare }: { d: StatsData; lg: ReturnType<typeof leagueBy
       <div className={s.heroId}>
         <div className={s.face}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          {d.pfp ? <img src={withBase(d.pfp)} alt="" width={112} height={112} /> : <span>{(d.name.replace(/^@/, "")[0] ?? "?").toUpperCase()}</span>}
+          {d.pfp ? <img className="pfp-img" src={withBase(d.pfp)} alt="" width={112} height={112} /> : <span>{(d.name.replace(/^@/, "")[0] ?? "?").toUpperCase()}</span>}
           {d.level && <b className={s.lv} aria-label={`Level ${d.level.level}`}>{d.level.level}</b>}
         </div>
         <div className={s.idTx}>
