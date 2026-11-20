@@ -145,3 +145,17 @@ test("Turbo landing countdown: Relay's time estimate + Lighter's credit time", a
   assert.equal(landsAt(0, null), (RELAY_DEFAULT_SEC + LIGHTER_CREDIT_SEC) * 1000);
   assert.equal(landsAt(0, 30, false), LIGHTER_CREDIT_SEC * 1000);
 });
+
+test("Turbo add failure copy: real error kept, says nothing was sent when that's known (maker 2026-11-20)", async () => {
+  const { nothingSent } = await import("../lib/lighter/deposit");
+  const { landingErrorCopy, NOT_SENT_MSG } = await import("../lib/turbo/landing");
+  const { REJECTED_MSG } = await import("../lib/aa/relayOp");
+  assert.equal(nothingSent(Object.assign(new Error("x"), { notSent: true })), true);
+  assert.equal(nothingSent({ message: "x", data: { notSent: true } }), true);
+  assert.equal(nothingSent({ message: "withdraw reverted on-chain", data: { notSent: false } }), false);
+  assert.equal(nothingSent(new Error("Lighter hasn't credited it yet.")), false);
+  assert.equal(landingErrorCopy(REJECTED_MSG, true), NOT_SENT_MSG);
+  assert.equal(landingErrorCopy(REJECTED_MSG, false), REJECTED_MSG);
+  assert.equal(landingErrorCopy("Add at least $6.", true), "Add at least $6.");
+  assert.equal(landingErrorCopy("Lighter hasn't credited it yet.", false), "Turbo hasn't credited it yet.");
+});

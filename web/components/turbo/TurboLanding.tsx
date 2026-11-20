@@ -46,7 +46,7 @@ export default function TurboLanding() {
     <div className="am-toast" role="status" data-testid="turbo-landed-toast">
       <div className="am-tbody">
         <b>{l.error ? TEXT.failTitle : TEXT.doneTitle}</b>
-        <span>{l.error ? l.error.replace(/Lighter/g, "Turbo") : TEXT.done(`$${(l.creditedUsd ?? 0).toFixed(2)}`)}</span>
+        <span>{l.error ? l.error :TEXT.done(`$${(l.creditedUsd ?? 0).toFixed(2)}`)}</span>
         <div className="am-tacts">
           <button type="button" className="r2-gold" onClick={() => { close(); openTurbo(l.error ? "add" : "history"); }}>{TEXT.view}</button>
           <button type="button" className="r2-btn" onClick={close}>{TEXT.close}</button>
