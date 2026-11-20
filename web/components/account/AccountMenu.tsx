@@ -18,7 +18,7 @@ import { usd2 } from "@/components/cash/bits";
 export const ACCOUNT_COPY = {
   hangar: "Your Hangar",
   trophies: "Trophies",
-  topPilots: "Top pilots",
+  topPilots: "Leaderboard",
   logbook: "Logbook",
   crew: "Crew",
   cash: "Cash",

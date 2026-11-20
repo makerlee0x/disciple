@@ -31,8 +31,8 @@ export type PairRow = {
   traders: number;
   /** pair coin tokens burned by creator-fee burn mode (whole tokens) */
   burned: number;
-  /** burned ÷ the pair coin's total supply, 0..1 (0 when the supply is unknown) */
-  burnedPct: number;
+  /** those burned tokens at the pair coin's price now (maker 2026-11-20: moves with the coin's market cap) */
+  burnedUsd: number;
   /** combined score, 0..1000 (PAIR_SCORE_WEIGHTS) */
   score: number;
 };
@@ -53,7 +53,8 @@ export function pairBoard(
   launches: readonly PairLaunch[],
   fills: readonly Fill[],
   burns: readonly PairBurn[],
-  supply: Readonly<Record<string, number>>,
+  /** $ per whole pair coin, now (QuotePricer); a missing price values its burns at $0 */
+  prices: Readonly<Record<string, number>>,
   fromBlock = 0,
   fromTs = 0,
 ): PairRow[] {
@@ -83,8 +84,8 @@ export function pairBoard(
   const rows = pairs.map((p) => {
     const a = acc.get(p.address.toLowerCase())!;
     const burned = Number(a.burnedRaw) / 10 ** p.decimals;
-    const sup = supply[p.address.toLowerCase()] ?? 0;
-    return { symbol: p.symbol, name: p.name, address: p.address.toLowerCase(), icon: p.icon, rockets: a.rockets, volumeUsd: a.vol, traders: a.traders.size, burned, burnedPct: sup > 0 ? burned / sup : 0, score: 0 };
+    const px = prices[p.address.toLowerCase()] ?? 0;
+    return { symbol: p.symbol, name: p.name, address: p.address.toLowerCase(), icon: p.icon, rockets: a.rockets, volumeUsd: a.vol, traders: a.traders.size, burned, burnedUsd: burned * px, score: 0 };
   });
   return withScores(rows);
 }
@@ -98,8 +99,8 @@ export function withScores<T extends Omit<PairRow, "score"> & { score?: number }
 const KEY: Record<PairSort, (r: PairRow) => number> = {
   score: (r) => r.score,
   volume: (r) => r.volumeUsd,
-  // share of supply: token counts can't be compared across coins with different supplies
-  burned: (r) => r.burnedPct,
+  // $ at today's price: token counts can't be compared across coins with different supplies
+  burned: (r) => r.burnedUsd,
   rockets: (r) => r.rockets,
   traders: (r) => r.traders,
 };
