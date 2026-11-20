@@ -32,6 +32,8 @@ import { after } from "next/server";
 import { getRoom } from "@/lib/server/duel/store";
 import { OT_MS } from "@/lib/duel/rules";
 import { armMatch, buzzer, sleep } from "@/lib/server/lighter/match";
+import { noteClimbRun, settleClimbRun } from "@/lib/server/climbRecord";
+import { CLIMB_FREE } from "@/lib/climb/rules";
 import { depositAddress, depositChain, depositMins, depositStatus } from "@/lib/server/lighter/bridge";
 import { finishWithdraw, startWithdraw, withdrawable } from "@/lib/server/lighter/withdraw";
 import { history } from "@/lib/server/lighter/history";
@@ -87,7 +89,7 @@ export async function POST(req: Request) {
   const t0 = performance.now();
   try {
     const cfg = on();
-    const b = await body<{ op?: unknown; sig?: unknown; market?: unknown; side?: unknown; usd?: unknown; sizes?: unknown; used?: unknown; floor?: unknown; txType?: unknown; txInfo?: unknown; kind?: unknown; id?: unknown; markets?: unknown; ms?: unknown; to?: unknown; raw?: unknown }>(req);
+    const b = await body<{ op?: unknown; sig?: unknown; market?: unknown; side?: unknown; usd?: unknown; sizes?: unknown; used?: unknown; floor?: unknown; txType?: unknown; txInfo?: unknown; kind?: unknown; id?: unknown; markets?: unknown; ms?: unknown; climb?: unknown; to?: unknown; raw?: unknown }>(req);
     if (b.op === "arm") {
       const pid = await fastPilot(req);
       return out(200, { ok: true, ...(await armGuarded(pid, b)) });
@@ -175,7 +177,7 @@ function relayGuarded(cfg: Cfg, pid: string, b: { txType?: unknown; txInfo?: unk
   return relay(cfg, pid, b.txType as number, b.txInfo);
 }
 const SOLO_MAX_MS = 270_000;
-async function armGuarded(pid: string, b: { kind?: unknown; id?: unknown; markets?: unknown; ms?: unknown }) {
+async function armGuarded(pid: string, b: { kind?: unknown; id?: unknown; markets?: unknown; ms?: unknown; climb?: unknown }) {
   const id = typeof b.id === "string" && /^[A-Za-z0-9_-]{4,64}$/.test(b.id) ? b.id : null;
   if (!id) throw new LighterError(400, "Bad match.");
   if (b.kind === "duel") {
@@ -192,7 +194,18 @@ async function armGuarded(pid: string, b: { kind?: unknown; id?: unknown; market
   if (!(ms > 0 && ms <= SOLO_MAX_MS) || !markets.length) throw new LighterError(400, "Bad match.");
   const a = await armMatch(pid, b.kind, id, markets, Date.now() + ms);
   if (!a) throw new LighterError(404, "Lighter isn't on.");
+  // a real-money Climb level run is noted so the server can score it from Lighter's fills after the buzzer
+  // (lib/server/climbRecord): that's what puts it on the Climb board and pays its SP
+  const c = b.kind === "climb" && b.climb && typeof b.climb === "object" ? (b.climb as { level?: unknown; stake?: unknown }) : null;
+  const level = Math.floor(Number(c?.level)), stake = Number(c?.stake);
+  const scored = a.fresh && level >= 1 && level < CLIMB_FREE && stake > 0 && stake < 1e6;
+  if (scored) await noteClimbRun(pid, id, { level, stake, startAt: Date.now(), endAt: a.endAt }).catch((e) => console.error("[climb] note", e));
   // a re-arm (Royale on a new coin) adds its market and keeps the first timer; a first arm starts it
-  if (a.fresh) after(async () => { await sleep(a.endAt - Date.now() + 1500); await buzzer(pid, id); });
+  if (a.fresh) after(async () => {
+    await sleep(a.endAt - Date.now() + 1500);
+    await buzzer(pid, id);
+    // Lighter lists a fill a moment after it lands
+    if (scored) { await sleep(4000); await settleClimbRun(pid, id).catch((e) => console.error("[climb] settle", e)); }
+  });
   return { endAt: a.endAt };
 }

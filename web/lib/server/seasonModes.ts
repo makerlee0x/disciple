@@ -8,7 +8,7 @@ import "server-only";
  *   season:climb:<season>               → zset wallet → best level × 1e5 − clear ms (highest level, then fastest clear)
  *   season:climbed:<season>:<wallet>:<n> → set once a level's first clear this season has paid SP
  */
-import { seasonAt } from "@/lib/duel/season";
+import { rankSeasonAt, seasonAt } from "@/lib/duel/season";
 import { climbSp, royaleSp, type RankMode } from "@/lib/season/points";
 import { kv, type Kv } from "./kv";
 
@@ -23,7 +23,7 @@ export const SK = {
 };
 
 async function addSp(mode: RankMode, wallet: string, d: number, s: Kv, now: number) {
-  const season = seasonAt(now).id, w = wallet.toLowerCase();
+  const season = rankSeasonAt(now).id, w = wallet.toLowerCase();
   if (!(d > 0)) return Number(await s.get(SK.sp(season, mode, w))) || 0;
   const pts = await s.incrByEx(SK.sp(season, mode, w), Math.round(d), TTL);
   await s.zrem(SK.board(season, mode), w);
@@ -38,7 +38,7 @@ export async function awardRoyale(wallet: string, place: number, s: Kv = kv(), n
 
 /** A cleared real-money climb level: SP the first time this season, and the climb board keeps the best level / clear. */
 export async function awardClimbClear(wallet: string, level: number, clearMs: number, s: Kv = kv(), now = Date.now()) {
-  const season = seasonAt(now).id, w = wallet.toLowerCase();
+  const season = rankSeasonAt(now).id, w = wallet.toLowerCase();
   const score = Math.floor(level) * 1e5 - Math.max(0, Math.min(99_999, Math.round(clearMs)));
   const was = Number(await s.get(`${SK.climb(season)}:${w}`)) || -Infinity;
   if (score > was) { await s.zrem(SK.climb(season), w); await s.zadd(SK.climb(season), [{ score, member: w }]); await s.set(`${SK.climb(season)}:${w}`, String(score)); }
@@ -48,7 +48,7 @@ export async function awardClimbClear(wallet: string, level: number, clearMs: nu
 
 /** Every wallet's SP for one mode this season (top `limit` by SP). Duel reads the duel store's ladder. */
 export async function modeSp(mode: Exclude<RankMode, "rockets">, limit = 1000, s: Kv = kv(), now = Date.now()): Promise<Record<string, number>> {
-  const season = seasonAt(now).id;
+  const season = (mode === "duel" ? seasonAt(now) : rankSeasonAt(now)).id;
   const zk = mode === "duel" ? SK.duelBoard(season) : SK.board(season, mode);
   const ids = await s.zrange(zk, limit, true);
   if (!ids.length) return {};
@@ -58,7 +58,7 @@ export async function modeSp(mode: Exclude<RankMode, "rockets">, limit = 1000, s
 
 /** This season's climb board: best level, then fastest clear. */
 export async function climbBoard(limit = 50, s: Kv = kv(), now = Date.now()): Promise<{ wallet: string; climbLevel: number; clearMs: number }[]> {
-  const season = seasonAt(now).id;
+  const season = rankSeasonAt(now).id;
   const ids = await s.zrange(SK.climb(season), limit, true);
   if (!ids.length) return [];
   const vals = await s.mget(ids.map((w) => `${SK.climb(season)}:${w}`));

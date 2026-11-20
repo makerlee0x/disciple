@@ -21,7 +21,8 @@ export async function GET(req: Request) {
   if (q.get("sort") === "pairs") {
     const by = (q.get("by") ?? "score") as PairSort;
     if (!PAIR_SORTS.includes(by)) return NextResponse.json({ error: "bad query" }, { status: 400 });
-    return NextResponse.json(await getPairBoard(by), { headers: { "cache-control": "public, max-age=0, s-maxage=30, stale-while-revalidate=60" } });
+    // the board is a KV snapshot refreshed in the background (lib/server/pairBoard), so the edge can hold it longer
+    return NextResponse.json(await getPairBoard(by), { headers: { "cache-control": "public, max-age=0, s-maxage=30, stale-while-revalidate=600" } });
   }
   if (!BOARD_WINDOWS.some((w) => w.k === window) || (!["crews", "positions", "overall", "lifetime", "royale", "climb"].includes(sort) && !BOARD_SORTS.includes(sort as BoardSort))) return NextResponse.json({ error: "bad query" }, { status: 400 });
   if (me !== null && !/^0x[0-9a-fA-F]{40}$/.test(me)) return NextResponse.json({ error: "bad me" }, { status: 400 });

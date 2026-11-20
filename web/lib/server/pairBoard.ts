@@ -6,6 +6,9 @@ import "server-only";
  *  - burns: CreatorFeeHarvest CreatorFeesRouted logs with destination 2 (burn), kept in KV with a block cursor
  *  - price: each pair coin's $ price now (QuotePricer), so burns are valued at today's market cap
  * Window: this ranked season (lib/duel/season); before Season 1 starts, all time.
+ * Speed (maker 2026-11-20: "took way too long to load"): a cold build waits on the whole home build, the burn index
+ * and 12 price reads (several seconds). The last build is kept in KV, so any instance answers from it at once; a stale
+ * one is served while a fresh build runs after the response (stale-while-revalidate). Only the very first build waits.
  */
 import { getAbiItem, type Address } from "viem";
 import { quotePricerAbi } from "@/lib/abi";
@@ -14,6 +17,7 @@ import { creatorFeeHarvestAbi, CREATOR_FEE_DESTINATION } from "@/lib/creatorFeeH
 import { seasonAt } from "@/lib/duel/season";
 import { pairBoard, rankPairs, PAIR_CUT_BY, PAIR_SAFE, type PairBurn, type PairCoin, type PairRow, type PairSort } from "@/lib/home/pairBoard";
 import { WHITELIST_QUOTES } from "@/lib/whitelistQuotes";
+import { after } from "next/server";
 import { serverPc } from "./chat/identity";
 import { getPairInputs } from "./home";
 import { kv } from "./kv";
@@ -32,7 +36,8 @@ export type PairBoardResponse = {
   rows: (PairRow & { rank: number })[];
 };
 
-type G = { __dscPairBoard?: { at: number; rows: PairRow[]; season: string }; __dscPairPrice?: { at: number; v: Record<string, number> }; __dscSeasonBlock?: Map<number, number> };
+type Snap = { at: number; rows: PairRow[]; season: string };
+type G = { __dscPairBoard?: Snap; __dscPairBuild?: Promise<Snap> | null; __dscPairPrice?: { at: number; v: Record<string, number> }; __dscSeasonBlock?: Map<number, number> };
 const g = globalThis as unknown as G;
 
 export const PAIR_COINS: PairCoin[] = WHITELIST_QUOTES.map((q) => ({ symbol: q.symbol, name: q.name, address: q.address.toLowerCase(), decimals: q.decimals, icon: q.imagePath }));
@@ -118,23 +123,56 @@ async function blockAt(ts: number): Promise<number> {
   return lo;
 }
 
-export async function getPairBoard(by: PairSort): Promise<PairBoardResponse> {
-  const now = Date.now();
-  const season = seasonAt(now);
-  const pre = now < season.startsAt;
-  const c = g.__dscPairBoard;
-  let rows: PairRow[];
-  if (c && now - c.at < CACHE_MS && c.season === season.id) rows = c.rows;
-  else {
-    const fromTs = pre ? 0 : season.startsAt;
+const SNAP_KEY = "pairs:board:snap:v1";
+
+/** Builds the board now (the slow path), keeps it in this instance and in KV. One build at a time per instance. */
+function buildRows(): Promise<Snap> {
+  g.__dscPairBuild ??= (async () => {
+    const now = Date.now(), season = seasonAt(now);
+    const fromTs = now < season.startsAt ? 0 : season.startsAt;
     const [inputs, burns, px, fromBlock] = await Promise.all([
       getPairInputs(),
       indexBurns().catch(() => [] as PairBurn[]),
       prices().catch(() => ({})),
       blockAt(fromTs).catch(() => 0),
     ]);
-    rows = pairBoard(PAIR_COINS, inputs.launches, inputs.fills, burns, px, fromBlock, fromTs);
-    g.__dscPairBoard = { at: now, rows, season: season.id };
+    const snap: Snap = { at: now, rows: pairBoard(PAIR_COINS, inputs.launches, inputs.fills, burns, px, fromBlock, fromTs), season: season.id };
+    g.__dscPairBoard = snap;
+    // an empty build (home build timed out) never replaces a good snapshot
+    if (snap.rows.some((r) => r.volumeUsd > 0 || r.rockets > 0) || !(await readSnap())) await kv().set(SNAP_KEY, JSON.stringify(snap)).catch(() => {});
+    return snap;
+  })().finally(() => { g.__dscPairBuild = null; });
+  return g.__dscPairBuild;
+}
+
+async function readSnap(): Promise<Snap | null> {
+  try { const v = await kv().get(SNAP_KEY); return v ? (JSON.parse(v) as Snap) : null; } catch { return null; }
+}
+
+/** Refresh after the response is sent (outside a request, e.g. tests: fire and forget). */
+function refreshLater() {
+  const run = () => buildRows().then(() => undefined, (e) => console.warn("[pairs] refresh", (e as Error).message));
+  try { after(run); } catch { void run(); }
+}
+
+/** The board rows: this instance's copy, else KV's (stale ones refresh after the response), else a build. */
+export async function pairRows(now = Date.now()): Promise<Snap> {
+  const season = seasonAt(now).id;
+  const fresh = (c?: Snap | null): c is Snap => !!c && c.season === season && now - c.at < CACHE_MS;
+  const mem = g.__dscPairBoard;
+  if (fresh(mem)) return mem;
+  const snap = await readSnap();
+  const best = [mem, snap].filter((c): c is Snap => !!c && c.season === season).sort((x, y) => y.at - x.at)[0];
+  if (best) {
+    g.__dscPairBoard = best;
+    if (!fresh(best) && !g.__dscPairBuild) refreshLater();
+    return best;
   }
+  return buildRows();
+}
+
+export async function getPairBoard(by: PairSort): Promise<PairBoardResponse> {
+  const season = seasonAt(Date.now());
+  const { rows } = await pairRows();
   return { sort: "pairs", by, cutBy: PAIR_CUT_BY, safe: PAIR_SAFE, season: { n: season.n, startsAt: season.startsAt, endsAt: season.endsAt }, rows: rankPairs(rows, by) };
 }
