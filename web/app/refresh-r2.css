@@ -1280,6 +1280,8 @@ html:not([data-you]) .lb-tabs a.lb-you-only, html[data-you] .lb-tabs a.lb-out-on
 
 /* Climb: the Turbo popup's Advanced record under the lobby panel (components/turbo/climb/ClimbAdvanced) */
 .cl-adv { width: 100%; }
+/* inside the Climb engine the popup's rows would inherit the engine page font: give them the popup's UI font (maker 2026-11-20: "this advanced font looks wrong") */
+.cl-advbox .tc-adv, .cl-fills { font-family: var(--dsc-font-ui); color: #E8EAEE; }
 .cl-advbox { display: flex; flex-direction: column; gap: 10px; width: 100%; padding: 12px 14px; border-radius: 18px; border: 1px solid rgba(232,234,238,0.08); background: rgba(18,19,24,0.72); }
 .cl-advh { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 4px 2px; background: none; border: 0; color: #BCC0CA; font: 800 15px/1 var(--f-game, var(--dsc-font-game)); letter-spacing: 1px; text-transform: uppercase; cursor: pointer; }
 .cl-advh svg { transition: transform .15s ease; }
