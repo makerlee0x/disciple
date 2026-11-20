@@ -7,7 +7,7 @@
  */
 import { CREW_ENABLED, LOGBOOK_ENABLED } from "@/lib/features";
 import Link from "next/link";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useXp } from "@/lib/xpClient";
 import { MAX_LEVEL, levelInfo } from "@/lib/xp";
 import { DEPOSIT_HREF, SETTINGS_HREF, onDepositClick, onSettingsClick } from "@/lib/cashLink";
@@ -26,6 +26,8 @@ export const ACCOUNT_COPY = {
   rewards: "Rewards",
   ready: (v: string) => `${v} ready`,
   settings: "Settings",
+  copy: "Copy wallet address",
+  copied: "Copied",
   signOut: "Sign out",
   xpTo: (n: number, next: number) => `${n.toLocaleString("en-US")} XP to ${next}`,
   level: (n: number) => `Level ${n}`,
@@ -42,6 +44,8 @@ const I = {
   crew: <><circle cx="9" cy="9" r="3" /><circle cx="17" cy="10" r="2.5" /><path d="M3 20a6 6 0 0 1 12 0M14 20a4 4 0 0 1 7-2.6" /></>,
   cash: <><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></>,
   rewards: <><rect x="3" y="9" width="18" height="11" rx="2" /><path d="M3 13h18M12 9v11M7 9a3 3 0 0 1 5-3 3 3 0 0 1 5 3" /></>,
+  copy: <><rect x="9" y="9" width="11" height="11" rx="2" /><path d="M5 15V6a2 2 0 0 1 2-2h9" /></>,
+  check: <path d="M5 12.5l4.5 4.5L19 7.5" />,
   settings: <><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z" /></>,
   out: <path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10" />,
 };
@@ -51,6 +55,7 @@ export default function AccountMenu({ wallet, name, initial, onClose, onSignOut 
   wallet: string; name: string; initial: string; /** unused since maker 2026-11-17 (Cash left the menu: the cash pill sits beside it) */ cashUsd?: number | null; onClose: () => void; onSignOut: () => void;
 }) {
   const { xp } = useXp(wallet);
+  const [copied, setCopied] = useState(false);
   const pfp = usePilotPfp(wallet);
   const L = xp?.level ?? levelInfo(0);
   const r = useRewards(true);
@@ -73,6 +78,10 @@ export default function AccountMenu({ wallet, name, initial, onClose, onSignOut 
             <span>{ACCOUNT_COPY.level(L.level)} · {L.level >= MAX_LEVEL ? ACCOUNT_COPY.max : ACCOUNT_COPY.xpTo(Math.max(0, L.need - L.into), L.level + 1)}</span>
             <i className="am-bar"><i style={{ width: `${Math.round(L.progress * 100)}%` }} /></i>
           </div>
+          {/* maker 2026-11-20: copy your wallet address, beside Settings */}
+          <button type="button" role="menuitem" className="am-gear" aria-label={copied ? ACCOUNT_COPY.copied : ACCOUNT_COPY.copy} title={copied ? ACCOUNT_COPY.copied : ACCOUNT_COPY.copy}
+            onClick={() => { void navigator.clipboard?.writeText(wallet).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1500); }).catch(() => {}); }}
+            data-testid="account-copy-wallet"><Ico d={copied ? I.check : I.copy} /></button>
           <Link role="menuitem" className="am-gear" href={SETTINGS_HREF} scroll={false} aria-label={ACCOUNT_COPY.settings} title={ACCOUNT_COPY.settings}
             onClick={(e) => { onClose(); onSettingsClick(e); }} data-testid="account-settings"><Ico d={I.settings} /></Link>
         </div>

@@ -23,6 +23,15 @@ export type FundRequest = { address: string; usd?: number };
 export type FundResult = { ok: boolean; message?: string; closed?: boolean };
 
 export const FUND_DEFAULT_USD = 25;
+/** Card amount limits. $10 is the lowest the card sellers (Stripe, MoonPay) reliably take in the US; the server's Relay
+ *  quote also needs $5+ after the card fee (lib/server/cardDeposit CARD_MIN_USD / CARD_MAX_USD). */
+export const FUND_MIN_USD = 10, FUND_MAX_USD = 2_000;
+/** What the player typed → digits and one dot, at most 2 decimals. Pure, tested. */
+export function fundAmountInput(raw: string): string {
+  const s = raw.replace(/[^0-9.]/g, "");
+  const i = s.indexOf(".");
+  return i < 0 ? s.slice(0, 5) : `${s.slice(0, Math.min(i, 5))}.${s.slice(i + 1).replace(/\./g, "").slice(0, 2)}`;
+}
 /** quick picks on the Add cash card button */
 export const FUND_PICKS = [10, 25, 50, 100] as const;
 
@@ -42,6 +51,8 @@ export const FUND_COPY = {
   done: "Payment sent. Your cash shows up in a few minutes.",
   unavailable: "Card checkout isn't available right now. You can still send crypto.",
   signIn: "Sign in to add cash.",
+  min: "Minimum $10 by card.",
+  max: "Maximum $2,000 by card.",
 } as const;
 
 /** Ask the Privy chunk to open its funding flow for `address`. Resolves when the flow closes. */

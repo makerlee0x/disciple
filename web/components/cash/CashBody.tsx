@@ -25,7 +25,7 @@ import { OPEN_CASH_EVENT, type CashTab } from "@/lib/cashLink";
 import { WALLET_CTA_CLICK_EVENT } from "@/lib/walletCta";
 import { withBase } from "@/lib/base-path";
 import { CashHead, Check, ErrIcon, Warn, usd2 } from "./bits";
-import { FUND_CARD_FEE_EST, FUND_COPY, FUND_DEFAULT_USD, FUND_PICKS, startFunding } from "@/lib/fund";
+import { FUND_CARD_FEE_EST, FUND_COPY, FUND_DEFAULT_USD, FUND_MAX_USD, FUND_MIN_USD, FUND_PICKS, fundAmountInput, startFunding } from "@/lib/fund";
 import { DEPOSIT_COPY } from "@/lib/deposit";
 import { onTurboCash, refreshTurboCash, setTurboWallet, turboCashDev, type TurboCash } from "@/lib/turbo/turboCash";
 import { clearLanding, landing, onLanding, startLanding, type Landing } from "@/lib/turbo/landing";
@@ -100,7 +100,10 @@ export function Amount({ v, big }: { v: number; big?: boolean }) {
  *  "Pay with card or Apple Pay" (Privy card on-ramp → USDC on Base → Relay deposit address → USDG) → "or" → "Send USDG" (maker 2026-11-20: the Free play link left
  *  this card; USDG is the only coin taken). */
 function CardFund({ addr, onPaid, onSend }: { addr: string; onPaid: () => void; onSend: () => void }) {
-  const [usd, setUsd] = useState<number>(FUND_DEFAULT_USD);
+  // typed or picked (maker 2026-11-20: "i should be able to type in how much i want to deposit")
+  const [amt, setAmt] = useState<string>(String(FUND_DEFAULT_USD));
+  const usd = Number(amt) || 0;
+  const low = usd < FUND_MIN_USD, high = usd > FUND_MAX_USD;
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const go = async () => {
@@ -114,18 +117,23 @@ function CardFund({ addr, onPaid, onSend }: { addr: string; onPaid: () => void; 
   };
   return (
     <div className="cx-card" data-testid="cash-card-fund">
-      <span className="r2-lbl">{FUND_COPY.howMuch}</span>
-      <div className="cx-amt" data-testid="cash-card-amount">${usd}</div>
+      <label className="r2-lbl" htmlFor="cx-famt">{FUND_COPY.howMuch}</label>
+      <div className="r2-field cx-big">
+        <span className="r2-g cx-dollar">$</span>
+        <input id="cx-famt" inputMode="decimal" placeholder="0" value={amt} autoComplete="off" data-testid="cash-card-amount"
+          onChange={(e) => { setNote(null); setAmt(fundAmountInput(e.target.value)); }} />
+      </div>
       <div className="r2-chips" role="group" aria-label="Amount to add">
-        {FUND_PICKS.map((v) => <button key={v} type="button" className={usd === v ? "on" : ""} aria-pressed={usd === v} onClick={() => setUsd(v)}>${v}</button>)}
+        {FUND_PICKS.map((v) => <button key={v} type="button" className={usd === v ? "on" : ""} aria-pressed={usd === v} onClick={() => { setNote(null); setAmt(String(v)); }}>${v}</button>)}
       </div>
       <div className="r2-box cx-paygrid">
         <div className="r2-r"><div className="t"><span>{FUND_COPY.youPay}</span></div><b>{usd2(usd)}</b></div>
         <div className="r2-r"><div className="t"><span>{FUND_COPY.youGet}</span></div><b className="cx-get" data-testid="cash-card-get">{usd2(usd * (1 - FUND_CARD_FEE_EST))}</b></div>
       </div>
-      <button type="button" className="r2-gold cx-cardbtn" disabled={busy} onClick={go} data-testid="cash-card-btn">
+      <button type="button" className="r2-gold cx-cardbtn" disabled={busy || low || high} onClick={go} data-testid="cash-card-btn">
         {busy ? FUND_COPY.opening : FUND_COPY.button}
       </button>
+      {(low || high) && amt !== "" && <div className="r2-note warn" role="status" data-testid="cash-card-limit"><span>{low ? FUND_COPY.min : FUND_COPY.max}</span></div>}
       {note && <div className={`r2-note ${note.ok ? "ok" : "warn"}`} role="status"><span>{note.text}</span></div>}
       <div className="cx-or" aria-hidden><span>{FUND_COPY.or}</span></div>
       <button type="button" className="cx-sendrow" onClick={onSend} data-testid="cash-send-crypto-btn">

@@ -11,6 +11,10 @@
  *   anything else is a plain deposit (in) or withdrawal (out)
  */
 
+/** Relay's solver (relay.link): it pays out card top-ups (lib/server/cardDeposit), so the row says Card, not its
+ *  address (maker 2026-11-20). Turbo cash-backs through Relay are matched as turbo-out before this. */
+export const RELAY_SOLVER = "0xf70da97812cb96acdf810712aa562db8dfa3dbef";
+export const CARD_LABEL = "Card";
 export type CashKind = "deposit" | "withdraw" | "turbo-in" | "turbo-out" | "bought" | "sold" | "fees" | "rewards";
 export interface CashRow {
   /** tx hash (one row per tx), or `mkt:<listing>` for a sale with no tx */
@@ -72,7 +76,7 @@ export function cashRows(walletIn: string, legs: readonly UsdgLeg[], tags: CashT
       if (tags.rewards.has(src)) { out.push({ id: tx, ts, kind: "rewards", usd: net, tx }); continue; }
       const bi = backs.findIndex((b, i) => !usedBack.has(i) && ts >= b.at - 60_000 && ts <= b.at + TURBO_BACK_MS && net <= b.usd + 0.01 && net >= b.usd * 0.9 - 1);
       if (bi >= 0) { usedBack.add(bi); out.push({ id: tx, ts, kind: "turbo-out", usd: net, tx }); continue; }
-      out.push({ id: tx, ts, kind: "deposit", usd: net, text: short(src), tx });
+      out.push({ id: tx, ts, kind: "deposit", usd: net, text: src === RELAY_SOLVER ? CARD_LABEL : short(src), tx });
     } else {
       const dst = outs.sort((a, b) => b.usd - a.usd)[0].to;
       out.push({ id: tx, ts, kind: "withdraw", usd: -net, text: short(dst), tx });
