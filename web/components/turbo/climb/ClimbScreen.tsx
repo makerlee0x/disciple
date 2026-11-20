@@ -9,10 +9,12 @@
  */
 import { useEffect, useRef, useState } from "react";
 import LobbySettings from "@/components/turbo/LobbySettings";
+import ClimbAdvanced from "@/components/turbo/climb/ClimbAdvanced";
 import { getTurboAdapter } from "@/lib/turbo";
 import { getGameRadio } from "@/lib/game/radio";
 import { useTurboMusic } from "@/lib/game/turboMusic";
-import { CLIMB_FEE, CLIMB_FEE_LABEL, CLIMB_LEVELS, CLIMB_MAX_GEAR, climbLevelsFor, CLIMB_RUN_MS, unlockAfter, unlockAfterTest } from "@/lib/climb/rules";
+import { CLIMB_FEE, CLIMB_FEE_LABEL, CLIMB_MAX_GEAR, climbLevelsAt, CLIMB_RUN_MS, climbStakeCap, climbStakePresets, stakeFor, unlockAfter, unlockAfterTest, type StakeChoice } from "@/lib/climb/rules";
+import { mountStakePicker, readStakeChoice, saveStakeChoice } from "@/lib/climb/stakePicker";
 import { readClimbLevel, saveClimbLevel } from "@/lib/climb/progress";
 import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "@/components/turbo/duel/engineLoader";
 import { PCTS, pctUsd } from "@/lib/duel/rules";
@@ -36,6 +38,8 @@ export default function ClimbScreen() {
   const [gear, setGear] = useState(false);
   // bumped by the Simulator / Real money switch: the run is set up again in place, no page reload
   const [run, setRun] = useState(0);
+  // the engine's lobby once mounted, and whether this run is on Real money (the Advanced record, ClimbAdvanced)
+  const [eng, setEng] = useState<{ root: HTMLElement; real: boolean } | null>(null);
   useTurboMusic();
   useEffect(() => {
     // real-money Turbo is off where Lighter refuses (lib/turbo/region), so the country is known before the run is set up
@@ -46,14 +50,18 @@ export default function ClimbScreen() {
   function boot() {
     let dead = false, api: EngineApi | null = null;
     const hist: Tick[] = [];
-    // levels scale with the pilot's Turbo balance (lib/climb/rules climbLevelsFor). The engine holds this array, so it
-    // is updated in place and the levels screen redrawn when the balance moves.
-    const levels = [...CLIMB_LEVELS];
-    const setBalance = (usd: number) => { levels.splice(0, levels.length, ...climbLevelsFor(usd)); api?.climbRefresh?.(); };
-    const ad = getTurboAdapter();
     // on Lighter (maker 2026-11-18: "this should be real fills now") the balance is the pilot's Lighter cash, the chart
     // is that exchange's BTC price, entries are Lighter's fills and the result is the cash Lighter says it moved
     const onLighter = lighterWanted();
+    // every level flies the stake picked under the Simulator / Real money switch (lib/climb/stakePicker), inside the
+    // margin cap for the pilot's Turbo balance (lib/climb/rules climbStakeCap). The engine holds this array, so it is
+    // updated in place and the levels screen redrawn when the balance or the stake moves.
+    const stakeMode = onLighter ? "real" : "sim";
+    let bal = 0, choice: StakeChoice = readStakeChoice(stakeMode), picker: { paint(): void; off(): void } | null = null;
+    const levels = climbLevelsAt(stakeFor(choice, bal, onLighter));
+    const relevel = () => { levels.splice(0, levels.length, ...climbLevelsAt(stakeFor(choice, bal, onLighter))); api?.climbRefresh?.(); picker?.paint(); };
+    const setBalance = (usd: number) => { bal = usd; relevel(); };
+    const ad = getTurboAdapter();
     let realCash: number | null = null;
     if (!onLighter) void ad.getFuel().then((f) => { if (!dead) setBalance(f.usd); }).catch(() => {});
     const offFuel = onLighter ? () => {} : ad.onFuel((f) => setBalance(f.usd));
@@ -119,7 +127,8 @@ export default function ClimbScreen() {
     // for $12 and the run's "result" counted the deposit as profit.
     const reread = () => { if (!lf || dead) return; void readLighter().then((r) => { if (!dead && r && r.s.step === "ready" && r.cash != null) { host.climb.real = true; realCash = r.cash; setBalance(r.cash); } }).catch(() => {}); };
     let lastSeen = -1;
-    const offTurbo = onLighter ? onTurboCash((t) => { if (Math.abs(t.usd - lastSeen) > 0.005) { lastSeen = t.usd; reread(); } }) : () => {};
+    // until Lighter's own read is in (or while set-up isn't finished), the stake cap follows the Turbo cash the pill shows
+    const offTurbo = onLighter ? onTurboCash((t) => { if (Math.abs(t.usd - lastSeen) > 0.005) { lastSeen = t.usd; if (realCash == null) setBalance(t.usd); reread(); } }) : () => {};
     const onFocus = () => reread();
     if (onLighter) addEventListener("focus", onFocus);
     // startCash: Lighter cash read fresh as this run began. realRun: this run really placed orders on Lighter, the only
@@ -204,11 +213,18 @@ export default function ClimbScreen() {
       settings: () => setGear(true),   // the lobby gear (components/turbo/LobbySettings)
       climb: {
         levels, maxGear: CLIMB_MAX_GEAR, runMs: CLIMB_RUN_MS, fee: CLIMB_FEE, feeLabel: CLIMB_FEE_LABEL,
-        real: false, back: "/", lighter,
-        state: () => ({ unlocked: readClimbLevel() }),
+        // the switch's mode drives the screen (maker 2026-11-20: REAL MONEY on, but a run flew on play money under the
+        // SIMULATOR pill because Lighter's set-up wasn't finished). On Real money a run never falls back to play money:
+        // without real orders it goes back to the levels with the reason (lighter.begin).
+        real: onLighter, back: "/", lighter,
+        // Simulator and Real money each keep their own ladder (lib/climb/progress); on Real money only a run that really
+        // placed orders on Lighter can unlock a level (a run that fell back to play money unlocks nothing)
+        state: () => ({ unlocked: readClimbLevel(stakeMode) }),
         finish: ({ level, pnl, test }: { level: number; pnl: number; test?: boolean }) => {
-          const u = readClimbLevel(), to = test ? unlockAfterTest(u, level, pnl, levels) : unlockAfter(u, level, pnl, levels);
-          if (to > u) saveClimbLevel(to);
+          const u = readClimbLevel(stakeMode);
+          if (onLighter && !realRun) return { unlocked: u };
+          const to = test ? unlockAfterTest(u, level, pnl, levels) : unlockAfter(u, level, pnl, levels);
+          if (to > u) saveClimbLevel(to, stakeMode);
           return { unlocked: Math.max(u, to) };
         },
       },
@@ -221,8 +237,12 @@ export default function ClimbScreen() {
       api = w.DuelEngine.mount(ref.current, host);
       offSwitch = mountRealSwitch(ref.current, () => setRun((n) => n + 1));
       offPill = mountTurboPill(ref.current);
+      picker = mountStakePicker(ref.current,
+        () => ({ choice, presets: climbStakePresets(bal, onLighter), cap: climbStakeCap(bal, onLighter), stake: stakeFor(choice, bal, onLighter) }),
+        (c) => { choice = c; saveStakeChoice(stakeMode, c); relevel(); });
+      setEng({ root: ref.current, real: onLighter });
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load Climb. Refresh to try again."; });
-    return () => { dead = true; offSwitch(); offPill(); offTurbo(); removeEventListener("focus", onFocus); stopPrice(); stopBackup(); offWallet(); offFuel(); api?.destroy(); };
+    return () => { dead = true; setEng(null); offSwitch(); offPill(); picker?.off(); offTurbo(); removeEventListener("focus", onFocus); stopPrice(); stopBackup(); offWallet(); offFuel(); api?.destroy(); };
   }
-  return <><GeoBanner /><div ref={ref} /><LobbySettings mode="climb" open={gear} onClose={() => setGear(false)} /></>;
+  return <><GeoBanner /><div ref={ref} /><ClimbAdvanced root={eng?.root ?? null} real={!!eng?.real} /><LobbySettings mode="climb" open={gear} onClose={() => setGear(false)} /></>;
 }

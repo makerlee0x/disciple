@@ -101,7 +101,7 @@ const SAMPLE: History = {
   ],
 };
 
-function Advanced({ wallet }: { wallet: string }) {
+export function Advanced({ wallet }: { wallet: string }) {
   const [h, setH] = useState<History | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [f, setF] = useState<Filter>("all");
