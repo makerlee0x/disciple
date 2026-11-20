@@ -109,3 +109,32 @@ export function gasLimitFor(estimate: bigint, cap: bigint = KEEPER_LIMITS.GAS_PE
 export function codeHasSelector(code: string | undefined | null, selector: string): boolean {
   return !!code && code.toLowerCase().includes(selector.toLowerCase().replace(/^0x/, ""));
 }
+
+/**
+ * Dust rule (maker 2026-11-20: "who's paying"; the relayer pays ~1¢ gas per route, so 1¢ of fees must not get a tx).
+ * Send when the quote side waiting is worth at least FEE_ROUTE_MIN_USD (default $2, maker 2026-11-20), or when something has been waiting
+ * FEE_ROUTE_MAX_WAIT_HOURS (default 24) so small coins and rocket-token-only fees still clear once a day.
+ */
+export const ROUTE_MIN = { USD: 2, MAX_WAIT_HOURS: 24 } as const;
+
+export function routeMinConfig(env: Record<string, string | undefined> = process.env): { minUsd: number; maxWaitMs: number } {
+  const usd = Number(env.FEE_ROUTE_MIN_USD), h = Number(env.FEE_ROUTE_MAX_WAIT_HOURS);
+  return {
+    minUsd: env.FEE_ROUTE_MIN_USD !== undefined && env.FEE_ROUTE_MIN_USD !== "" && Number.isFinite(usd) && usd >= 0 ? usd : ROUTE_MIN.USD,
+    maxWaitMs: (Number.isFinite(h) && h > 0 ? h : ROUTE_MIN.MAX_WAIT_HOURS) * 3_600_000,
+  };
+}
+
+/**
+ * quoteUsd: $ of the quote waiting (null = no price). waitingSince: when the keeper first saw this job pending (ms, null =
+ * first time now). Returns whether to send, and the reason for the cron log.
+ */
+export function routeIsWorthIt(o: {
+  quote: bigint; rockets: bigint; quoteUsd: number | null; waitingSince: number | null; now: number; minUsd: number; maxWaitMs: number;
+}): { send: boolean; reason: string } {
+  if (o.quote === BigInt(0) && o.rockets === BigInt(0)) return { send: false, reason: "nothing yet" };
+  if (o.quoteUsd !== null && o.quoteUsd >= o.minUsd) return { send: true, reason: "over minimum" };
+  if (o.waitingSince !== null && o.now - o.waitingSince >= o.maxWaitMs) return { send: true, reason: "waited long enough" };
+  const usd = o.quoteUsd === null ? "?" : o.quoteUsd.toFixed(2);
+  return { send: false, reason: `waiting: $${usd} under the $${o.minUsd} minimum` };
+}

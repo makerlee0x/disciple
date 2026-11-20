@@ -29,7 +29,7 @@ import { serverPc } from "./chat/identity";
 import { kv, type Kv } from "./kv";
 import { accountWallets } from "./xpAccount";
 import { ACH } from "./achKeys";
-import { coinsOf, tradesOf, TRADES_MAX_LIMIT } from "./trades";
+import { coinsOf, indexTrades, tradesOf, TRADES_MAX_LIMIT } from "./trades";
 import { COIN_FILLS_LIMIT, dueTimers, scoreXp, XPK, type TransferOut } from "./xp";
 import { capOuts, coinsToScan, nonTradeOuts } from "@/lib/xpTransfers";
 
@@ -375,6 +375,31 @@ export async function processDirty(budgetMs = 20_000, o: { dryRun?: boolean; s?:
   }
   if (members.length >= 2000) out.remaining = true;
   return out;
+}
+
+/** Per-wallet debounce for kickWallet (s): a burst of trades re-scores the wallet at most once per window. */
+export const KICK_DEBOUNCE_S = 10;
+/**
+ * Event-driven scoring (maker 2026-11-20: the 2-minute cron was too heavy). Called after a relayed trade lands
+ * (lib/server/gaslessRelay, after the response): catch the trade index up so the new fill is stored and the wallet
+ * marked dirty, then re-score ONLY that wallet, so its trophies, XP and toasts land in seconds. At most once per wallet
+ * per KICK_DEBOUNCE_S; anything a debounced kick skips stays dirty for the next kick or the /api/cron/achievements
+ * backup tick (every 10 min). Never throws.
+ */
+export async function kickWallet(walletIn: string, o: { s?: Kv; index?: () => Promise<unknown> } = {}): Promise<{ scored: boolean; fresh: number }> {
+  const w = walletIn.toLowerCase(), s = o.s ?? kv(), index = o.index ?? (() => indexTrades(4_000));
+  try {
+    if (process.env.ACHIEVEMENTS_DISABLED === "1" || !/^0x[0-9a-f]{40}$/.test(w)) return { scored: false, fresh: 0 };
+    if (!(await s.setNX(ACH.kick(w), "1", KICK_DEBOUNCE_S))) return { scored: false, fresh: 0 };
+    await index().catch(() => null);
+    const mine = (await s.zrange(ACH.dirty(), 2000)).filter((m) => m.split("|")[0] === w);
+    if (!mine.length) return { scored: false, fresh: 0 };
+    const r = await scoreWallet(w, { s });
+    await s.zrem(ACH.dirty(), ...mine);
+    return { scored: true, fresh: r.fresh.length };
+  } catch {
+    return { scored: false, fresh: 0 };
+  }
 }
 
 /** One cron tick: coin events → seeding (first run / rules bump) → dirty wallets. Run lock so ticks never overlap. */

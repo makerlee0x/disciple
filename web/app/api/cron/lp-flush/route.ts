@@ -1,5 +1,5 @@
 /**
- * GET /api/cron/lp-flush — Vercel cron (vercel.json, every minute: keeps LockedLP flush-reference anchors fresh, audit round 5). Slim hook (2026-11-17): swaps only bucket the 33% LP
+ * GET /api/cron/lp-flush — Vercel cron (vercel.json, every 12 minutes, maker 2026-11-20: the relayer pays the gas; each call adds at most 0.5% of the position and moves the reference at most 200 ticks, so after a big move compounding just catches up more slowly). Slim hook (2026-11-17): swaps only bucket the 33% LP
  * share in LockedLP; this keeper adds the buckets to each coin's locked position with LockedLP.flush(token). flush is
  * open to anyone (maker 2026-11-17); this cron just makes sure it runs. LockedLP caps each add (one per block, a slice
  * of L per window), so a call that has nothing to add returns 0.

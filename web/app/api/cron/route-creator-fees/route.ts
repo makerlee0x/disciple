@@ -7,6 +7,9 @@
  * fromBlock), coins kept in `feeroute:tokens:<harvest>`. Each route is simulated and gas-estimated first, so a coin with
  * nothing to send costs nothing. Spend is bounded per tx, per run and by time (lib/feeRouteKeeper KEEPER_LIMITS), and only
  * coins paired with a launch-list coin are routed. Run lock `feeroute:lock` (55 s). FEE_ROUTE_KEEPER_DISABLED=1 turns it off.
+ * Dust rule (maker 2026-11-20, lib/feeRouteKeeper routeIsWorthIt): the relayer pays the gas, so a route is only sent when
+ * $2+ of quote is waiting (FEE_ROUTE_MIN_USD) or a job has waited 24 h (FEE_ROUTE_MAX_WAIT_HOURS). Wait clocks live in KV
+ * `feeroute:wait:<harvest>:<job>` and are cleared after a send.
  */
 import { NextResponse } from "next/server";
 import { createHash, timingSafeEqual } from "crypto";
@@ -16,9 +19,10 @@ import { ACTIVE_CHAIN, deployment, ZERO } from "@/lib/chains";
 import { creatorFeeHarvestAbi } from "@/lib/creatorFeeHarvest";
 import { kv } from "@/lib/server/kv";
 import { relayerKey, isRelayerNotConfigured, withRelayer } from "@/lib/server/relayer";
-import { feeRouterAbi, launchpadAbi } from "@/lib/abi";
+import { bondingCurveAbi, feeRouterAbi, launchpadAbi } from "@/lib/abi";
 import { addressOn, launchPairsForChain } from "@/lib/launchWhitelist";
-import { KEEPER_LIMITS, codeHasSelector, gasLimitFor, isQuietRouteError, pastCreatorKeys, planJobs, routedTokensFromLogs, splitPastKey } from "@/lib/feeRouteKeeper";
+import { KEEPER_LIMITS, codeHasSelector, gasLimitFor, isQuietRouteError, pastCreatorKeys, planJobs, routeIsWorthIt, routeMinConfig, routedTokensFromLogs, splitPastKey } from "@/lib/feeRouteKeeper";
+import { quoteUsd } from "@/lib/trades";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -91,6 +95,8 @@ export async function GET(req: Request) {
       d.defaultQuote.toLowerCase(), d.usdg.toLowerCase(),
     ].filter((a) => a !== ZERO));
     const quoteOf = new Map<string, string>();
+    const qpOf = new Map<string, bigint>();
+    const minCfg = routeMinConfig();
     const results: Record<string, string> = {};
     let gasUsed = BigInt(0);
     for (const j of plan.jobs) {
@@ -103,7 +109,24 @@ export async function GET(req: Request) {
         }
         if (!allowedQuotes.has(quoteOf.get(j.token)!)) { results[j.label] = "skipped: pair coin is not on the launch list"; continue; }
         const args = (j.fn === "route" ? [j.token] : [j.token, j.pastCreator]) as never;
-        const { request } = await pc.simulateContract({ account: relayer, address: harvest, abi: creatorFeeHarvestAbi, functionName: j.fn, args });
+        const { request, result } = await pc.simulateContract({ account: relayer, address: harvest, abi: creatorFeeHarvestAbi, functionName: j.fn, args });
+        // dust rule: the relayer pays this gas, so only send when it's worth it (or it has waited a day)
+        const [qAmt, rAmt] = result as unknown as readonly [bigint, bigint, bigint];
+        if (!qpOf.has(j.token)) {
+          const curve = await pc.readContract({ address: d.launchpad, abi: launchpadAbi, functionName: "curveOf", args: [j.token as Address] }).catch(() => ZERO);
+          const qp = curve === ZERO ? BigInt(0) : await pc.readContract({ address: curve as Address, abi: bondingCurveAbi, functionName: "quotePriceUsd" }).catch(() => BigInt(0));
+          qpOf.set(j.token, qp as bigint);
+        }
+        const qp = qpOf.get(j.token)!;
+        const waitKey = `feeroute:wait:${h}:${j.label}`;
+        const now = Date.now();
+        const since = Number(await store.get(waitKey)) || null;
+        const worth = routeIsWorthIt({ quote: qAmt, rockets: rAmt, quoteUsd: qp > BigInt(0) ? quoteUsd(qAmt, qp) : null, waitingSince: since, now, ...minCfg });
+        if (!worth.send) {
+          if (since === null) await store.set(waitKey, String(now));
+          results[j.label] = worth.reason;
+          continue;
+        }
         const est = await pc.estimateContractGas({ account: relayer, address: harvest, abi: creatorFeeHarvestAbi, functionName: j.fn, args });
         const gas = gasLimitFor(est);
         if (gas == null) { results[j.label] = `skipped: needs ${est} gas, over the ${KEEPER_LIMITS.GAS_PER_TX} cap`; continue; }
@@ -113,6 +136,7 @@ export async function GET(req: Request) {
         const rc = await pc.waitForTransactionReceipt({ hash, timeout: 15_000 });
         gasUsed += rc.gasUsed;
         results[j.label] = rc.status === "success" ? hash : `reverted ${hash}`;
+        if (rc.status === "success") await store.del(waitKey).catch(() => {});
       } catch (e) {
         const m = errText(e);
         results[j.label] = isQuietRouteError(m) ? "nothing yet" : `error: ${m.slice(0, 160)}`;
