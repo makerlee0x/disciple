@@ -28,6 +28,7 @@ import { CashHead, Check, ErrIcon, Warn, usd2 } from "./bits";
 import { FUND_CARD_FEE_EST, FUND_COPY, FUND_DEFAULT_USD, FUND_PICKS, startFunding } from "@/lib/fund";
 import { DEPOSIT_COPY } from "@/lib/deposit";
 import { onTurboCash, refreshTurboCash, setTurboWallet, turboCashDev, type TurboCash } from "@/lib/turbo/turboCash";
+import { clearLanding, landing, onLanding, startLanding, type Landing } from "@/lib/turbo/landing";
 import SendCrypto from "./SendCrypto";
 import SignInMarks from "@/components/SignInMarks";
 import UserPicker, { RecipientCard } from "@/components/ui/UserPicker";
@@ -55,6 +56,9 @@ export const CASH_COPY = {
   turboMin: (v: string) => `${v} minimum deposit`,
   lands: "Lands in Turbo cash",
   turboSteps: { address: "Sending…", sending: "Sending…", arriving: "Landing in Turbo…", setup: "Setting up Turbo…", done: "Done" },
+  /** the countdown beside "Landing in Turbo" (est., from Relay's time + Lighter's credit) */
+  turboEta: (left: string) => `~${left}`,
+  turboEtaOver: "any sec",
   turboDone: (v: string) => `${v} moved to Turbo cash.`,
   addTitle: "Send USDG to your cash address",
   addBody: "From an exchange or another wallet, on Robinhood Chain. It shows up as cash when it lands.",
@@ -84,6 +88,8 @@ export const CASH_COPY = {
 } as const;
 
 const PICKS = [["25%", 0.25], ["40%", 0.4], ["Half", 0.5], ["All", 1]] as const;
+/** 83 → "1:23" */
+const mmss = (sec: number) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 
 export function Amount({ v, big }: { v: number; big?: boolean }) {
   const [w, c] = usd2(v).split(".");
@@ -91,9 +97,9 @@ export function Amount({ v, big }: { v: number; big?: boolean }) {
 }
 
 /** Add cash board 2 (maker 2026-11-14): How much (big number + $10/$25/$50/$100) → You pay / You get about → one gold
- *  "Pay with card or Apple Pay" (Privy funding, MoonPay) → "or" → "Send crypto instead". With no cash yet, a Free play
- *  link so a new player can fly while the payment lands. */
-function CardFund({ addr, empty, onPaid, onClose, onSend }: { addr: string; empty: boolean; onPaid: () => void; onClose: () => void; onSend: () => void }) {
+ *  "Pay with card or Apple Pay" (Privy funding, MoonPay) → "or" → "Send USDG" (maker 2026-11-20: the Free play link left
+ *  this card; USDG is the only coin taken). */
+function CardFund({ addr, onPaid, onSend }: { addr: string; onPaid: () => void; onSend: () => void }) {
   const [usd, setUsd] = useState<number>(FUND_DEFAULT_USD);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
@@ -119,7 +125,6 @@ function CardFund({ addr, empty, onPaid, onClose, onSend }: { addr: string; empt
         {busy ? FUND_COPY.opening : FUND_COPY.button}
       </button>
       {note && <div className={`r2-note ${note.ok ? "ok" : "warn"}`} role="status"><span>{note.text}</span></div>}
-      {empty && <a className="cx-freeplay" href={withBase("/flight/sim")} onClick={() => onClose()} data-testid="cash-freeplay"><b>Free play</b></a>}
       <div className="cx-or" aria-hidden><span>{FUND_COPY.or}</span></div>
       <button type="button" className="cx-sendrow" onClick={onSend} data-testid="cash-send-crypto-btn">
         <span className="t"><b>{FUND_COPY.sendTitle}</b><span>{FUND_COPY.sendSub}</span></span>
@@ -133,26 +138,32 @@ function CardFund({ addr, empty, onPaid, onClose, onSend }: { addr: string; empt
  *  Lighter set-up runs on its own). The cash-out network fee comes off the amount, so "Lands in Turbo cash" is net. */
 export function ToTurbo({ balUsd, feeUsd, min, onMoved }: { balUsd: number; feeUsd: number; min: number; onMoved: () => void }) {
   const [amt, setAmt] = useState("");
-  const [step, setStep] = useState<keyof typeof CASH_COPY.turboSteps | null>(null);
+  // the transfer runs in lib/turbo/landing, so it keeps going (with its countdown chip) after this popup closes
+  const [land, setLand] = useState<Landing>(() => landing());
+  useEffect(() => onLanding(setLand), []);
+  const step = land.step && land.step !== "done" ? land.step : null;
   const [err, setErr] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
+  // "Landing in Turbo" countdown (maker 2026-11-20: a spinner + est. time so it doesn't look frozen)
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { if (!step) return; const i = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(i); }, [step]);
   const n = Number(amt) || 0;
   const pickOn = (f: number) => amt !== "" && Math.abs(Math.floor(balUsd * f * 100) / 100 - n) < 0.005;
+  const left = land.landsAt != null && step === "arriving" ? Math.ceil((land.landsAt - now) / 1000) : null;
+  // the real credited amount (maker 2026-11-20: "says $5.99 moved when only $5.95 did")
+  const done = land.step === "done" ? CASH_COPY.turboDone(usd2(land.creditedUsd ?? Math.max(0, n - feeUsd))) : null;
   const go = async () => {
-    setErr(null); setDone(null);
+    setErr(null); clearLanding();
     if (n > balUsd + 1e-9) return setErr(CASH_COPY.tooMuch(usd2(balUsd)));
-    setStep("sending");
-    try {
+    const owner = gaslessSigner();
+    if (!owner) { window.dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT)); return; }
+    const r = await startLanding(async (onStep) => {
       const [{ lighterAddCash }, { lighterFetcher }, { aaSignMessage }] = await Promise.all([import("@/lib/lighter/deposit"), import("@/lib/lighter/duel"), import("@/lib/aa/session")]);
-      const owner = gaslessSigner();
-      if (!owner) { window.dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT)); return; }
-      const sign = async (m: string) => { const r = await aaSignMessage(m); if (!r) throw new Error("Your wallet didn't sign."); return r.sig; };
-      await lighterAddCash(lighterFetcher(owner.address.toLowerCase()), n, sign, (st) => setStep(st));
-      setDone(CASH_COPY.turboDone(usd2(Math.max(0, n - feeUsd)))); setAmt("");
-    } catch (e) {
-      const t = playerError(e);
-      setErr(t === CANCELLED_MSG ? t : t.replace(/Adding cash to Lighter/g, "Moving to Turbo").replace(/Lighter/g, "Turbo"));
-    } finally { setStep(null); onMoved(); }
+      const sign = async (m: string) => { const x = await aaSignMessage(m); if (!x) throw new Error("Your wallet didn't sign."); return x.sig; };
+      return lighterAddCash(lighterFetcher(owner.address.toLowerCase()), n, sign, onStep);
+    });
+    if (r.error) { const t = playerError(new Error(r.error)); setErr(t === CANCELLED_MSG ? t : t.replace(/Adding cash to Lighter/g, "Moving to Turbo").replace(/Lighter/g, "Turbo")); }
+    else setAmt("");
+    onMoved();
   };
   return (
     <>
@@ -161,11 +172,11 @@ export function ToTurbo({ balUsd, feeUsd, min, onMoved }: { balUsd: number; feeU
         <div className="r2-field cx-big">
           <span className="r2-g cx-dollar">$</span>
           <input id="cx-tamt" inputMode="decimal" placeholder="0.00" value={amt} autoComplete="off" data-testid="cash-turbo-amount"
-            onChange={(e) => { setErr(null); setDone(null); setAmt(e.target.value.replace(/[^0-9.]/g, "")); }} />
+            onChange={(e) => { setErr(null); clearLanding(); setAmt(e.target.value.replace(/[^0-9.]/g, "")); }} />
         </div>
         <div className="r2-chips">
           {PICKS.map(([l, f]) => (
-            <button key={l} type="button" className={pickOn(f) ? "on" : ""} onClick={() => { setErr(null); setDone(null); setAmt((Math.floor(balUsd * f * 100) / 100).toFixed(2)); }}>{l}</button>
+            <button key={l} type="button" className={pickOn(f) ? "on" : ""} onClick={() => { setErr(null); clearLanding(); setAmt((Math.floor(balUsd * f * 100) / 100).toFixed(2)); }}>{l}</button>
           ))}
         </div>
       </div>
@@ -175,8 +186,10 @@ export function ToTurbo({ balUsd, feeUsd, min, onMoved }: { balUsd: number; feeU
       </div>
       {err && <div className="r2-note err" role="alert"><ErrIcon /><span>{err}</span></div>}
       {done && <div className="r2-note ok" role="status"><span>{done}</span></div>}
-      <button type="button" className="r2-gold" disabled={!!step || n < min - 1e-9} onClick={go} data-testid="cash-turbo-btn">
+      <button type="button" className="r2-gold" disabled={!!step || n < min - 1e-9} onClick={go} data-testid="cash-turbo-btn" aria-busy={!!step || undefined}>
+        {step && <span className="am-spin" aria-hidden />}
         {step ? CASH_COPY.turboSteps[step] : n >= min - 1e-9 ? CASH_COPY.toTurbo(usd2(n)) : CASH_COPY.turboMin(usd2(min))}
+        {left != null && <span className="cx-eta" data-testid="cash-turbo-eta">{left > 0 ? CASH_COPY.turboEta(mmss(left)) : CASH_COPY.turboEtaOver}</span>}
       </button>
     </>
   );
@@ -422,7 +435,7 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
         </div>}
         {tab === "add" ? (
           sendView ? <SendCrypto cashAddr={addr} />
-            : <CardFund addr={addr} empty={balUsd < 0.01} onPaid={() => { void refresh(addr); }} onClose={onClose} onSend={() => setSendView(true)} />
+            : <CardFund addr={addr} onPaid={() => { void refresh(addr); }} onSend={() => setSendView(true)} />
         ) : tab === "turbo" ? (
           <>
             {turbo?.canWithdraw && (

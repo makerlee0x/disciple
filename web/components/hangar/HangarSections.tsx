@@ -13,7 +13,8 @@ import type { HomeCoin } from "@/lib/home/trending";
 import LiveCard from "@/components/home/LiveCard";
 import type { LiveHolding, LivePortfolio } from "@/components/profile/LiveHoldings";
 import { signedUsd2, usd2 } from "@/components/profile/money";
-import { DEPOSIT_HREF, onDepositClick, openCash } from "@/lib/cashLink";
+import { DEPOSIT_HREF, onDepositClick } from "@/lib/cashLink";
+import { openTurbo } from "@/lib/turbo/turboPill";
 import Tooltip from "@/components/ui/Tooltip";
 import { onTurboCash } from "@/lib/turbo/turboCash";
 import { openSend } from "@/lib/send/open";
@@ -33,8 +34,7 @@ export function ServiceRecord({ pf, isPrivate, rewards }: {
   rewards?: { usd: number | null; onOpen: () => void } | null;
 }) {
   const [turbo, setTurbo] = useState(0);
-  const [canAdd, setCanAdd] = useState(false);
-  useEffect(() => (isPrivate ? onTurboCash((t) => { setTurbo(t.usd); setCanAdd(t.canAdd); }) : undefined), [isPrivate]);
+  useEffect(() => (isPrivate ? onTurboCash((t) => setTurbo(t.usd)) : undefined), [isPrivate]);
   const ok = pf && pf.ok;
   const rockets = ok ? pf.rows.reduce((s, r) => s + r.usd, 0) : null;
   const total = ok ? pf.cashUsd + rockets! + (isPrivate ? turbo : 0) : null;
@@ -57,7 +57,8 @@ export function ServiceRecord({ pf, isPrivate, rewards }: {
         <div>
           <span className="l">Turbo cash</span>
           <b data-testid="portfolio-turbo">{usd2(turbo)}</b>
-          {canAdd ? <span className="hg-cashacts"><a href={DEPOSIT_HREF} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); openCash("turbo"); }} className="dsc3-btn" data-testid="hangar-turbo-transfer">Transfer</a></span> : <span className="s" />}
+          {/* always there (maker 2026-11-20 "where is the deposit button for turbo"): opens the Turbo popup (add / withdraw) */}
+          <span className="hg-cashacts"><a href={DEPOSIT_HREF} onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); openTurbo("add"); }} className="dsc3-btn" data-testid="hangar-turbo-transfer">Transfer</a></span>
         </div>
       )}
       {isPrivate && rewards && (

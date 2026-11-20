@@ -46,6 +46,7 @@ const CashHost = dynamic(() => import("./cash/CashHost"), { ssr: false });
 const SendHost = dynamic(() => import("./send/SendHost"), { ssr: false });
 // The Turbo popup (Turbo pill in the Duel / Climb lobby, lib/turbo/turboPill): Turbo routes only.
 const TurboCashHost = dynamic(() => import("./turbo/TurboCashHost"), { ssr: false });
+const TurboLanding = dynamic(() => import("./turbo/TurboLanding"), { ssr: false });
 // Phone first run (maker, 2026-11-14): app-browser banner, pick-a-rocket coach / throttle intro / $0 card / first boost,
 // and the Add to Home Screen sheet. Client-only, own chunks, nothing until they have something to show.
 const InAppBanner = dynamic(() => import("./mobile/InAppBanner"), { ssr: false });
@@ -87,7 +88,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <HowItWorksHost />
       <CashHost />
       <SendHost />
-      {/^\/turbo(\/|$)/.test(pathname ?? "") && <TurboCashHost />}
+      {/* everywhere since the Hangar's Turbo cash Transfer opens it too (maker 2026-11-20); its body loads on first open */}
+      <TurboCashHost />
+      <TurboLanding />
       {!IS_STATIC_PREVIEW && <InAppBanner />}
       {!IS_STATIC_PREVIEW && <FirstRunHost />}
       {!IS_STATIC_PREVIEW && <WelcomeIntro />}

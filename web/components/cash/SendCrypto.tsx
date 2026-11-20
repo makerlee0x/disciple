@@ -1,16 +1,16 @@
 "use client";
 /**
- * Send crypto instead (Add cash board 3, maker signed off 2026-11-14): What are you sending? → From which network? →
- * QR + address + Copy → "I sent it". Any coin Privy's deposit config supports turns into USDG in the player's cash
- * (lib/deposit). USDG on our own chain is the plain cash address, no swap. The only place in Cash that names a coin or
- * a network, and only because the player has to pick what they hold.
+ * Send USDG (Add cash board 3; maker 2026-11-20: USDG is the only coin taken, no other coin, no swap): From which
+ * network? → QR + address + Copy → "I sent it". Robinhood Chain is the plain cash address. USDG on Ethereum, Arbitrum or
+ * Solana gets a Privy deposit address that moves it over into the same cash (lib/deposit), shown only where Privy's
+ * config carries USDG on that network.
  */
 import { useEffect, useMemo, useState } from "react";
 import { ACTIVE_CHAIN, deployment, isDeployed } from "@/lib/chains";
 import { qrMatrix, qrPath } from "@/lib/qr";
 import { CASH_ARRIVED_EVENT } from "@/lib/testCash";
 import {
-  DEPOSIT_COPY as D, coinsFor, depositAddress, depositConfig, netsFor, routeFor, waitForDeposit,
+  DEPOSIT_COPY as D, depositAddress, depositConfig, netsFor, routeFor, waitForDeposit,
   type CoinId, type DepositAddress, type DepositConfigLike,
 } from "@/lib/deposit";
 import { Check, ErrIcon, Warn } from "./bits";
@@ -30,8 +30,8 @@ const short = (a: string) => (a.length > 16 ? `${a.slice(0, 6)}…${a.slice(-4)}
 
 export default function SendCrypto({ cashAddr }: { cashAddr: string }) {
   const [cfg, setCfg] = useState<DepositConfigLike | null | undefined>(undefined);   // undefined = loading
-  const [coin, setCoin] = useState<CoinId>("USDC");
-  const [netId, setNetId] = useState<string>("base");
+  const coin: CoinId = "USDG";
+  const [netId, setNetId] = useState<string>("rh");
   const [dep, setDep] = useState<{ key: string; a: DepositAddress } | null>(null);
   const [making, setMaking] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -41,8 +41,7 @@ export default function SendCrypto({ cashAddr }: { cashAddr: string }) {
   useEffect(() => { let a = true; depositConfig().then((c) => { if (a) setCfg(c); }); return () => { a = false; }; }, []);
   // no config (deposits off / Privy not loaded): only USDG on our chain works
   const off = cfg === null;
-  const coins = off ? (["USDG"] as CoinId[]) : coinsFor(cfg ?? null, RH);
-  const curCoin = coins.includes(coin) ? coin : coins[0];
+  const curCoin = coin;
   const nets = useMemo(() => netsFor(curCoin, off ? { currencies: [] } : cfg ?? null, RH), [curCoin, cfg, off]);
   const net = nets.find((n) => n.id === netId) ?? nets[0];
   const route = net ? routeFor(curCoin, net, cfg ?? null, RH) : null;
@@ -78,12 +77,6 @@ export default function SendCrypto({ cashAddr }: { cashAddr: string }) {
 
   return (
     <div className="cx-send" data-testid="cash-send-crypto">
-      <div>
-        <span className="r2-lbl">{D.coinQ}</span>
-        <div className="r2-chips cx-coins" role="group" aria-label="Coin">
-          {coins.map((c) => <button key={c} type="button" className={c === curCoin ? "on" : ""} aria-pressed={c === curCoin} onClick={() => { setCoin(c); setWatch(null); }} data-testid={`send-coin-${c}`}>{c}</button>)}
-        </div>
-      </div>
       <div>
         <span className="r2-lbl">{D.netQ}</span>
         <div className="r2-chips cx-nets" role="group" aria-label="Network">

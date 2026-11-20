@@ -62,7 +62,7 @@ export default function StatsPage({ username }: { username?: string }) {
     if (!done) return <div className={s.page} aria-busy="true" />;
     return (
       <div className={`${s.page} ${s.out}`} data-testid="stats-signedout">
-        <h1 className={s.h2}>{own ? "Trophies" : "Pilot not found"}</h1>
+        <h1 className={s.h2}>{own ? "Achievements" : "Pilot not found"}</h1>
         {own && <Link href="/play" prefetch={false} className="dsc3-btn dsc3-btn-primary">Play now</Link>}
       </div>
     );

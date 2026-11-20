@@ -8,12 +8,14 @@ export const runtime = "nodejs";
  * the client signs out, signs in with `method` and links `join` onto that account (methods: email | google | apple).
  * Nothing is linked here.
  * The address must be one of the Privy user's wallets. Called once per sign-in by lib/xpClient linkXpAccount.
+ * carried: a nameless new wallet took the account's @username / profile from an older wallet (lib/server/carryIdentity).
  */
 import { NextResponse } from "next/server";
 import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, fetchPrivyUser, privyEnv, verificationKeys, verifyIdentityToken, type PrivyUser } from "@/lib/server/privyAuth";
 import { duplicateLogin, linkAccount, LOGIN_LABEL } from "@/lib/server/xpAccount";
+import { carryIdentity } from "@/lib/server/carryIdentity";
 
 export const dynamic = "force-dynamic";
 const PRIVY_METHOD = { email: "email", google_oauth: "google", apple_oauth: "apple" } as const;
@@ -48,5 +50,7 @@ export async function POST(req: Request) {
   const r = await linkAccount(user);
   if (!r.ok) return out(409, r);
   if (r.joined.length) console.info("[xp account] linked", { account: r.account, joined: r.joined.length, wallets: r.wallets.length });
-  return out(200, { ok: true, wallets: r.wallets.length, joined: r.joined.length });
+  // best effort: a failed carry never fails the sign-in
+  const c = await carryIdentity(addr).catch((e) => { console.warn("[identity] carry failed", (e as Error).message); return null; });
+  return out(200, { ok: true, wallets: r.wallets.length, joined: r.joined.length, carried: !!(c && (c.movedName || c.copiedMeta)) });
 }

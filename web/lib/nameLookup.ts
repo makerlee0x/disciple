@@ -6,7 +6,7 @@
  */
 import { fetchUsernameStatus } from "./profile";
 import { lookupGuild } from "./guildClient";
-import { publishUsernameDisplayCap } from "./defaultUsername";
+import { defaultUsername, publishUsernameDisplayCap } from "./defaultUsername";
 
 const TTL_MS = 5 * 60_000;
 type Hit = { at: number; name: string | null };
@@ -44,10 +44,10 @@ export const cachedName = (address: string | null | undefined): string | null =>
 
 export function clearNameCache() { cache.clear(); inflight.clear(); }
 
-/** Header chip text: "@name" when claimed, else the short address. */
+/** Header chip text: "@name" when claimed, else the wallet's default call sign (never the raw address; maker 2026-11-20). */
 export function chipLabel(username: string | null | undefined, address: string): string {
   const u = String(username ?? "").trim().replace(/^@/, "");
-  return u ? `@${u}` : `${address.slice(0, 6)}…${address.slice(-4)}`;
+  return u ? `@${u}` : defaultUsername(address) || `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
 /**

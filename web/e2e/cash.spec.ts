@@ -21,7 +21,7 @@ test("Cash shows the balance, and Add cash quotes a card top-up", async ({ page,
   await card.getByRole("button", { name: "$50" }).click();
   await expect(card.getByTestId("cash-card-amount")).toHaveText("$50");
   await expect(card.getByTestId("cash-card-get")).toHaveText("$47.75"); // 4.5% card fee estimate
-  // with cash already in, no "Fly in Free play while it lands" nudge
+  // no Free play link on the Add cash card (maker 2026-11-20)
   await expect(card.getByTestId("cash-freeplay")).toHaveCount(0);
 });
 
@@ -35,17 +35,18 @@ test("card checkout that can't open says so instead of spinning", async ({ page,
   await expect(btn).toHaveText(/opening checkout/i);
   await expect(pop.getByRole("status")).toContainText("Card checkout isn't available right now", { timeout: 12_000 });
   await expect(btn).toHaveText("Pay with card or Apple Pay");
-  // a new player with no cash gets the Free play nudge
-  await expect(pop.getByTestId("cash-freeplay")).toBeVisible();
+  // no Free play link, even with no cash (maker 2026-11-20)
+  await expect(pop.getByTestId("cash-freeplay")).toHaveCount(0);
 });
 
-test("Send crypto instead shows your own cash address", async ({ page, pilot }) => {
+test("Send USDG shows your own cash address, no coin picker", async ({ page, pilot }) => {
   await pilot.signIn({ cash: 5 });
   await page.goto("/");
   const pop = await openCash(page);
   await pop.getByTestId("cash-send-crypto-btn").click();
   await expect(pop.getByTestId("cash-send-crypto")).toBeVisible();
-  // with Privy deposits off only USDG on Robinhood Chain works, straight to the cash address
+  // USDG on Robinhood Chain only (maker 2026-11-20), straight to the cash address
+  await expect(pop.locator("[data-testid^=send-coin-]")).toHaveCount(0);
   await expect(pop.getByTestId("send-address")).toContainText(pilot.address.slice(0, 6));
   await pop.getByTestId("cash-send-back").click();
   await expect(pop.getByTestId("cash-card-fund")).toBeVisible();

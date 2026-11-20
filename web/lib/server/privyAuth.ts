@@ -41,20 +41,32 @@ export function privyEnv(env: NodeJS.ProcessEnv = process.env): PrivyEnv {
 }
 
 const keyCache = new Map<string, { at: number; keys: KeyObject[] }>();
-/** Verification keys: the PEM env, else the app JWKS (cached 10 min). */
+/**
+ * Verification keys: the PEM env plus the app JWKS (cached 10 min). The JWKS is read even with a PEM set so a PEM left over
+ * from another Privy app (the dev → production switch, 2026-11-20) can't fail every sign-in check: the app id's own keys
+ * still verify its tokens.
+ */
 export async function verificationKeys(pe: PrivyEnv, f: FetchLike = fetch as unknown as FetchLike, now = Date.now()): Promise<KeyObject[]> {
-  if (pe.verificationKey) return [createPublicKey(pe.verificationKey)];
+  let pem: KeyObject[] = [];
+  try { pem = pe.verificationKey ? [createPublicKey(pe.verificationKey)] : []; } catch { console.warn("[privy] PRIVY_VERIFICATION_KEY is not a valid key; using the app JWKS"); }
+  const jwks = await appJwks(pe, f, now);
+  return [...pem, ...jwks];
+}
+
+async function appJwks(pe: PrivyEnv, f: FetchLike, now: number): Promise<KeyObject[]> {
   if (!APP_RE.test(pe.appId)) return [];
   const hit = keyCache.get(pe.appId);
-  if (hit && now - hit.at < 600_000) return hit.keys;
+  // a miss is remembered for 15 s so an unreachable JWKS doesn't add a 4 s wait to every request
+  if (hit && now - hit.at < (hit.keys.length ? 600_000 : 15_000)) return hit.keys;
+  const miss = () => { keyCache.set(pe.appId, { at: now, keys: [] }); return [] as KeyObject[]; };
   try {
     const r = await f(`https://auth.privy.io/api/v1/apps/${pe.appId}/jwks.json`, { signal: AbortSignal.timeout(4000) });
-    if (!r.ok) return [];
+    if (!r.ok) return miss();
     const j = (await r.json()) as { keys?: Record<string, unknown>[] };
     const keys = (j.keys ?? []).filter((k) => k.kty === "EC" && k.crv === "P-256").map((k) => createPublicKey({ key: k as never, format: "jwk" }));
     keyCache.set(pe.appId, { at: now, keys });
     return keys;
-  } catch { return []; }
+  } catch { return miss(); }
 }
 
 /** Verify a Privy access token. Returns its claims, or null (bad signature / claims / expired / no key). */

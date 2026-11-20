@@ -14,6 +14,18 @@ import { lighterSetUp, lighterStatus, type LighterStep } from "./client";
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 export type AddCashStep = "address" | "sending" | "arriving" | "setup" | "done";
+/** "arriving": when it should land (ms epoch), for the countdown on the button (maker 2026-11-20: "so they know it's working"). */
+/** "setup": creditedUsd = what Lighter actually credited (its collateral went up by that), for the done line. */
+export type AddCashInfo = { landsAt?: number; creditedUsd?: number };
+/** Seconds Lighter takes to credit a deposit once it reaches its intent address (on top of Relay's own estimate). */
+export const LIGHTER_CREDIT_SEC = 60;
+/** Est. when Relay gives no time: the swap + bridge usually take well under a minute. */
+export const RELAY_DEFAULT_SEC = 45;
+/** When a deposit sent at `sentAt` should land. Pure, tested. */
+export function landsAt(sentAt: number, relayEtaSec?: number | null, viaRelay = true): number {
+  const relay = viaRelay ? (relayEtaSec && relayEtaSec > 0 ? relayEtaSec : RELAY_DEFAULT_SEC) : 0;
+  return sentAt + (relay + LIGHTER_CREDIT_SEC) * 1000;
+}
 
 async function post<T>(f: Fetcher, op: string, extra: Record<string, unknown> = {}): Promise<T> {
   const r = await f("/api/lighter", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ op, ...extra }) });
@@ -23,12 +35,12 @@ async function post<T>(f: Fetcher, op: string, extra: Record<string, unknown> = 
 }
 
 /** Moves `usd` of cash into Lighter and finishes set-up. `onStep` reports progress; resolves with the Lighter step. */
-export async function lighterAddCash(f: Fetcher, usd: number, signMessage: (msg: string) => Promise<string>, onStep: (s: AddCashStep) => void = () => {}): Promise<LighterStep> {
+export async function lighterAddCash(f: Fetcher, usd: number, signMessage: (msg: string) => Promise<string>, onStep: (s: AddCashStep, info?: AddCashInfo) => void = () => {}): Promise<LighterStep> {
   const owner = gaslessSigner();
   if (!owner) throw new Error("Sign in first.");
   onStep("address");
-  const [{ address, minNew, min, chainId }, before] = await Promise.all([
-    post<{ address: Address; minNew: number; min: number; chainId?: number | null }>(f, "deposit-address", { usd }),
+  const [{ address, minNew, min, chainId, etaSec, outUsd }, before] = await Promise.all([
+    post<{ address: Address; minNew: number; min: number; chainId?: number | null; etaSec?: number; outUsd?: number }>(f, "deposit-address", { usd }),
     lighterStatus(f) as Promise<{ step: LighterStep; collateral?: string }>,
   ]);
   // 2026-11-18: a testnet build sent test USDG to a real Lighter main deposit address. Never send across chains.
@@ -48,16 +60,18 @@ export async function lighterAddCash(f: Fetcher, usd: number, signMessage: (msg:
   await submitGaslessWithdraw(req, "/api/gasless", fetch, await tokenP);
 
   // Lighter credits it within a few minutes; the account (or its cash) showing up is the signal
-  onStep("arriving");
+  // outUsd is only set on the Relay route (Lighter main); Lighter on our own chain has no swap leg
+  onStep("arriving", { landsAt: landsAt(Date.now(), etaSec, outUsd != null) });
   const was = Number(before.collateral ?? 0);
   const t0 = Date.now();
+  let credited = 0;
   for (;;) {
     await new Promise((ok) => setTimeout(ok, 5_000));
     const st = (await lighterStatus(f).catch(() => null)) as { step: LighterStep; collateral?: string } | null;
-    if (st && st.step !== "deposit" && Number(st.collateral ?? 0) > was) break;
+    if (st && st.step !== "deposit" && Number(st.collateral ?? 0) > was) { credited = Math.round((Number(st.collateral) - was) * 100) / 100; break; }
     if (Date.now() - t0 > 20 * 60_000) throw new Error("Lighter hasn't credited it yet. It can take a while; check back soon.");
   }
-  onStep("setup");
+  onStep("setup", { creditedUsd: credited });
   const step = await lighterSetUp(f, signMessage);
   onStep("done");
   return step;

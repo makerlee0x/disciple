@@ -18,6 +18,7 @@ import { playerUsd, type Fill } from "../lib/trades";
 import { tradeFromLog } from "../lib/events";
 import { usdgDecimals } from "../lib/usdg";
 import { statsFromFills } from "../lib/home/trending";
+import { defaultUsername } from "../lib/defaultUsername";
 import { chipLabel, clearNameCache, lookupFirstName, lookupName, cachedName } from "../lib/nameLookup";
 
 const near = (a: number | null, b: number, eps: number, msg?: string) => { assert.ok(a != null && Math.abs(a - b) <= eps, `${msg ?? ""} ${a} vs ${b}`); };
@@ -122,7 +123,8 @@ test("#5 username lookup: lowercase key, cached, owner fallback, chip label", as
   assert.equal(await lookupName("nope", fetcher), null);
   assert.equal(chipLabel("maker", mixed), "@maker");
   assert.equal(chipLabel("@maker", mixed), "@maker");
-  assert.equal(chipLabel(null, mixed), "0x3DFE…BEDE");
+  assert.equal(chipLabel(null, mixed), defaultUsername(mixed));
+  assert.doesNotMatch(chipLabel(null, mixed), /^0x/);
   clearNameCache();
   assert.equal(await lookupName(TRADER, async () => { throw new Error("down"); }), null);
 });

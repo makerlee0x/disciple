@@ -32,7 +32,7 @@ type NavItem = { href: string; key: string; label: string; icon: IconName };
 const NAV: readonly NavItem[] = [
   { href: "/", key: "home", label: "Lobby", icon: "home" },
   { href: "/leaderboard", key: "leader", label: "Leaderboard", icon: "leaderboard" },
-  { href: "/achievements", key: "ach", label: "Trophies", icon: "achievement" },
+  { href: "/achievements", key: "ach", label: "Achievements", icon: "achievement" },
 ];
 /** "You" group: signed in only (nothing of yours to show signed out). Upgrade Rocket (/rocket) is hidden, not deleted. */
 const NAV_YOU: readonly NavItem[] = [
