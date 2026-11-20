@@ -1,7 +1,7 @@
 /**
  * Simulator / Real money switch at the top of the Duel and Climb lobbies (maker 2026-11-19). It drives the same
- * per-browser setting as ?lighter=1 (lib/lighter/duel lighterWanted), then reloads, since each mode reads it once as it
- * sets up. In a blocked country (lib/turbo/region) the web shows it greyed out on Simulator under the GeoBanner strip,
+ * per-browser setting as ?lighter=1 (lib/lighter/duel lighterWanted). Each mode reads it once as it sets up, so the
+ * screen passes `onSwitch` to set itself up again in place (maker 2026-11-20: a full reload blacked out the page). In a blocked country (lib/turbo/region) the web shows it greyed out on Simulator under the GeoBanner strip,
  * and the iPhone app has no switch (and no banner) at all: play money only. Elsewhere it works on both (maker 2026-11-19).
  */
 import { isNativeApp } from "@/lib/native";
@@ -24,7 +24,7 @@ const CSS = `
 `;
 
 /** puts the switch above the lobby's side column; returns the clean-up */
-export function mountRealSwitch(root: HTMLElement): () => void {
+export function mountRealSwitch(root: HTMLElement, onSwitch?: () => void): () => void {
   const side = root.querySelector(".pre-side");
   if (!side) return () => {};
   if (!document.getElementById("rm-sw-css")) {
@@ -53,9 +53,13 @@ export function mountRealSwitch(root: HTMLElement): () => void {
   void turboRegion().then(() => { if (!gone) show(); });
   btn.addEventListener("click", () => {
     if (locked()) return;
-    setLighterWanted(btn.getAttribute("aria-checked") !== "true");
+    const on = btn.getAttribute("aria-checked") !== "true";
+    setLighterWanted(on);
     const u = new URL(location.href); u.searchParams.delete("lighter");
-    location.replace(u.toString());
+    if (!onSwitch) { location.replace(u.toString()); return; }
+    history.replaceState(history.state, "", u.toString());
+    paint(on);
+    onSwitch();
   });
   return () => { gone = true; el.remove(); };
 }
