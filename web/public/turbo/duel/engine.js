@@ -1439,11 +1439,12 @@ function mount(root,host){
       if(v==="free"){ if(CL.state().unlocked>=FREE) climbFreeSetup(); else toast("Clear level "+LVS.length+" to unlock free mode."); return; }
       const n=+v; if(n<=CL.state().unlocked){ climbPlay(n); return; }
       toast("Clear level "+(n-1)+" first."); })); }   // no test out (maker 2026-11-18: "that ruins the fun")
-  function climbFreeSetup(){ show("cres");
-    const fuels=LVS.map(l=>l.fuel), gears=[]; for(let g=10;g<=MAXG;g+=10) gears.push(g);
+  // free mode flies the lobby's stake (host: the per-round picker under the Simulator / Real money switch, maker
+  // 2026-11-20), so only the gear is picked here. #cres data-k tells the picker this is free mode, not a result.
+  function climbFreeSetup(){ $("cres").dataset.k="free"; show("cres");
+    const gears=[]; for(let g=10;g<=MAXG;g+=10) gears.push(g);
     const opt=(k,v,lab)=>`<button class="opt${cFree[k]===v?" on":""}" type="button" data-${k}="${v}">${lab}</button>`;
-    $("cres").innerHTML=`<div class="opts" role="group" aria-label="Fuel"><span>FUEL</span>${fuels.map(f=>opt("fuel",f,m2(f))).join("")}</div>`
-      +`<div class="opts" role="group" aria-label="Gear"><span>GEAR</span>${gears.map(g=>opt("gear",g,gx(g)+`<small class="ob">NUKE −${Math.round(liqF(g)/g*1000)/10}%</small>`)).join("")}</div>`
+    $("cres").innerHTML=`<div class="opts" role="group" aria-label="Gear"><span>GEAR</span>${gears.map(g=>opt("gear",g,gx(g)+`<small class="ob">NUKE −${Math.round(liqF(g)/g*1000)/10}%</small>`)).join("")}</div>`
       +`<div class="choices"><button class="choice main" type="button" id="cFly"><i class="ci">${ICO.bolt}</i><span class="ct"><b>FLY · ${gx(cFree.gear)}</b><small>${m2(cFree.fuel)} fuel · no clock</small></span>${ICO.go}</button></div>`
       +`<button class="sec wide" type="button" id="cBack" style="margin-top:8px">LEVELS</button>`;
     $("cres").querySelectorAll("[data-fuel],[data-gear]").forEach(b=>b.addEventListener("click",()=>{ if(b.dataset.fuel){ cFree.fuel=+b.dataset.fuel; cFreeSet=true; } if(b.dataset.gear) cFree.gear=+b.dataset.gear; climbFreeSetup(); }));
@@ -1563,7 +1564,7 @@ function mount(root,host){
   function climbResult(pnl){ if(!CLR) return; const run=CLR, before=CL.state().unlocked;
     const res=run.free?{unlocked:before}:CL.finish({level:run.level,pnl,test:run.test});
     const up=res.unlocked>before, n=res.unlocked, nl=lvl(n), clr=!run.free&&cHit(pnl);
-    setTimeout(()=>{ if(dead) return; show("cres"); climbChip(); sfx(up||clr?"win":"lose");
+    setTimeout(()=>{ if(dead) return; $("cres").dataset.k="res"; show("cres"); climbChip(); sfx(up||clr?"win":"lose");
       let big;
       if(run.free) big=`<small>LANDED</small><b class="${pnl>=0?"up":"dn"}">${usd(pnl,true)}</b><strong>${m2(run.fuel)} · ${gx(run.gear)}</strong>`;
       else if(up) big=`<small>${n-run.level>1?"LEVEL JUMP":"LEVEL UP"}</small><b>${n>=FREE?"FREE MODE":"LEVEL "+n}</b><strong>${n>=FREE?"UNLOCKED":`${m2(nl.fuel)} · ${gx(nl.gear)} UNLOCKED`}</strong><em>${usd(pnl,true)}${nl?` · NEXT GOAL +${m2(nl.goal)}`:""}</em>`;
@@ -1622,7 +1623,7 @@ function mount(root,host){
     real:(on)=>{ REAL=!!on; if(G&&G.started&&!G.over) simPill(); },
     climbNote:(t)=>{ if(CL&&!$("climb").hidden) climbHome(t); else toast(t); },
     climbFill:(entry)=>{ if(!CLR||!G||G.over||!G.me.pos||!(entry>0)) return; G.me.pos.entry=entry; ui(); },
-    climbRefresh:()=>{ if(!CL) return; if(!cFreeSet&&LVS.length) cFree.fuel=LVS[LVS.length-1].fuel; if(!$("climb").hidden) climbHome(); },
+    climbRefresh:()=>{ if(!CL) return; if(!cFreeSet&&LVS.length) cFree.fuel=LVS[LVS.length-1].fuel; if(!$("climb").hidden) climbHome(); else if(!$("cres").hidden&&$("cres").dataset.k==="free") climbFreeSetup(); },
     _state:()=>G,
     destroy:()=>{ dead=true; clipDrop(); if(CL&&CL.lighter) CL.lighter.end(); offs.forEach(f=>f()); removeEventListener("storage",onStore); removeEventListener("disciple:audio",onLvl); try{ if(ac) ac.close(); }catch(e){} root.innerHTML=""; root.classList.remove("duel-root"); },
   };

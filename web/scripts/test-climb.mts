@@ -56,3 +56,23 @@ test("levels scale with the balance: level 5 = 83% of the balance (the rest back
   // unlocks use the scaled ladder's $ goals
   assert.equal(R.unlockAfter(1, 1, 0.1, k), 2);
 });
+
+test("stake per round: cap is the margin at 50x (cash covers 1.2x the stake), presets 25% / 50% / MAX, $2 floor", () => {
+  assert.equal(R.climbStakeCap(1200), 1000);
+  assert.deepEqual(R.climbStakePresets(1200), [250, 500, 1000]);
+  assert.equal(R.climbStakeCap(0), 1000);            // play money with nothing in it: the $1,200 ladder
+  assert.equal(R.climbStakeCap(0, true), 2);         // real money: the real balance, $2 floor
+  assert.equal(R.climbStakeCap(5.95, true), 4.95);
+  for (const b of [6, 20, 100, 1200, 5000]) { const c = R.climbStakeCap(b, true); assert.ok(c === 2 || Math.ceil(c * 120) / 100 <= b + 1e-9, `cap ${c} on ${b}`); }
+  assert.equal(R.stakeFor({ c: 5000 }, 1200), 1000);  // custom clamps to the cap
+  assert.equal(R.stakeFor({ c: 0.5 }, 1200), 2);
+  assert.equal(R.stakeFor({ p: 1 }, 100, true), 41);     // half of $83.33, rounded down to whole dollars
+});
+
+test("every level flies the stake, keeps its gear and its % goal", () => {
+  const L = R.climbLevelsAt(100);
+  assert.deepEqual(L.map((l) => l.fuel), [100, 100, 100, 100, 100]);
+  assert.deepEqual(L.map((l) => l.gear), [10, 20, 30, 40, 50]);
+  assert.deepEqual(L.map((l) => l.goal), [1, 3, 5, 7.5, 10]);
+  assert.equal(R.unlockAfter(1, 1, 10, L), 5);           // beating level 5's $ goal at the same stake jumps there
+});
