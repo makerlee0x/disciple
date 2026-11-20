@@ -5,6 +5,7 @@
  * on-chain decimals. unmarkedRate is 1.0x (no markup).
  */
 import { createPublicClient, http, parseAbi, type Address } from "viem";
+import { serverReadTransport } from "@/lib/rpc/serverRead";
 import { ACTIVE_CHAIN, deployment } from "../chains";
 import { refillConfig, usdgPerEthAtSpot } from "../gasRefill";
 export function rateFromEnv(env: { PAYMASTER_RATE?: string; PAYMASTER_USD_PER_ETH?: string }, usdgDecimals: number): bigint {
@@ -54,7 +55,7 @@ export async function liveUsdgPerEth(env: NodeJS.ProcessEnv = process.env, now =
   const mark = (r: bigint) => (r * (BigInt(10_000) + markup)) / BigInt(10_000);
   if (cfg.pool) {
     try {
-      const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http(undefined, { timeout: 3000, retryCount: 0 }) });
+      const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport({ timeout: 3000, retryCount: 0 }) });
       const [t0, s0] = await Promise.all([
         pc.readContract({ address: cfg.pool as Address, abi: poolAbi, functionName: "token0" }),
         pc.readContract({ address: cfg.pool as Address, abi: poolAbi, functionName: "slot0" }),

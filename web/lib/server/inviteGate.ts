@@ -7,6 +7,7 @@ import "server-only";
  * store must not stop trading (this is a beta gate, not a security boundary — the contracts are permissionless).
  */
 import { NextResponse } from "next/server";
+import { serverReadTransport } from "@/lib/rpc/serverRead";
 import { createPublicClient, http, parseAbi, type Address } from "viem";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { LIGHT_ACCOUNT_V2_FACTORY, MAV2_FACTORY } from "@/lib/aa/constants";
@@ -18,7 +19,7 @@ const factoryAbi = parseAbi([
   "function getAddressSemiModular(address owner, uint256 salt) view returns (address)",
   "function getAddress(address owner, uint256 salt) view returns (address)",
 ]);
-const pc = () => createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
+const pc = () => createPublicClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport() });
 
 export function inviteDeps(): Deps {
   return {

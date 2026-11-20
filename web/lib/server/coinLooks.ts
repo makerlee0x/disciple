@@ -7,6 +7,7 @@ import "server-only";
  * public host's own copy is credited (serial), a hidden coin carries none. Set once: a coin keeps its look.
  */
 import { createPublicClient, http, recoverMessageAddress, type Address, type Hex } from "viem";
+import { serverReadTransport } from "@/lib/rpc/serverRead";
 import { ACTIVE_CHAIN, deployment, isDeployed } from "@/lib/chains";
 import { anonLauncherAbi, launchpadAbi } from "@/lib/abi";
 import { anonLaunchers } from "@/lib/anon";
@@ -18,7 +19,7 @@ const key = (token: string) => `coinlook:${ACTIVE_CHAIN.id}:${token.toLowerCase(
 const isAddr = (a: string) => /^0x[0-9a-f]{40}$/.test(a);
 
 let pc: ReturnType<typeof createPublicClient> | null = null;
-const client = () => (pc ??= createPublicClient({ chain: ACTIVE_CHAIN, transport: http() }));
+const client = () => (pc ??= createPublicClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport() }));
 
 /** The coin's creator on chain, lower case; null when it isn't a coin (or the chain didn't answer). Tests swap it. */
 export let creatorOf = async (token: string): Promise<string | null> => {

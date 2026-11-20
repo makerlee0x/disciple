@@ -9,6 +9,7 @@
  * BOOST_RELEASE_DISABLED=1 turns it off. Skipped (no KV or RPC use) until lib/anonModes ANON_ANY_MODE_LIVE.
  */
 import { NextResponse } from "next/server";
+import { serverReadTransport } from "@/lib/rpc/serverRead";
 import { createHash, timingSafeEqual } from "crypto";
 import { createPublicClient, createWalletClient, formatEther, http, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -44,9 +45,9 @@ export async function GET(req: Request) {
   if (!(await store.setNX("boost:lock", "1", 55))) return NextResponse.json({ ok: true, skipped: "locked" });
   try {
     const d = deployment();
-    const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
+    const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport() });
     const relayer = privateKeyToAccount(key);
-    const wc = createWalletClient({ chain: ACTIVE_CHAIN, transport: http(undefined, { retryCount: 0 }), account: relayer });
+    const wc = createWalletClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport({ retryCount: 0 }), account: relayer });
 
     // 1) Easy hidden launches whose First BOOST was held, since the cursor
     const latest = await pc.getBlockNumber();

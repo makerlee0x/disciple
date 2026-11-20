@@ -12,6 +12,7 @@
  * `feeroute:wait:<harvest>:<job>` and are cleared after a send.
  */
 import { NextResponse } from "next/server";
+import { serverReadTransport } from "@/lib/rpc/serverRead";
 import { createHash, timingSafeEqual } from "crypto";
 import { createPublicClient, createWalletClient, formatEther, http, toFunctionSelector, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -47,9 +48,9 @@ export async function GET(req: Request) {
   const store = kv(), h = harvest.toLowerCase();
   if (!(await store.setNX("feeroute:lock", "1", 55))) return NextResponse.json({ ok: true, skipped: "locked" });
   try {
-    const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
+    const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport() });
     const relayer = privateKeyToAccount(key);
-    const wc = createWalletClient({ chain: ACTIVE_CHAIN, transport: http(undefined, { retryCount: 0 }), account: relayer });
+    const wc = createWalletClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport({ retryCount: 0 }), account: relayer });
 
     // 1) coins launched with pool / burn since the cursor
     const latest = await pc.getBlockNumber();

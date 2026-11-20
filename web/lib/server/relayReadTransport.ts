@@ -1,5 +1,6 @@
 import "server-only";
 import { fallback, http, type Transport } from "viem";
+import { serverReadUrls } from "@/lib/rpc/serverRead";
 
 // JSON-RPC batching only: same individual methods/params/block tags and caller semantics.
 // In particular this is NOT an EVM multicall (which would change msg.sender for eth_call).
@@ -12,5 +13,7 @@ export function relayReadTransport(timeout: number, retryCount: number, url?: st
   return fallback([
     http(url, { ...options, batch: { wait: 0, batchSize: 32 }, methods: { include: READS } }),
     http(url, options),
+    // public RPC down / rate limited: the chain's receipt node (RH_RECEIPT_RPC_URL) answers the same reads (maker 2026-11-20)
+    ...(url ? [] : serverReadUrls().slice(1).map((u) => http(u, options))),
   ], { rank: false, retryCount: 0 });
 }

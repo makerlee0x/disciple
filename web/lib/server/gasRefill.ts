@@ -20,6 +20,7 @@ import "server-only";
  * JSON POST), each kind at most once per GAS_REFILL_ALERT_EVERY_MIN (default 360) via KV.
  */
 import { createPublicClient, createWalletClient, encodeAbiParameters, encodeFunctionData, encodePacked, formatEther, formatUnits, http, maxUint256, parseAbi, type Address, type Hex } from "viem";
+import { serverReadTransport } from "@/lib/rpc/serverRead";
 import { privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, deployment, ZERO } from "../chains";
 import { dayKey, minOutWithSlippage, planRefill, planTopUps, refillConfig, spotWethOut, usdgPerEthAtSpot, type RefillConfig, type RelayWallet, type TopUp } from "../gasRefill";
@@ -105,8 +106,8 @@ export async function runGasRefill(deps: Deps = {}): Promise<RefillReport> {
   try {
     const key = relayerKey(env);
     const account = privateKeyToAccount(key);
-    const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
-    const wc = createWalletClient({ chain: ACTIVE_CHAIN, transport: http(undefined, { retryCount: 0 }), account });   // never resend a signed tx at the transport
+    const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport() });
+    const wc = createWalletClient({ chain: ACTIVE_CHAIN, transport: serverReadTransport({ retryCount: 0 }), account });   // never resend a signed tx at the transport
     const { sendWithRelayerNonce } = await import("./fastRelay");
     const send = async (to: Address, data: Hex | undefined, value: bigint) => {
       const gas = await pc.estimateGas({ account: account.address, to, data, value });   // also the simulation: a revert throws here
