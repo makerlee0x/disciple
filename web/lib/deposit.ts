@@ -34,7 +34,7 @@ export const DEPOSIT_COINS: ReadonlyArray<{ id: CoinId; nets: Net[] }> = [
 ];
 
 export const DEPOSIT_COPY = {
-  title: "Send crypto",
+  title: "Send USDG",
   coinQ: "What are you sending?",
   netQ: "From which network?",
   addrLabel: (coin: string, net: string) => `Your ${coin} address on ${net}`,
@@ -43,7 +43,7 @@ export const DEPOSIT_COPY = {
   turns: "It turns into cash by itself, usually in 1 to 3 minutes.",
   turnsEta: (min: number) => `It turns into cash by itself, usually in about ${min} minute${min === 1 ? "" : "s"}.`,
   direct: "It shows up as cash as soon as it lands.",
-  fee: (coin: string, net: string) => `A small swap fee comes off the amount. Send only ${coin} on ${net} to this address.`,
+  fee: (coin: string, net: string) => `A small network fee comes off the amount. Send only ${coin} on ${net} to this address.`,
   directWarn: (net: string) => `Send only USDG on ${net} to this address.`,
   sent: "I sent it",
   watching: "Watching for it. You can close this, your cash shows up when it lands.",
@@ -63,7 +63,8 @@ export type DepositRoute = { coin: CoinId; net: Net; direct: boolean; sourceCurr
  *  list). USDG leads with our own chain, which is always direct. Pure, tested. */
 export function netsFor(coin: CoinId, cfg: DepositConfigLike | null, rhCaip2: string, rhName = "Robinhood Chain"): Net[] {
   const own: Net = { id: "rh", name: rhName, caip2: rhCaip2 };
-  const base = coin === "USDG" ? [own, NET.eth] : DEPOSIT_COINS.find((c) => c.id === coin)?.nets ?? [];
+  // USDG: our own chain first, then Ethereum, Arbitrum, Solana (maker 2026-11-20: no Base, no Polygon)
+  const base = coin === "USDG" ? [own, NET.eth, NET.arb, NET.sol] : DEPOSIT_COINS.find((c) => c.id === coin)?.nets ?? [];
   if (!cfg) return base;
   const cur = cfg.currencies.find((c) => c.symbol.toUpperCase() === coin);
   const have = new Set((cur?.chains ?? []).map((c) => c.caip2));

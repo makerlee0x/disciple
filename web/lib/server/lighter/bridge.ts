@@ -38,16 +38,18 @@ export const ARBITRUM_USDC = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
 export const RH_USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168";
 const RH_CHAIN = 4663;
 
-export type RelayDeposit = { address: string; outUsd: number; feeUsd: number | null };
+/** etaSec: Relay's time estimate for the swap + bridge (seconds), when it gives one. */
+export type RelayDeposit = { address: string; outUsd: number; feeUsd: number | null; etaSec?: number };
 /** Relay's /quote answer (deposit-address mode) -> where to send and what arrives. Throws on a shape we don't know. Pure, tested. */
 export function parseRelayDeposit(j: unknown): RelayDeposit {
-  const o = (j ?? {}) as { steps?: { id?: string; depositAddress?: string }[]; details?: { currencyOut?: { amount?: string } }; fees?: { relayer?: { amountUsd?: string } }; message?: string };
+  const o = (j ?? {}) as { steps?: { id?: string; depositAddress?: string }[]; details?: { currencyOut?: { amount?: string }; timeEstimate?: number }; fees?: { relayer?: { amountUsd?: string } }; message?: string };
   const step = o.steps?.find((x) => x.id === "deposit" && typeof x.depositAddress === "string");
   if (!step?.depositAddress || !/^0x[0-9a-fA-F]{40}$/.test(step.depositAddress)) throw new LighterError(502, o.message || "The swap service didn't answer.");
   const out = Number(o.details?.currencyOut?.amount) / 1e6;
   if (!(out > 0)) throw new LighterError(502, "The swap service didn't answer.");
   const fee = Number(o.fees?.relayer?.amountUsd);
-  return { address: step.depositAddress, outUsd: out, feeUsd: Number.isFinite(fee) ? fee : null };
+  const eta = Number(o.details?.timeEstimate);
+  return { address: step.depositAddress, outUsd: out, feeUsd: Number.isFinite(fee) ? fee : null, ...(eta > 0 && eta < 3600 ? { etaSec: Math.round(eta) } : {}) };
 }
 
 type RelayLeg = { from: number; fromToken: string; to: number; toToken: string };
@@ -114,7 +116,7 @@ function bridgeKey() {
 }
 
 /** The player's Lighter deposit address (USDG on Robinhood Chain → USDC on Lighter perps). */
-export async function depositAddress(wallet: string, usd?: number): Promise<{ address: string; outUsd?: number; feeUsd?: number | null }> {
+export async function depositAddress(wallet: string, usd?: number): Promise<{ address: string; outUsd?: number; feeUsd?: number | null; etaSec?: number }> {
   const cfg = lighterConfig();
   if (cfg.payoutIsCash) return intentAddress(cfg, wallet);
   if (cfg.network === "mainnet") {

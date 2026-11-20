@@ -16,6 +16,8 @@ test("send crypto: networks follow the live config, USDG on our chain is always 
   assert.deepEqual(netsFor("USDC", CFG, RH).map((n) => n.name), ["Base", "Arbitrum"]);
   assert.deepEqual(netsFor("USDC", null, RH).map((n) => n.name), ["Base", "Ethereum", "Arbitrum", "Solana", "Polygon"]);
   assert.deepEqual(netsFor("USDG", CFG, RH).map((n) => n.name), ["Robinhood Chain"]);
+  // USDG networks (maker 2026-11-20): Robinhood Chain, Ethereum, Arbitrum, Solana; no Base, no Polygon
+  assert.deepEqual(netsFor("USDG", null, RH).map((n) => n.name), ["Robinhood Chain", "Ethereum", "Arbitrum", "Solana"]);
   assert.deepEqual(coinsFor(CFG, RH), ["USDC", "ETH", "USDG"]);
   const direct = routeFor("USDG", netsFor("USDG", CFG, RH)[0], CFG, RH);
   assert.equal(direct?.direct, true);
@@ -66,7 +68,10 @@ test("copy: plain words, the fee always shows, no chain names outside Send crypt
   assert.ok(FUND_CARD_FEE_EST > 0 && FUND_CARD_FEE_EST < 0.1);
   assert.equal(LEAVE_COPY.fee("$0.25"), "About $0.25 move fee");
   assert.equal(LEAVE_COPY.keep, "Keep fuel in Turbo");
-  const plain = [FUND_COPY.button, FUND_COPY.sub, FUND_COPY.sendTitle, FUND_COPY.sendSub, LOAD_COPY.lead, LOAD_COPY.sub, LEAVE_COPY.body("$13.20"), LEAVE_COPY.dontAsk].join(" ");
+  // Send USDG names its coin and network on purpose (maker 2026-11-20: USDG on Robinhood Chain is the only deposit)
+  assert.equal(FUND_COPY.sendTitle, "Send USDG instead");
+  assert.match(FUND_COPY.sendSub, /Robinhood Chain/);
+  const plain = [FUND_COPY.button, FUND_COPY.sub, LOAD_COPY.lead, LOAD_COPY.sub, LEAVE_COPY.body("$13.20"), LEAVE_COPY.dontAsk].join(" ");
   assert.doesNotMatch(plain, /USDG|USDC|Arbitrum|Robinhood|chain|bridge|token/i);
   assert.match(DEPOSIT_COPY.fee("USDC", "Base"), /Send only USDC on Base/);
 });

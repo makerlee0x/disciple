@@ -133,3 +133,15 @@ test("backup buzzer: the sweep closes armed matches past their end, keeps one st
   assert.equal(r2.closed, 2);
   for (const m of await s.zrange(k)) await s.zrem(k, m);
 });
+
+test("Turbo landing countdown: Relay's time estimate + Lighter's credit time", async () => {
+  const { parseRelayDeposit } = await import("../lib/server/lighter/bridge");
+  const { landsAt, LIGHTER_CREDIT_SEC, RELAY_DEFAULT_SEC } = await import("../lib/lighter/deposit");
+  const q = (eta?: number) => ({ steps: [{ id: "deposit", depositAddress: "0x" + "a".repeat(40) }], details: { currencyOut: { amount: "5990000" }, ...(eta != null ? { timeEstimate: eta } : {}) } });
+  assert.equal(parseRelayDeposit(q(12)).etaSec, 12);
+  assert.equal(parseRelayDeposit(q()).etaSec, undefined);
+  assert.equal(parseRelayDeposit(q(-1)).etaSec, undefined);
+  assert.equal(landsAt(0, 12), (12 + LIGHTER_CREDIT_SEC) * 1000);
+  assert.equal(landsAt(0, null), (RELAY_DEFAULT_SEC + LIGHTER_CREDIT_SEC) * 1000);
+  assert.equal(landsAt(0, 30, false), LIGHTER_CREDIT_SEC * 1000);
+});
