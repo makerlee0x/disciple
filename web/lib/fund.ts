@@ -3,13 +3,12 @@
  * Privy's funding flow runs inside the lazy Privy chunk (components/PrivyMount FundBridge), so the rest of the app asks
  * for it with a window event, the same way it talks to Privy for sign-in.
  *
- * Card providers (Coinbase, MoonPay, Stripe…) don't sell USDG on Robinhood Chain, which is why Privy's window used to
- * show only "Transfer from wallet / Receive funds". So the card buys USDC on Base (else Arbitrum, Polygon, Ethereum:
- * cardSource) and pays it into a fresh Privy deposit address (Relay underneath, the same one "Send crypto" uses) that
- * swaps it into USDG on our chain, straight into the player's cash address. The player signs nothing.
+ * Card providers (Stripe, MoonPay…) don't sell USDG on Robinhood Chain, which is why Privy's window used to show only
+ * "Transfer from wallet / Receive funds". So the card buys USDC on Base and pays it into a Relay deposit address our
+ * server makes (POST /api/cash/card, lib/server/cardDeposit) that swaps it into USDG on our chain, straight into the
+ * player's cash address. The player signs nothing and nobody pays gas. Cash's balance poll shows it when it lands.
  *
- * Privy dashboard needs: Funding → card on-ramp on (with Apple Pay), and Crypto deposits on. When either is off the
- * call fails and Cash shows FUND_COPY.unavailable.
+ * Privy dashboard needs only Card onramps on (Stripe / MoonPay). Not Crypto deposits.
  */
 export const FUND_EVENT = "disciple:fund";
 /** CustomEvent<FundResult>: the flow closed (PrivyMount → Cash). */
@@ -41,7 +40,6 @@ export const FUND_COPY = {
   sendSub: "Any coin works",
   opening: "Opening checkout…",
   done: "Payment sent. Your cash shows up in a few minutes.",
-  landed: "It landed. Your cash is updated.",
   unavailable: "Card checkout isn't available right now. You can still send crypto.",
   signIn: "Sign in to add cash.",
 } as const;
@@ -71,18 +69,13 @@ export function fundErrorResult(e: unknown): FundResult {
   return { ok: false, message: FUND_COPY.unavailable };
 }
 
-/** Where the card buys: USDC on the first of these the deposit config can turn into USDG. Base first: every card
- *  provider sells USDC there, Apple Pay included, and fees are lowest. */
-export const CARD_SOURCE_CHAINS = ["eip155:8453", "eip155:42161", "eip155:137", "eip155:1"] as const;
-type CfgLike = { currencies: Array<{ symbol: string; chains: Array<{ caip2: string; address: string; can_be_relay_deposit_source?: boolean }> }> };
-/** The USDC the card buys and the chain it lands on, or null when the config has none of CARD_SOURCE_CHAINS. Pure, tested. */
-export function cardSource(cfg: CfgLike | null | undefined): { chain: string; usdc: string } | null {
-  const usdc = cfg?.currencies.find((c) => c.symbol.toUpperCase() === "USDC");
-  for (const chain of CARD_SOURCE_CHAINS) {
-    const c = usdc?.chains.find((x) => x.caip2 === chain && x.can_be_relay_deposit_source !== false);
-    if (c?.address) return { chain, usdc: c.address };
-  }
-  return null;
+/** POST /api/cash/card's answer → where the card pays, or null. Pure, tested. */
+export type CardTarget = { address: string; chain: `${string}:${string}`; asset: string };
+export function parseCardTarget(j: unknown): CardTarget | null {
+  const o = (j ?? {}) as { ok?: boolean; address?: unknown; chain?: unknown; asset?: unknown };
+  if (!o.ok || typeof o.address !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(o.address)) return null;
+  if (typeof o.chain !== "string" || !/^eip155:\d+$/.test(o.chain) || typeof o.asset !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(o.asset)) return null;
+  return { address: o.address, chain: o.chain as `${string}:${string}`, asset: o.asset };
 }
 
 /** Apple devices open on Apple Pay, the rest on card. Only a hint: Privy falls back when no quote matches. */

@@ -91,7 +91,7 @@ export function Amount({ v, big }: { v: number; big?: boolean }) {
 }
 
 /** Add cash board 2 (maker 2026-11-14): How much (big number + $10/$25/$50/$100) → You pay / You get about → one gold
- *  "Pay with card or Apple Pay" (Privy fiat on-ramp → USDC on Base → deposit address → USDG) → "or" → "Send crypto instead". With no cash yet, a Free play
+ *  "Pay with card or Apple Pay" (Privy card on-ramp → USDC on Base → Relay deposit address → USDG) → "or" → "Send crypto instead". With no cash yet, a Free play
  *  link so a new player can fly while the payment lands. */
 function CardFund({ addr, empty, onPaid, onClose, onSend }: { addr: string; empty: boolean; onPaid: () => void; onClose: () => void; onSend: () => void }) {
   const [usd, setUsd] = useState<number>(FUND_DEFAULT_USD);
@@ -106,12 +106,6 @@ function CardFund({ addr, empty, onPaid, onClose, onSend }: { addr: string; empt
     setNote(r.ok ? { ok: true, text: FUND_COPY.done } : { ok: false, text: r.message || FUND_COPY.unavailable });
     if (r.ok) onPaid();
   };
-  // the paid USDC turned into cash (FundBridge watches the deposit): swap "Payment sent" for "It landed"
-  useEffect(() => {
-    const on = () => setNote((n) => (n?.ok ? { ok: true, text: FUND_COPY.landed } : n));
-    window.addEventListener(CASH_ARRIVED_EVENT, on);
-    return () => window.removeEventListener(CASH_ARRIVED_EVENT, on);
-  }, []);
   return (
     <div className="cx-card" data-testid="cash-card-fund">
       <span className="r2-lbl">{FUND_COPY.howMuch}</span>
