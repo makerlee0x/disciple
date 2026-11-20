@@ -36,6 +36,7 @@ contract HookClaimsForkTest is Test {
         vm.skip(!vm.envOr("HOOK_CLAIMS_FORK", false));
         vm.createSelectFork(MAINNET_RPC);
         vm.etch(community, hex"00"); // a Safe is a contract; Deploy refuses an EOA community Safe on 4663
+        vm.etch(treasury, hex"00"); // same for the treasury Safe (audit delta-2: TREASURY must be a contract on 4663)
         vm.setEnv("DISCIPLE_NETWORK", "mainnet");
         vm.setEnv("DISCIPLE_CHAIN_ID", "4663");
         vm.setEnv("POOL_MANAGER", vm.toString(PM));
