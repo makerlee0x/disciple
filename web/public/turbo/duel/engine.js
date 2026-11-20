@@ -152,7 +152,9 @@ function mount(root,host){
   const RM=matchMedia('(prefers-reduced-motion: reduce)').matches; let reduce=RM;
   const rnd=(a,b)=>a+Math.random()*(b-a);
   const gauss=()=>{let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);};
-  const usd=(v,s)=>{ const a=Math.abs(v), sub=CLR&&a<.01;   // Climb's $1 levels move in fractions of a cent: show them ($0.004)
+  // Climb's small stakes move in fractions of a cent: under $1 they show to a tenth of a cent, fees in (maker
+  // 2026-11-20: "include fee in the .035", not a rounded −$0.04)
+  const usd=(v,s)=>{ const a=Math.abs(v), sub=CLR&&a<1;
     if(!isFinite(v)||a<(sub?.0005:.005)) return "$0.00";   // and never "\u2212$0.00"
     return (s&&v>0?"+":"")+(v<0?"\u2212":"")+"$"+a.toFixed(sub?3:2); };
   const px=p=>p.toLocaleString("en-US",{minimumFractionDigits:1,maximumFractionDigits:1});
@@ -223,7 +225,8 @@ function mount(root,host){
     G.price=p; G.ticks.push({t,p}); if(G.ticks.length>4000) G.ticks.splice(0,1000);
   }
   const pnlOf=(pos,p)=>pos?pos.size*(p-pos.entry)/pos.entry*pos.side:0;
-  const valueOf=pl=>pl.pos?Math.max(0,pl.pos.coll+pnlOf(pl.pos,G.price)):0;
+  // what an open position is worth if closed now, after the closing fee, so the live PnL already counts every fee
+  const valueOf=pl=>pl.pos?Math.max(0,pl.pos.coll+pnlOf(pl.pos,G.price)-pl.pos.size*FEE):0;
   const profitOf=pl=>pl.fuel+valueOf(pl)-FUEL0;
 
   /* ---------- trading ---------- */
