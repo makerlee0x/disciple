@@ -109,7 +109,7 @@ export class FlowTiming {
 const flow = new FlowTiming({ now: clock,
   frame: cb => { if (typeof requestAnimationFrame === "function") requestAnimationFrame(cb); },
   later: (cb, ms) => { setTimeout(cb, ms); },
-  log: row => { if (typeof console !== "undefined") console.error("[disciple] flow timing " + JSON.stringify(row)); },
+  log: row => { if (typeof console !== "undefined") console.error("[disciple] flow timing " + JSON.stringify(row)); showTimingBox(row); },
   beacon: sendFlowBeacon,
 });
 let click: number | undefined, pointer: number | undefined;
@@ -134,4 +134,33 @@ export const flowDoneRendered = (id: string) => flow.doneRendered(id);
 export function sendFlowBeacon(row: Record<string, unknown>) { guarded(() => {
   if (typeof navigator !== "undefined" && clientSelfBundlerMode() && typeof navigator.sendBeacon === "function")
     navigator.sendBeacon("/api/aa/flow-timing", new Blob([JSON.stringify(row)], { type: "text/plain;charset=UTF-8" }));
+}); }
+
+/** Debug only (Team, trade speed 2026-11-20): open any page once with ?timing=1 and each trade's split (tap → request sent
+ *  → relay first byte → confirmed → filled, plus the relay's own server stages) shows in a small box bottom right.
+ *  ?timing=0 turns it off. Never shown to players otherwise. */
+const TIMING_LS = "disciple.tradeTiming";
+function timingBoxOn(): boolean {
+  try {
+    const q = new URLSearchParams(location.search).get("timing");
+    if (q === "1") localStorage.setItem(TIMING_LS, "1"); else if (q === "0") localStorage.removeItem(TIMING_LS);
+    return localStorage.getItem(TIMING_LS) === "1";
+  } catch { return false; }
+}
+if (typeof window !== "undefined") guarded(() => { timingBoxOn(); });   // remember ?timing=1 before the engine rewrites the URL
+function showTimingBox(row: Record<string, unknown>) { guarded(() => {
+  if (typeof document === "undefined" || !timingBoxOn()) return;
+  let el = document.getElementById("disciple-trade-timing");
+  if (!el) {
+    el = document.createElement("pre"); el.id = "disciple-trade-timing";
+    el.style.cssText = "position:fixed;right:8px;bottom:8px;z-index:2147483647;max-width:460px;max-height:50vh;overflow:auto;margin:0;padding:8px 10px;background:rgba(0,0,0,.88);color:#9f9;font:11px/1.35 ui-monospace,monospace;border-radius:8px;white-space:pre-wrap";
+    document.body.appendChild(el);
+  }
+  const n = (v: unknown) => (typeof v === "number" ? `${Math.round(v)}` : "-");
+  const srv = (row.server ?? {}) as Record<string, number>;
+  const top = Object.entries(srv).filter(([, v]) => typeof v === "number" && v >= 20).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => `${k} ${Math.round(v)}`).join(" · ");
+  const line = `${new Date().toLocaleTimeString()} ${String(row.side)} ${row.ok ? "ok" : String(row.reason ?? "fail")}\n` +
+    `send ${n(row.tapToRequestStart)} · 1st byte ${n(row.tapToFirstByte)} · pending ${n(row.tapToPendingFrame)} · confirmed ${n(row.tapToConfirmedFrame)} · receipt ${n(row.tapToReceipt)} · filled ${n(row.tapToFill)} ms\n` +
+    `server: ${top || "-"}`;
+  el.textContent = `${line}\n\n${el.textContent ?? ""}`.slice(0, 4000);
 }); }

@@ -69,11 +69,31 @@ function load(url: string): Promise<AudioBuffer | null> {
   return p;
 }
 
+/**
+ * Background audio (beds, preloads) waits until the page is up: the first tap/key, the flight's first price ("disciple:mark")
+ * plus an idle moment, or 5 s. Before a tap the AudioContext is suspended anyway, and the 1.1 MB wind bed was competing with
+ * the engine and sky plates on first load. One-shots a player triggers still load right away.
+ */
+let quiet: Promise<void> | null = null;
+function whenQuiet(): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  if (!quiet) quiet = new Promise<void>((ok) => {
+    let done = false;
+    const go = () => { if (done) return; done = true; removeEventListener("pointerdown", go, true); removeEventListener("keydown", go, true); removeEventListener("disciple:mark", idle); ok(); };
+    const idle = () => { const ric = (window as unknown as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => void }).requestIdleCallback; if (ric) ric(go, { timeout: 1500 }); else setTimeout(go, 300); };
+    addEventListener("pointerdown", go, true); addEventListener("keydown", go, true); addEventListener("disciple:mark", idle);
+    if (document.readyState === "complete" && !location.pathname.includes("/coin/") && !location.pathname.includes("/rocket/")) idle();
+    setTimeout(go, 5000);
+  });
+  return quiet;
+}
+const loadLater = (url: string) => whenQuiet().then(() => load(url));
+
 const fileOf = (key: string) => { const n = TAKES[key]; return n ? `${key}_${String(1 + Math.floor(Math.random() * n)).padStart(2, "0")}` : key; };
 
 /** Fetch and decode a few sounds ahead of time (e.g. the UI family on first tap). */
 export function preloadSfx(keys: string[]) {
-  for (const k of keys) { const n = TAKES[k] || 0; if (n) for (let i = 1; i <= n; i++) void load(`${SFX}${k}_0${i}.m4a`); else void load(`${SFX}${k}.m4a`); }
+  for (const k of keys) { const n = TAKES[k] || 0; if (n) for (let i = 1; i <= n; i++) void loadLater(`${SFX}${k}_0${i}.m4a`); else void loadLater(`${SFX}${k}.m4a`); }
 }
 
 /** One-shot. The same key twice within `gapMs` (default 60 ms) plays once, so several listeners can't stack it. */
@@ -145,7 +165,7 @@ export function setBed(name: string | null) {
   if (!name || !ac || !bus || !(name in BEDS)) return;
   const me: { name: string; src: AudioBufferSourceNode | null; g: GainNode | null } = { name, src: null, g: null };
   bed = me;
-  void load(`${AMB}${name}.m4a`).then((b) => {
+  void loadLater(`${AMB}${name}.m4a`).then((b) => {
     if (!b || bed !== me || !bus) return;
     try {
       const s = ac.createBufferSource(), g = ac.createGain();
