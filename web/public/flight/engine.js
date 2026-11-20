@@ -2328,7 +2328,8 @@ function drawHud(){
      dim $TICKER; both clipped clear of the badge. Name = window.__coinName (CoinIdentity: ?nm= or the token's name()). */
   { const bw=diffBadge()?(ctx.font=GF(14,700),ctx.measureText(diffBadge().txt).width+30):0, caOn=caShown(), maxX=384-bw-10-(caOn?CA_W+6:0), tk=coinTicker(), nm=coinName();
     const fit=(t,w)=>{ if(ctx.measureText(t).width<=w) return t; while(t.length>1&&ctx.measureText(t+'…').width>w) t=t.slice(0,-1); return t+'…'; };
-    let x=36; if(nm){ ctx.fillStyle='#F2F3F7'; ctx.font=GF(20,700); if('letterSpacing' in ctx) ctx.letterSpacing='0.5px'; const t=fit(nm,maxX-x); ctx.fillText(t,x,42); x+=ctx.measureText(t).width+10; if('letterSpacing' in ctx) ctx.letterSpacing='0px'; }
+    let x=36; if(iconShown()){ if(CARD_RECTS.header) CARD_RECTS.header.icon={x,y:Math.round(42-IC_W/2-6+HY),s:IC_W}; x+=IC_W+10; }   /* maker 2026-11-20: the coin's image before its name (DOM, CoinIdentity draws it in this spot) */
+    if(nm){ ctx.fillStyle='#F2F3F7'; ctx.font=GF(20,700); if('letterSpacing' in ctx) ctx.letterSpacing='0.5px'; const t=fit(nm,maxX-x); ctx.fillText(t,x,42); x+=ctx.measureText(t).width+10; if('letterSpacing' in ctx) ctx.letterSpacing='0px'; }
     const pr=coinPair(), sub=tk?(pr?tk+'/'+pr:'$'+tk):'';   /* maker 2026-11-18: show the base pair (TICKER/QUOTE, like the coin header row) */
     if(sub&&(pr||tk!==String(nm||'').toUpperCase())&&x+40<maxX){ ctx.fillStyle='rgba(215,217,228,.72)'; ctx.font=GF(15,600); if('letterSpacing' in ctx) ctx.letterSpacing='1.5px'; const t=fit(sub,maxX-x); ctx.fillText(t,x,42); x+=ctx.measureText(t).width+8; if('letterSpacing' in ctx) ctx.letterSpacing='0px'; }
     else if(!nm&&tk){ ctx.fillStyle='#F2F3F7'; ctx.font=GF(20,700); ctx.fillText('$'+tk,36,42); x=36+ctx.measureText('$'+tk).width+10; }
@@ -3592,6 +3593,8 @@ addEventListener('disciple:grass',e=>{ const d=e.detail||{}; S.grass=!!d.on; S.c
 /* readout: "$TICKER · $8.8K MCAP" (ticker from the source, ?ticker or the coin page's ?cs call sign; "$8.8K MCAP" without one) */
 /* $TICKER for the HUD: the coin's own symbol (disciple:coinrules, read onchain by TradeBridge) else grassTicker() */
 function coinTicker(){ const r=S.coinRules, t=r&&typeof r.ticker==='string'?r.ticker.replace(/^\$/,'').trim().toUpperCase():''; return /^[A-Z0-9]{1,10}$/.test(t)?t:grassTicker(); }
+const IC_W=28;   /* coin image size (px) on the header card, drawn by CoinIdentity at CARD_RECTS.header.icon */
+function iconShown(){ return typeof window!=='undefined'&&window.__coinIconOn===true; }
 const CA_W=22;   /* copy-CA chip size (px), see drawHud header */
 function caShown(){ return typeof window!=='undefined'&&typeof window.__coinCa==='string'&&/^0x[0-9a-fA-F]{40}$/.test(window.__coinCa); }   /* set by CopyCaChip (coin pages only) */
 function coinName(){ const n=typeof window!=='undefined'&&typeof window.__coinName==='string'?window.__coinName.trim():''; return n.slice(0,40); }

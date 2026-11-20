@@ -9,7 +9,7 @@ import { launchpadAbi } from "@/lib/abi";
 import { isLegacyCurve } from "@/lib/legacyGate";
 import PairArt from "./PairArt";
 import { basePair } from "@/lib/pairArt";
-import { useCanvasCards } from "@/lib/game/cardLayoutStore";
+import { isPhoneUI, useCanvasCards } from "@/lib/game/cardLayoutStore";
 import { pickCoinIcon, resolveCoinStoredImage, type StoredImage } from "@/lib/coinPageImage";
 
 const AI_ICON = "https://cdn.dexscreener.com/cms/images/U6RIzs8Fm7Jar6GE?width=256&height=256&quality=95&format=png";
@@ -89,8 +89,13 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
   const sub = ticker && quote ? `${ticker}/${quote}` : ticker;
   // the engine's header card draws the name + TICKER/PAIR (window.__coinName / __coinPair, worker-mirrored); the desktop row stays hidden
   useEffect(() => { const w = window as unknown as { __coinName?: string; __coinPair?: string }; w.__coinName = name || ""; w.__coinPair = quote; return () => { w.__coinName = ""; w.__coinPair = ""; }; }, [name, quote]);
+  // desktop: the coin's image before its name on the engine's header card (maker 2026-11-20); the engine leaves the room
+  // (window.__coinIconOn) and publishes the spot (CARD_RECTS.header.icon), this draws it there
+  useEffect(() => { const w = window as unknown as { __coinIconOn?: boolean }; w.__coinIconOn = !!icon; return () => { w.__coinIconOn = false; }; }, [icon]);
   if (!icon && !tk) return null;
   return (
+    <>
+    {icon && <CardIcon src={icon} tk={tk} />}
     <div ref={ref} className="coin-id" data-testid="coin-name" style={hc ? { transform: hc.dx || hc.dy ? `translate(${hc.dx}px, ${hc.dy}px)` : undefined, display: hc.min || hc.closed ? "none" : undefined } : undefined} title={sub ? `${name} · ${sub}` : name} aria-label={pairSym ? `${name} paired with ${pairSym}` : name}>
       <PairArt src={icon} pair={ethPair ? null : pair} tk={tk} size="list" px={38} eager />
       <div className="coin-id-txt">
@@ -98,6 +103,23 @@ export default function CoinIdentity({ address, sp }: { address: string; sp: URL
         {sub && <span data-testid="coin-id-sub">{sub}</span>}
         {legacy && <span className="coin-id-legacy" data-testid="coin-legacy" title="Launched under an older login gate. Easy buys are off.">Legacy</span>}
       </div>
+    </div>
+    </>
+  );
+}
+
+function CardIcon({ src, tk }: { src: string; tk: string }) {
+  const hc = useCanvasCards().cards.header as ({ x: number; y: number; dx: number; dy: number; min?: boolean; closed?: boolean; icon?: { x: number; y: number; s: number } } | undefined);
+  const [wrap, setWrap] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    const f = () => { const r = document.getElementById("wrap")?.getBoundingClientRect(); setWrap(r && !isPhoneUI() ? { x: r.left, y: r.top } : null); };
+    f(); addEventListener("resize", f);
+    return () => removeEventListener("resize", f);
+  }, [hc?.x, hc?.y]);
+  if (!hc?.icon || !wrap || hc.min || hc.closed) return null;
+  return (
+    <div data-testid="coin-card-icon" aria-hidden style={{ position: "fixed", zIndex: 61, pointerEvents: "none", left: wrap.x + hc.icon.x + (hc.dx || 0), top: wrap.y + hc.icon.y + (hc.dy || 0), width: hc.icon.s, height: hc.icon.s, borderRadius: "50%", overflow: "hidden" }}>
+      <PairArt src={src} pair={null} tk={tk} size="icon" px={hc.icon.s} eager />
     </div>
   );
 }
