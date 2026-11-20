@@ -45,6 +45,25 @@ export const TURBO_BACK_MS = 60 * 60_000;
 /** An admin-settled sale with no tx: the payment confirms just before soldAt. */
 const SALE_WINDOW_MS = 15 * 60_000;
 
+/** One USDG Transfer the permit forwarder made onward inside a tx (to the real destination, or the fee to the relayer). */
+export interface OnwardLeg { to: string; usd: number; logIndex: number }
+/**
+ * Gasless cash-outs go wallet → DisciplePermitForwarder → destination (+ the network fee to the relayer), so the wallet's
+ * own leg only names the forwarder (maker 2026-11-20: a $6 Turbo add showed as "Withdraw 0x346e…"). Swap each wallet →
+ * forwarder leg for the forwarder's onward legs in that tx, so the row sees the real destination. Pure, tested.
+ */
+export function throughForwarder(walletIn: string, legs: readonly UsdgLeg[], forwarder: string | undefined, onward: ReadonlyMap<string, readonly OnwardLeg[]>): UsdgLeg[] {
+  if (!forwarder) return [...legs];
+  const w = lc(walletIn), f = lc(forwarder);
+  const out: UsdgLeg[] = [];
+  for (const l of legs) {
+    const next = lc(l.from) === w && lc(l.to) === f ? onward.get(lc(l.tx)) : undefined;
+    if (!next?.length) { out.push(l); continue; }
+    for (const n of next) out.push({ ...l, logIndex: n.logIndex, to: n.to, usd: n.usd });
+  }
+  return out;
+}
+
 export function cashRows(walletIn: string, legs: readonly UsdgLeg[], tags: CashTags): CashRow[] {
   const w = lc(walletIn);
   const byTx = new Map<string, UsdgLeg[]>();

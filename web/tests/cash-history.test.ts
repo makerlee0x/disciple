@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cashRows, RELAY_SOLVER, type CashTags, type UsdgLeg } from "@/lib/cashHistory";
+import { cashRows, throughForwarder, RELAY_SOLVER, type CashTags, type UsdgLeg } from "@/lib/cashHistory";
 
 const W = "0x" + "a1".repeat(20), S = "0x" + "b2".repeat(20), RELAYER = "0x" + "c3".repeat(20), ROUTER = "0x" + "d4".repeat(20);
 const TURBO = "0x" + "e5".repeat(20), EXT = "0x" + "f6".repeat(20), FEES = "0x" + "07".repeat(20), SOLVER = "0x" + "18".repeat(20);
@@ -47,5 +47,17 @@ describe("flight log cash rows", () => {
   it("a card top-up paid out by Relay's solver reads Card, not its address", () => {
     const rows = cashRows(W, [leg(9, RELAY_SOLVER, W, 16.48)], tags());
     expect(rows[0]).toMatchObject({ kind: "deposit", text: "Card" });
+  });
+
+  it("sees through the permit forwarder: a gasless Turbo add is TO TURBO with the fee built in (maker 2026-11-20)", () => {
+    const FWD = "0x" + "29".repeat(20);
+    const legs = [leg(9, W, FWD, 6)];
+    const onward = new Map([[tx(9), [{ to: TURBO, usd: 5.9912, logIndex: 1 }, { to: RELAYER, usd: 0.0088, logIndex: 2 }]]]);
+    const shown = throughForwarder(W, legs, FWD, onward);
+    const rows = cashRows(W, shown, tags({ turboIn: new Set([TURBO.toLowerCase()]) }));
+    expect(rows.map((r) => [r.kind, +r.usd.toFixed(2)])).toEqual([["turbo-in", 6]]);
+    // a plain cash-out through it names the real destination; no onward legs known keeps the forwarder leg
+    expect(cashRows(W, throughForwarder(W, legs, FWD, new Map([[tx(9), [{ to: EXT, usd: 5.99, logIndex: 1 }, { to: RELAYER, usd: 0.01, logIndex: 2 }]]])), tags())[0].text).toBe("0xf6f6…f6f6");
+    expect(throughForwarder(W, legs, FWD, new Map())).toEqual(legs);
   });
 });
