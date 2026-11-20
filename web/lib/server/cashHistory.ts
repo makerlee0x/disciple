@@ -8,10 +8,10 @@ import "server-only";
  *   cash:<chain>:tin:<w>      set of addresses              Turbo deposit addresses the server gave this wallet
  *   cash:<chain>:tout:<w>     zset score=at, { at, usd }    Turbo cash-backs this wallet started
  */
-import { parseAbiItem, type Address } from "viem";
+import { parseAbiItem, toEventSelector, type Address } from "viem";
 import { ACTIVE_CHAIN, deployment } from "@/lib/chains";
 import { itemById } from "@/lib/collection";
-import { cashRows, type CashRow, type MarketSide, type UsdgLeg } from "@/lib/cashHistory";
+import { cashRows, throughForwarder, type CashRow, type OnwardLeg, type MarketSide, type UsdgLeg } from "@/lib/cashHistory";
 import { sellerCents, type Listing } from "@/lib/market";
 import { usdgRawToUsd } from "@/lib/usdg";
 import { serverPc } from "./chat/identity";
@@ -19,6 +19,7 @@ import { kv, type Kv } from "./kv";
 import { MKT } from "./market";
 
 const TRANSFER = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
+const TRANSFER_TOPIC = toEventSelector(TRANSFER);
 const CHUNK0 = BigInt(2_000_000), CHUNK_MIN = BigInt(2_000);
 const MAX_LEGS = 400;
 const ns = () => `cash:${ACTIVE_CHAIN.id}`;
@@ -26,6 +27,7 @@ export const CASHK = {
   legs: (w: string) => `${ns()}:legs:${w}`,
   turboIn: (w: string) => `${ns()}:tin:${w}`,
   turboOut: (w: string) => `${ns()}:tout:${w}`,
+  fwd: (tx: string) => `${ns()}:fwd:${tx}`,
 };
 const lc = (a: string) => a.toLowerCase();
 const parse = <T,>(v: string | null): T | null => { if (!v) return null; try { return JSON.parse(v) as T; } catch { return null; } };
@@ -97,6 +99,30 @@ async function legsOf(w: string, budgetMs: number, s: Kv): Promise<{ legs: UsdgL
   return { legs, done: reached >= latest };
 }
 
+/** The forwarder's onward USDG legs in each of these txs (from the receipt; kept in KV, a mined tx never changes). */
+async function onwardLegs(txs: string[], forwarder: string, s: Kv): Promise<Map<string, OnwardLeg[]>> {
+  const out = new Map<string, OnwardLeg[]>();
+  if (!txs.length) return out;
+  const usdg = lc(deployment().usdg), dec = deployment().usdgDecimals, f = lc(forwarder);
+  const hits = await s.mget(txs.map(CASHK.fwd)).catch(() => txs.map(() => null));
+  await Promise.all(txs.map(async (tx, i) => {
+    const hit = parse<OnwardLeg[]>(hits[i] ?? null);
+    if (hit) { out.set(tx, hit); return; }
+    try {
+      const rc = await serverPc().getTransactionReceipt({ hash: tx as `0x${string}` });
+      const legs: OnwardLeg[] = [];
+      for (const l of rc.logs) {
+        if (lc(l.address) !== usdg || l.topics[0] !== TRANSFER_TOPIC || l.topics.length < 3) continue;
+        if (`0x${l.topics[1]!.slice(26)}` !== f) continue;
+        legs.push({ to: `0x${l.topics[2]!.slice(26)}`, usd: usdgRawToUsd(BigInt(l.data), dec), logIndex: Number(l.logIndex) });
+      }
+      out.set(tx, legs);
+      await s.set(CASHK.fwd(tx), JSON.stringify(legs)).catch(() => {});
+    } catch { /* keep the forwarder leg as it is */ }
+  }));
+  return out;
+}
+
 /** Sold listings this wallet sold or bought. */
 async function marketSides(w: string, s: Kv): Promise<MarketSide[]> {
   const [mine, bought, recent] = await Promise.all([
@@ -128,7 +154,10 @@ export async function cashHistory(walletIn: string, budgetMs = 8_000, s: Kv = kv
     s.smembers(CASHK.turboIn(w)).catch(() => [] as string[]),
     s.zrange(CASHK.turboOut(w), 200, true).catch(() => [] as string[]),
   ]);
-  const rows = cashRows(w, legs, {
+  const fwd = d.permitForwarder && d.permitForwarder !== ZERO ? lc(d.permitForwarder) : undefined;
+  const fwdTxs = fwd ? [...new Set(legs.filter((l) => lc(l.from) === w && lc(l.to) === fwd).map((l) => lc(l.tx)))].slice(-100) : [];
+  const shown = throughForwarder(w, legs, fwd, fwd ? await onwardLegs(fwdTxs, fwd, s) : new Map());
+  const rows = cashRows(w, shown, {
     protocol: protocolSet(),
     fees: addrSet(d.creatorFeeHarvest, d.curveFeeVault, d.feeRouter),
     rewards: addrSet(d.referralRegistry),

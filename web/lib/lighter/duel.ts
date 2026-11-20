@@ -10,7 +10,11 @@ import { withBase } from "@/lib/base-path";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import { turboBlockedCached, turboRegion } from "@/lib/turbo/region";
 import { cashNeed } from "@/lib/duel/rules";
-import { LighterTaps, lighterFlatten, lighterStatus, type TapKind } from "./client";
+import { LighterTaps, lighterFlatten, lighterSetUp, lighterStatus, type TapKind } from "./client";
+
+export const NO_TURBO_CASH = "Add Turbo cash to play with real money.";
+export const SETUP_FAILED = "Turbo set-up didn't finish. Try again.";
+export const NOT_REACHED = "Can't reach Turbo right now. Try again in a moment.";
 
 const FLAG = "disciple.lighter";
 /** reads / applies the ?lighter= switch */
@@ -71,8 +75,22 @@ export class LighterMatch {
     this.taps.wantSocket = true;
   }
   /** set-up finished on Lighter? (step "ready") */
+  /** Ready to trade. A funded account whose set-up stopped part way (maker 2026-11-20: $5.95 landed, then "Lighter isn't
+   *  set up for this wallet") finishes it here with the same silent signatures, instead of sending the player elsewhere. */
   static async ready(f: ReturnType<typeof lighterFetcher>) {
-    try { return (await lighterStatus(f)).step === "ready"; } catch { return false; }
+    try {
+      const { step } = await lighterStatus(f);
+      if (step === "ready") return true;
+      if (step === "deposit") return false;
+      const { aaSignMessage } = await import("@/lib/aa/session");
+      const sign = async (m: string) => { const x = await aaSignMessage(m); if (!x) throw new Error("Your wallet didn't sign."); return x.sig; };
+      return (await lighterSetUp(f, sign)) === "ready";
+    } catch { return false; }
+  }
+  /** the player line when ready() is false: no Turbo cash yet, or set-up still didn't finish */
+  static async notReadyWhy(f: ReturnType<typeof lighterFetcher>): Promise<string> {
+    const st = await lighterStatus(f).catch(() => null);
+    return !st ? NOT_REACHED : st.step === "deposit" ? NO_TURBO_CASH : SETUP_FAILED;
   }
   private sized(fuel: number) { return this.sizesFor(fuel).map((u) => Math.max(0, Math.floor(u * 100) / 100)); }
 

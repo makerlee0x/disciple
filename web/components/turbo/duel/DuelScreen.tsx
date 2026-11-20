@@ -140,7 +140,7 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
       if ((room.status === "lobby" || room.status === "live") && lxFor !== room.id) {
         lx?.stop(); lx = null; lxFor = room.id; lxBombs = null; api?.real?.(false);
         const f = lighterFetcher(me);
-        if (!(await LighterMatch.ready(f))) { if (lxStatus !== "no") { lxStatus = "no"; api?.error("Lighter isn't set up for this wallet. Finish set-up on /lighter."); } return; }
+        if (!(await LighterMatch.ready(f))) { if (lxStatus !== "no") { lxStatus = "no"; api?.error(await LighterMatch.notReadyWhy(f)); } return; }
         // a joined link skips the lobby check: still never trade real money the NUKE can't close before Lighter liquidates
         const cash = await lighterCash(f, book?.fuel ?? fuelOf(room), LEV);
         if (!cash.ok) { api?.error(cashNote(cash.need)); return; }

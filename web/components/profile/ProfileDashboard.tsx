@@ -56,8 +56,8 @@ const LOG_KIND: Record<ActivityItem["kind"] | CashKind, { label: string; icon: I
   sold: { label: "SOLD", icon: "check", tone: "up" },
   deposit: { label: "DEPOSIT", icon: "plus", tone: "up" },
   withdraw: { label: "WITHDRAW", icon: "minus", tone: "" },
-  "turbo-in": { label: "TURBO IN", icon: "bolt", tone: "" },
-  "turbo-out": { label: "TURBO OUT", icon: "bolt", tone: "up" },
+  "turbo-in": { label: "TO TURBO", icon: "bolt", tone: "" },
+  "turbo-out": { label: "FROM TURBO", icon: "bolt", tone: "up" },
   fees: { label: "FEES", icon: "fees", tone: "up" },
   rewards: { label: "REWARDS", icon: "gift", tone: "up" },
 };

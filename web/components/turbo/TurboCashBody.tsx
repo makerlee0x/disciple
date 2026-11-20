@@ -21,6 +21,7 @@ import type { TurboTab } from "@/lib/turbo/turboPill";
 import type { History, HistoryItem } from "@/lib/lighter/history";
 import { CashHead, ErrIcon, usd2 } from "@/components/cash/bits";
 import { Amount, FromTurbo, ToTurbo } from "@/components/cash/CashBody";
+import { TURBO_MIN_IN } from "@/lib/lighter/mins";
 
 export const TURBO_POP_COPY = {
   title: "Turbo",
@@ -200,7 +201,7 @@ export default function TurboCashBody({ onClose, initialTab = "add" }: { onClose
         {!addr || !owner ? null
           : tab === "history" ? <Advanced wallet={owner} />
           : tab === "out" && canOut ? <FromTurbo cashAddr={addr} onMoved={moved} />
-          : <ToTurbo balUsd={cash} feeUsd={feeUsd} min={turbo?.minIn ?? 6} onMoved={moved} />}
+          : <ToTurbo balUsd={cash} feeUsd={feeUsd} min={turbo?.minIn ?? TURBO_MIN_IN} onMoved={moved} />}
       </div>
     </>
   );
