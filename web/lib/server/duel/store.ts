@@ -8,7 +8,7 @@ import "server-only";
  * request and on the stream's 1 s tick, so a pilot who closes their tab still gets settled.
  * Not yet: Nova orders. Until Nova's SDK lands, duel fuel is a duel-only book (lib/duel/rules) at live prices.
  */
-import { buzzer } from "@/lib/server/lighter/match";
+import { armedFor, buzzer } from "@/lib/server/lighter/match";
 import { DUEL_RANKED_LIVE, applySp, leagueOf, seasonAt, spDelta, type Season } from "@/lib/duel/season";
 import type { SeasonLine } from "@/lib/duel/types";
 import { kv, type Kv } from "@/lib/server/kv";
@@ -46,7 +46,10 @@ const K = {
   /** season points per pilot, and the season ladder (sorted set, score = SP), lib/duel/season */
   sp: (season: string, pid: string) => `duel:sp:${season}:${pid}`,
   sboard: (season: string) => `duel:sboard:${season}`,
+  /** finished online duels per pilot (sorted set, score = settle time, member = HistRow JSON), newest HIST_MAX kept */
+  hist: (pid: string) => `duel:hist:${pid}`,
 };
+const HIST_MAX = 100;
 /** a live duel nobody ticked for longer than this is judged from the candle tape, not today's price */
 const GAP_MS = 3000;
 /** past the buzzer by this much with no tape: settle at the last price seen rather than hold the room forever */
@@ -429,6 +432,37 @@ async function settle(r: DuelRoom, price: number, s: Kv): Promise<NewDuelEvent> 
   for (const p of r.players) await s.delIfEq(K.active(p.pid), r.id);
   return { type: "end", result: r.result };
 }
+/** One finished duel from one seat, as the Turbo page lists it (lib/turbo/profile TurboMatch, minus the other pilot's picture). */
+export interface HistRow {
+  id: string; at: number; mode: DuelMode; tier: TierId; fuel?: number; lenMs: number;
+  result: "win" | "loss" | "draw"; me: number; them: number; delta: number; real: boolean; opp: { pid: string; name: string };
+}
+/** Write the settled duel into both pilots' history (once per room: the member is the same JSON on a retry, and zadd is NX). */
+async function noteHistory(r: DuelRoom, s: Kv) {
+  const res = r.result;
+  if (!res || r.players.length < 2) return;
+  const at = r.endAt ?? Date.now();
+  const lenMs = Math.max(0, (r.endAt ?? at) - (r.startAt ?? at)) || r.lenMs;
+  for (const p of r.players) {
+    const o = r.players.find((q) => q.pid !== p.pid)!;
+    const row: HistRow = {
+      id: r.id, at, mode: r.mode, tier: r.tier, ...(r.fuel ? { fuel: r.fuel } : {}), lenMs,
+      result: res.winner == null ? "draw" : res.winner === p.pid ? "win" : "loss",
+      me: res.profit[p.pid] ?? 0, them: res.profit[o.pid] ?? 0, delta: res.delta[p.pid] ?? 0,
+      real: await armedFor(p.pid, r.id, s).catch(() => false), opp: { pid: o.pid, name: o.name },
+    };
+    const k = K.hist(p.pid);
+    if ((await s.zrange(k, HIST_MAX, true)).some((m) => parse<HistRow>(m)?.id === r.id)) continue;
+    await s.zadd(k, [{ score: at, member: JSON.stringify(row) }]);
+    const n = await s.zcard(k);
+    if (n > HIST_MAX) await s.zrem(k, ...(await s.zrange(k, n - HIST_MAX)));
+  }
+}
+/** This pilot's finished online duels, newest first. */
+export async function duelHistory(pid: string, limit = 30, s: Kv = kv()): Promise<HistRow[]> {
+  const rows = await s.zrange(K.hist(pid.toLowerCase()), Math.max(1, Math.min(HIST_MAX, limit)), true);
+  return rows.map((m) => parse<HistRow>(m)).filter((x): x is HistRow => !!x);
+}
 /** Run NUKE + buzzer checks (any request, or the stream's tick, can call this; the lock makes it once). */
 export async function tick(id: string, price: number | null, s: Kv = kv()) {
   const pre = await getRoom(id, s);
@@ -442,7 +476,10 @@ export async function tick(id: string, price: number | null, s: Kv = kv()) {
     if (typeof p === "number") { evs.push(await settle(r, p, s)); ended = true; }
     return evs;
   }, s);
-  if (ended) await lighterBuzzer(out.room, s);
+  if (ended) {
+    await noteHistory(out.room, s).catch((e) => console.error("[duel] history", e));   // the Turbo page's recent duels (before the buzzer disarms)
+    await lighterBuzzer(out.room, s);
+  }
   return out;
 }
 /** the buzzer closes real Lighter positions for any seat that armed this duel (lib/server/lighter/match) */

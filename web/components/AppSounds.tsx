@@ -24,7 +24,7 @@ const BACK = /^(back|close|cancel|dismiss|not now|done|close settings|close menu
 
 function bedFor(path: string): string | null {
   if (path.startsWith("/turbo/duel") || path.startsWith("/turbo/royale")) return null;
-  if (path.startsWith("/coin/") || path.startsWith("/flight") || path.startsWith("/fly") || path === "/turbo") return "amb_wind_high";
+  if (path.startsWith("/coin/") || path.startsWith("/flight") || path.startsWith("/fly")) return "amb_wind_high";
   if (path.startsWith("/profile") && appFeel()) return "amb_hangar";   // the Hangar
   return null;
 }

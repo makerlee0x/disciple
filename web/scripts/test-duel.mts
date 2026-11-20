@@ -103,6 +103,12 @@ test("server: fills at the server price, buzzer settles once, ratings move, rema
   const res = done!.room.result!; assert.equal(res.winner, A.pid); assert.ok(res.profit[A.pid] > 0 && res.profit[B.pid] < 0);
   assert.equal(res.delta[A.pid], 0, "friendly duels don't move rating");
   assert.equal(await S.tick(room.id, PRICE), null, "settles once");
+  // the Turbo page's recent duels: one row per seat, from that seat's side
+  const ha = await S.duelHistory(A.pid), hb = await S.duelHistory(B.pid);
+  assert.equal(ha.length, 1); assert.equal(hb.length, 1);
+  assert.equal(ha[0].id, room.id); assert.equal(ha[0].result, "win"); assert.equal(hb[0].result, "loss");
+  assert.equal(ha[0].opp.pid, B.pid); assert.equal(ha[0].opp.name, B.name); assert.equal(ha[0].mode, "friend");
+  assert.equal(ha[0].me, res.profit[A.pid]); assert.equal(ha[0].them, res.profit[B.pid]); assert.equal(ha[0].real, false);
   await S.rematch(room.id, A.pid); const rm = await S.rematch(room.id, B.pid);
   assert.ok(rm.next && rm.next.id !== room.id && rm.next.players.length === 2 && rm.next.status === "lobby");
 });
