@@ -154,8 +154,11 @@ function mount(root,host){
   const gauss=()=>{let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);};
   // Climb's small stakes move in fractions of a cent: under $1 they show to a tenth of a cent, fees in (maker
   // 2026-11-20: "include fee in the .035", not a rounded −$0.04)
-  const usd=(v,s)=>{ const a=Math.abs(v), sub=CLR&&a<1;
-    if(!isFinite(v)||a<(sub?.0005:.005)) return "$0.00";   // and never "\u2212$0.00"
+  // Climb rounds down, never up (maker 2026-11-20: "round conservatively, so they would make more than they thought or
+  // lose less than they thought"): a gain shows a hair under, a loss a hair over (−$0.0353 reads −$0.036)
+  const usd=(v,s)=>{ if(!isFinite(v)) return "$0.00"; const sub=CLR&&Math.abs(v)<1, k=sub?1000:100;
+    if(CLR) v=Math.floor(v*k+1e-9)/k;
+    const a=Math.abs(v); if(a<(sub?.0005:.005)) return "$0.00";   // and never "\u2212$0.00"
     return (s&&v>0?"+":"")+(v<0?"\u2212":"")+"$"+a.toFixed(sub?3:2); };
   const px=p=>p.toLocaleString("en-US",{minimumFractionDigits:1,maximumFractionDigits:1});
   const mmss=ms=>{const s=Math.max(0,Math.ceil(ms/1000));return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");};
