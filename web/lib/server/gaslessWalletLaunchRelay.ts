@@ -33,9 +33,14 @@ const ENOUGH = BigInt(2) ** BigInt(255);
 
 /** A wallet launch sends more than an anon one (Permit2 pull, First BOOST swap + buy, refund swap). */
 export const WALLET_LAUNCH_TX_GAS_LIMIT = ANON_LAUNCH_TX_GAS_LIMIT + BigInt(1_500_000);
-/** Quote-time extra over the no-BOOST estimate: the Permit2 pull + the First BOOST swap, curve buy and refund. */
+/**
+ * Quote-time extra over the no-BOOST estimate: the Permit2 pull + the First BOOST swap, curve buy and refund.
+ * Sized for the clone launch (PR #553 dcd4de1: launch 837k gas, curve buy 138k): a buy (~140k) plus a pair-coin swap
+ * in and a refund swap out (~150k each). The relay re-estimates the signed launch and checks the signed fee against
+ * that, so a short quote is refused (retry), never charged.
+ */
 const PERMIT2_PULL_GAS = BigInt(120_000);
-const FIRST_BOOST_GAS = BigInt(900_000);
+const FIRST_BOOST_GAS = BigInt(500_000);
 const PAD_PER_MILLE = BigInt(1_100);
 const PERMIT_TX_GAS = BigInt(120_000);
 
