@@ -10,12 +10,12 @@
  * Robinhood Chain testnet (46630) is a custom viem defineChain (lib/chains.ts) passed as default/supported chain.
  */
 import { useEffect, useMemo, useRef } from "react";
-import { PrivyProvider, getIdentityToken, toViemAccount, useCreateWallet, useExportWallet, useFundWallet, useLinkAccount, useMfaEnrollment, usePrivy, useWallets } from "@privy-io/react-auth";
+import { PrivyProvider, getIdentityToken, toViemAccount, useCreateWallet, useExportWallet, useFiatOnramp, useLinkAccount, useMfaEnrollment, usePrivy, useWallets } from "@privy-io/react-auth";
 import { deployment, isDeployed } from "@/lib/chains";
 import { useDepositAddress } from "@privy-io/react-auth/hooks";
 import { DEPOSIT_ACK_EVENT, DEPOSIT_CALL_EVENT, DEPOSIT_REPLY_EVENT, type DepositAddress, type DepositCall, type DepositOutcome, type DepositReply } from "@/lib/deposit";
-import { FUND_ACK_EVENT, FUND_COPY, FUND_DEFAULT_USD, FUND_DONE_EVENT, FUND_EVENT, fundErrorLine, type FundRequest, type FundResult } from "@/lib/fund";
-const FUND_CLOSED = FUND_COPY.closed;
+import { FUND_ACK_EVENT, FUND_COPY, FUND_DEFAULT_USD, FUND_DONE_EVENT, FUND_EVENT, cardSource, fundErrorResult, payHint, type FundRequest, type FundResult } from "@/lib/fund";
+import { CASH_ARRIVED_EVENT } from "@/lib/testCash";
 import { currentInApp } from "@/lib/inAppBrowser";
 import { isNativeApp, nativePlugin } from "@/lib/native";
 import { needsEmbeddedWallet, ownerWalletAddress, type LinkedLike } from "@/lib/privyOwner";
@@ -155,26 +155,44 @@ function PrivyBridge() {
   return null;
 }
 
-/** Card / Apple Pay on-ramp (lib/fund): opens Privy's funding flow for the player's cash address, buying USDG on the
- *  active chain. Answers every request with FUND_DONE_EVENT so Cash can show what happened. */
+/** Card / Apple Pay on-ramp (lib/fund): card providers don't sell USDG on Robinhood Chain, so the card buys USDC on
+ *  Base (cardSource) into a fresh Privy deposit address that swaps it into USDG in the player's cash address. Answers
+ *  every request with FUND_DONE_EVENT so Cash can show what happened, then watches the deposit and fires
+ *  CASH_ARRIVED_EVENT when the cash lands. */
 function FundBridge() {
   const done = (r: FundResult) => dispatchEvent(new CustomEvent<FundResult>(FUND_DONE_EVENT, { detail: r }));
-  // closing the window says nothing about a payment that's still settling, so Cash shows the neutral "closed" line
-  const { fundWallet } = useFundWallet({ onUserExited: () => done({ ok: false, message: FUND_CLOSED }) });
-  const fundRef = useRef(fundWallet); fundRef.current = fundWallet;
+  const { fund } = useFiatOnramp();
+  const dep = useDepositAddress();
+  const ref = useRef({ fund, dep }); ref.current = { fund, dep };
   useEffect(() => {
     const on = (e: Event) => {
       const req = (e as CustomEvent<FundRequest>).detail;
       dispatchEvent(new Event(FUND_ACK_EVENT));
-      if (!req?.address) return done({ ok: false });
+      const usdg = isDeployed() ? (deployment().usdg as string | undefined) : undefined;
+      if (!req?.address || !usdg) return done({ ok: false, message: FUND_COPY.unavailable });
       const usd = String(req.usd && req.usd > 0 ? req.usd : FUND_DEFAULT_USD);
-      const usdg = isDeployed() ? (deployment().usdg as `0x${string}` | undefined) : undefined;
-      fundRef.current({
-        address: req.address,
-        options: usdg
-          ? { chain: ACTIVE_CHAIN, amount: usd, asset: { erc20: usdg }, defaultFundingMethod: "card", uiConfig: { receiveFundsTitle: "Add cash" } }
-          : { chain: ACTIVE_CHAIN, amount: usd, defaultFundingMethod: "card" },
-      }).then(() => done({ ok: true })).catch((err) => done({ ok: false, message: fundErrorLine(err) }));
+      const { fund: buy, dep: d } = ref.current;
+      const run = async (): Promise<FundResult> => {
+        const src = cardSource(await d.getConfig());
+        if (!src) return { ok: false, message: FUND_COPY.unavailable };
+        const q = await d.generateDepositAddress({ sourceChain: src.chain, sourceCurrency: src.usdc,
+          destinationChain: `eip155:${ACTIVE_CHAIN.id}`, destinationCurrency: usdg, destinationAddress: req.address });
+        try {
+          await buy({
+            source: { assets: ["usd"], defaultAsset: "usd" },
+            destination: { asset: src.usdc, chain: src.chain as `${string}:${string}`, address: q.deposit_address },
+            defaultAmount: usd,
+            preferredPaymentMethod: payHint(navigator.userAgent),
+          });
+        } catch (err) { return fundErrorResult(err); }
+        // paid: the USDC reaches the deposit address in a few minutes, then turns into cash on its own
+        void d.waitForDeposit({ depositAddressId: q.id, quoteCreatedAt: q.created_at })
+          .then((got) => got.status !== "success" ? null : got.order.status === "completed" ? got : d.waitForCompletion({ orderId: got.order.id }))
+          .then((fin) => { if (fin?.status === "success" && fin.order.status === "completed") dispatchEvent(new Event(CASH_ARRIVED_EVENT)); })
+          .catch(() => undefined);
+        return { ok: true };
+      };
+      run().then(done).catch((err) => done(fundErrorResult(err)));
     };
     addEventListener(FUND_EVENT, on);
     return () => removeEventListener(FUND_EVENT, on);
