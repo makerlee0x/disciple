@@ -9,7 +9,8 @@ import InviteBanner from "./invites/InviteBanner";
 import SiteFooter from "./footer/SiteFooter";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { isCoinPath } from "@/lib/coinPath";
 import { NATIVE_UA_TAG } from "@/lib/native";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 
@@ -57,6 +58,14 @@ const InstallPrompt = dynamic(() => import("./mobile/InstallPrompt"), { ssr: fal
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isGame = isCollapsibleRoute(pathname);
+  // desktop flight screen: the wallet pill (pfp + balance) sits in the flight top bar, next to the menu (maker 2026-11-20)
+  const flightRoute = isGame && (isCoinPath(pathname) || (pathname ?? "").startsWith("/flight"));
+  const [deskFlight, setDeskFlight] = useState(false);
+  useEffect(() => {
+    if (!flightRoute) { setDeskFlight(false); return; }
+    const f = () => setDeskFlight(window.innerWidth > 760); f();
+    addEventListener("resize", f); return () => removeEventListener("resize", f);
+  }, [flightRoute]);
   // Trading Duel + Turbo Royale show their own fuel in the HUD; the wallet pill sat on top of the duel title, rating, clock
   // and PnL on phones (app audit 2026-11-15). Kept mounted (sign-in, wallet id events), just not drawn.
   // Site footer (maker 2026-11-20): every lobby-shell page except the launch builder (a one-screen flow sized to the
@@ -98,7 +107,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* the plain "Test network" marker lives in the wallet strip (WalletButton), so it shows on every route incl. the game */}
       {!isGame && !IS_STATIC_PREVIEW && <InviteBanner />}
       {/* profile r3: no cash pill on a profile (the page's portfolio block shows Cash); every other route unchanged */}
-      <WalletButton compact={!isGame} />
+      <WalletButton compact={!isGame || deskFlight} />
       <FunnelBeacon />
       <TouchKit />
       {isGame ? children : <div className="main-offset main-offset-lobby min-h-screen">{children}{showFooter && <SiteFooter />}</div>}

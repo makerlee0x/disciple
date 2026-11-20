@@ -1,7 +1,7 @@
 "use client";
 /**
  * FLIGHT TOP BAR (desktop; approved mockup boards "Desktop · Pilot HUD" / "Desktop · Pro HUD", maker Nov 12):
- * PILOT / PRO switch + ☰ menu (Esc) + ✕ leave flight, top right. The switch is hidden for launch (lib/features PRO_HUD_ENABLED,
+ * PILOT / PRO switch + wallet pill + ☰ menu (Esc, Leave flight inside; the ✕ was folded in, maker 2026-11-20), top right. The switch is hidden for launch (lib/features PRO_HUD_ENABLED,
  * maker 2026-11-14): every flight runs Pilot, and ☰ → Trade settings opens the boost amounts + price protection popup. There is no sidebar rail and no wallet strip on the
  * flight screen: sign in / your account, Settings, Tramp / Wall and the simulated market all live in the ☰ menu.
  * Phones stay on Pilot with their own HUD (components/flight/PhoneHud), so this renders nothing there.
@@ -15,8 +15,7 @@ import { isPhoneUI } from "@/lib/game/cardLayoutStore";
 import { setHudMode, useHudMode, type HudMode } from "@/lib/game/hudMode";
 import { PRO_HUD_ENABLED } from "@/lib/features";
 import { HUD } from "@/lib/game/hudStyle";
-import { SETTINGS_OPEN_EVENT, WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT, walletCtaLabel, walletId, type WalletId } from "@/lib/walletCta";
-import { disconnect } from "@/lib/wallet";
+import { SETTINGS_OPEN_EVENT } from "@/lib/walletCta";
 
 /** Tramp / Wall state published by components/trampwalls/TrampWallPanel (graduated coins only) */
 export const TW_STATE_EVENT = "disciple:twstate", TW_OPEN_EVENT = "disciple:tw";
@@ -34,23 +33,27 @@ export default function HudModeToggle({ sim, onSim }: { sim?: Sim | null; onSim?
   const mode = useHudMode();
   const [desk, setDesk] = useState(false);
   const [open, setOpen] = useState(false);
-  const [cta, setCta] = useState<string | null>(null);
-  const [me, setMe] = useState<WalletId | null>(null);
   const [tw, setTw] = useState<TwState | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   useEffect(() => { const f = () => setDesk(!isPhoneUI()); f(); addEventListener("resize", f); return () => removeEventListener("resize", f); }, []);
   useEffect(() => {
-    setCta(walletCtaLabel()); setMe(walletId());
-    const c = (e: Event) => setCta((e as CustomEvent<{ label: string | null }>).detail?.label ?? null);
-    const i = (e: Event) => setMe((e as CustomEvent<WalletId | null>).detail ?? null);
     const t = (e: Event) => setTw((e as CustomEvent<TwState>).detail ?? null);
-    addEventListener(WALLET_CTA_EVENT, c); addEventListener(WALLET_ID_EVENT, i); addEventListener(TW_STATE_EVENT, t);
-    return () => { removeEventListener(WALLET_CTA_EVENT, c); removeEventListener(WALLET_ID_EVENT, i); removeEventListener(TW_STATE_EVENT, t); };
+    addEventListener(TW_STATE_EVENT, t); return () => removeEventListener(TW_STATE_EVENT, t);
   }, []);
-  // the Pilot radio pill (GameRadio) sits just left of this bar: publish its width
+  // The wallet pill (WalletButton, pfp + balance) sits left of this bar (globals.css body.has-flightbar), the radio left of both:
+  // --ap-flightbar-w = this bar, --ap-topbar-w = bar + pill.
   useEffect(() => { const el = boxRef.current; if (!el || typeof ResizeObserver === "undefined") return; const root = document.documentElement;
-    const pub = () => root.style.setProperty("--ap-topbar-w", `${Math.round(el.getBoundingClientRect().width)}px`);
-    const ro = new ResizeObserver(pub); ro.observe(el); pub(); return () => { ro.disconnect(); root.style.removeProperty("--ap-topbar-w"); }; }, [desk]);
+    document.body.classList.add("has-flightbar");
+    const wallet = () => document.querySelector<HTMLElement>('[aria-label="wallet"].wb-root');
+    const pub = () => { const own = Math.round(el.getBoundingClientRect().width), w = wallet(), ww = w ? Math.round(w.getBoundingClientRect().width) : 0;
+      const sig = `${own}/${ww}`; if (sig === last) return; last = sig;
+      root.style.setProperty("--ap-flightbar-w", `${own}px`); root.style.setProperty("--ap-topbar-w", `${own + (ww > 0 ? ww + 8 : 0)}px`); };
+    let last = "";
+    const ro = new ResizeObserver(pub); ro.observe(el);
+    let watched: HTMLElement | null = null;
+    const watch = () => { const w = wallet(); if (w && w !== watched) { watched = w; ro.observe(w); } pub(); };
+    const iv = window.setInterval(watch, 500); watch();   // the pill mounts (and remounts on sign-in) on its own schedule
+    return () => { ro.disconnect(); clearInterval(iv); document.body.classList.remove("has-flightbar"); root.style.removeProperty("--ap-topbar-w"); root.style.removeProperty("--ap-flightbar-w"); }; }, [desk]);
   useEffect(() => {
     if (!open) return;
     const down = (e: PointerEvent) => { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setOpen(false); };
@@ -77,36 +80,12 @@ export default function HudModeToggle({ sim, onSim }: { sim?: Sim | null; onSim?
         style={{ ...sq, background: open ? "#F2F3F7" : HUD.glass, color: open ? HUD.ink : "#F2F3F7" }}>
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M4 7h16M4 12h16M4 17h16" /></svg>
       </button>
-      <Link href="/" aria-label="Leave flight" title="Leave flight" data-testid="flight-leave" style={sq}>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg>
-      </Link>
       {open && (
         <div role="menu" aria-label="Flight menu" data-testid="flight-menu" style={{ position: "absolute", right: 0, top: 52, width: 300, boxSizing: "border-box", padding: 6,
           borderRadius: HUD.radius, background: "rgba(18,19,39,.94)", border: `1px solid ${HUD.border}`, boxShadow: "0 16px 40px rgba(0,0,0,.45)", backdropFilter: "blur(8px)" }}>
           <style>{`[data-testid="flight-menu"] [role^="menuitem"]:hover, [data-testid="flight-menu"] [role^="menuitem"]:focus-visible { background-color: rgba(255,255,255,.08) !important; }
             [data-testid="flight-menu"] .fm-btn[data-testid="flight-menu-hangar"]:hover { background-color: rgba(242,193,78,.22) !important; }`}</style>
-          <div style={head}>PILOT</div>
-          {cta ? (
-            <button type="button" role="menuitem" data-testid="flight-menu-signin" onClick={() => { dispatchEvent(new Event(WALLET_CTA_CLICK_EVENT)); setOpen(false); }}
-              style={{ ...row, background: "#F2C14E", color: HUD.ink, justifyContent: "center", font: `700 16px/1 ${HUD.game}`, letterSpacing: ".04em" }}>{cta.toUpperCase()}</button>
-          ) : me ? (<>
-            {/* maker 2026-11-14: "Hangar doesn't even look like a button, I thought it was my username" ⇒ who you are is a plain
-                card, and Hangar is its own gold-outlined button next to a quiet Sign out */}
-            <div data-testid="flight-menu-pilot" style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 12px 10px" }}>
-              <span aria-hidden style={{ width: 34, height: 34, borderRadius: 999, flex: "0 0 auto", display: "flex", alignItems: "center", justifyContent: "center",
-                background: "linear-gradient(135deg, #F3DFA8, #C99A3E)", color: HUD.ink, font: `800 16px/1 ${HUD.game}` }}>{(me.name || me.address.slice(2, 3)).slice(0, 1).toUpperCase()}</span>
-              <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                <span style={{ font: `600 15px/1.2 ${HUD.ui}`, color: HUD.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{me.name ? `@${me.name}` : `${me.address.slice(0, 6)}…${me.address.slice(-4)}`}</span>
-                <span style={{ font: `500 12px/1.2 ${HUD.ui}`, color: HUD.dim }}>Signed in</span>
-              </span>
-            </div>
-            <div style={{ display: "flex", gap: 8, padding: "0 6px 6px" }}>
-              <Link role="menuitem" href="/profile" data-testid="flight-menu-hangar" className="fm-btn"
-                style={{ ...row, flex: 1, justifyContent: "center", border: "1px solid rgba(242,193,78,.7)", background: "rgba(242,193,78,.12)", color: "#F3DFA8", font: `700 16px/1 ${HUD.game}`, letterSpacing: ".06em" }}>HANGAR</Link>
-              <button type="button" role="menuitem" data-testid="flight-menu-signout" className="fm-btn" onClick={go(() => { void disconnect(); })}
-                style={{ ...row, width: "auto", justifyContent: "center", border: `1px solid ${HUD.border}`, color: HUD.dim }}>Sign out</button>
-            </div>
-          </>) : <div style={{ ...row, cursor: "default", color: HUD.dim }}>Playing on paper</div>}
+          {/* who you are / sign in / Hangar / sign out: the wallet pill beside this button (maker 2026-11-20), not repeated here */}
           {(tw?.on || (sim && sim.available)) && <div style={head}>FLIGHT</div>}
           {tw?.on && <>
             <button type="button" role="menuitem" data-testid="flight-menu-tw" onClick={go(() => dispatchEvent(new CustomEvent(TW_OPEN_EVENT, { detail: { open: "place" } })))} style={row}>
@@ -117,12 +96,14 @@ export default function HudModeToggle({ sim, onSim }: { sim?: Sim | null; onSim?
           {sim && sim.available && <button type="button" role="menuitemcheckbox" aria-checked={sim.on} data-testid="flight-menu-sim" onClick={() => onSim?.()} style={row}
             title="Fake trades when it's quiet. Never touches your balance.">
             <span>Simulated market</span><span style={{ ...tag, color: sim.on ? HUD.ink : HUD.dim, background: sim.on ? "#5FF0A0" : "rgba(255,255,255,.08)" }}>{sim.on ? (sim.mode === "auto" ? "AUTO" : "ON") : "OFF"}</span></button>}
-          <div style={{ height: 1, background: HUD.border, margin: "6px 8px" }} />
+          {(tw?.on || (sim && sim.available)) && <div style={{ height: 1, background: HUD.border, margin: "6px 8px" }} />}
           <button type="button" role="menuitem" data-testid="flight-menu-trade" onClick={go(() => dispatchEvent(new CustomEvent("disciple:swapsettings", { detail: { open: true } })))} style={row}>
             <span>Trade settings</span></button>
           <button type="button" role="menuitem" data-testid="flight-menu-settings" onClick={go(() => dispatchEvent(new Event(SETTINGS_OPEN_EVENT)))} style={row}>
             <span>Settings</span><span style={{ ...tag, color: HUD.dim, background: "rgba(255,255,255,.08)" }}>ESC</span></button>
-          <Link role="menuitem" href="/" data-testid="flight-menu-lobby" style={row}>Back to the lobby</Link>
+          {/* maker 2026-11-20: the ✕ is folded into this menu; leaving the flight is here */}
+          <Link role="menuitem" href="/" data-testid="flight-menu-lobby" style={row}><span>Leave flight</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M6 6l12 12M18 6L6 18" /></svg></Link>
         </div>
       )}
     </div>

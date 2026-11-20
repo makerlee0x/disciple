@@ -4,12 +4,12 @@ import { clientSelfBundlerMode } from "../aa/sponsorshipMode";
  * Console serialization is deferred until settlement. Missing measurements are null.
  */
 type Side = "buy" | "sell";
-type Receipt = { userOpHash: string; txHash: string; t?: Record<string, number> };
+type Receipt = { userOpHash: string; txHash: string; t?: Record<string, number>; via?: string };
 export type FlowMark = "requestStart" | "firstByte" | "pendingFrame" | "confirmedFrame" | "applyOwnStart" | "applyOwnEnd";
 export type CacheKind = "quote" | "balance" | "allowance";
 type Row = { marks: Partial<Record<FlowMark | "doneRender", number>>; cache: Record<CacheKind, { hit: number; miss: number }>; beaconed?: boolean; donePending?: boolean; pressId: string | null; side: Side; tap: number; paint?: number; receipt?: number; fill?: number;
   paintPending?: boolean; fillPending?: boolean; ok?: boolean; reason?: string; server?: Record<string, number>;
-  userOpHash?: string; txHash?: string; emitted?: boolean; scheduled?: boolean; fallback?: boolean; watchdog?: boolean; unresolvedReported?: boolean };
+  userOpHash?: string; txHash?: string; via?: string; emitted?: boolean; scheduled?: boolean; fallback?: boolean; watchdog?: boolean; unresolvedReported?: boolean };
 export type FlowSpan = { identify(ids: { userOpHash?: string; txHash?: string }): void; bind(id: string): void; pendingPaint(): void; finish(ok: boolean, reason?: string): void };
 type Deps = { now: () => number; frame: (cb: () => void) => void; later: (cb: () => void, ms: number) => void; log: (row: Record<string, unknown>) => void; beacon?: (row: Record<string, unknown>) => void };
 const clock = () => typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -41,6 +41,7 @@ export class FlowTiming {
       if (!r || r.emitted || r.receipt !== undefined) return;
       r.receipt = this.d.now(); r.userOpHash = frame.userOpHash; r.txHash = frame.txHash;
       if (frame.t) r.server = { ...frame.t };
+      if (frame.via) r.via = frame.via;
     });
   }
   fill(id: string | undefined) { guarded(() => { const r = id ? this.rows.get(id) : undefined; if (r) this.paint(r, "fill"); }); }
@@ -73,7 +74,7 @@ export class FlowTiming {
     const elapsed = (at?: number) => at === undefined ? null : Math.round((at - r.tap) * 100) / 100;
     this.d.log({ pressId: r.pressId, side: r.side, ok: r.ok,
       tapToPaint: elapsed(r.paint), tapToReceipt: elapsed(r.receipt), tapToFill: elapsed(r.fill),
-      server: r.server ?? null, userOpHash: r.userOpHash ?? null, txHash: r.txHash ?? null,
+      server: r.server ?? null, via: r.via ?? null, userOpHash: r.userOpHash ?? null, txHash: r.txHash ?? null,
       ...this.extra(r), ...(r.reason ? { reason: r.reason } : {}) });
   }
   mark(id: string | undefined, mark: FlowMark) { guarded(() => {
@@ -161,6 +162,6 @@ function showTimingBox(row: Record<string, unknown>) { guarded(() => {
   const top = Object.entries(srv).filter(([, v]) => typeof v === "number" && v >= 20).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => `${k} ${Math.round(v)}`).join(" · ");
   const line = `${new Date().toLocaleTimeString()} ${String(row.side)} ${row.ok ? "ok" : String(row.reason ?? "fail")}\n` +
     `send ${n(row.tapToRequestStart)} · 1st byte ${n(row.tapToFirstByte)} · pending ${n(row.tapToPendingFrame)} · confirmed ${n(row.tapToConfirmedFrame)} · receipt ${n(row.tapToReceipt)} · filled ${n(row.tapToFill)} ms\n` +
-    `server: ${top || "-"}`;
+    `server${row.via ? ` (${String(row.via)})` : ""}: ${top || "-"}`;
   el.textContent = `${line}\n\n${el.textContent ?? ""}`.slice(0, 4000);
 }); }

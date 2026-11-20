@@ -27,9 +27,12 @@ import { DEMO_POOL, STRATEGY_TOKEN } from "@/lib/config";
 import { PROTOCOL_META } from "@/lib/protocol";
 import { publicClient, readCurveState } from "@/lib/protocol-viem";
 import { basePair } from "@/lib/pairArt";
+import { withCoinHints } from "@/lib/coinHints";
 
 function FlightInner({ address }: { address: string }) {
-  const sp = useSearchParams();
+  const urlSp = useSearchParams();
+  // lobby cards hand over name / ticker / pair / icon in memory (lib/coinHints), so the address bar stays the clean link
+  const sp = useMemo(() => withCoinHints(address, urlSp), [address, urlSp]);
   const demo0 = address.toLowerCase() === DEMO_POOL.address;
   // The coin's real quote token from its launch (curve state). The engine writes its params back into the URL, so a
   // stale ?quote= (e.g. the old STRATEGY default on a USDG-paired coin) would otherwise stick forever.

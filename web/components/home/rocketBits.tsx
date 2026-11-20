@@ -2,17 +2,14 @@
 import type { CSSProperties } from "react";
 import { isStoreSrc } from "@/lib/coinImages";
 import type { HomeCoin } from "@/lib/home/trending";
+import { setCoinHints } from "@/lib/coinHints";
+import { rocketPath } from "@/lib/coinPath";
 
-/** Flight page link (the query the coin page reads for its first paint). */
+/** Flight page link: the clean public path (maker 2026-11-20). What the card already knows rides in memory (lib/coinHints)
+ *  for the coin page's first paint, not in the address bar. */
 export function flightHref(c: HomeCoin) {
-  const q = new URLSearchParams();
-  q.set("coin", c.token);
-  q.set("launched", "1");
-  if (c.icon) q.set("icon", c.icon);
-  if (c.pairSym) q.set("pair", c.pairSym);
-  q.set("nm", c.name);
-  q.set("cs", c.ticker);
-  return `/coin/${c.token}?${q.toString()}`;
+  setCoinHints(c.token, { launched: "1", icon: c.icon, pair: c.pairSym, nm: c.name, cs: c.ticker });
+  return rocketPath(c.token);
 }
 
 /** Each rocket's light colour (its glow, tier tag and mark), fixed per coin. Lobby mockup palette. */

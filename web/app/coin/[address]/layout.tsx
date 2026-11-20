@@ -39,7 +39,7 @@ export default function CoinLayout({ children }: { children: React.ReactNode }) 
 /** Inline, in the first HTML: fetch the coin's mcap while the page JS downloads, so the engine's first frame needs no
  *  chain read (engine.js DiscipleSource.start reads window.__discipleSsrState). The page is static-cached, so the price
  *  can't be baked into the HTML itself. Graduated coins are skipped (their pool fields come from the browser's read). */
-const PRICE_PREFETCH = `(function(){try{var m=location.pathname.match(/\\/coin\\/(0x[0-9a-fA-F]{40})/);if(!m)return;var c=m[1].toLowerCase();
+const PRICE_PREFETCH = `(function(){try{var tq=new URLSearchParams(location.search).get("timing");if(tq==="1")localStorage.setItem("disciple.tradeTiming","1");else if(tq==="0")localStorage.removeItem("disciple.tradeTiming");}catch(e){}try{var m=location.pathname.match(/\\/coin\\/(0x[0-9a-fA-F]{40})/);if(!m)return;var c=m[1].toLowerCase();
 fetch(${JSON.stringify(process.env.NEXT_PUBLIC_BASE_PATH || "")}+"/api/coin/mcap?coin="+c).then(function(r){return r.ok?r.json():null}).then(function(j){
 if(!j||j.graduated||!(j.mcapUsd>0))return;var s={type:"State",mcapUsd:j.mcapUsd,graduated:false,poolId:null,graduatedAt:null,coin:c};window.__discipleSsrState=s;
 if(window.__flight&&!window.__discipleLastState)dispatchEvent(new CustomEvent("disciple:event",{detail:s}));}).catch(function(){});}catch(e){}})();`;

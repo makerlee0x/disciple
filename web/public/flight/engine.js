@@ -368,6 +368,9 @@ function feedRelabel(feed){ for(const r of feed) if(r.tr&&r.pre!=null&&!r.own) r
 /* sign-out / account switch: '(you)' rows that aren't the current wallet's become plain trader rows (name / short address;
    '?' when the row never knew its trader). Keyed to the wallet address: me='' (signed out) un-tags every own row. */
 function feedUnown(feed,me){ for(const r of feed) if(r.own&&!(me&&r.tr===me)){ r.own=0; r.txt=r.pre+(r.tr?nameOf(r.tr):'?'); } }
+/* the wallet became known after rows arrived (sign-in restores a few seconds after the feed seeds; maker 2026-11-20: "why does it
+   say moon but also me, they're all me"): the current wallet's rows become '(you)' rows */
+function feedOwn(feed,me){ if(!me) return; for(const r of feed) if(!r.own&&r.tr===me&&r.pre!=null){ r.own=1; r.txt=r.pre+'(you)'; } }
 /* after a reload the feed is empty (since #113 it lists live swaps only): seed it from the newest indexed fills (/api/trades,
    newest first), below any live rows already there, deduped by tx[:logIndex]; dollars only (fillUsd = USDG paid/received). */
 function feedSeedFills(feed,fills,me,seen,max=6){ let n=feed.filter(r=>r.t).length; const out=[];
@@ -660,6 +663,7 @@ if (source instanceof DiscipleSource) S.fuelers={'you':0};   // live coin: no fa
 S.holders=null; S.wallet='';
 addEventListener('disciple:holders-real',e=>{ const d=e.detail; S.holders=d&&Array.isArray(d.rows)?d:null; _topT=-1; });
 addEventListener('disciple:wallet',e=>{ const a=e.detail&&e.detail.address, prev=S.wallet; S.wallet=typeof a==='string'?a.toLowerCase():'';
+  if(S.wallet&&S.wallet!==prev) feedOwn(S.feed,S.wallet);
   if(prev&&S.wallet!==prev){ feedUnown(S.feed,S.wallet); if(S.fuelers) delete S.fuelers.you; const C=chartState(); C.mine.length=0; if(C.mineTx) C.mineTx.clear(); _topT=-1; } });   // own-wallet state follows the wallet
 addEventListener('disciple:feednames',e=>{ const m=e.detail; if(m&&typeof m==='object') for(const k in m){ const v=m[k]; if(typeof v!=='string'||!v) continue; if(v[0]==='@') NAMES[k.toLowerCase()]=v.slice(1); else DEFNAMES[k.toLowerCase()]=v; } feedRelabel(S.feed); });
 addEventListener('disciple:names',e=>{ const m=e.detail; if(m&&typeof m==='object') for(const k in m) if(typeof m[k]==='string'&&m[k]) NAMES[k.toLowerCase()]=m[k]; feedRelabel(S.feed); });

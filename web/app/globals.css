@@ -987,6 +987,9 @@ select.ds-input option, select option { background: var(--dsc-surface); color: #
   body.game .main-offset { padding-left: 0; }
   body.game .wb-root { top: 72px; right: 20px; }
   body.game .wb-root .wb-row { display: none !important; }
+  /* maker 2026-11-20: on the flight screen the wallet pill (pfp + balance) joins the top bar, left of the menu */
+  body.game.has-flightbar .wb-root { top: 18px; right: calc(20px + var(--ap-flightbar-w, 44px) + 8px); }
+  body.game.has-flightbar .wb-root .wb-row { display: flex !important; }
   [data-desk-hide="1"] { display: none !important; }
 }
 
