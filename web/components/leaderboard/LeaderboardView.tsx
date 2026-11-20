@@ -11,7 +11,7 @@
 import { LEAGUES, leagueBy, leagueProgress } from "@/lib/duel/season";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { withBase } from "@/lib/base-path";
 import { onWallet } from "@/lib/walletState"; // = lib/wallet's, without viem
 import { displayName } from "@/lib/defaultUsername";
@@ -26,7 +26,7 @@ import { DUEL_RANKED_LIVE, seasonAt } from "@/lib/duel/season";
 import { skinArt } from "@/lib/collection";
 import AnimClip from "@/components/ui/AnimClip";
 import { CLIMB_FREE } from "@/lib/climb/rules";
-import { PAIR_SORTS, type PairSort } from "@/lib/home/pairBoard";
+import { PAIR_SORTS, rankPairs, type PairSort } from "@/lib/home/pairBoard";
 import type { PairBoardResponse } from "@/lib/server/pairBoard";
 
 /** Mode tabs (maker 2026-11-18): Overall = season points from every mode (lib/season/points); each mode ranks on its own number. */
@@ -515,12 +515,15 @@ export default function LeaderboardView() {
     return () => { alive = false; };
   }, [me, mode]);
 
+  // Pairs (maker 2026-11-20: too slow): fetched once as the page opens, whatever the tab, so the tab is ready when picked;
+  // a column click re-sorts here (lib/home/pairBoard rankPairs) instead of asking the server again
+  const pairsAsked = useRef(false);
   useEffect(() => {
-    if (mode !== "pairs") return;
-    let alive = true;
-    fetch(withBase(`/api/leaderboard?sort=pairs&by=${pairBy}`)).then((r) => (r.ok ? r.json() : null)).then((d: PairBoardResponse | null) => { if (alive && d?.rows) setPairs(d); }).catch(() => {});
-    return () => { alive = false; };
-  }, [mode, pairBy]);
+    if (pairsAsked.current) return;
+    pairsAsked.current = true;
+    fetch(withBase("/api/leaderboard?sort=pairs&by=score")).then((r) => (r.ok ? r.json() : null)).then((d: PairBoardResponse | null) => { if (d?.rows) setPairs(d); }).catch(() => {});
+  }, []);
+  const pairsBy = useMemo(() => (pairs ? { ...pairs, by: pairBy, rows: rankPairs(pairs.rows, pairBy) } : null), [pairs, pairBy]);
 
   useEffect(() => {
     if (mode === "duel" || mode === "pairs") return;
@@ -558,7 +561,7 @@ export default function LeaderboardView() {
   }, [win, mode, sub, view, me]);
 
   const rockets = mode === "rockets";
-  const loading = mode === "pairs" ? !pairs || pairs.by !== pairBy
+  const loading = mode === "pairs" ? !pairsBy
     : mode === "duel" ? DUEL_RANKED_LIVE && !duel
     : mode === "crews" ? !crews || crews.window !== win
     : mode === "overall" ? (view === "lifetime" ? !life : !overall)
@@ -580,7 +583,7 @@ export default function LeaderboardView() {
 
   let body: React.ReactNode;
   if (loading) body = <div className="tp-loading" aria-busy="true" />;
-  else if (mode === "pairs") body = <PairsTable d={pairs!} by={pairBy} setBy={setPairBy} />;
+  else if (mode === "pairs") body = <PairsTable d={pairsBy!} by={pairBy} setBy={setPairBy} />;
   else if (mode === "duel") body = DUEL_RANKED_LIVE && duel && duel.rows.length ? <>{season && <SeasonLadder d={season} />}<DuelTable d={duel} meLc={me?.toLowerCase()} /></> : <RealOnly mode="duel" />;
   else if (mode === "royale" || mode === "climb") body = boards[mode]?.rows.length ? <ModeBoard d={boards[mode]!} me={me} /> : <RealOnly mode={mode} />;
   else if (mode === "overall" && view === "lifetime") body = life && (life.rows.length || life.me) ? <Lifetime d={life} me={me} /> : emptyBoard;
