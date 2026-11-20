@@ -26,11 +26,16 @@ import { resolveKeys } from "./imageStore";
 import { usernameOf } from "./usernames";
 import { ledgerOf, totals } from "./xp";
 import { indexTrades, tradesOf } from "./trades";
+import type { Fill } from "@/lib/trades";
+import type { PairLaunch } from "@/lib/home/pairBoard";
 
 const CACHE_MS = 15_000;
 const FILLS_CAP = 2000;
 const MAX_COINS = 120;
-const g = globalThis as unknown as { __dscHome?: { at: number; v: HomeData }; __dscHomeP?: Promise<HomeData> | null; __dscBoard?: { at: number; v: PilotBoard }; __dscPositions?: { at: number; v: PositionBoard }; __dscRocketSp?: { at: number; season: string; v: Record<string, number> } };
+const g = globalThis as unknown as { __dscHome?: { at: number; v: HomeData }; __dscHomeP?: Promise<HomeData> | null; __dscBoard?: { at: number; v: PilotBoard }; __dscPositions?: { at: number; v: PositionBoard }; __dscRocketSp?: { at: number; season: string; v: Record<string, number> }; __dscPairIn?: PairInputs };
+
+/** What the pair coin board (lib/server/pairBoard) ranks from: every shown launch, and the fills of the coins the home read. */
+export type PairInputs = { launches: PairLaunch[]; fills: Fill[] };
 
 const timeout = <T,>(p: Promise<T>, ms: number, fallback: T) =>
   Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
@@ -77,7 +82,8 @@ async function build(): Promise<HomeData> {
   // known test coins never reach the home (lib/home/hiddenCoins); their data is untouched
   // slipped-in name+ticker copies (lib/server/nameLock) are hidden from the feed / lists / search; data is not deleted
   const copies = await flaggedCopySet(launches.map((x) => x.token)).catch(() => new Set<string>());
-  const list = launches.filter((x) => !isHiddenCoin(x.token) && !copies.has(x.token.toLowerCase())).slice(0, MAX_COINS);
+  const shown = launches.filter((x) => !isHiddenCoin(x.token) && !copies.has(x.token.toLowerCase()));
+  const list = shown.slice(0, MAX_COINS);
   const fillsBy = await Promise.all(list.map((c) => tradesOf(c.token, null, FILLS_CAP, "desc").catch(() => [])));
   const coins: HomeCoin[] = list.map((x, i) => {
     const fills = fillsBy[i];
@@ -115,6 +121,7 @@ async function build(): Promise<HomeData> {
   g.__dscPositions = { at: now, v: positionBoard(fillsBy, now, opts) };
   const season = seasonAt(now);
   g.__dscRocketSp = { at: now, season: season.id, v: rocketSeasonSp(fillsBy, now, season.startsAt, season.endsAt, opts) };
+  g.__dscPairIn = { launches: shown.map((x) => ({ token: x.token.toLowerCase(), quote: String(x.quote).toLowerCase(), block: Number(x.block) })), fills: fillsBy.flat() };
   const ticker = tickerOf(fillsBy, new Map(coins.map((c) => [c.token, c.name])));
   await timeout(namePilots(pilots, ticker, calls), 2_500, undefined);
   return { at: now, coins, ...pick, chips, pilots, bestCalls: calls, ticker };
@@ -155,6 +162,12 @@ export async function getRocketSeasonSp(budgetMs = 9_000): Promise<Record<string
   await getHomeData(budgetMs);
   const c = g.__dscRocketSp;
   return c && c.season === seasonAt(Date.now()).id ? c.v : {};
+}
+
+/** Pair coin board inputs from the last home build; empty before the first. */
+export async function getPairInputs(budgetMs = 9_000): Promise<PairInputs> {
+  await getHomeData(budgetMs);
+  return g.__dscPairIn ?? { launches: [], fills: [] };
 }
 
 /** Home data, cached CACHE_MS; never throws (empty state on failure). */
