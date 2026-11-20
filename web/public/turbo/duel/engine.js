@@ -942,8 +942,12 @@ function mount(root,host){
 
   /* ---------- flow ---------- */
   let launchIv=null;
+  // play money vs real: Climb runs carry their own (CLR.real, set once Lighter's real orders are in place); an online duel
+  // is real only while the host has said so (api.real); a bot duel never is
+  let REAL=false;
+  function simPill(){ const e=$("simPill"); if(e) e.hidden=CLR?!!CLR.real:!!(M&&M.net&&REAL); }
   function start(){
-    ensureAudio(); openChat(false); pickSky(M&&M.net?M.startAt:null); newGame(); resetReport(); show("launch"); $("feed").innerHTML="";
+    ensureAudio(); simPill(); openChat(false); pickSky(M&&M.net?M.startAt:null); newGame(); resetReport(); show("launch"); $("feed").innerHTML="";
     $("aLab").textContent="";   // no "LAUNCH IN · SKY" label (maker 2026-11-18): the big count says it
     $("lKeys").innerHTML=(SW>=900?[["SPACE","boost"],["SHIFT","dump"],["ENTER","cash out"],["WASD","fly"],["Q E","tricks"],["T","chat"]]:[["TAP","boost or dump"],["PILL","cash out"],["DRAG","steer"]]).map(([k,v])=>`<span><kbd>${k}</kbd>${v}</span>`).join("");
     if(G.bot) $("botLab").innerHTML=`${esc(G.bot.name).toUpperCase()} \u00b7 <span id="botN">0</span>`;
@@ -1078,6 +1082,9 @@ function mount(root,host){
       if(!document.getElementById("duel-gear-css")){ const gs=document.createElement("style"); gs.id="duel-gear-css"; gs.textContent=GEAR_CSS; document.head.appendChild(gs); } } }
   // leave mid-match (maker 2026-11-18): an X at the top of the right-hand buttons, then a confirm. Climb closes your trade
   // right away; a duel's trades stay open until the clock ends (the server settles a leaver's book at the buzzer).
+  // SIMULATOR pill, top left in flight, on every play-money run (maker 2026-11-20: "otherwise people will think it's real")
+  { const app=$("app"); app.insertAdjacentHTML("beforeend",'<div class="simpill" id="simPill" hidden>SIMULATOR</div>');
+    const s2=document.createElement("style"); s2.textContent=".duel-root .simpill{position:absolute;z-index:30;top:calc(env(safe-area-inset-top,0px) + 14px);left:14px;padding:6px 12px 5px;border-radius:999px;border:1.5px solid rgba(242,193,78,.75);background:rgba(11,10,22,.82);color:#F2C14E;font:800 13px/1 var(--f-game),sans-serif;letter-spacing:.08em;pointer-events:none;box-shadow:0 2px 10px rgba(0,0,0,.35)}@media (max-width:899px){.duel-root .simpill{left:12px;top:calc(var(--ch) + 86px + env(safe-area-inset-top,0px));padding:6px 10px 5px;font-size:12px}.duel-root .app:has(#simPill:not([hidden])) .feed{top:calc(var(--ch) + 120px + env(safe-area-inset-top,0px))}}"; st.after(s2); offs.push(()=>s2.remove()); }
   { const app=$("app"); app.insertAdjacentHTML("beforeend",'<button class="mute quit" id="quitB" type="button" aria-label="Leave"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>'
       +'<div class="ov quitov" id="quitOv" hidden><div class="card qcard" role="dialog" aria-modal="true" aria-labelledby="qH"><h2 id="qH">LEAVE?</h2><p class="qwarn" id="qW" hidden></p>'
       +'<div class="rrow"><button class="sec" type="button" id="qStay">STAY</button><button class="go" type="button" id="qGo">LEAVE</button></div></div></div>');
@@ -1431,11 +1438,19 @@ function mount(root,host){
   function climbPlay(n,test){ const l=lvl(n), free=n>=FREE;
     CLR=free?{level:FREE,free:true,fuel:cFree.fuel,gear:cFree.gear,goal:null,len:CL.lighter?270000:Infinity /* real money: the server buzzer closes at 4.5 min, so the run ends there too */}:{level:n,test:!!test,fuel:l.fuel,gear:l.gear,goal:l.goal,len:CL.runMs};
     M={net:false,ranked:false,solo:true}; OFF=0; show("launch"); climbPanel();
-    if(CL.lighter) CL.lighter.begin({fuel:CLR.fuel,gear:CLR.gear});
-    waitForPrice(()=>{ if(!M||!M.solo) return; M.startAt=Date.now()+3500; if(CL.lighter) CL.lighter.arm(M.startAt+(isFinite(CLR.len)?CLR.len:270000)); start(); }); }
+    const go=()=>waitForPrice(()=>{ if(!M||!M.solo) return; M.startAt=Date.now()+3500; if(CL.lighter) CL.lighter.arm(M.startAt+(isFinite(CLR.len)?CLR.len:270000)); start(); });
+    if(!CL.lighter){ go(); return; }
+    // real money: the countdown waits for Lighter's fresh cash check. A failed check goes back to the levels with the
+    // reason; it never flies the run on play money (maker 2026-11-20: a $0 read turned a $5.95 deposit into "profit")
+    const run=CLR; $("preCount").textContent="\u2022\u2022\u2022"; $("preCount").classList.add("pwait");
+    Promise.resolve(CL.lighter.begin({level:run.level,free:!!run.free,fuel:run.fuel,gear:run.gear})).catch(()=>"Can't reach Lighter right now. Try again in a moment.").then(why=>{
+      if(dead||CLR!==run||!M||!M.solo) return; $("preCount").classList.remove("pwait"); run.real=!why; climbPanel();
+      if(why&&CL.real){ climbHome(why); return; }
+      if(why) toast(why);
+      go(); }); }
   function climbPanel(){ $("lCancel").hidden=false;
     $("lH").textContent=CLR.free?"FREE MODE":"LEVEL "+CLR.level;
-    $("lSub").textContent=`${m2(CLR.fuel)} · ${gx(CLR.gear)}`+(CLR.goal!=null?` · make +${m2(CLR.goal)}`:isFinite(CLR.len)?"":" · no clock")+(CL.real?"":" · play money"); }
+    $("lSub").textContent=`${m2(CLR.fuel)} · ${gx(CLR.gear)}`+(CLR.goal!=null?` · make +${m2(CLR.goal)}`:isFinite(CLR.len)?"":" · no clock")+(CLR.real||(CL.real&&CLR.real==null)?"":" · play money"); }
   function climbLaunch(){ root.classList.add("climb"); climbPanel();
     const who=$("meN").parentElement; who.innerHTML=(CLR.free?"FREE · ":`LEVEL ${CLR.level} · ${m2(CLR.fuel)} · `)+`<span id="meN" style="color:var(--gold)">${gx(CLR.gear)}</span>`;
     const nx=lvl(CLR.level+1); $("botLab").innerHTML=(CLR.free?"FUEL":"TO GOAL")+'<span id="botN"></span>';
@@ -1590,6 +1605,7 @@ function mount(root,host){
       const b=G.lastBank; if(b&&b.el&&b.el.isConnected){ b.net+=G.me.fuel-was; const v=b.el.querySelector("b"), i=b.el.querySelector("i"); if(v) v.textContent=usd(b.net,true);
         if(i){ const up=b.net>=0; i.style.background=up?"var(--green)":"var(--pink)"; i.style.color=up?"#121327":"#fff"; i.textContent=up?"$":"!"; } }
       ui(); },
+    real:(on)=>{ REAL=!!on; if(G&&G.started&&!G.over) simPill(); },
     climbNote:(t)=>{ if(CL&&!$("climb").hidden) climbHome(t); else toast(t); },
     climbFill:(entry)=>{ if(!CLR||!G||G.over||!G.me.pos||!(entry>0)) return; G.me.pos.entry=entry; ui(); },
     climbRefresh:()=>{ if(!CL) return; if(!cFreeSet&&LVS.length) cFree.fuel=LVS[LVS.length-1].fuel; if(!$("climb").hidden) climbHome(); },
