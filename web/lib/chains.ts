@@ -105,31 +105,33 @@ export interface Deployment {
 
 // NOTE: NEXT_PUBLIC_* must be referenced literally for Next.js to inline them.
 export const DEPLOYMENTS: Record<number, Deployment> = {
+  // Mainnet: deployed by the Team 2026-11-20 (contracts main 16e0962c; /mnt/project-files/mainnet/addresses-4663.md).
+  // NEXT_PUBLIC_RH_* env still overrides; these literals are the fallbacks and are inlined into the bundle.
   [robinhood.id]: {
-    launchpad: addr(process.env.NEXT_PUBLIC_RH_LAUNCHPAD),
-    hook: addr(process.env.NEXT_PUBLIC_RH_HOOK),
-    router: addr(process.env.NEXT_PUBLIC_RH_ROUTER),
-    gaslessRouter: addr(process.env.NEXT_PUBLIC_RH_GASLESS_ROUTER),
-    feeRouter: addr(process.env.NEXT_PUBLIC_RH_FEE_ROUTER),
-    referralRegistry: addr(process.env.NEXT_PUBLIC_RH_REFERRAL_REGISTRY),
-    lockedLP: addr(process.env.NEXT_PUBLIC_RH_LOCKED_LP),
-    quotePricer: addr(process.env.NEXT_PUBLIC_RH_QUOTE_PRICER),
-    quoteProbe: addr(process.env.NEXT_PUBLIC_RH_QUOTE_PROBE),
-    migration: addr(process.env.NEXT_PUBLIC_RH_MIGRATION),
+    launchpad: addr(process.env.NEXT_PUBLIC_RH_LAUNCHPAD, "0xe43F360DC65C9Ba1B7a835BDaa10Fb31f6DC52E5"),
+    hook: addr(process.env.NEXT_PUBLIC_RH_HOOK, "0xF681588d62C3cf2e8e0659887130fa7Ea35c6044"),
+    router: addr(process.env.NEXT_PUBLIC_RH_ROUTER, "0xa689375C1980f2b5938d06659F4d9dC314ab3678"),
+    gaslessRouter: addr(process.env.NEXT_PUBLIC_RH_GASLESS_ROUTER, "0xa689375C1980f2b5938d06659F4d9dC314ab3678"),
+    feeRouter: addr(process.env.NEXT_PUBLIC_RH_FEE_ROUTER, "0x2EDf61eD533E57bBa79445472762de95DE8AE8DF"),
+    referralRegistry: addr(process.env.NEXT_PUBLIC_RH_REFERRAL_REGISTRY, "0x189ea5a8130a05D0C1AFC1c871bB355FC8BF7aF4"),
+    lockedLP: addr(process.env.NEXT_PUBLIC_RH_LOCKED_LP, "0xe3F8FeefF2ad0d6f4055cD90f91518C1331E1c4D"),
+    quotePricer: addr(process.env.NEXT_PUBLIC_RH_QUOTE_PRICER, "0x95b6FeCef5E94254A4e676ADc6af91fDd70e0f27"),
+    quoteProbe: addr(process.env.NEXT_PUBLIC_RH_QUOTE_PROBE, "0x47134F86CE3b3F8aD72a9399006Eea99C4E1a5F6"),
+    migration: addr(process.env.NEXT_PUBLIC_RH_MIGRATION, "0x0fCD7FE98Eed9234A1d1c2aAb6AEec210809747b"),
     antiSnipe: addr(process.env.NEXT_PUBLIC_RH_ANTI_SNIPE),
     trampWallManager: addr(process.env.NEXT_PUBLIC_RH_TRAMP_WALL_MANAGER),
-    marketLens: addr(process.env.NEXT_PUBLIC_RH_MARKET_LENS),
+    marketLens: addr(process.env.NEXT_PUBLIC_RH_MARKET_LENS, "0x9576996a4bd1700572a9D3bF5098fb6B5069bD06"),
     loginGate: addr(process.env.NEXT_PUBLIC_RH_LOGIN_GATE),
     usdgDepositNotifier: addr(process.env.NEXT_PUBLIC_RH_USDG_DEPOSIT_NOTIFIER),
     curveFeeVault: addr(process.env.NEXT_PUBLIC_RH_CURVE_FEE_VAULT),
-    creatorFeeHarvest: addr(process.env.NEXT_PUBLIC_RH_CREATOR_FEE_HARVEST),
-    permitForwarder: addr(process.env.NEXT_PUBLIC_RH_PERMIT_FORWARDER),
+    creatorFeeHarvest: addr(process.env.NEXT_PUBLIC_RH_CREATOR_FEE_HARVEST, "0x65E6D7a4935c28036450121d7a608d071Ed388ba"),
+    permitForwarder: addr(process.env.NEXT_PUBLIC_RH_PERMIT_FORWARDER, "0x346e7ff1c9d088113a659b5b0ac2c2f4efd52b4b"),
     ...RH_V4,
     defaultQuote: STRATEGY_TOKEN.address,
     usdg: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
     usdgDecimals: decimalsEnv(process.env.NEXT_PUBLIC_RH_USDG_DECIMALS, 6),
     paymaster: addr(process.env.NEXT_PUBLIC_RH_PAYMASTER), // PREPAY_VERSION=5 + stake checked server-side; no legacy default
-    fromBlock: BigInt(process.env.NEXT_PUBLIC_RH_FROM_BLOCK || "0"),
+    fromBlock: BigInt(process.env.NEXT_PUBLIC_RH_FROM_BLOCK || "118816228"),
   },
   // Testnet — source of truth: contracts/deployments/rh-testnet-46630.json (v6, deployed Nov 11–12; v6 startBlock
   // 152153375). fromBlock stays at the v5 start (142064001) so older private-launch announcements and claims are still
