@@ -5,6 +5,15 @@
  * The popup's button and the floating chip (components/turbo/TurboLanding) both read this state.
  */
 import type { AddCashInfo, AddCashStep } from "@/lib/lighter/deposit";
+import { REJECTED_MSG } from "@/lib/aa/relayOp";
+
+/** The catch-all line when the transfer stopped before any cash moved (a money fact the player needs to retry safely). */
+export const NOT_SENT_MSG = "That didn't go through. Nothing was sent. Try again.";
+/** Player copy for a failed transfer: Turbo wording, and the catch-all says nothing moved when that's known. Pure, tested. */
+export function landingErrorCopy(shown: string, unsent: boolean): string {
+  const t = shown.replace(/Adding cash to Lighter/g, "Moving to Turbo").replace(/Lighter/g, "Turbo");
+  return t === REJECTED_MSG && unsent ? NOT_SENT_MSG : t;
+}
 
 export type Landing = {
   step: AddCashStep | null;
@@ -12,7 +21,10 @@ export type Landing = {
   landsAt?: number;
   /** what Turbo actually credited, once it landed */
   creditedUsd?: number;
+  /** player copy (already through playerError), never raw */
   error?: string;
+  /** the failure moved no cash */
+  nothingSent?: boolean;
   /** done or failed at (ms epoch); the chip shows the result for a bit */
   endedAt?: number;
 };
@@ -37,7 +49,14 @@ export async function startLanding(run: (onStep: (s: AddCashStep, info?: AddCash
     });
     state = { step: "done", creditedUsd: state.creditedUsd, endedAt: Date.now() };
   } catch (e) {
-    state = { step: null, error: e instanceof Error ? e.message : String(e), endedAt: Date.now() };
+    // the player copy is made here, from the real error (maker 2026-11-20: a $6 Turbo add only said "That didn't go
+    // through" because the popup re-wrapped e.message and lost its code / notSent; the toast showed raw text)
+    const at = state.step;
+    const { playerError } = await import("@/lib/playerError");
+    const { nothingSent } = await import("@/lib/lighter/deposit");
+    const unsent = nothingSent(e);
+    if (typeof console !== "undefined") console.warn("[disciple] turbo transfer failed", { step: at, nothingSent: unsent, message: String((e as Error)?.message ?? e).slice(0, 300), data: (e as { data?: unknown })?.data, status: (e as { status?: unknown })?.status });
+    state = { step: null, error: landingErrorCopy(playerError(e), unsent), nothingSent: unsent, endedAt: Date.now() };
   }
   emit();
   notifyLanded(state);

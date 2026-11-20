@@ -171,7 +171,8 @@ export function ToTurbo({ balUsd, feeUsd, min, onMoved }: { balUsd: number; feeU
       const sign = async (m: string) => { const x = await aaSignMessage(m); if (!x) throw new Error("Your wallet didn't sign."); return x.sig; };
       return lighterAddCash(lighterFetcher(owner.address.toLowerCase()), n, sign, onStep);
     });
-    if (r.error) { const t = playerError(new Error(r.error)); setErr(t === CANCELLED_MSG ? t : t.replace(/Adding cash to Lighter/g, "Moving to Turbo").replace(/Lighter/g, "Turbo")); }
+    // r.error is already player copy, made from the real error in lib/turbo/landing
+    if (r.error) setErr(r.error);
     else setAmt("");
     onMoved();
   };

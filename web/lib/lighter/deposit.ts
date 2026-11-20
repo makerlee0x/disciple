@@ -34,30 +34,47 @@ async function post<T>(f: Fetcher, op: string, extra: Record<string, unknown> = 
   return j;
 }
 
+/** Tags an error thrown before the cash-out reached the relay: nothing left the player's cash. */
+function notSent(e: unknown): Error {
+  const x = e instanceof Error ? e : new Error(String(e));
+  return Object.assign(x, { notSent: true });
+}
+/** True when a failed transfer moved nothing: it stopped before the send, or the relay refused it unsent. Pure, tested. */
+export function nothingSent(e: unknown): boolean {
+  const x = e as { notSent?: unknown; data?: { notSent?: unknown } } | null;
+  return x?.notSent === true || x?.data?.notSent === true;
+}
+
 /** Moves `usd` of cash into Lighter and finishes set-up. `onStep` reports progress; resolves with the Lighter step. */
 export async function lighterAddCash(f: Fetcher, usd: number, signMessage: (msg: string) => Promise<string>, onStep: (s: AddCashStep, info?: AddCashInfo) => void = () => {}): Promise<LighterStep> {
   const owner = gaslessSigner();
-  if (!owner) throw new Error("Sign in first.");
+  if (!owner) throw notSent(new Error("Sign in first."));
   onStep("address");
-  const [{ address, minNew, min, chainId, etaSec, outUsd }, before] = await Promise.all([
-    post<{ address: Address; minNew: number; min: number; chainId?: number | null; etaSec?: number; outUsd?: number }>(f, "deposit-address", { usd }),
-    lighterStatus(f) as Promise<{ step: LighterStep; collateral?: string }>,
-  ]);
-  // 2026-11-18: a testnet build sent test USDG to a real Lighter main deposit address. Never send across chains.
-  if (!chainId || chainId !== ACTIVE_CHAIN.id) throw new Error(`Turbo cash can't be added from this build (${ACTIVE_CHAIN.name}).`);
-  const floor = before.step === "deposit" ? minNew : min;
-  if (!(usd >= floor)) throw new Error(`Add at least $${floor}.`);
+  // everything up to the relay call moves nothing, so its failures are tagged notSent (lib/turbo/landing says so)
+  const prep = await (async () => {
+    const [{ address, minNew, min, chainId, etaSec, outUsd }, before] = await Promise.all([
+      post<{ address: Address; minNew: number; min: number; chainId?: number | null; etaSec?: number; outUsd?: number }>(f, "deposit-address", { usd }),
+      lighterStatus(f) as Promise<{ step: LighterStep; collateral?: string }>,
+    ]);
+    // 2026-11-18: a testnet build sent test USDG to a real Lighter main deposit address. Never send across chains.
+    if (!chainId || chainId !== ACTIVE_CHAIN.id) throw new Error(`Turbo cash can't be added from this build (${ACTIVE_CHAIN.name}).`);
+    const floor = before.step === "deposit" ? minNew : min;
+    if (!(usd >= floor)) throw new Error(`Add at least $${floor}.`);
 
-  onStep("sending");
-  const { quoteGaslessWithdraw, signGaslessWithdraw, submitGaslessWithdraw } = await import("@/lib/trade/gaslessWithdrawClient");
-  const { privyIdentityToken } = await import("@/lib/aa/session");
-  const q0 = await quoteGaslessWithdraw({ signer: owner.address });
-  const amount = parseUnits(usd.toFixed(2), q0.usdgDecimals);
-  const q = await quoteGaslessWithdraw({ amount, signer: owner.address });
-  if (amount < q.minAmount) throw new Error(`Add at least $${Number(formatUnits(q.minAmount, q.usdgDecimals)).toFixed(2)}.`);
-  const tokenP = privyIdentityToken().catch(() => null);
-  const req = await signGaslessWithdraw(publicClient() as never, owner, { amount, destination: address, quote: q });
-  await submitGaslessWithdraw(req, "/api/gasless", fetch, await tokenP);
+    onStep("sending");
+    const { quoteGaslessWithdraw, signGaslessWithdraw, submitGaslessWithdraw } = await import("@/lib/trade/gaslessWithdrawClient");
+    const { privyIdentityToken } = await import("@/lib/aa/session");
+    const q0 = await quoteGaslessWithdraw({ signer: owner.address });
+    const amount = parseUnits(usd.toFixed(2), q0.usdgDecimals);
+    const q = await quoteGaslessWithdraw({ amount, signer: owner.address });
+    if (amount < q.minAmount) throw new Error(`Add at least $${Number(formatUnits(q.minAmount, q.usdgDecimals)).toFixed(2)}.`);
+    const tokenP = privyIdentityToken().catch(() => null);
+    const req = await signGaslessWithdraw(publicClient() as never, owner, { amount, destination: address, quote: q });
+    return { req, token: await tokenP, submitGaslessWithdraw, before, etaSec, outUsd };
+  })().catch((e) => { throw notSent(e); });
+  // the relay's GaslessError carries data.notSent itself
+  await prep.submitGaslessWithdraw(prep.req, "/api/gasless", fetch, prep.token);
+  const { before, etaSec, outUsd } = prep;
 
   // Lighter credits it within a few minutes; the account (or its cash) showing up is the signal
   // outUsd is only set on the Relay route (Lighter main); Lighter on our own chain has no swap leg
