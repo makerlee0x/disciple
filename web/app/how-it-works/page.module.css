@@ -170,11 +170,6 @@
 .ghost { background: rgba(10, 12, 18, .7); border: 1px solid rgba(169, 196, 255, .35); color: #FFFFFF; }
 .ghost:hover { border-color: rgba(169, 196, 255, .7); color: #FFFFFF; }
 .sm { min-height: 46px; font-size: 18px; }
-.footer { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--hair); display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; font-size: 13px; color: #9095A0; }
-.footer a { color: #9095A0; text-decoration: none; }
-.footer a:hover { color: #FFFFFF; }
-.footLinks { display: flex; gap: 16px; }
-.sp { flex: 1; }
 
 
 @media (max-width: 760px) {

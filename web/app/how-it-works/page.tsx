@@ -7,7 +7,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { withBase } from "@/lib/base-path";
-import { HIW_DIFFS, HIW_DIFFS_TAG, HIW_FINAL, HIW_GAMES, HIW_H1, HIW_HOST, HIW_META, HIW_ORBIT, HIW_PRO, HIW_ROUTES, type HiwGame } from "@/content/how-it-works";
+import { HIW_DIFFS, HIW_DIFFS_TAG, HIW_GAMES, HIW_H1, HIW_HOST, HIW_META, HIW_ORBIT, HIW_PRO, HIW_ROUTES, type HiwGame } from "@/content/how-it-works";
 import { PRO_HUD_ENABLED } from "@/lib/features";
 import ModeTabs from "./ModeTabs";
 import s from "./page.module.css";
@@ -194,18 +194,6 @@ export default function HowItWorksPage() {
         games={HIW_GAMES.map((g) => ({ id: g.id, tab: g.tab, tag: g.tag, art: withBase(g.art), tone: g.tone, body: <Game g={g} /> }))}
         pro={{ h1: HIW_PRO.h1, body: <Pro /> }}
       />
-
-      <footer className={s.footer}>
-        {/* eslint-disable-next-line @next/next/no-img-element -- static SVG lockup, no optimisation needed */}
-        <img src={withBase("/brand/disciple-lockup-horizontal-light.svg")} alt={HIW_FINAL.logoAlt} width={146} height={31} loading="lazy" />
-        <span className={s.sp} />
-        <span className={s.footLinks}>
-          <Link href="/terms">Terms</Link>
-          <Link href="/privacy">Privacy</Link>
-          <Link href="/risk">Risk</Link>
-          <Link href="/security">Security</Link>
-        </span>
-      </footer>
     </main>
   );
 }
