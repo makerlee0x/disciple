@@ -183,6 +183,7 @@
     "@noble/curves": "^1.9.0",
     "@privy-io/react-auth": "^3.50.0",
     "@tensorflow/tfjs": "^4.22.0",
+    "@vercel/analytics": "^2.0.1",
     "@vercel/blob": "^2.9.0",
     "@wallet-standard/app": "^1.1.1",
     "@wallet-standard/base": "^1.1.1",
