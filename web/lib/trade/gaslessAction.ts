@@ -43,11 +43,14 @@ export const SEL = {
   vaultClaimReferrerFeesFor: toFunctionSelector("claimReferrerFeesFor(address,address,address[])"),
   claimFor: toFunctionSelector("claimFor(address,address)"),
   setCreatorFeeRecipientBySig: toFunctionSelector("setCreatorFeeRecipientBySig(address,address,uint256,bytes)"),
+  /** FeeRouter and CurveFeeVault share this signature: a past creator's unclaimed fees move to the current creator. */
+  sweepPastCreatorFees: toFunctionSelector("sweepPastCreatorFees_1311(address,address)"),
 } as const;
 
 /** Public claim selectors (anyone may send; the money goes where the contract says). */
 export const PUBLIC_CLAIM_SELECTORS: readonly Hex[] = [
   SEL.claimCreatorFees, SEL.claimCreatorTokenFees, SEL.claimReferrerFeesFor_2143, SEL.vaultClaimReferrerFeesFor, SEL.claimFor,
+  SEL.sweepPastCreatorFees,
 ];
 
 /** Conservative gas units for the quoted USDG fee (quoted fee is kept; unused gas is not refunded). */
@@ -145,7 +148,8 @@ const isSet = (a?: string) => !!a && !/^0x0{40}$/i.test(a);
 function isClaimTarget(s: Hex, to: Address, extra?: ReadonlySet<string>): boolean {
   const d = deployment();
   const known = (a?: string) => isSet(a) && eq(a!, to);
-  if (extra?.has(to.toLowerCase())) return s === SEL.claimCreatorFees || s === SEL.vaultClaimReferrerFeesFor;
+  if (extra?.has(to.toLowerCase())) return s === SEL.claimCreatorFees || s === SEL.vaultClaimReferrerFeesFor || s === SEL.sweepPastCreatorFees;
+  if (s === SEL.sweepPastCreatorFees) return known(d.feeRouter) || known(d.curveFeeVault);
   if (s === SEL.claimCreatorFees) return known(d.feeRouter) || known(d.curveFeeVault) || known(d.hook);
   if (s === SEL.claimCreatorTokenFees || s === SEL.claimReferrerFeesFor_2143) return known(d.feeRouter);
   if (s === SEL.vaultClaimReferrerFeesFor) return known(d.curveFeeVault);
@@ -169,7 +173,7 @@ export function isRelayableCall(kind: ActionKind, c: ActionCall, extra?: Readonl
 /** A public claim's coin (first address argument), for the server's own-vault / own-hook read. */
 export function claimTokenArg(c: ActionCall): Address | null {
   const s = selOf(c.data);
-  if (s !== SEL.claimCreatorFees || c.data.length < 74) return null;
+  if ((s !== SEL.claimCreatorFees && s !== SEL.sweepPastCreatorFees) || c.data.length < 74) return null;
   return (`0x${c.data.slice(34, 74)}`) as Address;
 }
 

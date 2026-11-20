@@ -26,6 +26,8 @@ const claimAbi = parseAbi([
   "function claimCreatorFees(address token) returns (uint256)",
   "function claimReferrerFees(address quote) returns (uint256)",
   "function claimCreatorTokenFees(address token) returns (uint256)",
+  // moves a past creator's unclaimed fees to the current creator (pays nobody)
+  "function sweepPastCreatorFees_1311(address token, address past) returns (uint256, uint256)",
 ]);
 const notifierAbi = parseAbi(["function deposit(address wallet, uint256 amount) returns (uint256)", "function withdraw(uint256[] ids) returns (uint256)"]);
 /** Σ amount of the batch's notifier.deposit calls (the only approve amount to the notifier this policy accepts). */

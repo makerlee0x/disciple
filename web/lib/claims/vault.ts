@@ -24,6 +24,7 @@ export const curveFeeVaultAbi = parseAbi([
   "function anonLauncher() view returns (address)",
   "function sigNonces(address owner) view returns (uint256)",
   "function claimCreatorFees(address token) returns (uint256)",
+  "function sweepPastCreatorFees_1311(address token, address past) returns (uint256)",
   "function claimReferrerFees(address quote, address[] settleTokens) returns (uint256)",
   "function claimCreatorFeesAsStealth(address token, address to) returns (uint256)",
   "struct ClaimReq { address owner; address[] tokens; address to; uint256 relayerFeeBps; uint256 deadline; bytes sig; }",
