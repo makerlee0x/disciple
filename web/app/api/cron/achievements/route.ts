@@ -1,6 +1,7 @@
 /**
  * GET /api/cron/achievements[?wallet=0x…][&dry=1] — V1 achievements engine tick (lib/server/achievements.ts).
- * Scheduled in vercel.json (see the PR note: needs lee's OK for the schedule / Upstash command volume).
+ * Scheduled in vercel.json every 10 minutes as the BACKUP (maker 2026-11-20: was every 2 min, too heavy). Relayed trades
+ * re-score their own wallet right away (lib/server/achievements kickWallet); this tick catches everything else.
  *  - default: trade index catch-up → Launched/GraduatedToV4 scan → seed all wallets once per rules version (backfill) →
  *    re-score dirty wallets. 45 s budget; `done: false` ⇒ more work queued (the next tick continues).
  *  - wallet=0x…: re-score just that wallet now (manual fix-up). dry=1: compute only, write nothing.

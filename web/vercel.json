@@ -8,12 +8,12 @@
   "crons": [
     { "path": "/api/cron/poke-pricer", "schedule": "* * * * *" },
     { "path": "/api/cron/name-lock", "schedule": "*/5 * * * *" },
-    { "path": "/api/cron/achievements", "schedule": "*/2 * * * *" },
+    { "path": "/api/cron/achievements", "schedule": "*/10 * * * *" },
     { "path": "/api/cron/push", "schedule": "*/5 * * * *" },
     { "path": "/api/cron/live-activity", "schedule": "* * * * *" },
     { "path": "/api/cron/route-creator-fees", "schedule": "17 * * * *" },
     { "path": "/api/cron/release-boosts", "schedule": "37 * * * *" },
-    { "path": "/api/cron/lp-flush", "schedule": "* * * * *" },
+    { "path": "/api/cron/lp-flush", "schedule": "*/12 * * * *" },
     { "path": "/api/cron/gas-refill", "schedule": "*/10 * * * *" },
     { "path": "/api/lighter/buzz", "schedule": "* * * * *" }
   ]

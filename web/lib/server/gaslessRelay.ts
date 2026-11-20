@@ -251,6 +251,9 @@ export async function relayGaslessTrade(raw: unknown, d: GaslessDeps = {}): Prom
   if (result.success && ref && refDone !== REFERRAL_DONE) {
     gaslessReferralHooks.after(() => gaslessReferralHooks.attach({ trader: q.signer, referrer: ref, alreadyDone: refDone }));
   }
+  // Trophies / XP for this trader now, instead of waiting for a fast cron (maker 2026-11-20). Loaded lazily so the
+  // achievements engine never sits on the relay's cold path; afterTrade never awaits it and swallows errors.
+  if (result.success) gaslessReferralHooks.after(async () => (await import("./achievements")).kickWallet(q.signer));
   return result;
 }
 

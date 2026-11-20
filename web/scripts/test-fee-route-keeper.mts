@@ -99,3 +99,26 @@ test("the cron only routes launch-list pairs, estimates gas, and sends with the 
   assert.match(route, /GAS_PER_RUN/);
   assert.doesNotMatch(route, /for \(const c of past\.get\(token\)/, "no unbounded past-creator loop");
 });
+
+test("dust rule: send at $2+ waiting or after 24 h; otherwise start the clock and wait", async () => {
+  const { routeIsWorthIt, routeMinConfig, ROUTE_MIN } = await import("../lib/feeRouteKeeper");
+  const cfg = routeMinConfig({});
+  assert.equal(cfg.minUsd, ROUTE_MIN.USD);
+  assert.equal(cfg.maxWaitMs, 24 * 3_600_000);
+  assert.deepEqual(routeMinConfig({ FEE_ROUTE_MIN_USD: "5", FEE_ROUTE_MAX_WAIT_HOURS: "6" }), { minUsd: 5, maxWaitMs: 6 * 3_600_000 });
+  assert.equal(routeMinConfig({ FEE_ROUTE_MIN_USD: "junk" }).minUsd, ROUTE_MIN.USD);
+  const now = 1_000_000_000_000, one = BigInt(1);
+  const base = { now, ...cfg };
+  assert.equal(routeIsWorthIt({ ...base, quote: BigInt(0), rockets: BigInt(0), quoteUsd: 0, waitingSince: null }).send, false);
+  assert.equal(routeIsWorthIt({ ...base, quote: one, rockets: BigInt(0), quoteUsd: 0.01, waitingSince: null }).send, false, "1¢ never gets a 1¢ tx");
+  assert.equal(routeIsWorthIt({ ...base, quote: one, rockets: BigInt(0), quoteUsd: 1.99, waitingSince: null }).send, false);
+  assert.equal(routeIsWorthIt({ ...base, quote: one, rockets: BigInt(0), quoteUsd: 2, waitingSince: null }).send, true);
+  assert.equal(ROUTE_MIN.USD, 2);
+  assert.equal(routeIsWorthIt({ ...base, quote: one, rockets: BigInt(0), quoteUsd: 0.2, waitingSince: now - 23 * 3_600_000 }).send, false);
+  assert.equal(routeIsWorthIt({ ...base, quote: one, rockets: BigInt(0), quoteUsd: 0.2, waitingSince: now - 24 * 3_600_000 }).send, true);
+  // rocket tokens only (no $ price): cleared once a day
+  assert.equal(routeIsWorthIt({ ...base, quote: BigInt(0), rockets: one, quoteUsd: 0, waitingSince: null }).send, false);
+  assert.equal(routeIsWorthIt({ ...base, quote: BigInt(0), rockets: one, quoteUsd: null, waitingSince: now - 25 * 3_600_000 }).send, true);
+  const route = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../app/api/cron/route-creator-fees/route.ts"), "utf8");
+  assert.ok(route.indexOf("routeIsWorthIt(") < route.indexOf("writeContract"), "dust check before sending");
+});

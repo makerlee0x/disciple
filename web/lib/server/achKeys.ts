@@ -31,6 +31,8 @@ export const ACH = {
   /** seeding progress for a rules version: index into the coins list */
   seed: (v: number) => `${ns()}:seed:${v}`,
   lock: () => `${ns()}:lock`,
+  /** SET NX debounce for kickWallet (re-score one wallet right after its relayed trade) */
+  kick: (w: string) => `${ns()}:kick:${w.toLowerCase()}`,
   /** JSON { w, at } — the account a hidden coin's stealth owner credited its launch to (private: never served) */
   anonHost: (c: string) => `${ns()}:anonhost:${c.toLowerCase()}`,
   /** set of hidden coins credited to this account */

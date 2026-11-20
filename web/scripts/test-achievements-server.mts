@@ -151,3 +151,36 @@ test("KV namespaced by chain id: testnet (46630) state never carries to mainnet 
   const keys = [ACH.dirty(), ACH.unlocks(w), ACH.seen("first_blessing", w), ACH.progress(w), ACH.coin(C1), ACH.coins(), ACH.cursor(C1), ACH.feed(), ACH.count("x"), ACH.ver(), ACH.seed(1), ACH.lock()];
   for (const k of keys) assert.ok(k.startsWith("ach:46630:"), k);
 });
+
+test("kickWallet: right after a trade it scores only that wallet, once per debounce window", async () => {
+  const { kickWallet } = await import("../lib/server/achievements");
+  const s = kv();
+  const W = "0x" + "7".repeat(40), OTHER = "0x" + "8".repeat(40);
+  let indexed = 0;
+  const index = async () => { indexed++; };
+  await s.zadd(ACH.dirty(), [{ score: Date.now(), member: `${W}|t1` }, { score: Date.now(), member: `${OTHER}|t2` }]);
+  const r = await kickWallet(W.toUpperCase().replace("0X", "0x"), { s, index });
+  assert.equal(r.scored, true);
+  assert.equal(indexed, 1, "catches the trade index up first");
+  const left = await s.zrange(ACH.dirty(), 100);
+  assert.ok(!left.some((m) => m.startsWith(W)), "this wallet is no longer dirty");
+  assert.ok(left.some((m) => m.startsWith(OTHER)), "other wallets wait for their own kick or the cron");
+  // a second trade inside the window: debounced (it stays dirty for the next kick / the cron)
+  await s.zadd(ACH.dirty(), [{ score: Date.now(), member: `${W}|t3` }]);
+  const again = await kickWallet(W, { s, index });
+  assert.equal(again.scored, false);
+  assert.equal(indexed, 1);
+  assert.ok((await s.zrange(ACH.dirty(), 100)).some((m) => m === `${W}|t3`));
+  // junk never throws
+  assert.deepEqual(await kickWallet("nope", { s, index }), { scored: false, fresh: 0 });
+  await s.zrem(ACH.dirty(), `${W}|t3`, `${OTHER}|t2`);
+});
+
+test("schedules: achievements cron is the 10-minute backup, relayed trades kick their wallet", async () => {
+  const { readFileSync } = await import("node:fs");
+  const here = new URL(".", import.meta.url).pathname;
+  const vercel = JSON.parse(readFileSync(join(here, "../vercel.json"), "utf8")) as { crons: { path: string; schedule: string }[] };
+  assert.equal(vercel.crons.find((c) => c.path === "/api/cron/achievements")?.schedule, "*/10 * * * *");
+  const relay = readFileSync(join(here, "../lib/server/gaslessRelay.ts"), "utf8");
+  assert.match(relay, /kickWallet\(q\.signer\)/);
+});
