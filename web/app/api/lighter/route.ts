@@ -15,6 +15,8 @@
  *                                         Chain: Lighter RH's intent address, or on Lighter main a Relay deposit address
  *                                         for exactly `usd` (USDC lands on the wallet's Arbitrum intent address)
  *   deposit-status                      → { state: none|processing|completed|unknown }
+ *   history                             → { account, items, missing }  the player's own Lighter record: fills, deposits,
+ *                                         withdrawals, transfers (lib/server/lighter/history), for the Turbo pill's Advanced tab
  *   withdraw-info                       → { usd, fee, min }  Turbo cash that can go back to Cash now (lib/server/lighter/withdraw)
  *   withdraw-start { usd, to, raw? }    → { message, usd, fee }  the player's wallet signs it (Lighter needs the owner's L1 sig).
  *                                         Lighter main: through Relay back to Cash, or raw = USDC to the player's own wallet (test)
@@ -32,6 +34,7 @@ import { OT_MS } from "@/lib/duel/rules";
 import { armMatch, buzzer, sleep } from "@/lib/server/lighter/match";
 import { depositAddress, depositChain, depositMins, depositStatus } from "@/lib/server/lighter/bridge";
 import { finishWithdraw, startWithdraw, withdrawable } from "@/lib/server/lighter/withdraw";
+import { history } from "@/lib/server/lighter/history";
 import { noteTurboIn, noteTurboOut } from "@/lib/server/cashHistory";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
@@ -119,6 +122,8 @@ export async function POST(req: Request) {
         return out(200, { ok: true, ...(await finishSigned(cfg, me.pid, b.op === "key-finish" ? "key" : "approve", b.sig)) });
       }
       case "tier": await setTier(cfg, me.pid); return out(200, { ok: true });
+      // read-only, so it runs in every region: a player can always see what happened to their money
+      case "history": return out(200, { ok: true, ...(await history(cfg, me.pid)) });
       case "deposit-address": {
         const d = await depositAddress(me.pid, Number(b.usd) || undefined);
         await noteTurboIn(me.pid, d.address);   // the Flight log labels cash sent here as Turbo cash

@@ -9,6 +9,7 @@
  */
 import { lighterFetcher, lighterWanted } from "@/lib/lighter/duel";
 import { onCashFuel, type CashFuel } from "./cashFuel";
+import { turboBlockedCached } from "./region";
 
 export type TurboCash = {
   /** Lighter + Nova, in dollars */
@@ -35,6 +36,14 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let offFuel: (() => void) | null = null;
 let serverOff = false;
 let dev = false;
+/** the Turbo pill (lib/turbo/turboPill) is showing: read Lighter even on Simulator, so the balance shows before the
+ *  player flips to Real money. Never in a blocked country. */
+let eager = 0;
+export function wantTurboRead(): () => void {
+  eager++; void refreshTurboCash();
+  return () => { eager = Math.max(0, eager - 1); };
+}
+const reads = () => lighterWanted() || (eager > 0 && !turboBlockedCached());
 
 function snap(): TurboCash {
   return { usd: lighter.usd + (fuel?.usd ?? 0), canAdd: lighter.on, canWithdraw: !!lighter.out && lighter.step === "ready", minIn: (lighter.step === "deposit" ? lighter.mins?.minNew : lighter.mins?.min) ?? 5, lighterStep: lighter.step, fuel };
@@ -45,7 +54,7 @@ const emit = () => { const s = snap(); subs.forEach((cb) => cb(s)); };
 export async function refreshTurboCash(): Promise<void> {
   const w = wallet;
   if (dev) return;
-  if (!w || serverOff || !lighterWanted()) { if (lighter.on || lighter.usd) { lighter = { usd: 0, step: null, on: false }; emit(); } return; }
+  if (!w || serverOff || !reads()) { if (lighter.on || lighter.usd) { lighter = { usd: 0, step: null, on: false }; emit(); } return; }
   try {
     const r = await lighterFetcher(w)("/api/lighter");
     if (r.status === 404) { serverOff = true; lighter = { usd: 0, step: null, on: false }; emit(); return; }

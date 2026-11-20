@@ -85,7 +85,7 @@ export const CASH_COPY = {
 
 const PICKS = [["25%", 0.25], ["40%", 0.4], ["Half", 0.5], ["All", 1]] as const;
 
-function Amount({ v, big }: { v: number; big?: boolean }) {
+export function Amount({ v, big }: { v: number; big?: boolean }) {
   const [w, c] = usd2(v).split(".");
   return <div className={`cx-amt${big ? "" : " sm"}`}>{w}<small>.{c}</small></div>;
 }
@@ -131,7 +131,7 @@ function CardFund({ addr, empty, onPaid, onClose, onSend }: { addr: string; empt
 
 /** To Turbo: cash → the player's Lighter account (lighterAddCash: gasless cash-out to the Lighter deposit address, then
  *  Lighter set-up runs on its own). The cash-out network fee comes off the amount, so "Lands in Turbo cash" is net. */
-function ToTurbo({ balUsd, feeUsd, min, onMoved }: { balUsd: number; feeUsd: number; min: number; onMoved: () => void }) {
+export function ToTurbo({ balUsd, feeUsd, min, onMoved }: { balUsd: number; feeUsd: number; min: number; onMoved: () => void }) {
   const [amt, setAmt] = useState("");
   const [step, setStep] = useState<keyof typeof CASH_COPY.turboSteps | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -184,7 +184,7 @@ function ToTurbo({ balUsd, feeUsd, min, onMoved }: { balUsd: number; feeUsd: num
 
 /** To Cash: Turbo cash → Cash (lighterWithdraw: a Lighter fast withdrawal to the player's cash address). Lighter's
  *  transfer fee is charged on top, so "Lands in Cash" is the amount typed and the fee row shows what else comes off. */
-function FromTurbo({ cashAddr, onMoved }: { cashAddr: string; onMoved: () => void }) {
+export function FromTurbo({ cashAddr, onMoved }: { cashAddr: string; onMoved: () => void }) {
   const [amt, setAmt] = useState("");
   const [info, setInfo] = useState<{ usd: number; fee: number; min: number } | null>(null);
   const [busy, setBusy] = useState(false);

@@ -5,6 +5,7 @@
  * server call (lib/duel/client), feeds live BTC from the Turbo adapter, and passes the room's events through.
  * Practice bots run inside the engine and are always labelled as bots.
  */
+import { mountTurboPill } from "@/lib/turbo/turboPill";
 import { useEffect, useRef, useState } from "react";
 import LobbySettings from "@/components/turbo/LobbySettings";
 import { getTurboAdapter } from "@/lib/turbo";
@@ -324,16 +325,18 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
     };
 
     let offSwitch = () => {};
+    let offPill = () => {};   // Turbo cash pill in the lobby header (lib/turbo/turboPill)
     loadEngine().then(() => {
       if (dead || !ref.current || !window.DuelEngine) return;
       api = window.DuelEngine.mount(ref.current, host);
       if (!guest) offSwitch = mountRealSwitch(ref.current);
+      if (!guest) offPill = mountTurboPill(ref.current);
       void refreshMe();
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load the duel. Refresh to try again."; });
     setDuelGuest(guest);
     const offPrivy = guest ? () => {} : onPrivy(() => { void refreshMe(); });
 
-    return () => { dead = true; offSwitch(); setDuelGuest(false); stopQueue(); unfollow(); stopPrice(); offPrivy(); api?.destroy(); };
+    return () => { dead = true; offSwitch(); offPill(); setDuelGuest(false); stopQueue(); unfollow(); stopPrice(); offPrivy(); api?.destroy(); };
   }, []);
   return <><GeoBanner /><div ref={ref} /><LobbySettings mode="duel" open={gear} onClose={() => setGear(false)} /></>;
 }
