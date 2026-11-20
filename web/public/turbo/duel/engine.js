@@ -1426,8 +1426,10 @@ function mount(root,host){
   const lvl=n=>LVS.find(l=>l.n===n)||null;
   const pctOf=l=>"+"+(l.pct!=null?l.pct:Math.round(l.goal/l.fuel*1000)/10)+"%";
   let cFree={fuel:LVS.length?LVS[LVS.length-1].fuel:100,gear:MAXG}, cFreeSet=false;
-  function climbChip(){ const u=CL.state().unlocked, l=lvl(u);
-    $("lRat").textContent=u>=FREE?"FREE":"LVL "+u; $("lRec").textContent=l?`${m2(l.fuel)} · ${gx(l.gear)}`:`${gx(MAXG)} MAX`; }
+  // the level sits under the CLIMB title, centred (maker 2026-11-20: "CLIMB / LEVEL 1", no stake · gear line); the
+  // top-right chip is hidden in Climb (.duel-root.climb .me-chip)
+  function climbChip(){ const u=CL.state().unlocked;
+    const t=root.querySelector(".pre-title"); if(t) t.innerHTML=`CLIMB<small class="ptl">${u>=FREE?"FREE MODE":"LEVEL "+u}</small>`; }
   function climbHome(err){ clearInterval(pwIv); if(CLR&&CL.lighter) CL.lighter.end(); M=null; CLR=null; show("climb"); climbChip();
     const u=CL.state().unlocked, rows=[];
     const fr=u>=FREE;
@@ -1577,7 +1579,7 @@ function mount(root,host){
       $("cAgain").addEventListener("click",()=>{ ensureAudio(); if(run.free) climbPlay(FREE); else if(up&&n>=FREE) climbFreeSetup(); else climbPlay(up?n:run.level); });
     },G.nuked&&!G.me.fuel?1400:700); }
   if(CL){
-    const sty=document.createElement("style"); sty.textContent=CLIMB_CSS; st.after(sty); offs.push(()=>sty.remove());
+    const sty=document.createElement("style"); sty.textContent=CLIMB_CSS+".duel-root.climb .me-chip{display:none}.duel-root .pre-title{text-align:center}.duel-root .pre-title .ptl{display:block;margin-top:6px;font:800 16px/1 var(--f-game),sans-serif;letter-spacing:.08em;color:var(--gold)}"; st.after(sty); offs.push(()=>sty.remove());
     const pnl=root.querySelector(".panel"); pnl.insertAdjacentHTML("beforeend",'<div class="pane" id="climb" hidden></div><div class="pane" id="cres" hidden></div>');
     PANES.push("climb","cres");
     $("chatB").insertAdjacentHTML("afterend",'<button class="mute chatb land" id="landB" type="button" hidden>LAND</button>');
