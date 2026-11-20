@@ -1,6 +1,8 @@
 /**
- * GET /api/cron/poke-pricer — Vercel cron (vercel.json, every minute; Pro plan). QuotePricer.poke(base) for every active
- * base (lib/pricerKeeper) from the relayer EOA (RELAYER_PRIVATE_KEY, lib/server/relayer: prod fails closed).
+ * GET /api/cron/poke-pricer — Vercel cron (vercel.json, every minute; Pro plan). Checks every active base (lib/pricerKeeper)
+ * and sends QuotePricer.poke(base) from the relayer EOA (RELAYER_PRIVATE_KEY, lib/server/relayer: prod fails closed) only
+ * when shouldPoke says so: price moving, TWAP stale, or 10 min since the last poke (maker 2026-11-20: it poked every
+ * minute for nothing, ~$5.75/day of relayer ETH on mainnet).
  * Auth: Bearer CRON_SECRET, constant-time; in production an unset CRON_SECRET ⇒ 503 (never an open endpoint).
  * Launch scan: Launched logs from the KV cursor `pricer:cur:<launchpad>` (starts at the stack's fromBlock), bases kept in
  * `pricer:bases:<launchpad>`. Each base is simulated first (estimateGas) so a reverting poke costs nothing; a poke that
@@ -9,13 +11,13 @@
  */
 import { NextResponse } from "next/server";
 import { createHash, timingSafeEqual } from "crypto";
-import { createPublicClient, createWalletClient, formatEther, http, type Address } from "viem";
+import { createPublicClient, createWalletClient, formatEther, http, parseAbi, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { ACTIVE_CHAIN, deployment, ZERO } from "@/lib/chains";
 import { launchpadAbi, quotePricerAbi } from "@/lib/abi";
 import { kv } from "@/lib/server/kv";
 import { relayerKey, isRelayerNotConfigured, withRelayer } from "@/lib/server/relayer";
-import { activeBases } from "@/lib/pricerKeeper";
+import { activeBases, shouldPoke } from "@/lib/pricerKeeper";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +28,8 @@ const same = (a: string, b: string) => timingSafeEqual(createHash("sha256").upda
 const SCAN_CHUNK = BigInt(50_000);
 /** Warn in the response below this relayer balance (≈ several days of pokes at testnet gas prices). */
 const LOW_BALANCE = BigInt(2e15);
+/** launchPriceUsd runs the on-chain freshness check (StalePrice) that launches use; not in the bundled ABI. */
+const freshAbi = parseAbi(["function launchPriceUsd(address quote) view returns (uint256)"]);
 
 export async function GET(req: Request) {
   const s = process.env.CRON_SECRET;
@@ -66,15 +70,27 @@ export async function GET(req: Request) {
     const order = [...bases.filter((b) => fresh.includes(b)), ...bases.filter((b) => !fresh.includes(b))];
     const results: Record<string, string> = {};
     let gasUsed = BigInt(0);
+    const nowSec = Math.floor(Date.now() / 1000);
     for (const base of order) {
       try {
+        const lastKey = `pricer:last:${lp}:${base}`;
+        const [lastRaw, twap, spot, isFresh] = await Promise.all([
+          store.get(lastKey),
+          pc.readContract({ address: d.quotePricer, abi: quotePricerAbi, functionName: "quotePriceUsd", args: [base as Address] }).then((v) => v as bigint).catch(() => null),
+          pc.readContract({ address: d.quotePricer, abi: quotePricerAbi, functionName: "spotPriceUsd", args: [base as Address] }).then((v) => v as bigint).catch(() => null),
+          pc.readContract({ address: d.quotePricer, abi: freshAbi, functionName: "launchPriceUsd", args: [base as Address] }).then(() => true).catch(() => false),
+        ]);
+        const lastPokeSec = lastRaw != null && Number.isFinite(Number(lastRaw)) ? Number(lastRaw) : null;
+        const go = fresh.includes(base) ? { poke: true, why: "new" } : shouldPoke({ nowSec, lastPokeSec, twap, spot, fresh: isFresh });
+        if (!go.poke) { results[base] = `skipped: ${go.why}`; continue; }
         const { request } = await pc.simulateContract({ account: relayer, address: d.quotePricer, abi: quotePricerAbi, functionName: "poke", args: [base as Address] });
         // the relayer EOA's shared nonce allocator (lib/server/fastRelay.sendWithRelayerNonce): every instance and route
         // writing this EOA takes nonces from ONE KV counter (viem's auto nonce here raced the relay paths: "nonce too low")
         const hash = await withRelayer(async () => (await import("@/lib/server/fastRelay")).sendWithRelayerNonce((nonce) => wc.writeContract({ ...request, nonce })), 0);
         const rc = await pc.waitForTransactionReceipt({ hash, timeout: 15_000 });
         gasUsed += rc.gasUsed;
-        results[base] = rc.status === "success" ? hash : `reverted ${hash}`;
+        results[base] = rc.status === "success" ? `${go.why} ${hash}` : `reverted ${hash}`;
+        if (rc.status === "success") await store.set(lastKey, String(nowSec)).catch(() => {});
       } catch (e) {
         results[base] = `error: ${String((e as { shortMessage?: string }).shortMessage || (e as Error).message).slice(0, 160)}`;
       }
