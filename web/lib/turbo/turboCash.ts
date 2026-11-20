@@ -31,6 +31,8 @@ const subs = new Set<(t: TurboCash) => void>();
 let wallet: string | null = null;
 type L = { usd: number; step: string | null; on: boolean; out?: boolean; mins?: { minNew: number; min: number } };
 let lighter: L = { usd: 0, step: null, on: false };
+/** last read per wallet this page: a wallet that comes back (sign-in restore, a remount) shows it at once, not $0 */
+const seen = new Map<string, L>();
 let fuel: CashFuel = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let offFuel: (() => void) | null = null;
@@ -54,7 +56,9 @@ const emit = () => { const s = snap(); subs.forEach((cb) => cb(s)); };
 export async function refreshTurboCash(): Promise<void> {
   const w = wallet;
   if (dev) return;
-  if (!w || serverOff || !reads()) { if (lighter.on || lighter.usd) { lighter = { usd: 0, step: null, on: false }; emit(); } return; }
+  // nothing to read here: keep what's showing (maker 2026-11-20: the balance must not blink to $0 and back). Only
+  // signing out or the server turning Lighter off clears it, in setTurboWallet / the 404 below.
+  if (!w || serverOff || !reads()) return;
   try {
     const r = await lighterFetcher(w)("/api/lighter");
     if (r.status === 404) { serverOff = true; lighter = { usd: 0, step: null, on: false }; emit(); return; }
@@ -63,6 +67,7 @@ export async function refreshTurboCash(): Promise<void> {
     const usd = Number(j.collateral ?? 0);
     lighter = { usd: Number.isFinite(usd) && usd > 0 ? usd : 0, step: j.step ?? null, on: true, out: !!j.withdraw,
       mins: j.mins && Number(j.mins.minNew) > 0 && Number(j.mins.min) > 0 ? { minNew: Number(j.mins.minNew), min: Number(j.mins.min) } : undefined };
+    seen.set(w, lighter);
     emit();
   } catch { /* keep the last read */ }
 }
@@ -73,8 +78,9 @@ export function setTurboWallet(w: string | null): void {
   if (next === wallet) return;
   wallet = next;
   if (dev) return;
-  lighter = { usd: 0, step: null, on: false };
-  emit();
+  const was = lighter;
+  lighter = (next && seen.get(next)) || { usd: 0, step: null, on: false };
+  if (was.usd !== lighter.usd || was.on !== lighter.on || was.step !== lighter.step) emit();
   void refreshTurboCash();
 }
 

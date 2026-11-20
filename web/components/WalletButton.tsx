@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { formatUnits, parseAbi } from "viem";
 import { MINTABLE_TEST_TOKENS, deployment, isDeployed } from "@/lib/chains";
@@ -250,7 +250,9 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
   const [turboUsd, setTurboUsd] = useState(0);
   useEffect(() => onTurboCash((t) => setTurboUsd(t.usd)), []);
   useEffect(() => { setTurboWallet(addr); }, [addr]);
-  const cashUsd = (pf?.cashUsd ?? (guess && shown === guess.address ? guess.cashUsd : null) ?? 0) + turboUsd;
+  // until this wallet's first read lands, show the cash this browser last saw for it (never a blink to $0 and back)
+  const seenCash = useMemo(() => { const p = lastPill(); return p && shown && p.address.toLowerCase() === shown.toLowerCase() ? p.cashUsd : null; }, [shown]);
+  const cashUsd = (pf?.cashUsd ?? seenCash ?? 0) + turboUsd;
 
   // premium sidebar: the Sidebar's account card shows the same address + name (display only; lib/walletCta.ts)
   useEffect(() => {

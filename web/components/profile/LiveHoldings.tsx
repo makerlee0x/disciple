@@ -19,10 +19,15 @@ export type LivePortfolio = { ok: boolean; cashUsd: number; rows: LiveHolding[] 
  * it holds, valued at the current price, largest first. Read-only. `null` while loading / when there's no wallet;
  * a failed read is an empty portfolio.
  */
+/** last good read per wallet this page: coming back to the Hangar (or the wallet settling after sign-in) paints it at
+ *  once, and a failed refresh keeps it, instead of blanking to "—" and back (maker 2026-11-20). */
+const lastGood = new Map<string, LivePortfolio>();
 export function useLivePortfolio(wallet: string | null): LivePortfolio | null {
-  const [pf, setPf] = useState<LivePortfolio | null>(null);
+  const key = wallet?.toLowerCase() ?? "";
+  const [pf, setPfRaw] = useState<LivePortfolio | null>(() => lastGood.get(key) ?? null);
+  const setPf = (v: LivePortfolio | null) => { if (v?.ok && key) lastGood.set(key, v); setPfRaw(v); };
   useEffect(() => {
-    setPf(null);
+    setPfRaw(lastGood.get(key) ?? null);
     if (!wallet || IS_STATIC_PREVIEW || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) return;
     // dev only (screenshots): window.__portfolioDev = { cashUsd, rows } shows a made-up fleet with no chain read
     const dev = process.env.NODE_ENV !== "production" ? (window as unknown as { __portfolioDev?: LivePortfolio }).__portfolioDev : undefined;
@@ -50,9 +55,9 @@ export function useLivePortfolio(wallet: string | null): LivePortfolio | null {
         return { ...h, symbol: String(symbol).slice(0, 12), name: String(name).slice(0, 32), price24h };
       }));
       if (alive) setPf({ ok: true, cashUsd: booked.cashUsd, rows: out.sort((a, b) => b.usd - a.usd) });
-    }).catch(() => { if (alive) setPf({ ok: false, cashUsd: 0, rows: [] }); });
+    }).catch(() => { if (alive && !lastGood.has(key)) setPf({ ok: false, cashUsd: 0, rows: [] }); });
     return () => { alive = false; };
-  }, [wallet]);
+  }, [wallet]); // eslint-disable-line react-hooks/exhaustive-deps
   return pf;
 }
 
