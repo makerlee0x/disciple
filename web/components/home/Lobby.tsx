@@ -163,13 +163,3 @@ export default function Lobby({ initial: init, hero }: { initial: HomeData; hero
     </CrewAboardProvider>
   );
 }
-
-/** Foot of the lobby: one link to How to play. The four step cells (Launch / Join / Climb / Reach orbit) were cut in the
- * subcopy pass (maker 2026-11-17); see docs/copy/subcopy-removed-2026-11-17.md to restore them. */
-export function LobbySteps() {
-  return (
-    <section className={s.stepsWrap} aria-label="How to play">
-      <Link href="/how-it-works" className={s.stepsMore} data-testid="lobby-steps-how">How to play <Icon name="chevron-right" size={14} /></Link>
-    </section>
-  );
-}

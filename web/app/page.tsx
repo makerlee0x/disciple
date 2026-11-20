@@ -1,7 +1,7 @@
 /**
  * App home = the lobby (brand v3 lobby mockup). Door one: LAUNCH A ROCKET on the night pad (HomeHero, a card about 3/4 of
  * the row). Beside it: JOIN A FLIGHT and today's missions. Then the shelves (Climbing now, About to reach orbit, Fresh off
- * the pad), every rocket (Launchpad, lazy) and the four steps. Server-rendered with live data (lib/server/home: chain
+ * the pad), every rocket (Launchpad, lazy) and the site footer (AppShell). Server-rendered with live data (lib/server/home: chain
  * launches + indexed trades), regenerated every 30s, so the sky plate and the lobby numbers paint from the first HTML.
  * The iPhone app gets its own home instead (components/app/AppHome, picked by AppSwitch).
  * Signed-out visitors get the landing lobby instead (LobbySignedOut: lift-off hero, ticker, How it plays, Flying now,
@@ -9,7 +9,7 @@
  */
 import ModeSelect from "@/components/home/ModeSelect";
 import HomeFeedLazy from "@/components/home/HomeFeedLazy";
-import Lobby, { LobbySteps } from "@/components/home/Lobby";
+import Lobby from "@/components/home/Lobby";
 import LobbySignedOut from "@/components/home/LobbySignedOut";
 import HomeGate from "@/components/home/HomeGate";
 import AppSwitch from "@/components/app/AppSwitch";
@@ -28,7 +28,6 @@ export default async function HomePage() {
         signedOut={<LobbySignedOut initial={data} />}
       />
       {data.coins.length > 0 && <HomeFeedLazy initial={data.coins} />}
-      <HomeGate signedIn={<LobbySteps />} signedOut={null} />
     </div>
   );
   // the iPhone app has its own home, concept C "Play feed" (maker 2026-11-16); the website lobby above is unchanged
