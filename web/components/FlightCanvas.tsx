@@ -10,6 +10,7 @@ import { LOADOUT_KEY } from "@/lib/rocketSkin";
 import { ownHull, type OwnLooks } from "@/lib/coinLookClient";
 import { activeAddress } from "@/lib/wallet";
 import { useEffect, useRef, useState } from "react";
+import { preload } from "react-dom";
 import { brandedRocket } from "@/lib/decal";
 import { gateFlightIcon } from "@/lib/flight/iconGate";
 import { BASE_PATH, withBase } from "@/lib/base-path";
@@ -62,6 +63,8 @@ type Props = {
  * Keeps canvas logic largely as-is; loads REPLAY from /replay.json when needed.
  */
 export default function FlightCanvas({ search }: Props) {
+  // fetch the engine script from the first byte of HTML, not after hydration + boot (it used to start ~3.4 s in)
+  preload(withBase(process.env.NEXT_PUBLIC_FLIGHT_ENGINE || "/flight/engine.js"), { as: "script" });
   const wrapRef = useRef<HTMLDivElement>(null);
   const t = useT();
   const [status, setStatus] = useState("Loading flight…");
@@ -140,7 +143,10 @@ export default function FlightCanvas({ search }: Props) {
           new URLSearchParams(qs.slice(1)).get("replay") === "1" ||
           new URLSearchParams(qs.slice(1)).get("source") === "replay";
 
-        if (!window.REPLAY) {
+        // A live DISCIPLE coin never reads REPLAY (engine.js: replay / pool fallback only), so it doesn't wait on
+        // /replay.json before the engine script starts loading (maker 2026-11-20: "it should be ms").
+        const liveDisciple = new URLSearchParams(qs.slice(1)).get("source") === "disciple";
+        if (!window.REPLAY && (needReplay || !liveDisciple)) {
           setStatus("Loading replay data…");
           const r = await fetch(withBase("/replay.json"));
           if (!r.ok) throw new Error("Failed to load replay.json");
