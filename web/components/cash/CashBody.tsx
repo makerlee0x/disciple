@@ -97,7 +97,7 @@ export function Amount({ v, big }: { v: number; big?: boolean }) {
 }
 
 /** Add cash board 2 (maker 2026-11-14): How much (big number + $10/$25/$50/$100) → You pay / You get about → one gold
- *  "Pay with card or Apple Pay" (Privy funding, MoonPay) → "or" → "Send USDG" (maker 2026-11-20: the Free play link left
+ *  "Pay with card or Apple Pay" (Privy card on-ramp → USDC on Base → Relay deposit address → USDG) → "or" → "Send USDG" (maker 2026-11-20: the Free play link left
  *  this card; USDG is the only coin taken). */
 function CardFund({ addr, onPaid, onSend }: { addr: string; onPaid: () => void; onSend: () => void }) {
   const [usd, setUsd] = useState<number>(FUND_DEFAULT_USD);
@@ -107,6 +107,8 @@ function CardFund({ addr, onPaid, onSend }: { addr: string; onPaid: () => void; 
     setBusy(true); setNote(null);
     const r = await startFunding({ address: addr, usd });
     setBusy(false);
+    // shutting the checkout without paying says nothing (maker 2026-11-20)
+    if (r.closed) return;
     setNote(r.ok ? { ok: true, text: FUND_COPY.done } : { ok: false, text: r.message || FUND_COPY.unavailable });
     if (r.ok) onPaid();
   };
