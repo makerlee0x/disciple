@@ -1,4 +1,5 @@
 import { statSync } from "node:fs";
+import { securityHeaders } from "./securityHeaders.mjs";
 
 /* Minified flight engine (scripts/minify-engine.mjs, run by `pnpm build`): pages load public/flight/engine.min.js only when it
    exists and is newer than engine.js, so dev and any build path that skipped the step keep loading the readable source. */
@@ -47,11 +48,11 @@ const nextConfig = {
     : {}),
   // Next 15: serverComponentsExternalPackages → serverExternalPackages;
   // outputFileTracingIncludes moved out of experimental.
-  // X player cards (maker 2026-11-16): /duel is the page X frames in the timeline, so it allows x.com / twitter.com to frame
-  // it. Nothing else on the site sends a frame policy, and none sends X-Frame-Options.
+  // Security headers (securityHeaders.mjs): no site but ours can frame DISCIPLE, except /duel, which X frames for the player
+  // card (maker 2026-11-16). The full CSP ships Report-Only first.
   ...(isStatic ? {} : {
     async headers() {
-      return [{ source: "/duel", headers: [{ key: "Content-Security-Policy", value: "frame-ancestors 'self' https://x.com https://*.x.com https://twitter.com https://*.twitter.com" }] }];
+      return securityHeaders();
     },
   }),
   // PR 470 (Solana mint libs) pushed the Vercel build near its RAM cap: one preview build was OOM-killed during the type
