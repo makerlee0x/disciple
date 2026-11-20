@@ -16,6 +16,7 @@ import TradeBridge from "@/components/TradeBridge";
 import SnipeCountdown from "@/components/flight/SnipeCountdown";
 import LaunchedToast from "@/components/flight/LaunchedToast";
 import CoinIdentity from "@/components/pairart/CoinIdentity";
+import CopyCaChip from "@/components/flight/CopyCaChip";
 import CoinClaims from "@/components/claims/CoinClaims";
 import DuelChip from "@/components/flight/DuelChip";
 import CardChrome from "@/components/flight/CardChrome";
@@ -76,6 +77,7 @@ function FlightInner({ address }: { address: string }) {
       {/* fresh launch from /create (or the first-boosts push, ?share=1): "your rocket is live" share card, never a screen before trading */}
       <LaunchedToast token={address} share={sp.get("share") === "1"} ticker={sp.get("cs") || sp.get("ticker")} />
       <CoinIdentity address={address} sp={new URLSearchParams(sp.toString())} />
+      {!demo0 && isAddress(address) && <CopyCaChip address={address} />}
       <CoinClaims token={address} />
       {/* cross-link to Trading Duel (maker 2026-11-16), desktop only */}
       <DuelChip />

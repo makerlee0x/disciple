@@ -1,5 +1,6 @@
 "use client";
 
+import { coinFromPath } from "@/lib/coinPath";
 import type React from "react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -212,6 +213,7 @@ export default function PhoneHud() {
   const badge = grad ? { t: GRAD_BADGE, c: "#F3DFA8" } : rules && Number.isInteger(rules.mode) && MODE[rules.mode!] ? { t: MODE[rules.mode!].t + (rules.capBps ? ` · ${capTxt(rules.capBps)} CAP` : ""), c: MODE[rules.mode!].c }
     : sim ? { t: "FREE PLAY", c: "#C9B6F2" } : null;
   const ticker = rules?.ticker ? `$${rules.ticker.replace(/^\$/, "")}` : "";
+  const coinCa = typeof location !== "undefined" ? (coinFromPath(location.pathname) || null) : null;   // coin pages only
   const bagUsd = pnl?.valueUsd ?? 0, bagPct = pnl?.txt?.pct ?? "", neg = (pnl?.uPnl ?? 0) < 0;
   const bag = <span>Your bag <b style={{ color: "#F2F3F7", fontWeight: 600 }}>{`$${bagUsd.toFixed(2)}`}</b>{bagUsd > 0 && bagPct ? <b style={{ color: neg ? "#FF7FB3" : "#5FF0A0", fontWeight: 600 }}> {bagPct}</b> : null}</span>;
   const glass: React.CSSProperties = { background: "rgba(18,19,39,.78)", border: "1px solid #2E323A", boxSizing: "border-box" };
@@ -262,7 +264,7 @@ export default function PhoneHud() {
           </span>
         </div>
         <div ref={headRef} data-testid="phone-header" style={{ position: "fixed", left: 12, right: 12, top: L.top + 58, height: chartBig ? 200 : 104, zIndex: 34, transition: "height .25s ease" }}>
-          <PhoneChart tf={chartTf} onTf={setChartTf} big={chartBig} onBig={() => setChartBig((b) => !b)} entry={pnl?.entryMcap ?? null} ticker={ticker} badge={null} />
+          <PhoneChart tf={chartTf} onTf={setChartTf} big={chartBig} onBig={() => setChartBig((b) => !b)} entry={pnl?.entryMcap ?? null} ticker={ticker} badge={null} ca={coinCa} />
         </div>
         <nav data-testid="phone-side" aria-label="Flight tools" style={{ position: "fixed", left: 12, top: L.feedTop + 52, zIndex: 35, display: "flex", flexDirection: "column", gap: 8 }}>
           <button type="button" data-testid="phone-handle" aria-label="Open holders and chart" title="Holders · chart"

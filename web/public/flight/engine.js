@@ -77,7 +77,7 @@ function altToMcap(a){
   }
   const lo=i===0?FLOOR_MCAP:t.lo; return lo*Math.pow(t.hi/lo,f);
 }
-const PX_PER_ALT = 1.5*H*(+new URLSearchParams(location.search).get('zoom') || (['mock','dexscreener','rpc'].includes(new URLSearchParams(location.search).get('source'))?3:10));   // real pool: ×10 so a ~1% move ≈ 150 px; mock/coarse feeds ×3 (was ×1: climbs/drops were barely visible)
+const PX_PER_ALT = 1.5*H*(+Q.get('zoom') || (['mock','dexscreener','rpc'].includes(Q.get('source'))?3:10));   // real pool: ×10 so a ~1% move ≈ 150 px; mock/coarse feeds ×3 (was ×1: climbs/drops were barely visible)
 // ---------- [PARAM] MODES = BUY presets, $ per shot ----------
 /* @presets — 4 buy presets, default $10 / $25 / $50 / $100 (= lib/config MODES = lib/trade/swapSettings DEFAULT_BUY).
    The player edits them (Swap settings / ESC menu → TradeBridge → disciple:ammo-override); null override = these defaults.
@@ -2322,12 +2322,15 @@ function drawHud(){
   panel(20,18,380,130+HY+PROH); ctx.save(); ctx.translate(0,HY);
   /* maker 2026-11-18: the coin's NAME tops the card (was "$MOON · ALTITUDE"; the ALTITUDE / MARKET CAP label is gone), then the
      dim $TICKER; both clipped clear of the badge. Name = window.__coinName (CoinIdentity: ?nm= or the token's name()). */
-  { const bw=diffBadge()?(ctx.font=GF(14,700),ctx.measureText(diffBadge().txt).width+30):0, maxX=384-bw-10, tk=coinTicker(), nm=coinName();
+  { const bw=diffBadge()?(ctx.font=GF(14,700),ctx.measureText(diffBadge().txt).width+30):0, caOn=caShown(), maxX=384-bw-10-(caOn?CA_W+6:0), tk=coinTicker(), nm=coinName();
     const fit=(t,w)=>{ if(ctx.measureText(t).width<=w) return t; while(t.length>1&&ctx.measureText(t+'…').width>w) t=t.slice(0,-1); return t+'…'; };
     let x=36; if(nm){ ctx.fillStyle='#F2F3F7'; ctx.font=GF(20,700); if('letterSpacing' in ctx) ctx.letterSpacing='0.5px'; const t=fit(nm,maxX-x); ctx.fillText(t,x,42); x+=ctx.measureText(t).width+10; if('letterSpacing' in ctx) ctx.letterSpacing='0px'; }
     const pr=coinPair(), sub=tk?(pr?tk+'/'+pr:'$'+tk):'';   /* maker 2026-11-18: show the base pair (TICKER/QUOTE, like the coin header row) */
-    if(sub&&(pr||tk!==String(nm||'').toUpperCase())&&x+40<maxX){ ctx.fillStyle='rgba(215,217,228,.72)'; ctx.font=GF(15,600); if('letterSpacing' in ctx) ctx.letterSpacing='1.5px'; ctx.fillText(fit(sub,maxX-x),x,42); if('letterSpacing' in ctx) ctx.letterSpacing='0px'; }
-    else if(!nm&&tk){ ctx.fillStyle='#F2F3F7'; ctx.font=GF(20,700); ctx.fillText('$'+tk,36,42); } }
+    if(sub&&(pr||tk!==String(nm||'').toUpperCase())&&x+40<maxX){ ctx.fillStyle='rgba(215,217,228,.72)'; ctx.font=GF(15,600); if('letterSpacing' in ctx) ctx.letterSpacing='1.5px'; const t=fit(sub,maxX-x); ctx.fillText(t,x,42); x+=ctx.measureText(t).width+8; if('letterSpacing' in ctx) ctx.letterSpacing='0px'; }
+    else if(!nm&&tk){ ctx.fillStyle='#F2F3F7'; ctx.font=GF(20,700); ctx.fillText('$'+tk,36,42); x=36+ctx.measureText('$'+tk).width+10; }
+    /* maker 2026-11-20: copy contract address chip right after TICKER/PAIR. The engine only reserves the room and says where
+       (CARD_RECTS.header.ca, card-local px incl. the identity row); components/flight/CopyCaChip.tsx draws the DOM button. */
+    if(caOn&&CARD_RECTS.header) CARD_RECTS.header.ca={x:Math.round(Math.min(x,maxX+6)),y:Math.round(42-CA_W/2-5+HY),s:CA_W}; }
   drawBadge(diffBadge(),384,36);   /* brand v3 difficulty badge: EASY / HARD / EXPERT, IN ORBIT after graduation */
   ctx.fillStyle='#fff'; ctx.font=GF(46,800); { const big=S.pro?fmtFull(m):fmtShort(m); glowText(big,34,86,'rgb(243,223,168)',8,0.22);   /* Pro: exact dollars "$7,312"; Pilot "$7.3K" */
     const ch=S.pro?change24h(m):null; if(ch!=null){ const bw=ctx.measureText(big).width; ctx.font=GF(18,700); ctx.fillStyle=ch>=0?'#5FF0A0':'#FF7FB3'; ctx.fillText(`${ch>=0?'▲':'▼'} ${Math.abs(ch)>=100?Math.round(Math.abs(ch)):Math.abs(ch).toFixed(1)}% 24H`,34+bw+10,86); } }
@@ -3583,6 +3586,8 @@ addEventListener('disciple:grass',e=>{ const d=e.detail||{}; S.grass=!!d.on; S.c
 /* readout: "$TICKER · $8.8K MCAP" (ticker from the source, ?ticker or the coin page's ?cs call sign; "$8.8K MCAP" without one) */
 /* $TICKER for the HUD: the coin's own symbol (disciple:coinrules, read onchain by TradeBridge) else grassTicker() */
 function coinTicker(){ const r=S.coinRules, t=r&&typeof r.ticker==='string'?r.ticker.replace(/^\$/,'').trim().toUpperCase():''; return /^[A-Z0-9]{1,10}$/.test(t)?t:grassTicker(); }
+const CA_W=22;   /* copy-CA chip size (px), see drawHud header */
+function caShown(){ return typeof window!=='undefined'&&typeof window.__coinCa==='string'&&/^0x[0-9a-fA-F]{40}$/.test(window.__coinCa); }   /* set by CopyCaChip (coin pages only) */
 function coinName(){ const n=typeof window!=='undefined'&&typeof window.__coinName==='string'?window.__coinName.trim():''; return n.slice(0,40); }
 function coinPair(){ const p=typeof window!=='undefined'&&typeof window.__coinPair==='string'?window.__coinPair.replace(/^\$/,'').trim().toUpperCase():''; return /^[A-Z0-9]{1,12}$/.test(p)?p:''; }
 function grassTicker(){ const t=String(source.ticker||Q.get('ticker')||Q.get('cs')||'').replace(/^\$/,'').split(/\s*\/\s*/)[0].trim().toUpperCase(); return /^[A-Z0-9]{1,10}$/.test(t)?t:''; }
