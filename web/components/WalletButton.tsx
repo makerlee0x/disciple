@@ -34,7 +34,8 @@ import { usePilotPfp } from "@/lib/pilotPfp";
 import { levelInfo } from "@/lib/xp";
 import { useXp } from "@/lib/xpClient";
 import { playerError } from "@/lib/playerError";
-import { chipLabel, clearNameCache, lookupFirstName } from "@/lib/nameLookup";
+import { chipLabel as nameChip, clearNameCache, lookupFirstName } from "@/lib/nameLookup";
+import { fetchProfileMeta } from "@/lib/profileMetaClient";
 import { GuildTagFor } from "@/components/guilds/GuildChip";
 import { GUILDS_ENABLED } from "@/lib/features";
 import { PROFILE_CHANGED_EVENT } from "@/lib/profile";
@@ -216,14 +217,21 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
 
   // live retest #5: the chip shows the claimed @name (the account's, else its owner's), not only the short address
   const [uname, setUname] = useState<string | null>(null);
+  const [dname, setDname] = useState<string | null>(null);
+  /** pill text: display name, else @username, else the call sign (never 0x) */
+  const chipLabel = (u: string | null, a: string) => dname || nameChip(u, a);
   const ownerAddr = addr ? aaSession()?.owner : undefined;
   useEffect(() => {
-    if (!shown) { setUname(null); return; }
+    if (!shown) { setUname(null); setDname(null); return; }
     // paint the name this browser last showed for this wallet, then confirm it from the server
     const last = lastPill();
     setUname(last && last.address.toLowerCase() === shown.toLowerCase() ? last.name : null);
     let alive = true;
-    const load = () => { lookupFirstName([shown, ownerAddr]).then((n) => { if (alive) setUname(n); }); };
+    const load = () => {
+      lookupFirstName([shown, ownerAddr]).then((n) => { if (alive) setUname(n); });
+      // the display name from Edit profile wins over @username in the pill (maker 2026-11-20: set a name, pill kept the address)
+      fetchProfileMeta(shown).then((m) => { if (alive) setDname(m.name?.trim() || null); }).catch(() => undefined);
+    };
     const changed = () => { clearNameCache(); load(); };
     load();
     addEventListener(PROFILE_CHANGED_EVENT, changed);
@@ -235,9 +243,9 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
     const prev = lastPill();
     const keep = prev && prev.address.toLowerCase() === addr.toLowerCase() ? prev : null;
     const cashUsd = pf?.cashUsd ?? keep?.cashUsd ?? null;
-    saveLastPill({ address: addr, name: uname, cashUsd, cash: cashUsd == null ? undefined : usd2(cashUsd), label: chipLabel(uname, addr),
+    saveLastPill({ address: addr, name: uname, cashUsd, cash: cashUsd == null ? undefined : usd2(cashUsd), label: dname || nameChip(uname, addr),
       img: pilot.img, nft: pilot.nft, level: pilot.info.level, progress: pilot.info.progress });
-  }, [addr, uname, pf?.cashUsd, pilot.img, pilot.nft, pilot.info.level, pilot.info.progress]);
+  }, [addr, uname, dname, pf?.cashUsd, pilot.img, pilot.nft, pilot.info.level, pilot.info.progress]);
   // the top-bar pill is ONE combined balance (maker 2026-11-18): Cash + Turbo cash. The Cash popup splits them.
   const [turboUsd, setTurboUsd] = useState(0);
   useEffect(() => onTurboCash((t) => setTurboUsd(t.usd)), []);
@@ -462,7 +470,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
         {/* account settings (one-tap session, max price move, Advanced, sign out) moved to Profile → Settings
             (SITE Oct 30); the chip opens this slim menu */}
         {addr && acct && smart && (
-          <AccountMenu wallet={addr} name={chipLabel(uname, addr)} initial={(uname || "P").replace(/^@/, "").charAt(0).toUpperCase()}
+          <AccountMenu wallet={addr} name={chipLabel(uname, addr)} initial={(dname || uname || "P").replace(/^@/, "").charAt(0).toUpperCase()}
             cashUsd={pf?.cashUsd ?? 0} onClose={() => setAcct(false)} onSignOut={() => run("", disconnect)} />
         )}
         {!shown && signFail && (
