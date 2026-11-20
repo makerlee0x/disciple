@@ -37,7 +37,7 @@ const TABS: readonly Tab[] = [
   { href: "/create", key: "launch", label: "Launch", icon: "rocket", desk: true, cls: "lb-launch-tab" },
   { href: "/turbo", key: "turbo", label: "Turbo", icon: "bolt", menu: true },
   ...(MARKET_ENABLED ? [{ href: "/market", key: "market", label: "Market", icon: "grid" } as Tab] : []),
-  { href: "/leaderboard", key: "leader", label: "Top pilots", short: "Pilots", icon: "leaderboard" },
+  { href: "/leaderboard", key: "leader", label: "Leaderboard", short: "Leaderboard", icon: "leaderboard" },
   { href: "/profile", key: "hangar", label: "Hangar", icon: "pilot", desk: true },
   { href: "/profile", key: "hangar", label: "Hangar", icon: "pilot", phone: true, you: true },
   { href: "/how-it-works", key: "hiw", label: "How to play", icon: "info", phone: true, out: true },
@@ -54,7 +54,7 @@ const TURBO_MENU = TURBO_MODES.length > 1;
 // The iPhone app's own tab bar (app home concept C, maker 2026-11-16): Top pilots, Play (the app home, big in the middle) and
 // Hangar on the right (maker 2026-11-17). Shown only with html.app (root layout APP_JS); the website's bars are hidden there. Launch lives on the Play tab.
 const APP_TABS: readonly Tab[] = [
-  { href: "/leaderboard", key: "leader", label: "Top pilots", icon: "leaderboard" },
+  { href: "/leaderboard", key: "leader", label: "Leaderboard", icon: "leaderboard" },
   { href: "/", key: "play", label: "Play", icon: "rocket" },
   { href: "/profile", key: "hangar", label: "Hangar", icon: "pilot" },
 ];

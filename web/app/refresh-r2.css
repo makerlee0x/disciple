@@ -1233,24 +1233,47 @@ html:not([data-you]) .lb-tabs a.lb-you-only, html[data-you] .lb-tabs a.lb-out-on
   .tc-row { padding: 10px 12px; }
 }
 
-/* Top pilots · Pairs (maker 2026-11-20): pair coins ranked, the elimination line under #10 */
-.tp-trow.tp-pair { grid-template-columns: 40px 56px minmax(0,1fr) auto; cursor: default; }
-.tp-pairlogo { width: 56px; height: 56px; background: #16181C; box-shadow: 0 0 0 1px rgba(232,234,238,.1); }
-.tp-pairchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.tp-tname .tp-pairchips span { margin-top: 0; }
-.tp-cut { display: flex; align-items: center; gap: 12px; padding: 14px 22px 10px; }
+/* Leaderboard · Pairs (maker 2026-11-20): one table, a column per number, the elimination line under #10 */
+.tp-ptable { padding: 6px 0; overflow: hidden; }
+.tp-pscroll { overflow-x: auto; scrollbar-width: none; }
+.tp-pscroll::-webkit-scrollbar { display: none; }
+.tp-pgrid { display: grid; grid-template-columns: 40px minmax(150px,1fr) repeat(5, minmax(74px, 96px)); gap: 10px; align-items: center; padding: 0 22px; min-width: 640px; box-sizing: border-box; }
+.tp-pghead { padding-top: 12px; padding-bottom: 8px; border-bottom: 1px solid rgba(232,234,238,.06); font: 500 11px/1 var(--dsc-font-mono); letter-spacing: .1em; text-transform: uppercase; color: #7D8296; }
+.tp-pghead span:first-child { text-align: center; }
+.tp-pghead button { all: unset; cursor: pointer; text-align: right; padding: 6px 0; color: #7D8296; }
+.tp-pghead button:hover { color: #E8EAEE; }
+.tp-pghead button.on { color: #F3DFA8; }
+.tp-pghead button:focus-visible { box-shadow: var(--dsc-glow-focus-ring); outline: none; border-radius: 4px; }
+.tp-pgrow { padding-top: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(232,234,238,.04); }
+.tp-pgrow.m1 { background: linear-gradient(90deg, rgba(242,193,78,.12), transparent 70%); }
+.tp-pgrow.m2 { background: linear-gradient(90deg, rgba(215,220,230,.08), transparent 70%); }
+.tp-pgrow.m3 { background: linear-gradient(90deg, rgba(227,164,122,.09), transparent 70%); }
+.tp-pgcoin { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.tp-pgcoin b { font-size: 18px; font-weight: 600; color: #FFFFFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-pairlogo { width: 44px; height: 44px; background: #16181C; box-shadow: 0 0 0 1px rgba(232,234,238,.1); }
+.tp-pgnum { text-align: right; font: 600 15px/1 var(--dsc-font-ui); color: #BCC0CA; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tp-pgnum.on { color: #FFFFFF; font-weight: 700; }
+.tp-pgnum.r2-g { font-size: 22px; color: #FFFFFF; }
+.tp-cut { display: flex; align-items: center; gap: 12px; padding: 14px 22px 10px; min-width: 640px; box-sizing: border-box; }
 .tp-cut i { flex: 1; height: 0; border-top: 2px dashed rgba(255,107,90,.7); }
 .tp-cut b { font-size: 15px; line-height: 1; letter-spacing: .08em; text-transform: uppercase; color: #FF6B5A; }
-.tp-trow.tp-pair.out { background: linear-gradient(90deg, rgba(255,107,90,.12), transparent 75%); }
-.tp-trow.tp-pair.out .tp-pairlogo { box-shadow: 0 0 0 2px rgba(255,107,90,.55); }
+.tp-pgrow.out { background: linear-gradient(90deg, rgba(255,107,90,.12), transparent 75%); }
+.tp-pgrow.out .tp-pairlogo { box-shadow: 0 0 0 2px rgba(255,107,90,.55); }
+.tp-pgrow.out .tp-pgnum.r2-g { color: #FF6B5A; }
 .tp-rkout { color: #FF6B5A; }
-.tp-red { color: #FF6B5A; }
 @media (max-width: 760px) {
-  .tp-trow.tp-pair { grid-template-columns: 28px 48px minmax(0,1fr) auto; }
-  .tp-pairlogo { width: 48px; height: 48px; }
-  .tp-pairchips span.k-traders { display: none; }
-  .tp-cut { padding: 12px 16px 8px; }
-  .tp-cut b { font-size: 13px; }
-  .tp-pairbar .tp-tabs { width: 100%; gap: 6px; }
-  .tp-pairbar .tp-tabs button { flex: 1; min-width: 0; padding: 0 6px; justify-content: center; font-size: 14px; }
+  .tp-ptable { padding: 2px 0; border-radius: 16px; }
+  .tp-pgrid { grid-template-columns: 20px 50px repeat(5, minmax(0,1fr)); gap: 4px; padding: 0 8px; min-width: 0; }
+  .tp-pghead { font-size: 9px; letter-spacing: .02em; }
+  .tp-pghead span:nth-child(2) { text-align: center; }
+  .tp-pgcoin { flex-direction: column; gap: 4px; }
+  .tp-pgcoin b { font-size: 10px; max-width: 50px; }
+  .tp-pairlogo { width: 30px; height: 30px; }
+  .tp-pgnum { font-size: 12px; }
+  .tp-pgnum.r2-g { font-size: 16px; }
+  .tp-pgrow { padding-top: 9px; padding-bottom: 9px; }
+  .tp-pgrow .tp-rm { width: 20px; height: 20px; font-size: 11px; }
+  .tp-pgrow .tp-rk { font-size: 14px; }
+  .tp-cut { padding: 10px 8px 6px; min-width: 0; gap: 8px; }
+  .tp-cut b { font-size: 11px; }
 }

@@ -54,7 +54,7 @@ const PLAY: Record<"duel" | "royale" | "climb", { href: string; label: string }>
 const WIN_LABEL: Record<BoardWindow, string> = { day: "24H", week: "7D", month: "30D", all: "ALL" };
 
 export const LEADERBOARD_COPY = {
-  title: "Top pilots",
+  title: "Leaderboard",
   yourRank: "Your rank",
   pnl: "PnL",
   cols: { rank: "#", pilot: "Pilot", rocket: "Rocket", size: "Size", entry: "Entry → exit", pnl: "PnL", pct: "%", held: "Held", closed: "Closed", crew: "Crew", green: "Green rockets", pilots: "Pilots" },
@@ -428,8 +428,9 @@ function SeasonLadder({ d }: { d: SeasonRes }) {
 }
 
 
-/* ── Pairs (maker 2026-11-20): the pair coins ranked by what their rockets did this season. Top PAIR_SAFE are safe; the
-   rest sit under the elimination line. The line only shows on the ranking that decides it (PAIR_CUT_BY). ───────────── */
+/* ── Pairs (maker 2026-11-20): one table, every number in its own column, ranked by the combined score. Top PAIR_SAFE
+   are safe; the rest sit under the elimination line. Click a column head to sort by it; the line only shows on the
+   ranking that decides it (PAIR_CUT_BY). ───────────────────────────────────────────────────────────────────────────── */
 const compact = (v: number) => {
   const a = Math.abs(v);
   if (a >= 1e9) return `${(v / 1e9).toFixed(1).replace(/\.0$/, "")}B`;
@@ -438,52 +439,45 @@ const compact = (v: number) => {
   return Math.round(v).toLocaleString("en-US");
 };
 const usdCompact = (v: number) => `$${compact(v)}`;
-const burnPct = (p: number) => (p <= 0 ? "0%" : p < 0.0001 ? "<0.01%" : `${(p * 100).toFixed(p < 0.01 ? 2 : 1)}%`);
 type PairRowT = PairBoardResponse["rows"][number];
-const PAIR_VALUE: Record<PairSort, (r: PairRowT) => string> = {
+const PAIR_CELL: Record<PairSort, (r: PairRowT) => string> = {
   score: (r) => r.score.toLocaleString("en-US"),
   volume: (r) => usdCompact(r.volumeUsd),
-  burned: (r) => (r.burnedPct > 0 ? burnPct(r.burnedPct) : compact(r.burned)),
+  burned: (r) => usdCompact(r.burnedUsd),
   rockets: (r) => r.rockets.toLocaleString("en-US"),
   traders: (r) => r.traders.toLocaleString("en-US"),
 };
-/** The other three numbers as chips: a word each, no sentences. */
-const PAIR_CHIP: Record<PairSort, (r: PairRowT) => string> = {
-  score: (r) => `${r.score.toLocaleString("en-US")} pts`,
-  volume: (r) => `${usdCompact(r.volumeUsd)} vol`,
-  burned: (r) => `${compact(r.burned)} burned`,
-  rockets: (r) => `${r.rockets.toLocaleString("en-US")} ${r.rockets === 1 ? "rocket" : "rockets"}`,
-  traders: (r) => `${r.traders.toLocaleString("en-US")} ${r.traders === 1 ? "trader" : "traders"}`,
-};
-function PairRow({ r, by, out }: { r: PairRowT; by: PairSort; out: boolean }) {
-  return (
-    <div className={`tp-trow tp-pair${out ? " out" : ""}`} data-testid={`lb-pair-${r.symbol}`} aria-label={`#${r.rank} $${r.symbol}`}>
-      {out ? <span className="tp-rk tp-rkout">{r.rank}</span> : <Rank n={r.rank} />}
-      <span className="tp-av md tp-pairlogo" aria-hidden>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={withBase(r.icon)} alt="" loading="lazy" decoding="async" />
-      </span>
-      <div className="tp-tname">
-        <b>${r.symbol}</b>
-        <div className="tp-pairchips">{PAIR_SORTS.filter((k) => k !== by && k !== "score").map((k) => <span key={k} className={`k-${k}`}>{PAIR_CHIP[k](r)}</span>)}</div>
-      </div>
-      <div className="tp-tpnl"><b className={`r2-g ${out ? "tp-red" : "tp-white"}`}>{PAIR_VALUE[by](r)}</b></div>
-    </div>
-  );
-}
-function PairsBoard({ d }: { d: PairBoardResponse }) {
+function PairsTable({ d, by, setBy }: { d: PairBoardResponse; by: PairSort; setBy: (k: PairSort) => void }) {
   const line = d.by === d.cutBy;
   const C = LEADERBOARD_COPY.pairs;
   return (
-    <section className="tp-card tp-traders tp-pairs" aria-label="Pairs" data-testid="lb-pairs">
-      <div className="tp-thead" aria-hidden><span>#</span><span>{C.coin}</span><span>{C.by[d.by]}</span></div>
-      <div className="tp-trows">
-        {d.rows.map((r) => (
-          <Fragment key={r.address}>
-            {line && r.rank === d.safe + 1 && <div className="tp-cut" data-testid="lb-pair-cut"><i aria-hidden /><b className="r2-g">{C.cut}</b><i aria-hidden /></div>}
-            <PairRow r={r} by={d.by} out={line && r.rank > d.safe} />
-          </Fragment>
-        ))}
+    <section className="tp-card tp-ptable" aria-label="Pairs" data-testid="lb-pairs">
+      <div className="tp-pscroll">
+        <div className="tp-pgrid tp-pghead" role="row">
+          <span>#</span><span>{C.coin}</span>
+          {PAIR_SORTS.map((k) => (
+            <button key={k} type="button" className={by === k ? "on" : undefined} aria-pressed={by === k} onClick={() => setBy(k)} data-testid={`lb-pairby-${k}`}>{C.by[k]}</button>
+          ))}
+        </div>
+        {d.rows.map((r) => {
+          const out = line && r.rank > d.safe;
+          return (
+            <Fragment key={r.address}>
+              {line && r.rank === d.safe + 1 && <div className="tp-cut" data-testid="lb-pair-cut"><i aria-hidden /><b className="r2-g">{C.cut}</b><i aria-hidden /></div>}
+              <div className={`tp-pgrid tp-pgrow${out ? " out" : ""}${r.rank <= 3 && !out ? ` m${r.rank}` : ""}`} role="row" data-testid={`lb-pair-${r.symbol}`} aria-label={`#${r.rank} $${r.symbol}`}>
+                {out ? <span className="tp-rk tp-rkout">{r.rank}</span> : <Rank n={r.rank} />}
+                <span className="tp-pgcoin">
+                  <span className="tp-av tp-pairlogo" aria-hidden>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={withBase(r.icon)} alt="" decoding="async" />
+                  </span>
+                  <b>${r.symbol}</b>
+                </span>
+                {PAIR_SORTS.map((k) => <span key={k} className={`tp-pgnum${k === by ? " on" : ""}${k === "score" ? " r2-g" : ""}`}>{PAIR_CELL[k](r)}</span>)}
+              </div>
+            </Fragment>
+          );
+        })}
       </div>
     </section>
   );
@@ -584,7 +578,7 @@ export default function LeaderboardView() {
 
   let body: React.ReactNode;
   if (loading) body = <div className="tp-loading" aria-busy="true" />;
-  else if (mode === "pairs") body = <PairsBoard d={pairs!} />;
+  else if (mode === "pairs") body = <PairsTable d={pairs!} by={pairBy} setBy={setPairBy} />;
   else if (mode === "duel") body = DUEL_RANKED_LIVE && duel && duel.rows.length ? <>{season && <SeasonLadder d={season} />}<DuelTable d={duel} meLc={me?.toLowerCase()} /></> : <RealOnly mode="duel" />;
   else if (mode === "royale" || mode === "climb") body = boards[mode]?.rows.length ? <ModeBoard d={boards[mode]!} me={me} /> : <RealOnly mode={mode} />;
   else if (mode === "overall" && view === "lifetime") body = life && (life.rows.length || life.me) ? <Lifetime d={life} me={me} /> : emptyBoard;
@@ -611,11 +605,8 @@ export default function LeaderboardView() {
           <button key={m.k} type="button" role="tab" aria-selected={mode === m.k} className={mode === m.k ? "on" : ""} onClick={() => setMode(m.k)} data-testid={`lb-mode-${m.k}`}>{m.label}</button>
         ))}
       </div>
-      {mode === "pairs" ? (
-        <div className="tp-bar tp-pairbar"><div className="tp-tabs" role="tablist" aria-label="Rank by">
-          {PAIR_SORTS.map((k) => <button key={k} type="button" role="tab" aria-selected={pairBy === k} className={pairBy === k ? "on" : ""} onClick={() => setPairBy(k)} data-testid={`lb-pairby-${k}`}>{LEADERBOARD_COPY.pairs.by[k]}</button>)}
-        </div></div>
-      ) : (rockets || mode === "crews") ? (
+      {mode === "pairs" ? <div className="tp-bar tp-bar0" />
+      : (rockets || mode === "crews") ? (
         <div className="tp-bar">
           {rockets ? <div className="tp-tabs" role="tablist" aria-label="Board">
             {SUBS.map((s) => <button key={s.k} type="button" role="tab" aria-selected={sub === s.k} className={sub === s.k ? "on" : ""} onClick={() => setSub(s.k)}>{s.label}</button>)}

@@ -23,11 +23,11 @@ describe("pairBoard", () => {
   ];
   const burns = [{ token: "0xr3", quoteRaw: (BigInt(5) * BigInt(10) ** BigInt(18)).toString(), block: 70 }];
 
-  it("sums each pair's rockets, $ volume (router $ first), unique traders and burns; every pair gets a row", () => {
-    const rows = pairBoard(pairs, launches, fills, burns, { [pairs[1].address]: 100 });
+  it("sums each pair's rockets, $ volume (router $ first), unique traders and burns at today's price; every pair gets a row", () => {
+    const rows = pairBoard(pairs, launches, fills, burns, { [pairs[1].address]: 2 });
     expect(rows.map((r) => r.symbol)).toEqual(["A", "B", "C"]);
     expect(rows[0]).toMatchObject({ rockets: 2, volumeUsd: 160, traders: 1, burned: 0 });
-    expect(rows[1]).toMatchObject({ rockets: 1, volumeUsd: 510, traders: 2, burned: 5, burnedPct: 0.05 });
+    expect(rows[1]).toMatchObject({ rockets: 1, volumeUsd: 510, traders: 2, burned: 5, burnedUsd: 10 });
     expect(rows[2]).toMatchObject({ rockets: 0, volumeUsd: 0, traders: 0 });
   });
 

@@ -19,7 +19,7 @@ export const ACCOUNT_COPY = {
   hangar: "Your Hangar",
   trophies: "Achievements",
   deposit: "Deposit now",
-  topPilots: "Top pilots",
+  topPilots: "Leaderboard",
   logbook: "Logbook",
   crew: "Crew",
   cash: "Cash",
