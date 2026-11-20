@@ -34,13 +34,15 @@ const LIGHTER_ARM_MAX = 270_000;
 export default function ClimbScreen() {
   const ref = useRef<HTMLDivElement>(null);
   const [gear, setGear] = useState(false);
+  // bumped by the Simulator / Real money switch: the run is set up again in place, no page reload
+  const [run, setRun] = useState(0);
   useTurboMusic();
   useEffect(() => {
     // real-money Turbo is off where Lighter refuses (lib/turbo/region), so the country is known before the run is set up
     let gone = false, off = () => {};
     void turboRegion().then(() => { if (!gone) off = boot(); });
     return () => { gone = true; off(); };
-  }, []);
+  }, [run]);
   function boot() {
     let dead = false, api: EngineApi | null = null;
     const hist: Tick[] = [];
@@ -217,7 +219,7 @@ export default function ClimbScreen() {
     loadDuelEngine().then(() => {
       if (dead || !ref.current || !w.DuelEngine) return;
       api = w.DuelEngine.mount(ref.current, host);
-      offSwitch = mountRealSwitch(ref.current);
+      offSwitch = mountRealSwitch(ref.current, () => setRun((n) => n + 1));
       offPill = mountTurboPill(ref.current);
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load Climb. Refresh to try again."; });
     return () => { dead = true; offSwitch(); offPill(); offTurbo(); removeEventListener("focus", onFocus); stopPrice(); stopBackup(); offWallet(); offFuel(); api?.destroy(); };

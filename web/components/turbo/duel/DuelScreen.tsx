@@ -69,6 +69,8 @@ const REMATCH_PUSH_MS = 20_000;
 export default function DuelScreen({ guest = false, embed = false }: { guest?: boolean; embed?: boolean } = {}) {
   const ref = useRef<HTMLDivElement>(null);
   const [gear, setGear] = useState(false);
+  // bumped by the Simulator / Real money switch: the duel is set up again in place, no page reload
+  const [run, setRun] = useState(0);
   useTurboMusic();
   useEffect(() => {
     let dead = false, api: EngineApi | null = null, me: string | null = null, myName: string | null = null, roomId: string | null = null;
@@ -333,7 +335,7 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
     loadEngine().then(() => {
       if (dead || !ref.current || !window.DuelEngine) return;
       api = window.DuelEngine.mount(ref.current, host);
-      if (!guest) offSwitch = mountRealSwitch(ref.current);
+      if (!guest) offSwitch = mountRealSwitch(ref.current, () => setRun((n) => n + 1));
       if (!guest) offPill = mountTurboPill(ref.current);
       void refreshMe();
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load the duel. Refresh to try again."; });
@@ -341,6 +343,6 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
     const offPrivy = guest ? () => {} : onPrivy(() => { void refreshMe(); });
 
     return () => { dead = true; offSwitch(); offPill(); setDuelGuest(false); stopQueue(); unfollow(); stopPrice(); offPrivy(); api?.destroy(); };
-  }, []);
+  }, [run]);
   return <><GeoBanner /><div ref={ref} /><LobbySettings mode="duel" open={gear} onClose={() => setGear(false)} /></>;
 }
