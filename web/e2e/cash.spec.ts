@@ -17,9 +17,13 @@ test("Cash shows the balance, and Add cash quotes a card top-up", async ({ page,
   await expect(pop.getByTestId("cash-balance")).toContainText("$42.10");
   await expect(pop.getByTestId("cash-tab-add")).toHaveAttribute("aria-selected", "true");
   const card = pop.getByTestId("cash-card-fund");
-  await expect(card.getByTestId("cash-card-amount")).toHaveText("$25");
+  await expect(card.getByTestId("cash-card-amount")).toHaveValue(String(25));
   await card.getByRole("button", { name: "$50" }).click();
-  await expect(card.getByTestId("cash-card-amount")).toHaveText("$50");
+  await expect(card.getByTestId("cash-card-amount")).toHaveValue("50");
+  await card.getByTestId("cash-card-amount").fill("7");
+  await expect(card.getByTestId("cash-card-btn")).toBeDisabled();
+  await expect(card.getByTestId("cash-card-limit")).toHaveText("Minimum $10 by card.");
+  await card.getByTestId("cash-card-amount").fill("50");
   await expect(card.getByTestId("cash-card-get")).toHaveText("$47.75"); // 4.5% card fee estimate
   // no Free play link on the Add cash card (maker 2026-11-20)
   await expect(card.getByTestId("cash-freeplay")).toHaveCount(0);

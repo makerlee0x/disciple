@@ -1,7 +1,7 @@
 /** Card / Apple Pay: the Relay deposit-address quote (USDC on Base → USDG cash), the server answer the checkout pays,
  *  backing out says nothing, Apple devices open on Apple Pay. */
 import { describe, expect, it, vi } from "vitest";
-import { fundErrorResult, parseCardTarget, payHint, FUND_COPY } from "../lib/fund";
+import { fundAmountInput, fundErrorResult, parseCardTarget, payHint, FUND_COPY } from "../lib/fund";
 import { BASE_USDC, cardDepositAddress, cardQuoteBody } from "../lib/server/cardDeposit";
 import { RH_USDG } from "../lib/server/lighter/bridge";
 
@@ -64,5 +64,15 @@ describe("payHint", () => {
     expect(payHint("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)")).toBe("APPLE_PAY");
     expect(payHint("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")).toBe("APPLE_PAY");
     expect(payHint("Mozilla/5.0 (Linux; Android 15)")).toBe("CREDIT_DEBIT_CARD");
+  });
+});
+
+describe("fundAmountInput", () => {
+  it("keeps digits and one dot, two decimals, five whole digits", () => {
+    expect(fundAmountInput("$1,250")).toBe("1250");
+    expect(fundAmountInput("12.345")).toBe("12.34");
+    expect(fundAmountInput("1.2.3")).toBe("1.23");
+    expect(fundAmountInput("abc")).toBe("");
+    expect(fundAmountInput("1234567")).toBe("12345");
   });
 });
