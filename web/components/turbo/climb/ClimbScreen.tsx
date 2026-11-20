@@ -137,6 +137,7 @@ export default function ClimbScreen() {
     // startCash: Lighter cash read fresh as this run began. realRun: this run really placed orders on Lighter, the only
     // case where Lighter's cash delta is the run's result (a run that fell back to play money never reads it)
     let startCash: number | null = null, realRun = false, ended: Promise<void> = Promise.resolve();
+    let curRun: { level: number; fuel: number; free?: boolean } | null = null;
     const sizesFor = (fuel: number) => PCTS.map((p) => (p === 0 ? fuel / (1 + gear * CLIMB_FEE) : pctUsd(p, fuel)) * gear / CLIMB_MAX_GEAR);
     const lighter = !lighterWanted() ? undefined : {
       /** Lighter's smallest BTC order, a position in $ (read once the account is ready); the engine rounds bets up to it */
@@ -145,7 +146,7 @@ export default function ClimbScreen() {
        *  reason they aren't. A real-money run (host.climb.real) doesn't start without them (the engine goes back to the
        *  levels with the reason); it never quietly flies on play money. */
       begin: (run: { level: number; fuel: number; gear: number; free?: boolean }): Promise<string | null> => {
-        gear = run.gear; startCash = null; realRun = false;
+        gear = run.gear; startCash = null; realRun = false; curRun = run;
         let why: string | null = null;
         lxP = (async () => {
           if (!wallet) { why = "Sign in to fly on Lighter."; return null; }
@@ -172,7 +173,9 @@ export default function ClimbScreen() {
       },
       arm: (endAt: number) => {
         const id = `climb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-        void lxP.then((lx) => lx?.arm("climb", id, { ms: Math.max(5_000, Math.min(LIGHTER_ARM_MAX, endAt - Date.now())), markets: ["BTC"] }));
+        // a level run carries its level and stake, so the server can score it from Lighter's fills for the Climb board
+        const r = curRun, climb = r && !r.free ? { level: r.level, stake: r.fuel } : undefined;
+        void lxP.then((lx) => lx?.arm("climb", id, { ms: Math.max(5_000, Math.min(LIGHTER_ARM_MAX, endAt - Date.now())), markets: ["BTC"], climb }));
       },
       press: (action: MatchAction, i: number, fuelAfter: number) => lxP.then(async (lx) => {
         if (!lx) return null;

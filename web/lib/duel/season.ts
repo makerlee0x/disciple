@@ -48,6 +48,28 @@ export function seasonAt(ms: number): Season {
   return { id: `s${i + 1}`, n: i + 1, startsAt, endsAt: startsAt + SEASON_MS };
 }
 
+/**
+ * Play before Season 1 (maker 2026-11-20: "season one starts now … like pre-season … start recording now, trades count
+ * now, but the season starts on the 1st"). Before launch the Overall and Climb boards read the pre-season:
+ *   board  → its own board (id s0) from the first play until Season 1 starts; everyone starts Season 1 at 0, and the
+ *            pre-season is never sealed into lifetime points
+ *   count  → pre-season play from PRESEASON_START counts toward Season 1 (id s1); Season 1 still runs 12 weeks from
+ *            SEASON_ONE_START (the clock counts down to it), so the pre-season is extra time on top   ← maker's pick
+ *   hidden → nothing counts before Season 1 (the boards stay empty until launch)
+ * Duel keys keep seasonAt (ranked duels are off until real money).
+ */
+export type PreSeason = "board" | "count" | "hidden";
+export const PRESEASON: PreSeason = "count";
+/** when pre-season play starts counting (maker 2026-11-20: "start recording now") */
+export const PRESEASON_START = Date.parse("2026-11-20T00:00:00Z");
+export function rankSeasonAt(ms: number, mode: PreSeason = PRESEASON): Season & { pre: boolean } {
+  const s = seasonAt(ms);
+  // Season 1 keeps its pre-season start after Dec 1 too, so trades made before launch stay in its window
+  if (mode === "count" && s.n === 1) return { ...s, startsAt: PRESEASON_START, pre: false };
+  if (ms >= SEASON_ONE_START || mode === "hidden") return { ...s, pre: false };
+  return mode === "count" ? { ...s, startsAt: PRESEASON_START, pre: false } : { id: "s0", n: 0, startsAt: 0, endsAt: SEASON_ONE_START, pre: true };
+}
+
 /** SP change for one ranked result. `streakBefore` is the win streak going into this duel. */
 export function spDelta(score: 0 | 0.5 | 1, streakBefore: number): number {
   if (score === 1) return SP.win + Math.min(SP.streakMax, Math.max(0, streakBefore) * SP.streakStep);

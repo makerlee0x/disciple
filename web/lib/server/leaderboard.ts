@@ -10,7 +10,7 @@ import { pfpUrl } from "@/lib/profileMeta";
 import { getHomeData, getPilotBoard, getPositionBoard, getRocketSeasonSp } from "./home";
 import { metaOf } from "./profileMeta";
 import { climbBoard, modeSp } from "./seasonModes";
-import { LEAGUES, leagueOf, seasonAt } from "@/lib/duel/season";
+import { LEAGUES, leagueOf, rankSeasonAt, seasonAt } from "@/lib/duel/season";
 import { kv } from "./kv";
 import { addLife, finishedLife, snapSeason } from "./lifetime";
 import { RANK_MODES, totalSp, type ModeSp } from "@/lib/season/points";
@@ -161,8 +161,11 @@ export async function getOverall(me: string | null): Promise<OverallResponse> {
     const tiers: Record<string, number> = Object.fromEntries(LEAGUES.map((l) => [l.id, 0]));
     const final: Record<string, string> = {};
     for (const x of ranked) { const id = leagueOf(x.pts).id; tiers[id]++; if (id !== LEAGUES[0].id) final[x.wallet] = id; }
-    void kv().set(FINAL(season.id), JSON.stringify(final)).catch(() => {});
-    void snapSeason(season.id, ranked).catch(() => {});
+    // the pre-season board (lib/duel/season PRESEASON) is never sealed: Season 1 starts everyone at 0
+    if (!rankSeasonAt(now).pre) {
+      void kv().set(FINAL(season.id), JSON.stringify(final)).catch(() => {});
+      void snapSeason(season.id, ranked).catch(() => {});
+    }
     c = { at: now, ranked, named, tiers, prev };
     go.__dscOverall = c;
   }
@@ -199,7 +202,8 @@ async function lifeCache() {
   let c = gl.__dscLife;
   if (c && now - c.at <= CACHE_MS) return c;
   await getOverall(null);
-  const season = seasonAt(now), cur = go.__dscOverall?.ranked ?? [];
+  // lifetime points only start with Season 1; the pre-season board isn't part of them
+  const season = seasonAt(now), cur = rankSeasonAt(now).pre ? [] : go.__dscOverall?.ranked ?? [];
   const finished = await finishedLife(season.n).catch(() => ({}));
   const ranked = addLife(finished, cur);
   const named = (await name(ranked.slice(0, BOARD_TOP))).map((r, i) => ({ ...r, rank: i + 1, league: leagueOf(r.season).id }));

@@ -21,7 +21,7 @@ import { flaggedCopySet } from "@/lib/server/nameLock";
 import { chipOf, lobbyAgeTokens, pickHero, statsFromFills, type HomeCoin, type HomeData } from "@/lib/home/trending";
 import { bestCalls, pilotBoard, positionBoard, rocketSeasonSp, type PositionBoard, topPilots, tickerOf, type BestCalls, type BoardOpts, type PilotBoard, type TickerItem, type TopPilots } from "@/lib/home/topPilots";
 import { levelInfo } from "@/lib/xp";
-import { seasonAt } from "@/lib/duel/season";
+import { rankSeasonAt } from "@/lib/duel/season";
 import { resolveKeys } from "./imageStore";
 import { usernameOf } from "./usernames";
 import { ledgerOf, totals } from "./xp";
@@ -119,7 +119,7 @@ async function build(): Promise<HomeData> {
   // the full /leaderboard (lib/server/leaderboard) ranks from the same fills; kept server side, not in HomeData
   g.__dscBoard = { at: now, v: pilotBoard(fillsBy, now, opts) };
   g.__dscPositions = { at: now, v: positionBoard(fillsBy, now, opts) };
-  const season = seasonAt(now);
+  const season = rankSeasonAt(now);
   g.__dscRocketSp = { at: now, season: season.id, v: rocketSeasonSp(fillsBy, now, season.startsAt, season.endsAt, opts) };
   g.__dscPairIn = { launches: shown.map((x) => ({ token: x.token.toLowerCase(), quote: String(x.quote).toLowerCase(), block: Number(x.block) })), fills: fillsBy.flat() };
   const ticker = tickerOf(fillsBy, new Map(coins.map((c) => [c.token, c.name])));
@@ -161,7 +161,7 @@ export async function getPositionBoard(budgetMs = 9_000): Promise<PositionBoard 
 export async function getRocketSeasonSp(budgetMs = 9_000): Promise<Record<string, number>> {
   await getHomeData(budgetMs);
   const c = g.__dscRocketSp;
-  return c && c.season === seasonAt(Date.now()).id ? c.v : {};
+  return c && c.season === rankSeasonAt(Date.now()).id ? c.v : {};
 }
 
 /** Pair coin board inputs from the last home build; empty before the first. */
