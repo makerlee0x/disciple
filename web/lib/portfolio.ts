@@ -26,6 +26,12 @@ export function price24hAgo(fills: Pick<Fill, "ts" | "priceUsd">[], now = Date.n
   return best ? best.priceUsd : launchPrice;
 }
 
+/** Pure: Hangar value = Cash + every rocket held (tokens × price now) + Turbo cash. The Hangar value card and the
+ *  top-bar account pill both use this, so the two numbers never disagree (maker 2026-11-20). */
+export function hangarValueUsd(cashUsd: number, holdings: Pick<Holding, "tokens" | "priceNow">[], turboUsd = 0): number {
+  return cashUsd + holdings.reduce((s, h) => s + (h.tokens > 0 ? h.tokens * h.priceNow : 0), 0) + turboUsd;
+}
+
 /** Pure: totals. */
 export function summarize(cashUsd: number, holdings: Holding[], at = Date.now()): Portfolio {
   const held = holdings.filter((h) => h.tokens > 0);
