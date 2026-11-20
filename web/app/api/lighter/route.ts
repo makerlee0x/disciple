@@ -129,7 +129,7 @@ export async function POST(req: Request) {
       case "withdraw-info": return out(200, { ok: true, ...(await withdrawable(cfg, me.pid)) });
       case "withdraw-start": {
         const usd = Number(b.usd);
-        if (!(usd > 0 && usd <= 100_000) || typeof b.to !== "string") throw new LighterError(400, "Bad amount.");
+        if (!(usd > 0 && usd <= MAX_USD) || typeof b.to !== "string") throw new LighterError(400, "Bad amount.");
         return out(200, { ok: true, ...(await startWithdraw(cfg, me.pid, usd, b.to, b.raw === true)) });
       }
       case "withdraw-finish": {
@@ -144,9 +144,11 @@ export async function POST(req: Request) {
 }
 
 type Cfg = ReturnType<typeof lighterConfig>;
+/** not a trade limit (maker 2026-11-20: no Turbo size cap); only rejects junk. Lighter's own book and margin decide. */
+const MAX_USD = 1_000_000_000;
 function openGuarded(cfg: Cfg, pid: string, b: { market?: unknown; side?: unknown; usd?: unknown }) {
   const usd = Number(b.usd);
-  if (!isLighterMarket(b.market) || (b.side !== "long" && b.side !== "short") || !(usd >= 1 && usd <= 10_000)) throw new LighterError(400, "Bad order.");
+  if (!isLighterMarket(b.market) || (b.side !== "long" && b.side !== "short") || !(usd >= 1 && usd <= MAX_USD)) throw new LighterError(400, "Bad order.");
   return openMarket(cfg, pid, b.market, b.side, usd);
 }
 function closeGuarded(cfg: Cfg, pid: string, b: { market?: unknown }) {
@@ -155,7 +157,7 @@ function closeGuarded(cfg: Cfg, pid: string, b: { market?: unknown }) {
 }
 function presignGuarded(cfg: Cfg, pid: string, b: { market?: unknown; usd?: unknown; sizes?: unknown; used?: unknown; floor?: unknown }) {
   const sizes = (Array.isArray(b.sizes) ? b.sizes : [b.usd]).map(Number);
-  if (!isLighterMarket(b.market) || !sizes.length || sizes.length > MAX_SIZES || !sizes.every((u) => u >= 0 && u <= 10_000) || !sizes.some((u) => u > 0)) throw new LighterError(400, "Bad order.");
+  if (!isLighterMarket(b.market) || !sizes.length || sizes.length > MAX_SIZES || !sizes.every((u) => u >= 0 && u <= MAX_USD) || !sizes.some((u) => u > 0)) throw new LighterError(400, "Bad order.");
   const u = b.used as Partial<Used> | undefined;
   const ok = u && Number.isSafeInteger(u.nonce) && (u.nonce as number) >= 0 && (u.kind === "long" || u.kind === "short" || u.kind === "close")
     && (u.i === undefined || (Number.isSafeInteger(u.i) && (u.i as number) >= 0 && (u.i as number) < MAX_SIZES));

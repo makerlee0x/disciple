@@ -39,8 +39,8 @@ test("rules: boost, add averages the entry, no flips (cash out first), close boo
 test("rules: % trade sizes and the stakes the server takes", () => {
   assert.deepEqual([...R.PCTS], [10, 25, 50, 0]);
   assert.equal(R.pctUsd(25, 50), 12.5); assert.equal(R.pctUsd(10, 18.17), 1.81); assert.equal(R.pctUsd(0, 7.3), 7.3);
-  for (const ok of [0, 1, 2.5, 12.34, 500]) assert.ok(R.okStake(ok), `${ok}`);
-  for (const bad of [0.5, -1, 1.234, NaN, Infinity, 20000]) assert.ok(!R.okStake(bad), `${bad}`);
+  for (const ok of [0, 1, 2.5, 12.34, 500, 20000, 250000]) assert.ok(R.okStake(ok), `${ok}`);
+  for (const bad of [0.5, -1, 1.234, NaN, Infinity]) assert.ok(!R.okStake(bad), `${bad}`);
 });
 test("rules: ALL uses everything, NUKE at 80% of the fuel in it", () => {
   let b = R.applyTrade(R.newBook(20), "boost", 0, 68000, 0)!.book;
@@ -275,7 +275,7 @@ test("custom budgets: sizes scale on 1-2-5 steps; friend room books start at the
   assert.deepEqual(R.sizesFor(100), [5, 10, 20, 50, 0]);
   assert.deepEqual(R.sizesFor(1000), [50, 100, 200, 500, 0]);
   assert.deepEqual(R.sizesFor(10_000), [500, 1000, 2000, 5000, 0]);
-  assert.ok(!R.isCustomFuel(4) && R.isCustomFuel(5) && !R.isCustomFuel(10_001) && !R.isCustomFuel(99.5) && R.isCustomFuel(250));
+  assert.ok(!R.isCustomFuel(4) && R.isCustomFuel(5) && R.isCustomFuel(10_001) && R.isCustomFuel(250_000) && !R.isCustomFuel(99.5) && R.isCustomFuel(250));
   const a = pilot("c"), b = pilot("d");
   const room = await S.createInvite(a, "pro", 60_000, undefined, 1000);
   assert.equal(room.fuel, 1000); assert.equal(room.books[a.pid].fuel, 1000);

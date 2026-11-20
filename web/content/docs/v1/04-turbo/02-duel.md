@@ -33,7 +33,7 @@ $50 | DEGEN
 $150 | WHALE
 ```
 
-Ranked queues use the three tiers. Friend duels set any fuel from $5 to $10,000.
+Ranked queues use the three tiers. Friend duels set any fuel from $5 up.
 
 ## The rules
 
