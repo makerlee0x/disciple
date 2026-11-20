@@ -7,6 +7,7 @@
  *   tier                                → { ok }        moves the account to Plus
  *   open { market, side: long|short, usd } → { hash, base, price, lev }
  *   close { market }                    → { hash }
+ *   flatten { market }                  → { flat, closes }  closes the whole position and reads Lighter until it's gone
  *   warm                                → loads key, signer, market and nonce into this instance before a duel
  *   presign { market, sizes: [usd…] (or usd), used?: { nonce, kind, i }, floor? } → ticket: the next long, short and close, signed at one
  *                                         nonce with a short expiry; the browser sends the one it taps straight to Lighter
@@ -38,7 +39,7 @@ import { body, out, pilotOf, requirePass } from "@/lib/server/duel/http";
 import { DuelError } from "@/lib/server/duel/store";
 import { lighterConfig, isLighterMarket } from "@/lib/server/lighter/config";
 import { LighterError } from "@/lib/server/lighter/rest";
-import { closeMarket, finishSigned, tierInfo, openMarket, MAX_SIZES, presign, relay, setTier, startApprove, startKey, status, warm, type Used } from "@/lib/server/lighter/player";
+import { closeMarket, flattenMarket, finishSigned, tierInfo, openMarket, MAX_SIZES, presign, relay, setTier, startApprove, startKey, status, warm, type Used } from "@/lib/server/lighter/player";
 export const runtime = "nodejs";
 /** Lighter refuses signed txs from US IPs, and our other functions run in iad1 (Washington) */
 export const preferredRegion = "fra1";
@@ -91,6 +92,12 @@ export async function POST(req: Request) {
     // real-money Turbo is off where Lighter refuses the player (lib/turbo/region): no new orders from there; close still
     // runs so an open position can always be exited
     if ((b.op === "open" || b.op === "presign" || b.op === "relay") && turboBlockedReq(req)) return out(451, { ok: false, reason: TURBO_BLOCKED_NOTE });
+    if (b.op === "flatten") {
+      // close all, checked: reads Lighter until the market shows nothing open (never trusts a guessed size)
+      const pid = await fastPilot(req);
+      if (!isLighterMarket(b.market)) throw new LighterError(400, "Bad market.");
+      return out(200, { ok: true, ...(await flattenMarket(cfg, pid, b.market)) });
+    }
     if (b.op === "open" || b.op === "close" || b.op === "warm" || b.op === "presign" || b.op === "relay") {
       const pid = await fastPilot(req);
       const authMs = Math.round(performance.now() - t0);

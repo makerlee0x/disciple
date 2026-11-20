@@ -117,21 +117,26 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
     const lookOf = (pid: string | null, other: string | null) => (pid ? ships.get(pid) ?? (pid.startsWith("g_") ? guestLook(pid, other) : null) : null);
     // Lighter (hidden, ?lighter=1): each press is also a real order on the pilot's own Lighter account (lib/lighter/duel)
     const lighterOn = !guest && lighterWanted();
-    let lx: LighterMatch | null = null, lxFor: string | null = null, lxStatus: string | null = null;
+    let lx: LighterMatch | null = null, lxFor: string | null = null, lxStatus: string | null = null, lxBombs: number | null = null;
     // button i → $ of fuel, the way the engine sizes a press (ALL keeps the fee back, like rules openStep)
     const sizesFor = (fuel: number) => PCTS.map((p) => (p === 0 ? fuel / (1 + LEV * FEE) : pctUsd(p, fuel)));
     const lighterRoom = async (room: DuelRoom) => {
       if (!lighterOn || !me) return;
       const book = room.books[me];
       if ((room.status === "lobby" || room.status === "live") && lxFor !== room.id) {
-        lx?.stop(); lx = null; lxFor = room.id;
+        lx?.stop(); lx = null; lxFor = room.id; lxBombs = null;
         const f = lighterFetcher(me);
         if (!(await LighterMatch.ready(f))) { if (lxStatus !== "no") { lxStatus = "no"; api?.error("Lighter isn't set up for this wallet. Finish set-up on /lighter."); } return; }
         if (lxFor !== room.id || dead) return;
         lx = new LighterMatch(f, "BTC", sizesFor, book?.fuel ?? fuelOf(room)); lx.start(); lxStatus = "on";
         void lx.arm("duel", room.id); // the duel's own buzzer closes the real position server-side
       }
-      if (lx && book) lx.fuel(book.fuel);
+      if (lx && book) {
+        // a NUKE is a liquidation: the server's book dropped the position, so the real one closes too, fully
+        if (lxBombs != null && book.bombs > lxBombs && room.status === "live") void lx.closeAll();
+        lxBombs = book.bombs;
+        lx.fuel(book.fuel);
+      }
       if (lx && (room.status === "done" || room.status === "cancelled")) { const x = lx; lx = null; lxFor = null; await x.closeAll(); x.stop(); }
     };
     const unfollow = () => {

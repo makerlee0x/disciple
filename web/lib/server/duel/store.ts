@@ -460,7 +460,9 @@ async function lighterBuzzer(r: DuelRoom, s: Kv) {
       console.error("[duel] lighter buzz route", res.status);
     } catch (e) { console.error("[duel] lighter buzz route", e); }
   }
-  await Promise.all(pids.map((pid) => buzzer(pid, r.id, s).catch((e) => console.error("[duel] lighter buzzer", e))));
+  // no fallback from here: Lighter refuses iad1. The 1-minute sweep (GET /api/lighter/buzz) closes it instead.
+  // Local dev / tests (no host) still run it in-process.
+  if (!host) await Promise.all(pids.map((pid) => buzzer(pid, r.id, s).catch((e) => console.error("[duel] lighter buzzer", e))));
 }
 
 export async function trade(id: string, pid: string, action: TradeAction, usd: number, price: number | null, s: Kv = kv()) {

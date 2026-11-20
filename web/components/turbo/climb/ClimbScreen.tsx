@@ -142,6 +142,8 @@ export default function ClimbScreen() {
         return r;
       }),
       fuel: (fuel: number) => { void lxP.then((lx) => lx?.fuel(fuel)); },
+      /** a NUKE is a liquidation: close the real position fully (closeAll waits for any press still going out) */
+      nuke: () => { void lxP.then((lx) => lx?.closeAll()).catch(() => {}); },
       end: () => {
         const p = lxP; lxP = Promise.resolve(null);
         ended = p.then(async (lx) => { if (!lx) return; await lx.closeAll().catch(() => {}); lx.stop(); });

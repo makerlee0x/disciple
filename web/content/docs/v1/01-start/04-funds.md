@@ -34,7 +34,7 @@ Turbo cash | USDC on Lighter | pink
 
 | | |
 |---|---|
-| Smallest move | $5.10 |
+| Smallest move | $6 |
 | Bridge cost | About 4¢ on $10, shown before you confirm |
 
 **To Cash** runs the same path backwards and lands as USDG in your wallet.

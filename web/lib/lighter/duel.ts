@@ -10,7 +10,7 @@ import { withBase } from "@/lib/base-path";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import { isNativeApp } from "@/lib/native";
 import { turboBlockedCached, turboRegion } from "@/lib/turbo/region";
-import { LighterTaps, lighterClose, lighterStatus, type TapKind } from "./client";
+import { LighterTaps, lighterFlatten, lighterStatus, type TapKind } from "./client";
 
 const FLAG = "disciple.lighter";
 /** reads / applies the ?lighter= switch */
@@ -93,11 +93,14 @@ export class LighterMatch {
     this.chain = p;
     return p;
   }
-  /** buzzer / leaving: close whatever is open on Lighter (pre-signed close, else the server's close) */
-  async closeAll(): Promise<void> {
+  /** NUKE / buzzer / leaving: close everything open on Lighter, fully. The pre-signed close goes first (fastest), then
+   *  the server reads the real position and closes whatever is left until Lighter shows nothing open. */
+  async closeAll(): Promise<{ flat: boolean }> {
     await this.chain.catch(() => {});
-    const t = this.taps.ticket ?? (await this.taps.refresh());
-    if (t?.close) { const r = await this.press("close", 0, 0); if (!("error" in r)) return; }
-    await lighterClose(this.f, this.taps.market).catch(() => {}); // "Nothing open." is fine
+    const t = this.taps.ticket ?? (await this.taps.refresh().catch(() => null));
+    if (t?.close) await this.press("close", 0, 0);
+    const done = this.chain.then(() => lighterFlatten(this.f, this.taps.market)).then((r) => ({ flat: r.flat }), () => ({ flat: false }));
+    this.chain = done;
+    return done;
   }
 }

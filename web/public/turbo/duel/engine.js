@@ -261,6 +261,8 @@ function mount(root,host){
   function liquidate(pl){
     const pos=pl.pos; pl.pos=null; pl.trades++;
     vBomb(pl,pos.side,pos.coll,G.price);
+    // a NUKE is a liquidation: on Lighter (host.climb.lighter) the real position closes too, fully
+    if(pl.me&&CLR&&CL&&CL.lighter&&CL.lighter.nuke) CL.lighter.nuke();
   }
   function moment(pl,txt,v){ (pl.me?G.me:G.bot).moments.push({t:G.t,txt,v}); }
 
@@ -1426,13 +1428,13 @@ function mount(root,host){
     $("cBack").addEventListener("click",climbHome);
     $("cFly").addEventListener("click",()=>climbPlay(FREE)); }
   function climbPlay(n,test){ const l=lvl(n), free=n>=FREE;
-    CLR=free?{level:FREE,free:true,fuel:cFree.fuel,gear:cFree.gear,goal:null,len:Infinity}:{level:n,test:!!test,fuel:l.fuel,gear:l.gear,goal:l.goal,len:CL.runMs};
+    CLR=free?{level:FREE,free:true,fuel:cFree.fuel,gear:cFree.gear,goal:null,len:CL.lighter?270000:Infinity /* real money: the server buzzer closes at 4.5 min, so the run ends there too */}:{level:n,test:!!test,fuel:l.fuel,gear:l.gear,goal:l.goal,len:CL.runMs};
     M={net:false,ranked:false,solo:true}; OFF=0; show("launch"); climbPanel();
     if(CL.lighter) CL.lighter.begin({fuel:CLR.fuel,gear:CLR.gear});
     waitForPrice(()=>{ if(!M||!M.solo) return; M.startAt=Date.now()+3500; if(CL.lighter) CL.lighter.arm(M.startAt+(isFinite(CLR.len)?CLR.len:270000)); start(); }); }
   function climbPanel(){ $("lCancel").hidden=false;
     $("lH").textContent=CLR.free?"FREE MODE":"LEVEL "+CLR.level;
-    $("lSub").textContent=`${m2(CLR.fuel)} · ${gx(CLR.gear)}`+(CLR.goal!=null?` · make +${m2(CLR.goal)}`:" · no clock")+(CL.real?"":" · play money"); }
+    $("lSub").textContent=`${m2(CLR.fuel)} · ${gx(CLR.gear)}`+(CLR.goal!=null?` · make +${m2(CLR.goal)}`:isFinite(CLR.len)?"":" · no clock")+(CL.real?"":" · play money"); }
   function climbLaunch(){ root.classList.add("climb"); climbPanel();
     const who=$("meN").parentElement; who.innerHTML=(CLR.free?"FREE · ":`LEVEL ${CLR.level} · ${m2(CLR.fuel)} · `)+`<span id="meN" style="color:var(--gold)">${gx(CLR.gear)}</span>`;
     const nx=lvl(CLR.level+1); $("botLab").innerHTML=(CLR.free?"FUEL":"TO GOAL")+'<span id="botN"></span>';
