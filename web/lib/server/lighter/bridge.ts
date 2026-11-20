@@ -9,14 +9,15 @@ import "server-only";
  *   LIGHTER_BRIDGE_KEY   the x-api-key Lighter issues to builders (Discord #support ticket). Server-side only.
  *
  * Mainnet only: Lighter's testnet has no deposit route (its faucet funds test accounts).
- * Minimums: $5 for a new account, $3 after (EVM chains); bridge and swap costs come out of the amount.
+ * Minimum: TURBO_MIN_IN ($6, lib/lighter/mins) on every network; bridge and swap costs come out of the amount.
  */
 import { kv } from "@/lib/server/kv";
+import { TURBO_MIN_IN } from "@/lib/lighter/mins";
 import { lighterConfig, type LighterConfig } from "./config";
 import { LighterError } from "./rest";
 
 const BRIDGE = "https://bridge.lighter.xyz";
-export const DEPOSIT_MIN_NEW = 5, DEPOSIT_MIN = 5;   // maker 2026-11-18: one $5 minimum
+export const DEPOSIT_MIN_NEW = TURBO_MIN_IN, DEPOSIT_MIN = TURBO_MIN_IN;   // maker 2026-11-20: one $6 minimum everywhere
 /** Lighter on Robinhood Chain takes USDG straight in: 1 USDG minimum per deposit (docs, Robinhood Chain section). */
 export const depositMins = (cfg: LighterConfig) => (cfg.payoutIsCash ? { minNew: 1, min: 1 } : cfg.network === "mainnet" ? { minNew: RELAY_MIN, min: RELAY_MIN } : { minNew: DEPOSIT_MIN_NEW, min: DEPOSIT_MIN });
 /** The chain whose USDG the deposit address takes: Robinhood Chain mainnet for Lighter main (4663). The browser
@@ -31,7 +32,7 @@ export const depositChain = (cfg: LighterConfig) => cfg.depositChainId ?? (cfg.n
  * no new signature. Quoted live 2026-11-18: about $0.04 on $10, filled in ~1 s.
  */
 const RELAY = "https://api.relay.link";
-export const RELAY_MIN = 6;           // maker 2026-11-20: $6. Lighter's 5 USDC intent minimum, after our cash-out gas and Relay's few cents
+export const RELAY_MIN = TURBO_MIN_IN;   // maker 2026-11-20: $6. Lighter's 5 USDC intent minimum, after our cash-out gas and Relay's few cents
 const LIGHTER_INTENT_MIN = 5;
 export const ARBITRUM_ID = 42161;
 export const ARBITRUM_USDC = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
