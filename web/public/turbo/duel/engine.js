@@ -227,6 +227,7 @@ function mount(root,host){
     if(G.price===p&&G.ticks.length&&t-G.ticks[G.ticks.length-1].t<1000) return;
     G.price=p; G.ticks.push({t,p}); if(G.ticks.length>4000) G.ticks.splice(0,1000);
   }
+  const stakeLab=v=>"$"+(v>=10?Math.floor(v):(Math.floor(v*100+1e-6)/100).toFixed(2).replace(/\.00$/,""));   // a stake: whole dollars from $10, cents below
   const pnlOf=(pos,p)=>pos?pos.size*(p-pos.entry)/pos.entry*pos.side:0;
   // what an open position is worth if closed now, after the closing fee, so the live PnL already counts every fee
   const valueOf=pl=>pl.pos?Math.max(0,pl.pos.coll+pnlOf(pl.pos,G.price)-pl.pos.size*FEE):0;
@@ -236,7 +237,7 @@ function mount(root,host){
   function vOpen(pl,side,stake,price){ if(side>0) pl.up++; else pl.dn++;   // boost / dump tally for the scoreboard
     G.marks.push({t:G.t,p:price,me:pl.me,k:side>0?"b":"d"});
     fxTrade(pl,side,stake);
-    feed(pl,side>0?"b":"d",pl.me?`you ${side>0?"boosted":"dumped"} <b>$${stake.toFixed(0)}</b>`:`${esc(pl.name)} ${side>0?"boosted":"dumped"} <b>$${stake.toFixed(0)}</b>`);
+    feed(pl,side>0?"b":"d",`${pl.me?"you":esc(pl.name)} ${side>0?"boosted":"dumped"} <b>${stakeLab(stake)}</b>`);
     pl.lastTrade=G.t;
   }
   function vClose(pl,side,net,price){
@@ -266,13 +267,13 @@ function mount(root,host){
     const size=stake*LEV, fee=size*FEE;
     pl.fuel-=stake+fee; pl.fees+=fee; pl.trades++;
     if(pl.pos&&pl.pos.side===side){
-      const s2=pl.pos.size+size; pl.pos.entry=s2/(pl.pos.size/pl.pos.entry+size/G.price); pl.pos.size=s2; pl.pos.coll+=stake;
-    } else pl.pos={side,size,coll:stake,entry:G.price,t:G.t};
+      const s2=pl.pos.size+size; pl.pos.entry=s2/(pl.pos.size/pl.pos.entry+size/G.price); pl.pos.size=s2; pl.pos.coll+=stake; pl.pos.fee=(pl.pos.fee||0)+fee;
+    } else pl.pos={side,size,coll:stake,fee,entry:G.price,t:G.t};
     vOpen(pl,side,stake,G.price); return true;
   }
   function close(pl,why){
     if(!pl.pos) return 0;
-    const pos=pl.pos, pnl=pnlOf(pos,G.price), fee=pos.size*FEE, back=Math.max(0,pos.coll+pnl-fee), net=back-pos.coll;
+    const pos=pl.pos, pnl=pnlOf(pos,G.price), fee=pos.size*FEE, back=Math.max(0,pos.coll+pnl-fee), net=back-pos.coll-(pos.fee||0);   // both fees in, like the run PnL up top
     pl.fuel+=back; pl.fees+=fee; pl.trades++; pl.pos=null;
     if(net>0) pl.green++;
     if(net>pl.best) pl.best=net;
@@ -305,8 +306,12 @@ function mount(root,host){
     const out=[nice(f/2)]; while(out.length<4) out.unshift(down(out[0])); return [...out,0]; }
   function curFuel(){ if(CLR) return CLR.fuel; return M&&M.fuel&&okBud(M.fuel)?M.fuel:TIERS[botKey].fuel; }
   function curSizes(){ return M&&M.fuel&&okBud(M.fuel)?sizesFor(M.fuel):TIERS[botKey].sizes; }
-  function paintSizes(){ const f=G&&G.me?G.me.fuel:FUEL0; document.querySelectorAll(".size button").forEach(b=>{const v=SIZES[+b.dataset.i]; if(v==null){ b.hidden=true; return; } const d=realUsd(v,f);
-    b.innerHTML=(v===0?"ALL":v+"%")+`<span class="u">${d>=minT()?"$"+(d>=10?Math.floor(d):d.toFixed(2).replace(/\.00$/,"")):"\u2013"}</span>`; b.classList.toggle("on",v===stake); b.classList.toggle("lo",d<minT());});
+  // Climb on Lighter: sizes that Lighter's minimum lifts to the same amount show once, as MIN (maker 2026-11-20: "all the buttons said $1?")
+  function paintSizes(){ const f=G&&G.me?G.me.fuel:FUEL0, sd=realUsd(stake,f), same=(x,y)=>Math.abs(x-y)<.005, allD=realUsd(0,f); let prev=null;
+    document.querySelectorAll(".size button").forEach(b=>{const v=SIZES[+b.dataset.i]; if(v==null){ b.hidden=true; return; } const d=realUsd(v,f);
+    const dup=!!CLR&&v!==0&&d>=minT()&&((prev!=null&&same(d,prev))||same(d,allD)); b.hidden=dup; if(dup) return; if(v!==0) prev=d;
+    const bump=!!CLR&&v!==0&&d>pctUsd(v,f)+1e-9;
+    b.innerHTML=(v===0?"ALL":bump?"MIN":v+"%")+`<span class="u">${d>=minT()?"$"+(d>=10?Math.floor(d):d.toFixed(2).replace(/\.00$/,"")):"\u2013"}</span>`; b.classList.toggle("on",v===stake||(!!CLR&&d>=minT()&&same(d,sd))); b.classList.toggle("lo",d<minT());});
     const sl=$("cSlI"); if(sl&&CLR&&CLR.free){ const pc=stake===0?100:stake, d=realUsd(stake,f); if(+sl.value!==pc) sl.value=pc; sl.style.setProperty("--p",pc+"%");
       $("cSlV").innerHTML=`${pc}%<span class="u">${d>=minT()?"$"+(d>=10?Math.floor(d):d.toFixed(2)):"\u2013"}</span>`; } }
   function act(kind){
@@ -434,8 +439,8 @@ function mount(root,host){
     $("leadT").style.color=Math.abs(d)<0.005?"var(--muted)":d>0?"var(--green)":"var(--pinkl)";
     const pos=me.pos, el=$("bOut");
     if(pos){
-      const pnl=pnlOf(pos,G.price), pct=pnl/pos.coll*100, back=Math.max(0,pos.coll+pnl-pos.size*FEE);
-      $("posLab").textContent=`${pos.side>0?"BOOST \u25b2":"DUMP \u25bc"} ${LEV}\u00d7 \u00b7 $${pos.coll.toFixed(0)} IN`;
+      const back=Math.max(0,pos.coll+pnlOf(pos,G.price)-pos.size*FEE), pnl=back-pos.coll-(pos.fee||0), pct=pnl/pos.coll*100;   // this trade after both fees (maker 2026-11-20: one number, fees in)
+      $("posLab").textContent=`${pos.side>0?"BOOST \u25b2":"DUMP \u25bc"} ${LEV}\u00d7 \u00b7 ${stakeLab(pos.coll)} IN`;
       $("posV").textContent=usd(pnl,true); const e=$("pnlP"); e.hidden=false; e.textContent=(Math.abs(pct)<.05?"":pct>0?"+":"\u2212")+Math.abs(pct).toFixed(1)+"%";   // no "\u22120.0%"
       $("bOutS").textContent=`CASH OUT ${usd(back)}`;
       el.classList.toggle("up",pnl>=0); el.classList.toggle("dn",pnl<0); el.disabled=false;
@@ -1636,7 +1641,7 @@ function mount(root,host){
       ui(); },
     real:(on)=>{ REAL=!!on; if(G&&G.started&&!G.over) simPill(); },
     climbNote:(t)=>{ if(CL&&!$("climb").hidden) climbHome(t); else toast(t); },
-    climbFill:(entry)=>{ if(!CLR||!G||G.over||!G.me.pos||!(entry>0)) return; G.me.pos.entry=entry; ui(); },
+    climbFill:(entry,btc)=>{ if(!CLR||!G||G.over||!G.me.pos||!(entry>0)) return; G.me.pos.entry=entry; if(btc>0&&isFinite(btc)) G.me.pos.size=btc*entry; ui(); },   // Lighter's real entry and size (its minimum order can make the position bigger than the bet)
     climbRefresh:()=>{ if(!CL) return; if(!cFreeSet&&LVS.length) cFree.fuel=LVS[LVS.length-1].fuel; if(!$("climb").hidden) climbHome(); else if(!$("cres").hidden&&$("cres").dataset.k==="free") climbFreeSetup(); },
     _state:()=>G,
     destroy:()=>{ dead=true; clipDrop(); if(CL&&CL.lighter) CL.lighter.end(); offs.forEach(f=>f()); removeEventListener("storage",onStore); removeEventListener("disciple:audio",onLvl); try{ if(ac) ac.close(); }catch(e){} root.innerHTML=""; root.classList.remove("duel-root"); },
