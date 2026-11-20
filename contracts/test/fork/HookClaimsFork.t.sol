@@ -15,7 +15,8 @@ import {ILaunchpad} from "../../src/interfaces/ILaunchpad.sol";
 /// @notice Robinhood mainnet (4663) fork, maker 2026-11-19: run the real Deploy.s.sol (mainnet mode) on a fork, launch a
 ///         USDG coin, graduate it, buy and sell through the new hook, then claim each of the four shares and check they
 ///         land with the fixed recipients. No broadcast leaves the fork.
-///         Run: forge test --match-path test/fork/HookClaimsFork.t.sol -vv   (needs the public RH mainnet RPC)
+///         It sets the deploy env (process-global), which races DeployScriptsEnv in a parallel full run, so it only runs
+///         when asked: HOOK_CLAIMS_FORK=1 forge test --match-path test/fork/HookClaimsFork.t.sol -vv   (public RH RPC)
 contract HookClaimsForkTest is Test {
     string internal constant MAINNET_RPC = "https://rpc.mainnet.chain.robinhood.com";
     address internal constant PM = 0x8366a39CC670B4001A1121B8F6A443A643e40951;
@@ -32,6 +33,7 @@ contract HookClaimsForkTest is Test {
     Deploy.Out internal o;
 
     function setUp() public {
+        vm.skip(!vm.envOr("HOOK_CLAIMS_FORK", false));
         vm.createSelectFork(MAINNET_RPC);
         vm.etch(community, hex"00"); // a Safe is a contract; Deploy refuses an EOA community Safe on 4663
         vm.setEnv("DISCIPLE_NETWORK", "mainnet");
