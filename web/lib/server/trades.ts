@@ -267,7 +267,30 @@ export async function tradesOf(coin: string, wallet?: string | null, limit = 100
   const seen = new Set<string>();
   return raw.map((r) => JSON.parse(r) as Fill).filter((f) => (seen.has(f.id) ? false : (seen.add(f.id), true))).sort(byOrder);
 }
-export async function coinsOf(wallet: string): Promise<string[]> { return kv().smembers(`trades:w:${wallet.toLowerCase()}`); }
+/**
+ * The coins a wallet traded on THIS stack. trades:w:<addr> is not chain-scoped, so after the mainnet switch (2026-11-20) a
+ * wallet's testnet coins were still in it and showed in the Flight log as "$88E0"-style rows. A coin counts only when this
+ * chain's launchpad knows it (curveOf ≠ 0). A failed read keeps the coin (better a stray row than a missing rocket).
+ */
+export async function coinsOf(wallet: string): Promise<string[]> {
+  const all = await kv().smembers(`trades:w:${wallet.toLowerCase()}`);
+  const ok = await Promise.all(all.map((c) => onThisStack(c)));
+  return all.filter((_, i) => ok[i]);
+}
+const stackCache = new Map<string, boolean>();
+/** Pure-ish (tests inject the read): is `coin` a launch of this chain's launchpad? Only answered reads are cached. */
+export async function onThisStack(coin: string, read: (c: Address) => Promise<string> = readCurveOf): Promise<boolean> {
+  const k = `${deployment().launchpad.toLowerCase()}:${coin.toLowerCase()}`;
+  const hit = stackCache.get(k); if (hit !== undefined) return hit;
+  if (!/^0x[0-9a-fA-F]{40}$/.test(coin)) return false;
+  try {
+    const v = (await read(coin.toLowerCase() as Address)).toLowerCase() !== ZERO.toLowerCase();
+    stackCache.set(k, v); return v;
+  } catch { return true; }
+}
+async function readCurveOf(coin: Address): Promise<string> {
+  return String(await serverPc().readContract({ address: deployment().launchpad, abi: launchpadAbi, functionName: "curveOf", args: [coin] }));
+}
 
 /**
  * Pure (tests): a stored fill rebuilt from its decoded + prepared Trade (prepareTrade) — same id/tx/ts. `usdg` = the

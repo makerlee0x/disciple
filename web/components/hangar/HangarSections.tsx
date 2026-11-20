@@ -39,6 +39,7 @@ export function ServiceRecord({ pf, isPrivate, rewards }: {
   const rockets = ok ? pf.rows.reduce((s, r) => s + r.usd, 0) : null;
   const total = ok ? pf.cashUsd + rockets! + (isPrivate ? turbo : 0) : null;
   const today = ok && pf.rows.every((r) => Number.isFinite(r.price24h)) ? pf.rows.reduce((s, r) => s + r.tokens * (r.priceNow - r.price24h), 0) : null;
+  const rewardsLive = !!rewards && rewards.usd != null && rewards.usd >= 0.005;
   return (
     <section className={`hg-record${isPrivate ? rewards ? " four" : " three" : ""}`} aria-label="Service record" data-testid="profile-portfolio">
       <div>
@@ -60,9 +61,10 @@ export function ServiceRecord({ pf, isPrivate, rewards }: {
         </div>
       )}
       {isPrivate && rewards && (
-        <div className="act rw" data-testid="hangar-rewards">
+        // gold + shine only when there is something to claim (maker 2026-11-20: "it shouldnt be shiny if theres nothing to claim")
+        <div className={`act rw${rewardsLive ? "" : " empty"}`} data-testid="hangar-rewards">
           <span className="rw-tx"><span className="l">Rewards</span><b data-testid="portfolio-rewards">{rewards.usd != null ? usd2(rewards.usd) : "—"}</b></span>
-          <button type="button" className="hg-act gold" onClick={rewards.onOpen} data-testid="claim-now">Claim</button>
+          <button type="button" className={`hg-act${rewardsLive ? " gold" : ""}`} onClick={rewards.onOpen} disabled={!rewardsLive} data-testid="claim-now">Claim</button>
         </div>
       )}
     </section>

@@ -463,6 +463,12 @@ button.cp-prow:hover .n b { color: #FFFFFF; }
 .hg-record .hg-act.gold { border: 0; background: linear-gradient(180deg, #F3DFA8, #F2C14E); color: #121327; font-size: 22px; padding: 0 22px;
   box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 6px 20px rgba(242,193,78,.35); }
 .hg-record .hg-act:hover { filter: brightness(1.06); }
+/* nothing to claim: a plain tile, no gold, no shine, button greyed out */
+.hg-record > div.rw.empty { background: none; box-shadow: -1px 0 0 var(--dsc3-panel-border); }
+.hg-record > div.rw.empty::before { content: none; }
+.hg-record .rw.empty .l { color: var(--dsc-muted); }
+.hg-record .rw.empty b { color: #FFFFFF; text-shadow: none; }
+.hg-record .hg-act:disabled { opacity: .45; cursor: default; filter: none; }
 @media (max-width: 760px) {
   .hg-record.four { grid-template-columns: 1fr 1fr; }
   .hg-record > div.act { flex-direction: column; align-items: stretch; }
