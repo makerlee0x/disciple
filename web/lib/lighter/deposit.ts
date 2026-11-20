@@ -59,7 +59,7 @@ export async function lighterAddCash(f: Fetcher, usd: number, signMessage: (msg:
     // 2026-11-18: a testnet build sent test USDG to a real Lighter main deposit address. Never send across chains.
     if (!chainId || chainId !== ACTIVE_CHAIN.id) throw new Error(`Turbo cash can't be added from this build (${ACTIVE_CHAIN.name}).`);
     const floor = before.step === "deposit" ? minNew : min;
-    if (!(usd >= floor)) throw new Error(`Add at least $${floor}.`);
+    if (!(usd >= floor)) throw new Error(`Add at least $${floor.toFixed(2)}.`);
 
     onStep("sending");
     const { quoteGaslessWithdraw, signGaslessWithdraw, submitGaslessWithdraw } = await import("@/lib/trade/gaslessWithdrawClient");

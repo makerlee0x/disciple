@@ -8,6 +8,7 @@
  * refreshTurboCash() (after a move into Turbo).
  */
 import { lighterFetcher, lighterWanted } from "@/lib/lighter/duel";
+import { TURBO_MIN_IN } from "@/lib/lighter/mins";
 import { onCashFuel, type CashFuel } from "./cashFuel";
 import { turboBlockedCached } from "./region";
 
@@ -18,8 +19,8 @@ export type TurboCash = {
   canAdd: boolean;
   /** Turbo cash can go back to Cash (a venue whose withdrawals pay USDG on our chain, set-up finished) */
   canWithdraw: boolean;
-  /** smallest move into Turbo, from the server (lib/server/lighter/bridge depositMins): $5, or $6 on Lighter main
-   *  (Relay's few cents must not take it under Lighter's 5 USDC floor); Lighter on Robinhood Chain $1 */
+  /** smallest move into Turbo, from the server (lib/server/lighter/bridge depositMins): TURBO_MIN_IN ($6, lib/lighter/mins)
+   *  so Relay's few cents can't take it under Lighter's 5 USDC floor; Lighter on Robinhood Chain $1 */
   minIn: number;
   /** Lighter set-up step, once read ("deposit" = no Lighter account yet) */
   lighterStep: string | null;
@@ -48,7 +49,7 @@ export function wantTurboRead(): () => void {
 const reads = () => lighterWanted() || (eager > 0 && !turboBlockedCached());
 
 function snap(): TurboCash {
-  return { usd: lighter.usd + (fuel?.usd ?? 0), canAdd: lighter.on, canWithdraw: !!lighter.out && lighter.step === "ready", minIn: (lighter.step === "deposit" ? lighter.mins?.minNew : lighter.mins?.min) ?? 5, lighterStep: lighter.step, fuel };
+  return { usd: lighter.usd + (fuel?.usd ?? 0), canAdd: lighter.on, canWithdraw: !!lighter.out && lighter.step === "ready", minIn: (lighter.step === "deposit" ? lighter.mins?.minNew : lighter.mins?.min) ?? TURBO_MIN_IN, lighterStep: lighter.step, fuel };
 }
 const emit = () => { const s = snap(); subs.forEach((cb) => cb(s)); };
 

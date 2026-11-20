@@ -33,6 +33,7 @@ import SendCrypto from "./SendCrypto";
 import SignInMarks from "@/components/SignInMarks";
 import UserPicker, { RecipientCard } from "@/components/ui/UserPicker";
 import { rememberRecipient, type Recipient } from "@/lib/send/recipient";
+import { TURBO_MIN_IN } from "@/lib/lighter/mins";
 
 const erc20 = parseAbi(["function transfer(address to, uint256 amount) returns (bool)"]);
 
@@ -458,7 +459,7 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
             )}
             {dir === "back" && turbo?.canWithdraw
               ? <FromTurbo cashAddr={addr} onMoved={() => { void refresh(addr); void refreshTurboCash(); }} />
-              : <ToTurbo balUsd={balUsd} feeUsd={feeUsd} min={turbo?.minIn ?? 5}
+              : <ToTurbo balUsd={balUsd} feeUsd={feeUsd} min={turbo?.minIn ?? TURBO_MIN_IN}
                   onMoved={() => { void refresh(addr); void refreshTurboCash(); }} />}
           </>
         ) : (
