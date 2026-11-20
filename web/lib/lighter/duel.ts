@@ -4,18 +4,18 @@
  * pre-signed orders (LighterTaps), sent over Lighter's WebSocket, so a press reaches Lighter in ~350 ms.
  *
  * Hidden while it's tested on Lighter testnet: `?lighter=1` turns it on for this browser, `?lighter=0` off. It only
- * runs for a signed-in pilot whose Lighter set-up is finished (/lighter), and never in the iPhone app.
+ * runs for a signed-in pilot whose Lighter set-up is finished (/lighter), and never from a blocked country (lib/turbo/region).
  */
 import { withBase } from "@/lib/base-path";
 import { privyAccessToken } from "@/lib/aa/sessionState";
-import { isNativeApp } from "@/lib/native";
 import { turboBlockedCached, turboRegion } from "@/lib/turbo/region";
 import { LighterTaps, lighterClose, lighterStatus, type TapKind } from "./client";
 
 const FLAG = "disciple.lighter";
 /** reads / applies the ?lighter= switch */
 export function lighterWanted(): boolean {
-  if (typeof window === "undefined" || isNativeApp()) return false;
+  // the iPhone app too, outside blocked countries (maker 2026-11-19); the lobby switch (lib/turbo/realSwitch) sets it
+  if (typeof window === "undefined") return false;
   try {
     const q = new URLSearchParams(location.search).get("lighter");
     if (q === "1") localStorage.setItem(FLAG, "1");

@@ -18,6 +18,7 @@ import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "@/components/turbo/duel
 import { PCTS, pctUsd } from "@/lib/duel/rules";
 import { LighterMatch, lighterFetcher, lighterWanted, type MatchAction } from "@/lib/lighter/duel";
 import { turboRegion } from "@/lib/turbo/region";
+import GeoBanner from "@/components/turbo/GeoBanner";
 import { mountRealSwitch } from "@/lib/turbo/realSwitch";
 import { lighterStatus } from "@/lib/lighter/client";
 import { LIGHTER_PRICE_HOST, streamLighterBook, streamLighterMids } from "@/lib/turbo/royalePrices";
@@ -186,5 +187,5 @@ export default function ClimbScreen() {
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load Climb. Refresh to try again."; });
     return () => { dead = true; offSwitch(); stopPrice(); stopBackup(); offWallet(); offFuel(); api?.destroy(); };
   }
-  return <><div ref={ref} /><LobbySettings mode="climb" open={gear} onClose={() => setGear(false)} /></>;
+  return <><GeoBanner /><div ref={ref} /><LobbySettings mode="climb" open={gear} onClose={() => setGear(false)} /></>;
 }

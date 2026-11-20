@@ -1,9 +1,8 @@
 /**
  * Simulator / Real money switch at the top of the Duel and Climb lobbies (maker 2026-11-19). It drives the same
  * per-browser setting as ?lighter=1 (lib/lighter/duel lighterWanted), then reloads, since each mode reads it once as it
- * sets up. Where real-money Turbo can't run (a blocked country, lib/turbo/region, and the iPhone app) there is no
- * switch at all and the mode runs on Simulator cash (maker 2026-11-19: "we just dont show it at all"). html.turbo-real is on while real money is live, so labels can follow it
- * ("fuel" vs "Simulator cash" in the engine).
+ * sets up. In a blocked country (lib/turbo/region) the web shows it greyed out on Simulator under the GeoBanner strip,
+ * and the iPhone app has no switch (and no banner) at all: play money only. Elsewhere it works on both (maker 2026-11-19).
  */
 import { isNativeApp } from "@/lib/native";
 import { lighterWanted, setLighterWanted } from "@/lib/lighter/duel";
@@ -19,6 +18,7 @@ const CSS = `
 .duel-root .rm-sw button i{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#D7D9E4;transition:transform .18s ease,background .18s}
 .duel-root .rm-sw button[aria-checked=true]{border-color:rgba(242,193,78,.7);background:rgba(242,193,78,.18)}
 .duel-root .rm-sw button[aria-checked=true] i{transform:translateX(22px);background:var(--gold)}
+.duel-root .rm-sw button:disabled{cursor:not-allowed;opacity:.5}
 .duel-root .rm-sw button:focus-visible{outline:3px solid #fff;outline-offset:2px}
 @media (prefers-reduced-motion:reduce){.duel-root .rm-sw button i{transition:none}}
 `;
@@ -35,17 +35,20 @@ export function mountRealSwitch(root: HTMLElement): () => void {
   el.className = "rm-sw";
   el.innerHTML = `<span class="rl rs">Simulator</span><button type="button" role="switch" aria-label="Real money"><i></i></button><span class="rl rr">Real money</span>`;
   side.prepend(el);
-  const btn = el.querySelector("button")!, html = document.documentElement;
+  const btn = el.querySelector("button")!;
   const paint = (on: boolean) => {
     btn.setAttribute("aria-checked", String(on));
     el.querySelector(".rs")!.classList.toggle("on", !on);
     el.querySelector(".rr")!.classList.toggle("on", on);
-    html.classList.toggle("turbo-real", on);
   };
-  const locked = () => isNativeApp() || turboBlockedCached();
-  const show = () => { el.hidden = locked(); paint(lighterWanted() && !locked()); };
-  el.hidden = true;   // until the country is known, so a blocked visitor never sees it
-  if (!isNativeApp()) paint(real && !locked());
+  const locked = () => turboBlockedCached();
+  const show = () => {
+    el.hidden = isNativeApp() && locked();
+    btn.disabled = locked(); btn.title = locked() ? "Real money isn't available in your region" : "";
+    paint(lighterWanted() && !locked());
+  };
+  el.hidden = true;   // until the country is known
+  paint(real && !locked());
   let gone = false;
   void turboRegion().then(() => { if (!gone) show(); });
   btn.addEventListener("click", () => {
@@ -54,5 +57,5 @@ export function mountRealSwitch(root: HTMLElement): () => void {
     const u = new URL(location.href); u.searchParams.delete("lighter");
     location.replace(u.toString());
   });
-  return () => { gone = true; el.remove(); html.classList.remove("turbo-real"); };
+  return () => { gone = true; el.remove(); };
 }

@@ -23,6 +23,7 @@ import { COLLECTION_CHANGED_EVENT } from "@/lib/collectionClient";
 import { withBase } from "@/lib/base-path";
 import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "./engineLoader";
 import { LighterMatch, lighterFetcher, lighterWanted } from "@/lib/lighter/duel";
+import GeoBanner from "@/components/turbo/GeoBanner";
 import { mountRealSwitch } from "@/lib/turbo/realSwitch";
 import { FEE, LEV, PCTS, pctUsd, fuelOf } from "@/lib/duel/rules";
 
@@ -315,5 +316,5 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
 
     return () => { dead = true; offSwitch(); setDuelGuest(false); stopQueue(); unfollow(); stopPrice(); offPrivy(); api?.destroy(); };
   }, []);
-  return <><div ref={ref} /><LobbySettings mode="duel" open={gear} onClose={() => setGear(false)} /></>;
+  return <><GeoBanner /><div ref={ref} /><LobbySettings mode="duel" open={gear} onClose={() => setGear(false)} /></>;
 }
