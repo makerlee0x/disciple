@@ -98,7 +98,7 @@ describe("Permit2 wallet launch witness matches CreatorFeeHarvest", () => {
     const o = { usdg: d.usdg, usdgDecimals: 6, nowSec: NOW };
     expect(() => checkWalletLaunch(q, o)).not.toThrow();
     expect(() => checkWalletLaunch({ ...q, params: { ...q.params, name: "Other" } }, o)).toThrow(/don't match/);
-    expect(() => checkWalletLaunch({ ...q, w: { ...q.w, gasFee: 2_000_000n }, permit: { ...q.permit, permitted: { ...q.permit.permitted, amount: q.w.usdgIn + 2_000_000n } } }, o)).toThrow(/over \$1/);
+    expect(() => checkWalletLaunch({ ...q, w: { ...q.w, gasFee: 4_000_000n }, permit: { ...q.permit, permitted: { ...q.permit.permitted, amount: q.w.usdgIn + 4_000_000n } } }, o)).toThrow(/over \$3/);
     expect(() => checkWalletLaunch({ ...q, permit: { ...q.permit, permitted: { ...q.permit.permitted, amount: 1n } } }, o)).toThrow(/amount/);
     expect(() => checkWalletLaunch(q, { ...o, nowSec: NOW + 10_000 })).toThrow(/expired/);
   });

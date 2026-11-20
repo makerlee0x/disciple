@@ -14,7 +14,7 @@ import { ACTIVE_CHAIN, deployment } from "../chains";
 import { GaslessReject, PERMIT2 } from "../trade/gaslessPermit2";
 import { erc2612PermitAbi, withdrawFeeRaw } from "../trade/gaslessWithdraw";
 import {
-  checkWalletLaunch, encodeLaunchEstimate, encodeWalletLaunch, parseLaunchParams, parseWalletLaunchRequest, type WalletLaunchRequest,
+  checkWalletLaunch, encodeLaunchEstimate, maxWalletLaunchGasFee, WALLET_LAUNCH_MAX_GAS_FEE_USD, encodeWalletLaunch, parseLaunchParams, parseWalletLaunchRequest, type WalletLaunchRequest,
 } from "../trade/gaslessWalletLaunch";
 import { ANON_LAUNCH_TX_GAS_LIMIT } from "../trade/gaslessAnonLaunch";
 import { requireGaslessMode, type GaslessConfirmed, type GaslessDeps } from "./gaslessRelay";
@@ -33,9 +33,14 @@ const ENOUGH = BigInt(2) ** BigInt(255);
 
 /** A wallet launch sends more than an anon one (Permit2 pull, First BOOST swap + buy, refund swap). */
 export const WALLET_LAUNCH_TX_GAS_LIMIT = ANON_LAUNCH_TX_GAS_LIMIT + BigInt(1_500_000);
-/** Quote-time extra over the no-BOOST estimate: the Permit2 pull + the First BOOST swap, curve buy and refund. */
+/**
+ * Quote-time extra over the no-BOOST estimate: the Permit2 pull + the First BOOST swap, curve buy and refund.
+ * Sized for the clone launch (PR #553 dcd4de1: launch 837k gas, curve buy 138k): a buy (~140k) plus a pair-coin swap
+ * in and a refund swap out (~150k each). The relay re-estimates the signed launch and checks the signed fee against
+ * that, so a short quote is refused (retry), never charged.
+ */
 const PERMIT2_PULL_GAS = BigInt(120_000);
-const FIRST_BOOST_GAS = BigInt(900_000);
+const FIRST_BOOST_GAS = BigInt(500_000);
 const PAD_PER_MILLE = BigInt(1_100);
 const PERMIT_TX_GAS = BigInt(120_000);
 
@@ -71,7 +76,7 @@ export async function quoteWalletLaunch(raw: unknown): Promise<WalletLaunchQuote
   } catch (e) { throw notSent(e); }
   const [r, rate] = await Promise.all([directRelayer(), liveUsdgPerEth()]);
   const gasFee = withdrawFeeRaw(gas, r.fee, rate, dep.usdgDecimals);
-  if (gasFee > BigInt(10) ** BigInt(dep.usdgDecimals)) throw notSent(new GaslessReject("network fee over $1 right now; try again in a bit"));
+  if (gasFee > maxWalletLaunchGasFee(dep.usdgDecimals)) throw notSent(new GaslessReject(`network fee over $${WALLET_LAUNCH_MAX_GAS_FEE_USD} right now; try again in a bit`));
   return { gasFee: gasFee.toString(), gas: gas.toString(), harvest: harvestAddr(), usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, permit2: PERMIT2 };
 }
 
