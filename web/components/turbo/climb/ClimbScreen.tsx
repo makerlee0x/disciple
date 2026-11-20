@@ -30,7 +30,7 @@ import { LIGHTER_PRICE_HOST, streamLighterBook, streamLighterMids } from "@/lib/
 import { onWallet } from "@/lib/walletState";
 
 type Tick = { ts: number; p: number };
-interface EngineApi { price(p: number, ts: number): void; error?(t: string): void; climbRefresh?(): void; climbFill?(entry: number): void; climbNote?(t: string): void; climbCash?(delta: number): void; destroy(): void }
+interface EngineApi { price(p: number, ts: number): void; error?(t: string): void; climbRefresh?(): void; climbFill?(entry: number, btc?: number): void; climbNote?(t: string): void; climbCash?(delta: number): void; destroy(): void }
 /** the buzzer's longest clock (app/api/lighter arm): free mode has none, so its position closes then */
 const LIGHTER_ARM_MAX = 270_000;
 
@@ -101,7 +101,7 @@ export default function ClimbScreen() {
       const cash = Number(s.collateral);
       const p = s.positions?.find((x) => x.symbol === "BTC");
       const open = p && Number(p.position) !== 0 ? Number(p.avg_entry_price) : null;
-      return { s, cash: Number.isFinite(cash) ? cash : null, entry: open && open > 0 ? open : null };
+      return { s, cash: Number.isFinite(cash) ? cash : null, entry: open && open > 0 ? open : null, btc: open ? Math.abs(Number(p?.position)) : 0 };
     };
     // Lighter: Lighter's BTC leverage is set once at 50x (CLIMB_MAX_GEAR), so a lower gear sends a smaller margin for
     // the same size of bet: $ × gear / 50
@@ -177,8 +177,9 @@ export default function ClimbScreen() {
       press: (action: MatchAction, i: number, fuelAfter: number) => lxP.then(async (lx) => {
         if (!lx) return null;
         const r = await lx.press(action, i, fuelAfter);
-        // the fill lands a moment after Lighter takes the order: read the real entry back for the chart and the PnL
-        if (!("error" in r) && action !== "close") setTimeout(() => { void readLighter().then((x) => { if (x?.entry) api?.climbFill?.(x.entry); }).catch(() => {}); }, 700);
+        // the fill lands a moment after Lighter takes the order: read the real entry and size back for the chart and the PnL
+        // (Lighter rounds a small bet up to its smallest order, so the real position can be bigger than the bet)
+        if (!("error" in r) && action !== "close") setTimeout(() => { void readLighter().then((x) => { if (x?.entry) api?.climbFill?.(x.entry, x.btc); }).catch(() => {}); }, 700);
         // a cash out: once Lighter shows the position gone, the cash it moved since the run began is the real result so far
         if (!("error" in r) && action === "close") void (async () => {
           for (let k = 0; k < 8 && !dead; k++) {
