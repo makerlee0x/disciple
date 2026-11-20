@@ -1,6 +1,6 @@
 import "server-only";
 /**
- * GET /api/leaderboard?sort=pairs&by=volume|burned|rockets|traders: the pair coin board (lib/home/pairBoard).
+ * GET /api/leaderboard?sort=pairs&by=score|volume|burned|rockets|traders: the pair coin board (lib/home/pairBoard).
  * Sources:
  *  - launches + fills: the last home build (lib/server/home: same filtered launch list and indexed fills as the lobby)
  *  - burns: CreatorFeeHarvest CreatorFeesRouted logs with destination 2 (burn), kept in KV with a block cursor

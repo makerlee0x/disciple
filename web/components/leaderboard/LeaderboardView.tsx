@@ -71,7 +71,7 @@ export const LEADERBOARD_COPY = {
   head: { pnl: "PnL", pts: "Points", level: "Level" },
   play: "Play now",
   duel: "Play a duel",
-  pairs: { coin: "Coin", cut: "Elimination zone", by: { volume: "Volume", burned: "Burned", rockets: "Rockets", traders: "Traders" } as Record<PairSort, string> },
+  pairs: { coin: "Coin", cut: "Elimination zone", by: { score: "Score", volume: "Volume", burned: "Burned", rockets: "Rockets", traders: "Traders" } as Record<PairSort, string> },
 } as const;
 
 /** +$2,279,655.33 / -$846.33 */
@@ -441,6 +441,7 @@ const usdCompact = (v: number) => `$${compact(v)}`;
 const burnPct = (p: number) => (p <= 0 ? "0%" : p < 0.0001 ? "<0.01%" : `${(p * 100).toFixed(p < 0.01 ? 2 : 1)}%`);
 type PairRowT = PairBoardResponse["rows"][number];
 const PAIR_VALUE: Record<PairSort, (r: PairRowT) => string> = {
+  score: (r) => r.score.toLocaleString("en-US"),
   volume: (r) => usdCompact(r.volumeUsd),
   burned: (r) => (r.burnedPct > 0 ? burnPct(r.burnedPct) : compact(r.burned)),
   rockets: (r) => r.rockets.toLocaleString("en-US"),
@@ -448,6 +449,7 @@ const PAIR_VALUE: Record<PairSort, (r: PairRowT) => string> = {
 };
 /** The other three numbers as chips: a word each, no sentences. */
 const PAIR_CHIP: Record<PairSort, (r: PairRowT) => string> = {
+  score: (r) => `${r.score.toLocaleString("en-US")} pts`,
   volume: (r) => `${usdCompact(r.volumeUsd)} vol`,
   burned: (r) => `${compact(r.burned)} burned`,
   rockets: (r) => `${r.rockets.toLocaleString("en-US")} ${r.rockets === 1 ? "rocket" : "rockets"}`,
@@ -463,7 +465,7 @@ function PairRow({ r, by, out }: { r: PairRowT; by: PairSort; out: boolean }) {
       </span>
       <div className="tp-tname">
         <b>${r.symbol}</b>
-        <div className="tp-pairchips">{PAIR_SORTS.filter((k) => k !== by).map((k) => <span key={k} className={`k-${k}`}>{PAIR_CHIP[k](r)}</span>)}</div>
+        <div className="tp-pairchips">{PAIR_SORTS.filter((k) => k !== by && k !== "score").map((k) => <span key={k} className={`k-${k}`}>{PAIR_CHIP[k](r)}</span>)}</div>
       </div>
       <div className="tp-tpnl"><b className={`r2-g ${out ? "tp-red" : "tp-white"}`}>{PAIR_VALUE[by](r)}</b></div>
     </div>
@@ -503,7 +505,7 @@ export default function LeaderboardView() {
   const [crews, setCrews] = useState<CrewBoardResponse | null>(null);
   const [duel, setDuel] = useState<DuelBoardRes | null>(null);
   const [season, setSeason] = useState<SeasonRes | null>(null);
-  const [pairBy, setPairBy] = useState<PairSort>("volume");
+  const [pairBy, setPairBy] = useState<PairSort>("score");
   const [pairs, setPairs] = useState<PairBoardResponse | null>(null);
   const picked = useRef(false);
   useEffect(() => onWallet((a) => setMe(a ?? null)), []);

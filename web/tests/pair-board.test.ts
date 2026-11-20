@@ -50,3 +50,15 @@ describe("pairBoard", () => {
     expect(ranked.filter((r) => r.rank > PAIR_SAFE).map((r) => r.symbol)).toEqual(["C10", "C11"]);
   });
 });
+
+describe("combined score", () => {
+  it("best pair on every number scores 1000; weights follow PAIR_SCORE_WEIGHTS", () => {
+    const two = ["X", "Y"].map(P);
+    const launches = [{ token: "0xa", quote: two[0].address, block: 1 }, { token: "0xb", quote: two[1].address, block: 1 }, { token: "0xc", quote: two[1].address, block: 1 }];
+    const fills = [fill("0xa", "0xw1", 100, 1), fill("0xb", "0xw2", 50, 1)];
+    const rows = pairBoard(two, launches, fills, [], {});
+    // X: full volume (40) + half the rockets (7.5) + full traders (15) = 62.5 → 625; Y: 20 + 15 + 15 = 50 → 500
+    expect(rows.map((r) => r.score)).toEqual([625, 500]);
+    expect(rankPairs(rows, "score")[0].symbol).toBe("X");
+  });
+});

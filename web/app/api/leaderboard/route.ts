@@ -1,4 +1,4 @@
-/** GET /api/leaderboard?window=day|week|month|all&sort=pnl|pctGain|orbits|crews|positions|overall|lifetime|royale|climb[&me=0x…] (sort=pairs&by=volume|burned|rockets|traders: lib/server/pairBoard) → lib/server/leaderboard BoardResponse (CrewBoardResponse for crews). */
+/** GET /api/leaderboard?window=day|week|month|all&sort=pnl|pctGain|orbits|crews|positions|overall|lifetime|royale|climb[&me=0x…] (sort=pairs&by=score|volume|burned|rockets|traders: lib/server/pairBoard) → lib/server/leaderboard BoardResponse (CrewBoardResponse for crews). */
 import { NextResponse } from "next/server";
 import { getCrewBoard, getLeaderboard, getLifetime, getModeBoard, getOverall, getPositions } from "@/lib/server/leaderboard";
 import { BOARD_SORTS, BOARD_WINDOWS, type BoardSort, type BoardWindow } from "@/lib/home/topPilots";
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
   const sort = (q.get("sort") ?? "pnl") as BoardSort | "crews" | "positions" | "overall" | "lifetime" | "royale" | "climb";
   const me = q.get("me");
   if (q.get("sort") === "pairs") {
-    const by = (q.get("by") ?? "volume") as PairSort;
+    const by = (q.get("by") ?? "score") as PairSort;
     if (!PAIR_SORTS.includes(by)) return NextResponse.json({ error: "bad query" }, { status: 400 });
     return NextResponse.json(await getPairBoard(by), { headers: { "cache-control": "public, max-age=0, s-maxage=30, stale-while-revalidate=60" } });
   }
