@@ -17,7 +17,7 @@ import {
   DEV_WALLETS, SIGNER_MODE, aaSession,
   legacyBalances, onSessionChange, sweepLegacy, restartOneTap,
 } from "@/lib/aa/session";
-import { bookedPortfolio, loadPortfolio, type Portfolio } from "@/lib/portfolio";
+import { bookedPortfolio, hangarValueUsd, loadPortfolio, type Portfolio } from "@/lib/portfolio";
 import { SIGN_IN_COPY, SIGN_IN_FAILED_EVENT, WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT, type WalletId } from "@/lib/walletCta";
 import { hasSavedSession, onPrivy, privyAuthenticated, privyLoaded } from "@/lib/aa/sessionState";
 import { lastPill, saveLastPill, type LastPill } from "@/lib/walletState";
@@ -237,22 +237,23 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
     addEventListener(PROFILE_CHANGED_EVENT, changed);
     return () => { alive = false; removeEventListener(PROFILE_CHANGED_EVENT, changed); };
   }, [shown, ownerAddr]);
+  // the top-bar pill is ONE number: the Hangar value (maker 2026-11-20), Cash + rockets + Turbo cash, same sum as the
+  // Hangar value card (lib/portfolio hangarValueUsd). The Cash popup splits Cash and Turbo cash.
+  const [turboUsd, setTurboUsd] = useState(0);
+  useEffect(() => onTurboCash((t) => setTurboUsd(t.usd)), []);
+  useEffect(() => { setTurboWallet(addr); }, [addr]);
+  // until this wallet's first read lands, show the total this browser last saw for it (never a blink to $0 and back)
+  const seenTotal = useMemo(() => { const p = lastPill(); return p && shown && p.address.toLowerCase() === shown.toLowerCase() ? p.cashUsd : null; }, [shown]);
+  const totalUsd = pf ? hangarValueUsd(pf.cashUsd, pf.holdings, turboUsd) : seenTotal ?? turboUsd;
   // remember the real pill for the next refresh
   useEffect(() => {
     if (!addr) return;
     const prev = lastPill();
     const keep = prev && prev.address.toLowerCase() === addr.toLowerCase() ? prev : null;
-    const cashUsd = pf?.cashUsd ?? keep?.cashUsd ?? null;
+    const cashUsd = pf ? totalUsd : keep?.cashUsd ?? null;   // the saved pill holds the total it showed
     saveLastPill({ address: addr, name: uname, cashUsd, cash: cashUsd == null ? undefined : usd2(cashUsd), label: dname || nameChip(uname, addr),
       img: pilot.img, nft: pilot.nft, level: pilot.info.level, progress: pilot.info.progress });
-  }, [addr, uname, dname, pf?.cashUsd, pilot.img, pilot.nft, pilot.info.level, pilot.info.progress]);
-  // the top-bar pill is ONE combined balance (maker 2026-11-18): Cash + Turbo cash. The Cash popup splits them.
-  const [turboUsd, setTurboUsd] = useState(0);
-  useEffect(() => onTurboCash((t) => setTurboUsd(t.usd)), []);
-  useEffect(() => { setTurboWallet(addr); }, [addr]);
-  // until this wallet's first read lands, show the cash this browser last saw for it (never a blink to $0 and back)
-  const seenCash = useMemo(() => { const p = lastPill(); return p && shown && p.address.toLowerCase() === shown.toLowerCase() ? p.cashUsd : null; }, [shown]);
-  const cashUsd = (pf?.cashUsd ?? seenCash ?? 0) + turboUsd;
+  }, [addr, uname, dname, pf, totalUsd, pilot.img, pilot.nft, pilot.info.level, pilot.info.progress]);
 
   // premium sidebar: the Sidebar's account card shows the same address + name (display only; lib/walletCta.ts)
   useEffect(() => {
@@ -377,7 +378,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
                   {!hideCash && !!addr && !smart && (
                     <a href={DEPOSIT_HREF} onClick={onDepositClick} className="wb-cash" data-testid="cash-card" aria-label="Your cash: open Cash" title="Cash. Boosts spend it, dumps pay it. Tap to add.">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg>
-                      <b>{usd2(cashUsd)}</b>
+                      <b>{usd2(totalUsd)}</b>
                       <svg className="wb-cash-plus" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden><path d="M12 5v14M5 12h14" /></svg>
                     </a>
                   )}
@@ -391,7 +392,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
                         {!hideCash && (
                           <a href={DEPOSIT_HREF} onClick={onDepositClick} className="wb-bal" data-testid="cash-card" aria-label="Your cash: open Cash">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg>
-                            <b>{usd2(cashUsd)}</b>
+                            <b>{usd2(totalUsd)}</b>
                           </a>
                         )}
                       </span>
@@ -410,7 +411,7 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
                       {/* while the session loads (saved pill) it already looks like the signed-in pill: name + balance */}
                       <span className="wb-id">
                         <span className="wb-name">{copied ? "Copied" : chipLabel(uname, shown)}</span>
-                        {!hideCash && !(addr && !smart) && <span className="wb-bal"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg><b>{usd2(cashUsd)}</b></span>}
+                        {!hideCash && !(addr && !smart) && <span className="wb-bal"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><rect x="3" y="6" width="18" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg><b>{usd2(totalUsd)}</b></span>}
                       </span>
                       {pilot.hasPfp && <b className="wb-lv" aria-label={`Level ${pilot.info.level}`}>{pilot.info.level}</b>}
                       <PillProgress progress={pilot.info.progress} />

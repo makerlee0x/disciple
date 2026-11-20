@@ -17,6 +17,7 @@ import { DEPOSIT_HREF, onDepositClick } from "@/lib/cashLink";
 import { openTurbo } from "@/lib/turbo/turboPill";
 import Tooltip from "@/components/ui/Tooltip";
 import { onTurboCash } from "@/lib/turbo/turboCash";
+import { hangarValueUsd } from "@/lib/portfolio";
 import { openSend } from "@/lib/send/open";
 
 /** Rocket bag send (fleet card icon → components/send/SendHost): off until the gasless token transfer is wired. */
@@ -36,8 +37,7 @@ export function ServiceRecord({ pf, isPrivate, rewards }: {
   const [turbo, setTurbo] = useState(0);
   useEffect(() => (isPrivate ? onTurboCash((t) => setTurbo(t.usd)) : undefined), [isPrivate]);
   const ok = pf && pf.ok;
-  const rockets = ok ? pf.rows.reduce((s, r) => s + r.usd, 0) : null;
-  const total = ok ? pf.cashUsd + rockets! + (isPrivate ? turbo : 0) : null;
+  const total = ok ? hangarValueUsd(pf.cashUsd, pf.rows, isPrivate ? turbo : 0) : null;
   const today = ok && pf.rows.every((r) => Number.isFinite(r.price24h)) ? pf.rows.reduce((s, r) => s + r.tokens * (r.priceNow - r.price24h), 0) : null;
   const rewardsLive = !!rewards && rewards.usd != null && rewards.usd >= 0.005;
   return (
