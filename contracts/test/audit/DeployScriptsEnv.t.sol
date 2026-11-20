@@ -171,6 +171,14 @@ contract DeployScriptsEnvTest is PaymasterTestBase {
         _guardDummyConfig();
         assertTrue(guard.check());
 
+        // audit delta-2 4/4 D2-04(2): the treasury must be a contract (Safe) on mainnet
+        _restoreGuardEnv();
+        vm.chainId(4663);
+        _guardDummyConfig();
+        vm.setEnv("TREASURY", vm.toString(makeAddr("treasury EOA")));
+        vm.expectRevert("Network: no code at TREASURY");
+        guard.check();
+
         // mainnet dummy config on the wrong chain fails closed
         _restoreGuardEnv();
         _guardDummyConfig();

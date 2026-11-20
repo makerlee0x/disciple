@@ -183,6 +183,7 @@ contract Launchpad is ILaunchpad, Owned2Step, EIP712 {
     /// @notice Ends curve swaps for good.
     function lockCurveDeployer() external {
         if (msg.sender != owner) revert OnlyOwner();
+        if (address(curveDeployer) == address(0)) revert CurveDeployerUnset(); // audit delta-2 D2-L6
         curveDeployerLocked = true;
     }
 
@@ -420,6 +421,9 @@ contract Launchpad is ILaunchpad, Owned2Step, EIP712 {
         string calldata description,
         string calldata socialsURI
     ) external {
+        unchecked {
+            ++sigNonces[msg.sender]; // audit delta-2 L-01: a direct edit voids pending signed edits / transfers
+        }
         _updateMetadata(token, msg.sender, imageURI, description, socialsURI);
     }
 
@@ -432,6 +436,9 @@ contract Launchpad is ILaunchpad, Owned2Step, EIP712 {
     );
     /// @notice Per coin creator; every signature here uses (and burns) the next one.
     mapping(address => uint256) public sigNonces;
+    /// @notice Bumped on every creator transfer of `token` (audit delta-2 M-01): per-creator settings such as the
+    ///         CreatorFeeHarvest "pays to" wallet are tied to the epoch they were set in, so A → B → A starts clean.
+    mapping(address => uint256) public creatorEpoch;
 
     error BadSignature();
     error SignatureExpired();
@@ -508,6 +515,9 @@ contract Launchpad is ILaunchpad, Owned2Step, EIP712 {
     ///      the current one with `sweepPastCreatorFees_1311` (anyone). Pool fees on the hook are paid to creatorOf at
     ///      claim time. A creator's "Pays to" pick (CreatorFeeHarvest) does not carry over.
     function transferCreator(address token, address newCreator) external {
+        unchecked {
+            ++sigNonces[msg.sender]; // audit delta-2 L-01
+        }
         _transferCreator(token, msg.sender, newCreator);
     }
 
@@ -516,6 +526,9 @@ contract Launchpad is ILaunchpad, Owned2Step, EIP712 {
         if (who != m.creator) revert OnlyCreator();
         require(newCreator != address(0), "zero");
         m.creator = newCreator;
+        unchecked {
+            ++creatorEpoch[token];
+        }
         emit CreatorTransferred(token, who, newCreator);
     }
 

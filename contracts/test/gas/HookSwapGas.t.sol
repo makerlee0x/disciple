@@ -12,7 +12,7 @@ import {BondingCurve} from "../../src/BondingCurve.sol";
 ///         used, so this exact file also runs on the pre-change commit (75e08bc) to produce the BEFORE numbers.
 ///         BEFORE (75e08bc, #461 hook → FeeRouter.routeHookFee → LockedLP credit), same file: forge 1.9.0 buy 324,385 /
 ///         sell 289,332; forge 1.5.1 buy 211,721 / sell 202,884. AFTER (this hook: 6909 mint + one SSTORE): forge 1.9.0
-///         buy 255,404 / sell 222,943; forge 1.5.1 buy 152,752 / sell 146,507. Forge versions price cold access
+///         buy 255,404 / sell 222,943 before clones, 260,780 / 231,810 with clone coins (audit delta-2 4/4 D2-I6); forge 1.5.1 buy 152,752 / sell 146,507. Forge versions price cold access
 ///         differently, so the bound is the forge 1.9.0 BEFORE (the newest toolchain); the new hook is ~21-28% cheaper on both.
 contract HookSwapGasTest is IntegrationBase {
     /// @dev Measured on 75e08bc with this file (see the PR). The new hook must not exceed them.

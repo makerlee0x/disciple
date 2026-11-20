@@ -89,7 +89,12 @@ export type CreatorRocket = {
   /** Launched with creator fees sent to the locked pool (1) or to buy-and-burn (2). Nothing here is claimable:
    *  FeeRouter / CurveFeeVault / AnonLauncher refuse the creator, and CreatorFeeHarvest.route moves the fees. */
   routed?: 1 | 2;
+  /** Past creators of this coin with fees still booked under their key (maker 2026-11-20: a new creator gets all
+   *  unclaimed fees). Included in `baseClaimable` / `vaultClaimable` / `tokenSide.claimable`; the claim batch sweeps
+   *  them to the current creator first (sweepPastCreatorFees_1311 on FeeRouter and the coin's CurveFeeVault). */
+  past?: PastCreator[];
 };
+export type PastCreator = { creator: Address; base: bigint; tok: bigint; vault: bigint };
 
 type Launch = { token: Address; name: string; ticker: string; quote: Address; block: bigint };
 
@@ -120,18 +125,66 @@ async function quoteOfToken(pc: PublicClient, token: Address): Promise<Address> 
 export async function creatorClaimable(pc: PublicClient, token: Address, me: Address): Promise<bigint> {
   return (await creatorQuoteSplit(pc, token, me)).claimable;
 }
-export type CreatorSplit = Required<Pick<CreatorRocket, "claimable" | "vault" | "vaultClaimable" | "baseClaimable">>;
-/** Quote-side creator balance split by where it sits (FeeRouter vs CurveFeeVault), so the claim calls hit each side. */
+export type CreatorSplit = Required<Pick<CreatorRocket, "claimable" | "vault" | "vaultClaimable" | "baseClaimable" | "past">>;
+const sweepAbi = parseAbi(["function sweepPastCreatorFees_1311(address token, address past) returns (uint256, uint256)"]);
+/** Most past creators read per coin (each costs three reads; repeated transfers can't make a claim unbounded). */
+const MAX_PAST = 5;
+const pastCache = new Map<string, Promise<PastCreator[]>>();
+/**
+ * Past creators of `token` (Launchpad CreatorTransferred.previousCreator, newest first) with fees still under their
+ * key: FeeRouter quote + token side and the coin's CurveFeeVault (settled balance only; unsettled curve fees settle to
+ * the current creator). Cached per coin + viewer for one load (the claim reads it again live).
+ */
+export function pastCreatorFees(pc: PublicClient, token: Address, me: Address, vault: Address | null): Promise<PastCreator[]> {
+  const k = `${lc(token)}:${lc(me)}:${Math.floor(Date.now() / 15_000)}`;
+  let p = pastCache.get(k);
+  if (!p) {
+    p = (async () => {
+      const d = deployment();
+      const logs = (await scanEventHistory(pc, (fromBlock, toBlock) => pc.getContractEvents({ address: d.launchpad, abi: launchpadAbi, eventName: "CreatorTransferred", args: { token }, fromBlock, toBlock }), d.fromBlock).catch(() => [])) as unknown as { args: { previousCreator?: Address }; blockNumber: bigint }[];
+      const seen = new Set<string>([lc(me)]);
+      const pasts: Address[] = [];
+      for (const l of [...logs].sort((a, b) => (a.blockNumber > b.blockNumber ? -1 : 1))) {
+        const c = l.args.previousCreator;
+        if (!c || isZero(c) || seen.has(lc(c))) continue;
+        seen.add(lc(c)); pasts.push(c);
+        if (pasts.length >= MAX_PAST) break;
+      }
+      const rows = await Promise.all(pasts.map(async (c): Promise<PastCreator> => {
+        const [base, tok, inVault] = await Promise.all([
+          (pc.readContract({ address: d.feeRouter, abi: feeRouterAbi, functionName: "creatorAccrued", args: [token, c] }) as Promise<bigint>).catch(() => ZERO),
+          (pc.readContract({ address: d.feeRouter, abi: feeRouterAbi, functionName: "creatorTokenAccrued", args: [token, c] }) as Promise<bigint>).catch(() => ZERO),
+          vault ? (pc.readContract({ address: vault, abi: curveFeeVaultAbi, functionName: "creatorAccrued", args: [token, c] }) as Promise<bigint>).catch(() => ZERO) : Promise.resolve(ZERO),
+        ]);
+        return { creator: c, base, tok, vault: inVault };
+      }));
+      return rows.filter((r) => r.base > ZERO || r.tok > ZERO || r.vault > ZERO);
+    })();
+    pastCache.set(k, p);
+    p.catch(() => pastCache.delete(k));
+  }
+  return p;
+}
+const sumPast = (xs: PastCreator[], f: (x: PastCreator) => bigint) => xs.reduce((a, x) => a + f(x), ZERO);
+/** Quote-side creator balance split by where it sits (FeeRouter vs CurveFeeVault), so the claim calls hit each side.
+ *  Includes fees still booked to past creators (swept to `me` in the claim batch). */
 export async function creatorQuoteSplit(pc: PublicClient, token: Address, me: Address): Promise<CreatorSplit> {
   const vault = await feeVaultOf(pc, token);
-  const [base, inVault] = await Promise.all([
+  const [base, inVault, past] = await Promise.all([
     pc.readContract({ address: deployment().feeRouter, abi: feeRouterAbi, functionName: "creatorAccrued", args: [token, me] }) as Promise<bigint>,
     vaultCreatorClaimable(pc, vault, token, me),
+    pastCreatorFees(pc, token, me, vault).catch(() => [] as PastCreator[]),
   ]);
-  return { claimable: base + inVault, vault, vaultClaimable: inVault, baseClaimable: base };
+  const b = base + sumPast(past, (x) => x.base), v = inVault + sumPast(past, (x) => x.vault);
+  return { claimable: b + v, vault, vaultClaimable: v, baseClaimable: b, past };
 }
-export function creatorTokenClaimable(pc: PublicClient, token: Address, me: Address): Promise<bigint> {
-  return pc.readContract({ address: deployment().feeRouter, abi: feeRouterAbi, functionName: "creatorTokenAccrued", args: [token, me] }) as Promise<bigint>;
+/** Token-side FeeRouter balance, plus what past creators still have booked (swept with the quote side). */
+export async function creatorTokenClaimable(pc: PublicClient, token: Address, me: Address): Promise<bigint> {
+  const [own, past] = await Promise.all([
+    pc.readContract({ address: deployment().feeRouter, abi: feeRouterAbi, functionName: "creatorTokenAccrued", args: [token, me] }) as Promise<bigint>,
+    feeVaultOf(pc, token).then((v) => pastCreatorFees(pc, token, me, v)).catch(() => [] as PastCreator[]),
+  ]);
+  return own + sumPast(past, (x) => x.tok);
 }
 
 type ClaimLog = { args: { token: Address; amount: bigint } };
@@ -154,7 +207,7 @@ export async function creatorDashboard(pc: PublicClient, me: Address, caps: Caps
   const own = await Promise.all(rockets.map(async (r): Promise<CreatorRocket> => {
     const quote = await assetMeta(pc, r.quote || (await quoteOfToken(pc, r.token)));
     const [split, recent, hook] = await Promise.all([
-      creatorQuoteSplit(pc, r.token, me).catch(() => ({ claimable: ZERO, vault: null, vaultClaimable: ZERO, baseClaimable: ZERO })),
+      creatorQuoteSplit(pc, r.token, me).catch(() => ({ claimable: ZERO, vault: null, vaultClaimable: ZERO, baseClaimable: ZERO, past: [] as PastCreator[] })),
       recentAccruals(pc, r.token, recentN),
       hookCreatorClaimable(pc, r.token),
     ]);
@@ -168,7 +221,7 @@ export async function creatorDashboard(pc: PublicClient, me: Address, caps: Caps
       tokenSide = { asset: await assetMeta(pc, r.token), claimable: hook.token, claimed: ZERO };
     }
     return { token: r.token, name: r.name, ticker: r.ticker, quote, claimable, claimed, lifetime: claimed + claimable, recent, tokenSide,
-      vault: split.vault, vaultClaimable: split.vaultClaimable, baseClaimable: split.baseClaimable, hook };
+      vault: split.vault, vaultClaimable: split.vaultClaimable, baseClaimable: split.baseClaimable, hook, past: split.past };
   }));
   return markRouted(pc, [...own, ...anon]);
 }
@@ -269,7 +322,7 @@ export async function anonRockets(pc: PublicClient, me: Address, stealth: { toke
   return rows.filter((r): r is CreatorRocket => !!r);
 }
 
-export type ClaimRow = Pick<CreatorRocket, "token" | "claimable" | "tokenSide" | "anon" | "launcher" | "stealth" | "vault" | "vaultClaimable" | "baseClaimable" | "hook">;
+export type ClaimRow = Pick<CreatorRocket, "token" | "claimable" | "tokenSide" | "anon" | "launcher" | "stealth" | "vault" | "vaultClaimable" | "baseClaimable" | "hook" | "past">;
 /** FeeRouter / AnonLauncher quote part (pre-lp-accrue rows carry no split: all of `claimable`). */
 const hookOf = (r: ClaimRow) => r.hook ?? { quote: ZERO, token: ZERO };
 const baseOf = (r: ClaimRow) => r.baseClaimable ?? r.claimable - hookOf(r).quote;
@@ -293,6 +346,11 @@ export function creatorClaimCalls(rows: ClaimRow[], caps: Caps, me?: Address): C
     // AnonLauncher and CurveFeeVault claims for private rockets go through claimManyBySig / claimManyAsStealthBySig
     // (anonSigClaimCalls), which the gasless relayer can submit
     if (r.anon) continue;
+    // past creators' unclaimed fees move to the current creator first, so the claims below pay them out too
+    for (const p of r.past ?? []) {
+      if (p.base > ZERO || p.tok > ZERO) calls.push({ to: fr, data: encodeFunctionData({ abi: sweepAbi, functionName: "sweepPastCreatorFees_1311", args: [r.token, p.creator] }) });
+      if (p.vault > ZERO && r.vault) calls.push({ to: r.vault, data: encodeFunctionData({ abi: curveFeeVaultAbi, functionName: "sweepPastCreatorFees_1311", args: [r.token, p.creator] }) });
+    }
     if (caps.creatorFees && baseOf(r) > ZERO) calls.push({ to: fr, data: encodeFunctionData({ abi: feeRouterAbi, functionName: "claimCreatorFees", args: [r.token] }) });
     if (vaultPart(r) > ZERO) calls.push({ to: r.vault!, data: encodeFunctionData({ abi: curveFeeVaultAbi, functionName: "claimCreatorFees", args: [r.token] }) });
     if (caps.creatorTokenFees && hasTok) calls.push({ to: fr, data: encodeFunctionData({ abi: feeRouterAbi, functionName: "claimCreatorTokenFees", args: [r.token] }) });

@@ -30,6 +30,9 @@ contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
     ///         seeding of the real pool inside the graduation transaction. address(0) (no Migration found) = off.
     address public immutable poolManager;
     address internal immutable _lockedLP;
+    /// @dev Audit delta-2 D2-L4: the contract that created the implementation (TokenDeployer). Only it may initialize a
+    ///      clone, so nobody can stand up a self-made clone of the real coin code with their own name / supply.
+    address internal immutable _cloner;
     /// @notice The coin creator of record at launch (the Launchpad tracks later transfers) and whether pre-graduation
     ///         wallet→wallet transfers notify the curve (PVE coins). One packed slot, written once by `initialize`.
     address public override creator;
@@ -50,6 +53,7 @@ contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
     error OnlyLaunchpad();
     error OnlyCurve();
     error AlreadySet();
+    error OnlyCloner();
     error CreatorLocked();
     /// @notice The coin is still on its curve: no v4 pool may hold it yet.
     error PoolBeforeOrbit();
@@ -64,6 +68,7 @@ contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
         poolManager = poolManager_; // address(0) leaves the pre-orbit v4 block off
         _lockedLP = lockedLP_;
         creator = DEAD;
+        _cloner = msg.sender;
     }
 
     /// @notice One-time setup of a fresh clone by its TokenDeployer: name, ticker, creator, PVE flag, full supply.
@@ -75,6 +80,7 @@ contract Token is ERC20, ERC20Permit, ERC20Burnable, IToken {
         bool pveHooks_
     ) external {
         if (creator != address(0)) revert AlreadySet();
+        if (msg.sender != _cloner) revert OnlyCloner();
         if (creator_ == address(0) || recipient_ == address(0)) revert ZeroAddress();
         creator = creator_;
         pveHooks = pveHooks_;
