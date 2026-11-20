@@ -9,6 +9,7 @@
 import { withBase } from "@/lib/base-path";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import { turboBlockedCached, turboRegion } from "@/lib/turbo/region";
+import { cashNeed } from "@/lib/duel/rules";
 import { LighterTaps, lighterFlatten, lighterStatus, type TapKind } from "./client";
 
 const FLAG = "disciple.lighter";
@@ -45,6 +46,14 @@ export function lighterFetcher(wallet: string) {
     return fetch(withBase(input), { ...init, cache: "no-store", headers: { ...((init?.headers as Record<string, string>) ?? {}), authorization: `Bearer ${t}`, "x-wallet": wallet } });
   };
 }
+
+/** cross margin: Turbo cash backs the position, so it must cover the stake plus room for our NUKE to close first
+ *  (lib/duel/rules cashNeed: $24 for a $20 duel at 50x). */
+export async function lighterCash(f: ReturnType<typeof lighterFetcher>, stake: number, gear: number): Promise<{ ok: boolean; need: number }> {
+  const need = cashNeed(stake, gear);
+  try { return { ok: Number((await lighterStatus(f)).collateral ?? 0) + 1e-9 >= need, need }; } catch { return { ok: false, need }; }
+}
+export const cashNote = (need: number) => `You need $${need.toFixed(2)} in Turbo cash for this match.`;
 
 export type MatchAction = "boost" | "dump" | "close";
 /**

@@ -15,8 +15,17 @@ export const LEV = 50;
 export const FEE = 0.000055;
 /** Every duel fill waits this long after the tap, like a Lighter Standard/Plus taker order (300 ms speed bump). */
 export const FILL_MS = 300;
-/** NUKE when the open position has lost 80% of the fuel in it. */
-export const LIQ = 0.8;
+/**
+ * NUKE line by gear (maker 2026-11-20): positions are on Lighter cross margin, and our NUKE closes them with a 0.42%
+ * BTC move to spare before Lighter's own liquidation (maintenance 1.2%, 1% fee), when Turbo cash is 1.2x the stake.
+ * Share of the fuel in the position lost at the NUKE: 50x 39% (a 0.777% move), 40x 55%, 30x 71%, 20x and under 80%.
+ */
+export const NUKE_GAP = 0.0042, LX_MAINT = 0.012, CASH_X = 1.2;
+export const liqFrac = (gear: number) => Math.min(0.8, CASH_X - (LX_MAINT + NUKE_GAP) * gear);
+/** the Turbo cash a stake at `gear` needs so the NUKE always closes before Lighter liquidates (1.2x the stake at 50x) */
+export const cashNeed = (stake: number, gear: number) => Math.ceil(stake * (liqFrac(gear) + (LX_MAINT + NUKE_GAP) * gear) * 100) / 100;
+/** duels fly at LEV: NUKE at 39% of the fuel in the position */
+export const LIQ = liqFrac(LEV);
 export const OT_MS = 30_000;
 export const COUNTDOWN_MS = 3_500;
 

@@ -63,7 +63,7 @@ Over the max bag: fills to the cap, refunds the rest.
 | Fee | 1.1 bp round trip |
 | Leverage | Duel 50× · Climb 10–50× |
 | Cash in / out | Relay · USDG ⇄ USDC · from $6 |
-| Duel | 1 min · fuel $20 / $50 / $150 · NUKE at −80% · 30s overtime |
+| Duel | 1 min · fuel $20 / $50 / $150 · NUKE at −39% (50×) · 30s overtime |
 | Climb | 5 levels · 1 min · then free mode |
 
 ## Altitude and bombs

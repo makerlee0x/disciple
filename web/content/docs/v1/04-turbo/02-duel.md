@@ -37,7 +37,7 @@ Ranked queues use the three tiers. Friend duels set any fuel from $5 up.
 
 ## The rules
 
-- **NUKE:** a position that loses 80% of its fuel is gone.
+- **NUKE:** at 50× a position that loses 39% of its fuel (a 0.78% BTC move) is closed, before Lighter would liquidate it. Real-money duels need Turbo cash of 1.2× the fuel ($24 for a $20 duel).
 - **Overtime:** within 25¢ per $20 of fuel at the buzzer, you get 30 more seconds. Once.
 - **Win:** beat your rival's PnL. You each keep your own PnL. Nobody pays the winner.
 

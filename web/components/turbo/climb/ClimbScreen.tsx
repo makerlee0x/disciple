@@ -16,7 +16,7 @@ import { CLIMB_FEE, CLIMB_FEE_LABEL, CLIMB_LEVELS, CLIMB_MAX_GEAR, climbLevelsFo
 import { readClimbLevel, saveClimbLevel } from "@/lib/climb/progress";
 import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "@/components/turbo/duel/engineLoader";
 import { PCTS, pctUsd } from "@/lib/duel/rules";
-import { LighterMatch, lighterFetcher, lighterWanted, type MatchAction } from "@/lib/lighter/duel";
+import { LighterMatch, cashNote, lighterCash, lighterFetcher, lighterWanted, type MatchAction } from "@/lib/lighter/duel";
 import { turboRegion } from "@/lib/turbo/region";
 import GeoBanner from "@/components/turbo/GeoBanner";
 import { mountRealSwitch } from "@/lib/turbo/realSwitch";
@@ -121,6 +121,8 @@ export default function ClimbScreen() {
           if (!wallet) { api?.error?.("Sign in to fly on Lighter."); return null; }
           const f = lighterFetcher(wallet);
           if (!(await LighterMatch.ready(f))) { api?.error?.("Lighter isn't set up for this wallet. Finish set-up on /lighter."); return null; }
+          const cash = await lighterCash(f, run.fuel, run.gear);
+          if (!cash.ok) { api?.error?.(cashNote(cash.need)); return null; }
           const lx = new LighterMatch(f, "BTC", sizesFor, run.fuel); lx.start(); return lx;
         })().catch(() => null);
       },

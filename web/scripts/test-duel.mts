@@ -42,7 +42,18 @@ test("rules: % trade sizes and the stakes the server takes", () => {
   for (const ok of [0, 1, 2.5, 12.34, 500, 20000, 250000]) assert.ok(R.okStake(ok), `${ok}`);
   for (const bad of [0.5, -1, 1.234, NaN, Infinity]) assert.ok(!R.okStake(bad), `${bad}`);
 });
-test("rules: ALL uses everything, NUKE at 80% of the fuel in it", () => {
+test("rules: NUKE line by gear keeps 0.42% before Lighter liquidates; cash need is 1.2x the stake at 50x", () => {
+  const near = (a: number, b: number, e = 1e-9) => assert.ok(Math.abs(a - b) < e, `${a} vs ${b}`);
+  near(R.liqFrac(50), 0.39); near(R.liqFrac(40), 0.552); near(R.liqFrac(30), 0.714); near(R.liqFrac(20), 0.8); near(R.liqFrac(10), 0.8);
+  near(R.LIQ, 0.39); near(R.liqFrac(50) / 50, 0.0078);
+  assert.equal(R.cashNeed(20, 50), 24); assert.equal(R.cashNeed(150, 50), 180); assert.equal(R.cashNeed(1000, 50), 1200);
+  // with that cash at any gear, Lighter's line (cash - 1.2% of notional) sits 0.42% of a move past the NUKE
+  for (const g of [10, 20, 30, 40, 50]) {
+    const stake = 100, n = stake * g, cash = R.cashNeed(stake, g), nukeMove = R.liqFrac(g) * stake / n, lineMove = (cash - 0.012 * n) / n;
+    assert.ok(lineMove - nukeMove >= 0.0042 - 1e-6, `gear ${g}: gap ${lineMove - nukeMove}`);
+  }
+});
+test("rules: ALL uses everything, NUKE at 39% of the fuel in it (50x)", () => {
   let b = R.applyTrade(R.newBook(20), "boost", 0, 68000, 0)!.book;
   assert.ok(b.fuel < 0.01);
   const lp = R.liqPrice(b.pos!); assert.ok(lp < 68000);

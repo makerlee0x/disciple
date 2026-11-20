@@ -149,8 +149,9 @@ function mount(root,host){
   const mmss=ms=>{const s=Math.max(0,Math.ceil(ms/1000));return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");};
 
   /* ---------- rules ---------- */
-  const DUEL_LEV=50 /* Lighter BTC max, feel test */, DUEL_FEE=0.000055 /* 0.55 bp a side = 1.1 bp round trip: Lighter Plus + 0.1 bp ours, locked (feel test, lib/duel/rules) */, FILL_MS=300 /* Lighter taker speed bump */, LIQ=0.8 /* NUKE at 80% of the fuel in it lost */;
-  let LEV=DUEL_LEV, FEE=DUEL_FEE;   // Climb (host.climb) flies its own gear and fee per run
+  const DUEL_LEV=50 /* Lighter BTC max, feel test */, DUEL_FEE=0.000055 /* 0.55 bp a side = 1.1 bp round trip: Lighter Plus + 0.1 bp ours, locked (feel test, lib/duel/rules) */, FILL_MS=300 /* Lighter taker speed bump */ /* NUKE line: liqF(gear), lib/duel/rules liqFrac */;
+  const liqF=g=>Math.min(.8,1.2-.0162*g);   // 50x 39%, 40x 55%, 30x 71%, 20x- 80% (maker 2026-11-20: 0.42% before Lighter liquidates)
+  let LEV=DUEL_LEV, FEE=DUEL_FEE, LIQ=liqF(DUEL_LEV);   // Climb (host.climb) flies its own gear and fee per run
   let FUEL0=20;
   const TIERS={rookie:{fuel:20,sizes:[1,2,5,10,0]},pro:{fuel:50,sizes:[2,5,10,25,0]},shark:{fuel:150,sizes:[5,10,25,50,0]}};
   const BOTS={
@@ -192,7 +193,7 @@ function mount(root,host){
   function newPlayer(name,me){return {name,me,fuel:FUEL0,pos:null,fees:0,trades:0,up:0,dn:0,green:0,best:0,y:0,vy:0,flame:0,flameC:"255,200,120",sq:0,lastTrade:-1e9,next:0,moments:[]};}
   function newGame(){
     optim=0; clipDrop();
-    FUEL0=curFuel(); LEV=CLR?CLR.gear:DUEL_LEV; FEE=CLR?CL.fee:DUEL_FEE; SIZES=PCTS; if(CLR&&CLR.free) stake=cPct>=100?0:cPct; else if(!SIZES.includes(stake)) stake=25; paintSizes(); resizeK();
+    FUEL0=curFuel(); LEV=CLR?CLR.gear:DUEL_LEV; LIQ=liqF(LEV); FEE=CLR?CL.fee:DUEL_FEE; SIZES=PCTS; if(CLR&&CLR.free) stake=cPct>=100?0:cPct; else if(!SIZES.includes(stake)) stake=25; paintSizes(); resizeK();
     const startAt=M&&M.startAt||Date.now()+3500, h=host.history(), BCFG=botCfg();
     G={t:now_()-startAt,startAt,solo:!!CLR,len:CLR?CLR.len:(M&&M.endAt?M.endAt-startAt:LEN),ot:false,over:false,price:h.length?h[h.length-1].p:0,ticks:[],marks:[],
        me:newPlayer("you",true),bot:CLR?null:newPlayer(M&&M.opp?M.opp.name:BCFG.name,false),   // Climb flies alone (maker 2026-11-18: "there is no rival in this mode")
@@ -1421,7 +1422,7 @@ function mount(root,host){
     const fuels=LVS.map(l=>l.fuel), gears=[]; for(let g=10;g<=MAXG;g+=10) gears.push(g);
     const opt=(k,v,lab)=>`<button class="opt${cFree[k]===v?" on":""}" type="button" data-${k}="${v}">${lab}</button>`;
     $("cres").innerHTML=`<div class="opts" role="group" aria-label="Fuel"><span>FUEL</span>${fuels.map(f=>opt("fuel",f,m2(f))).join("")}</div>`
-      +`<div class="opts" role="group" aria-label="Gear"><span>GEAR</span>${gears.map(g=>opt("gear",g,gx(g)+`<small class="ob">NUKE −${Math.round(LIQ/g*1000)/10}%</small>`)).join("")}</div>`
+      +`<div class="opts" role="group" aria-label="Gear"><span>GEAR</span>${gears.map(g=>opt("gear",g,gx(g)+`<small class="ob">NUKE −${Math.round(liqF(g)/g*1000)/10}%</small>`)).join("")}</div>`
       +`<div class="choices"><button class="choice main" type="button" id="cFly"><i class="ci">${ICO.bolt}</i><span class="ct"><b>FLY · ${gx(cFree.gear)}</b><small>${m2(cFree.fuel)} fuel · no clock</small></span>${ICO.go}</button></div>`
       +`<button class="sec wide" type="button" id="cBack" style="margin-top:8px">LEVELS</button>`;
     $("cres").querySelectorAll("[data-fuel],[data-gear]").forEach(b=>b.addEventListener("click",()=>{ if(b.dataset.fuel){ cFree.fuel=+b.dataset.fuel; cFreeSet=true; } if(b.dataset.gear) cFree.gear=+b.dataset.gear; climbFreeSetup(); }));
