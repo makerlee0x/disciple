@@ -57,6 +57,13 @@ interface IPveRewards {
     function quote() external view returns (address);
 }
 
+/// @dev maker 2026-11-19: DiscipleHook holds post-graduation fees until a public claim pays the creator (this contract).
+interface IHookCreatorClaims {
+    function claimable(address token, uint8 share) external view returns (uint256 quoteAmount, uint256 tokenAmount);
+    function claimCreatorFees(address token) external returns (uint256 quoteAmount, uint256 tokenAmount);
+    function creatorQuotePaidTo(address token, address payee) external view returns (uint256);
+}
+
 interface IERC5564Announcer {
     function announce(uint256 schemeId, address stealthAddress, bytes memory ephemeralPubKey, bytes memory metadata)
         external;
@@ -90,6 +97,8 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     );
     bytes32 public constant TRANSFER_TYPEHASH =
         keccak256("TransferCreator(address token,address newOwner,uint256 nonce,uint256 deadline)");
+    bytes32 public constant PAYEE_TYPEHASH =
+        keccak256("SetPayee(address token,address payee,uint256 nonce,uint256 deadline)");
     bytes32 public constant METADATA_TYPEHASH = keccak256(
         "UpdateMetadata(address token,string imageURI,string description,string socialsURI,uint256 nonce,uint256 deadline)"
     );
@@ -102,8 +111,18 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     /// @notice Later-send contract. When set, coins it marks as destination 1 or 2 cannot be claimed here.
     address public creatorFeeHarvest;
 
+    /// @notice DiscipleHook (post-graduation creator share). Write-once; unset = FeeRouter only.
+    IHookCreatorClaims public hook;
+    /// @notice Hook quote-side creator fees already paid on to the stealth owner, per coin. Anyone can trigger the
+    ///         hook's creator claim, which pushes quote here; the hook's per-coin `creatorQuotePaidTo` tally minus this
+    ///         is what that coin is still owed, so pooled quote (e.g. USDG) never mixes between coins.
+    mapping(address => uint256) public hookQuoteSettled;
+
     mapping(address => address) public stealthOwnerOf; // token => stealth owner
     mapping(address => uint256) public nonces;
+    /// @notice Pays to (maker 2026-11-19): the wallet the stealth owner picked for this coin's creator fees. Cleared
+    ///         when the stealth owner changes. `claimToPayee` (anyone) pays it.
+    mapping(address => address) public payeeOf;
 
     /// @notice Easy (mode 1) First BOOST held here while the Token creator lock is on (this contract is the
     ///         on-chain creator, so the lock binds here). `releaseBoost` sends it to `recipient` after orbit.
@@ -135,10 +154,13 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     /// @notice This coin's creator fees are sent later to the locked pool or the burn, not to the stealth owner.
     error CreatorFeesRouted();
     error NothingHeld();
+    /// @notice maker 2026-11-19: hidden launches can't do a First BOOST (no quote / USDG ever passes through here).
+    error NoFirstBoost();
 
     event AnonLaunched(
         address indexed token, address indexed curve, address indexed stealthOwner, uint256 tokensBought
     );
+    event PayeeSet(address indexed token, address indexed stealthOwner, address payee);
     event StealthOwnerTransferred(address indexed token, address indexed from, address indexed to);
     event Claimed(address indexed token, address indexed stealthOwner, address to, address asset, uint256 amount);
     event CreatorFeeHarvestSet(address harvest);
@@ -170,6 +192,13 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         if (creatorFeeHarvest != address(0) || harvest.code.length == 0) revert ZeroAddress();
         creatorFeeHarvest = harvest;
         emit CreatorFeeHarvestSet(harvest);
+    }
+
+    /// @notice Owner points claims at DiscipleHook once (contracts only).
+    function setHook(address hook_) external {
+        _checkOwner();
+        if (address(hook) != address(0) || hook_.code.length == 0) revert ZeroAddress();
+        hook = IHookCreatorClaims(hook_);
     }
 
     // ───────────────────────────── launch ─────────────────────────────
@@ -217,21 +246,9 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         if (buyRecipient == address(0)) buyRecipient = stealthOwner;
 
 
-        address q;
-        uint256 b0;
-        if (p.creatorBuyQuoteIn > 0) {
-            q = p.quote == address(0) ? ILaunchpadAdmin(address(launchpad)).defaultQuote() : p.quote;
-            b0 = IERC20(q).balanceOf(address(this));
-            IERC20(q).safeTransferFrom(msg.sender, address(this), p.creatorBuyQuoteIn);
-            IERC20(q).forceApprove(address(launchpad), p.creatorBuyQuoteIn);
-        }
+        if (p.creatorBuyQuoteIn != 0) revert NoFirstBoost();
 
         r = ILaunchpadModes(address(launchpad)).launchWithMode(p, mode);
-        // mode rules v2: a First BOOST above the max partially fills; the Launchpad refunds the unused quote here
-        if (q != address(0)) {
-            uint256 left = IERC20(q).balanceOf(address(this)) - b0;
-            if (left != 0) IERC20(q).safeTransfer(msg.sender, left);
-        }
         stealthOwnerOf[r.token] = stealthOwner;
         _sendBoost(r, buyRecipient);
 
@@ -304,16 +321,9 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         address router = ILaunchpadAdmin(address(launchpad)).curveRouter();
         if (router == address(0)) revert RouterUnset();
 
-        uint256 u0 = feeToken.balanceOf(address(this));
-        if (usdgIn > 0) {
-            feeToken.safeTransferFrom(msg.sender, address(this), usdgIn);
-            feeToken.forceApprove(router, usdgIn);
-        }
+        if (usdgIn != 0 || p.creatorBuyQuoteIn != 0) revert NoFirstBoost();
 
-        (r, usdgRefund) = IRouterLaunchWithUsdg(router).launchWithUsdg(p, mode, usdgIn, minQuoteIn);
-
-        uint256 left = feeToken.balanceOf(address(this)) - u0;
-        if (left != 0) feeToken.safeTransfer(refund, left);
+        (r, usdgRefund) = IRouterLaunchWithUsdg(router).launchWithUsdg(p, mode, 0, minQuoteIn);
 
         stealthOwnerOf[r.token] = stealthOwner;
         _sendBoost(r, buyRecipient);
@@ -390,6 +400,7 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         address so = stealthOwnerOf[token];
         _useSig(so, keccak256(abi.encode(TRANSFER_TYPEHASH, token, newOwner, nonces[so], deadline)), deadline, sig);
         stealthOwnerOf[token] = newOwner;
+        _clearPayee(token, so);
         emit StealthOwnerTransferred(token, so, newOwner);
     }
 
@@ -398,10 +409,33 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         if (stealthOwnerOf[token] != msg.sender) revert NotStealthOwner();
         if (newOwner == address(0)) revert ZeroAddress();
         stealthOwnerOf[token] = newOwner;
+        _clearPayee(token, msg.sender);
         unchecked {
             ++nonces[msg.sender]; // audit L-01: a direct transfer also voids the old owner's pending signatures
         }
         emit StealthOwnerTransferred(token, msg.sender, newOwner);
+    }
+
+    /// @notice Stealth owner picks where this coin's creator fees go. address(0) clears it.
+    function setPayee(address token, address payee) external {
+        if (stealthOwnerOf[token] != msg.sender || msg.sender == address(0)) revert NotStealthOwner();
+        _setPayee(token, msg.sender, payee);
+    }
+
+    /// @notice Gasless `setPayee`: anyone submits the stealth owner's EIP-712 SetPayee.
+    function setPayeeBySig(address token, address payee, uint256 deadline, bytes calldata sig) external {
+        address so = stealthOwnerOf[token];
+        _useSig(so, keccak256(abi.encode(PAYEE_TYPEHASH, token, payee, nonces[so], deadline)), deadline, sig);
+        _setPayee(token, so, payee);
+    }
+
+    function _setPayee(address token, address so, address payee) internal {
+        payeeOf[token] = payee;
+        emit PayeeSet(token, so, payee);
+    }
+
+    function _clearPayee(address token, address so) internal {
+        if (payeeOf[token] != address(0)) _setPayee(token, so, address(0));
     }
 
     // ───────────────────────────── claims ─────────────────────────────
@@ -415,6 +449,15 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
         if (stealthOwnerOf[token] != address(0)) {
             tokenAmt = feeRouter.creatorTokenAccrued(token, address(this)) + IERC20(token).balanceOf(address(this))
                 - heldBoost[token].amount;
+            IHookCreatorClaims h = _hookOf(token);
+            if (address(h) != address(0)) {
+                quoteAmt += h.creatorQuotePaidTo(token, address(this)) - hookQuoteSettled[token];
+                if (launchpad.creatorOf(token) == address(this)) {
+                    (uint256 hq, uint256 ht) = h.claimable(token, 0);
+                    quoteAmt += hq;
+                    tokenAmt += ht;
+                }
+            }
         }
     }
 
@@ -471,22 +514,59 @@ contract AnonLauncher is EIP712, ReentrancyGuard, Owned2Step {
     ///      FeeRouter reverts NothingToClaim on a zero balance, so each side is checked first and skipped when 0;
     ///      a token reverts NothingToClaim only when BOTH sides are 0. An empty `tokens` list is a no-op
     ///      (claimManyBySig with no tokens just burns the nonce).
+    /// @notice Pays to: anyone pays each coin's creator fees (pool + post-orbit) to its `payeeOf`. The caller gets
+    ///         nothing. Curve-phase fees: CurveFeeVault.claimAnonToPayee.
+    function claimToPayee(address[] calldata tokens) external nonReentrant {
+        for (uint256 i; i < tokens.length; ++i) {
+            address token = tokens[i];
+            address payee = payeeOf[token];
+            if (payee == address(0)) revert ZeroAddress();
+            _claimOne(token, stealthOwnerOf[token], payee, 0);
+        }
+    }
+
     function _claim(address so, address[] calldata tokens, address to, uint256 relayerFeeBps) internal {
-        IFeeRouterClaims fr = feeRouter;
         for (uint256 i; i < tokens.length; ++i) {
             address token = tokens[i];
             if (stealthOwnerOf[token] != so) revert NotStealthOwner();
-            if (_feesRouted(token)) revert CreatorFeesRouted();
-            uint256 qAmt = fr.creatorAccrued(token, address(this));
-            if (qAmt > 0) {
-                qAmt = fr.claimCreatorFees(token);
-                _pay(token, so, fr.tokenQuote(token), qAmt, to, relayerFeeBps);
-            }
-            if (fr.creatorTokenAccrued(token, address(this)) > 0) fr.claimCreatorTokenFees(token);
-            uint256 tAmt = IERC20(token).balanceOf(address(this)) - heldBoost[token].amount;
-            if (tAmt > 0) _pay(token, so, token, tAmt, to, relayerFeeBps);
-            if (qAmt == 0 && tAmt == 0) revert NothingToClaim();
+            _claimOne(token, so, to, relayerFeeBps);
         }
+    }
+
+    function _claimOne(address token, address so, address to, uint256 relayerFeeBps) internal {
+        IFeeRouterClaims fr = feeRouter;
+        if (_feesRouted(token)) revert CreatorFeesRouted();
+        uint256 qAmt = fr.creatorAccrued(token, address(this));
+        if (qAmt > 0) qAmt = fr.claimCreatorFees(token);
+        qAmt += _hookQuote(token);
+        if (qAmt > 0) _pay(token, so, fr.tokenQuote(token), qAmt, to, relayerFeeBps);
+        if (fr.creatorTokenAccrued(token, address(this)) > 0) fr.claimCreatorTokenFees(token);
+        uint256 tAmt = IERC20(token).balanceOf(address(this)) - heldBoost[token].amount;
+        if (tAmt > 0) _pay(token, so, token, tAmt, to, relayerFeeBps);
+        if (qAmt == 0 && tAmt == 0) revert NothingToClaim();
+    }
+
+    /// @dev Pull this coin's hook creator share here (rocket tokens land in the balance read below) and return the
+    ///      hook quote this coin is owed (including any quote a third party's public claim already pushed here).
+    function _hookQuote(address token) internal returns (uint256 q) {
+        IHookCreatorClaims h = _hookOf(token);
+        if (address(h) == address(0)) return 0;
+        (uint256 hq, uint256 ht) = h.claimable(token, 0);
+        if ((hq != 0 || ht != 0) && launchpad.creatorOf(token) == address(this)) h.claimCreatorFees(token);
+        uint256 paid = h.creatorQuotePaidTo(token, address(this));
+        q = paid - hookQuoteSettled[token];
+        hookQuoteSettled[token] = paid;
+    }
+
+    /// @dev The coin's own pool hook (Migration.hookOf; maker 2026-11-19: new coins can graduate on a newer hook).
+    ///      address(0) before graduation. A Migration without `hookOf` falls back to the wired `hook`.
+    function _hookOf(address token) internal view returns (IHookCreatorClaims) {
+        (bool ok, bytes memory d) = address(launchpad).staticcall(abi.encodeWithSignature("migration()"));
+        if (ok && d.length >= 32) {
+            (ok, d) = abi.decode(d, (address)).staticcall(abi.encodeWithSignature("hookOf(address)", token));
+            if (ok && d.length >= 32) return IHookCreatorClaims(abi.decode(d, (address)));
+        }
+        return hook;
     }
 
     /// @dev Destination 1 or 2 on the later-send contract. Unset harvest means every coin is still claimable here.

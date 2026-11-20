@@ -19,12 +19,6 @@ interface IFeeRouter {
         uint256 creatorTaxAmount
     ) external;
 
-    /// @notice Post-grad hook fee (full 1% fee transferred; split 33/33/33/1, LP share → LockedLP).
-    /// @return compoundReady true if LockedLP's compound buckets for `token` now hold both sides (hook may compound).
-    function routeHookFee(address token, address feeToken, address trader, address creator, uint256 feeAmount)
-        external
-        returns (bool compoundReady);
-
     /// @notice LEGACY: snipe fee → 70% RewardsVault / 30% treasury. Mode-rules-v2 curves never call it (sniper tax
     ///         stays in BondingCurve.snipeEscrow → LockedLP compound bucket at graduation / RewardsVault after timeout).
     function routeSnipeFee(address token, address quote, uint256 snipeFeeAmount) external;

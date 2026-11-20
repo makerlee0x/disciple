@@ -46,6 +46,7 @@ import { activeWarning, chipTag, moveWarnings, plainTradeMessage, type MoveWarn,
 import { graduationStatus, liveMaxImpactBps } from "@/lib/flight/gradAdapter";
 import { longHidden, onTabVisible } from "@/lib/tabIdle";
 import { pctBuyLabel, pctBuyUsd } from "@/lib/sim/daily";
+import { GASLESS_GAS_FEE_USD } from "@/lib/trade/gaslessPermit2";
 
 type Ammo = { tier: number | null; rocketTier?: number | null; name: string | null; usd: number[]; names: string[]; mode: number };
 
@@ -907,7 +908,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
   const sellFracNow = customSellPct ? customSellPct / 100 : customSellUsd ? (pos.valueUsd > 0 ? Math.min(1, customSellUsd / pos.valueUsd) : 0) : selSellPreset.frac;
   // ≈ what this DUMP pays back: its on-chain sell quote (price move + fees) when we have one, else bag × share after the 1% fee
   const quotedBack = customSellUsd ? null : customSellPct ? sellOutUsd[4] : sellOutUsd[sellSel];
-  const dumpBack = quotedBack != null && quotedBack > 0 ? quotedBack : pos.valueUsd > 0 && sellFracNow > 0 ? pos.valueUsd * sellFracNow * (1 - TRADE_FEE) : 0;
+  const dumpBackGross = quotedBack != null && quotedBack > 0 ? quotedBack : pos.valueUsd > 0 && sellFracNow > 0 ? pos.valueUsd * sellFracNow * (1 - TRADE_FEE) : 0;
+  const dumpBack = dumpBackGross > 0 ? Math.max(0, dumpBackGross - GASLESS_GAS_FEE_USD) : 0; // flat gasless network fee
   const chip = (on: boolean, side: TradeSide): React.CSSProperties => ({ all: "unset", cursor: "pointer", flex: 1, minHeight: 32, padding: "0 6px", borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
     font: `700 16px/1 ${HUD.game}`, boxSizing: "border-box",
     ...(on ? (side === "buy" ? { background: "#F2F3F7", color: HUD.ink } : { background: "rgba(240,48,127,.22)", color: "#FFC2DA", border: `1px solid ${HUD.down}` })
@@ -964,7 +966,7 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
         {dumpChips}{customSellInput}
       </div>
       <div data-testid="loadout-info" style={{ display: "flex", gap: 8, fontSize: 12, color: HUD.dim, whiteSpace: "nowrap" }}>
-        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>Fee 1%{buyImpact != null && isFinite(buyImpact) ? ` · ${fmtShot(shotUsd)} boost moves altitude +${buyImpact.toFixed(1)}%` : ""}</span>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>Fee 1%{GASLESS_GAS_FEE_USD > 0 ? ` + ${fmtShot(GASLESS_GAS_FEE_USD)} network` : ""}{buyImpact != null && isFinite(buyImpact) ? ` · ${fmtShot(shotUsd)} boost moves altitude +${buyImpact.toFixed(1)}%` : ""}</span>
         <button type="button" data-testid="loadout-settings" onClick={() => setShowCfg(true)} style={{ all: "unset", cursor: "pointer", color: HUD.champagne }}>Settings</button>
       </div>
     </div>}

@@ -17,9 +17,11 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ILaunchpad} from "./interfaces/ILaunchpad.sol";
 import {UsdgRouteLib} from "./libraries/UsdgRouteLib.sol";
+import {IPermit2Witness} from "./interfaces/IPermit2Witness.sol";
 
 interface ILaunchpadCurveOf {
     function curveOf(address token) external view returns (address);
@@ -33,39 +35,22 @@ interface ILaunchpadCurveOf {
 interface IFeeRouterClaimFor {
     function claimCreatorFeesFor(address token, address creator) external returns (uint256);
     function creatorAccrued(address token, address creator) external view returns (uint256);
+    function creatorFeeHarvest_16() external view returns (address);
+}
+
+/// @dev Migration.isHook: every DISCIPLE hook Migration has graduated coins on.
+interface IMigrationHookSet {
+    function isHook(address h) external view returns (bool);
+}
+
+/// @dev CreatorFeeHarvest.creatorFeeRecipientOf: the creator's "Pays to" wallet for one coin.
+interface ICreatorFeeRecipient {
+    function creatorFeeRecipientOf(address token, address creator) external view returns (address);
 }
 
 /// @dev CurveFeeVault.claimCreatorFeesToRouter (lp-accrue coins' curve-phase creator fees; FeeRouter.isClaimRouter only).
 interface ICurveFeeVaultClaim {
     function claimCreatorFeesToRouter(address token, address creator) external returns (uint256);
-}
-
-/// @dev Canonical Uniswap Permit2 (ISignatureTransfer subset). Same address on every chain incl. Robinhood 4663/46630.
-interface IPermit2Witness {
-    struct TokenPermissions {
-        address token;
-        uint256 amount;
-    }
-
-    struct PermitTransferFrom {
-        TokenPermissions permitted;
-        uint256 nonce;
-        uint256 deadline;
-    }
-
-    struct SignatureTransferDetails {
-        address to;
-        uint256 requestedAmount;
-    }
-
-    function permitWitnessTransferFrom(
-        PermitTransferFrom calldata permit,
-        SignatureTransferDetails calldata transferDetails,
-        address owner,
-        bytes32 witness,
-        string calldata witnessTypeString,
-        bytes calldata signature
-    ) external;
 }
 
 interface IUsdgCurve {
@@ -151,6 +136,10 @@ contract DiscipleRouter is IUnlockCallback {
     ///      afterSwap deltas are already folded into the BalanceDelta swap() returns, so settle/take
     ///      and the caller min-out use the real hook-adjusted output. No extra settlement path.
     mapping(address => PoolKey[]) internal _usdgRoute;
+    /// @notice Gasless trades (maker 2026-11-19): flat USDG network fee paid to `gasFeeTo` (the relayer, which pays the
+    ///         ETH gas). Team-tuned, at most $0.25. Each signed trade caps it (`Trade.maxGasFee`); a lower live fee wins.
+    address public gasFeeTo;
+    uint96 public gasFee;
 
     event UsdgRoutingSet(address indexed usdg, address indexed launchpad);
     event UsdgPoolSet(address indexed quote, PoolKey key);
@@ -212,6 +201,7 @@ contract DiscipleRouter is IUnlockCallback {
     }
 
     event OwnerTransferred(address indexed owner);
+    event GasFeeSet(address indexed to, uint256 fee);
 
     /// @notice Configure USDG routing (owner), once. `launchpad` is the curve registry used before graduation.
     /// @dev Audit 2026-11-18 R4-1: write-once. The router sends user funds to the registry's curve and trusts its
@@ -221,7 +211,17 @@ contract DiscipleRouter is IUnlockCallback {
         if (usdg_ == address(0) || launchpad_ == address(0) || launchpad != address(0)) revert BadParam();
         usdg = usdg_;
         launchpad = launchpad_;
+        gasFee = uint96(10 ** IERC20Metadata(usdg_).decimals() / 100); // $0.01 (charged once gasFeeTo is set)
         emit UsdgRoutingSet(usdg_, launchpad_);
+    }
+
+    /// @notice Team sets the gasless network fee and who receives it (address(0) turns the fee off). Max $0.25.
+    function setGasFee(address to, uint96 fee) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (uint256(fee) * 4 > 10 ** IERC20Metadata(usdg).decimals()) revert BadParam();
+        gasFeeTo = to;
+        gasFee = fee;
+        emit GasFeeSet(to, fee);
     }
 
     /// @notice Register the USDG/`quote` v4 pool used for a single USDG hop (owner allowlist).
@@ -249,6 +249,10 @@ contract DiscipleRouter is IUnlockCallback {
         if (u == address(0)) revert UsdgNotConfigured();
         if (quote == address(0) || quote == u) revert BadParam();
         if (!UsdgRouteLib.check(poolManager, u, quote, keys, hook)) revert BadPool();
+        address m = lockedLP.migration();
+        for (uint256 i; i < keys.length; ++i) {
+            if (m != address(0) && IMigrationHookSet(m).isHook(address(keys[i].hooks))) revert BadPool();
+        }
         delete _usdgRoute[quote];
         for (uint256 i; i < keys.length; ++i) {
             _usdgRoute[quote].push(keys[i]);
@@ -288,7 +292,9 @@ contract DiscipleRouter is IUnlockCallback {
     /// @notice The graduated v4 pool key for `token` (reverts if not graduated).
     function poolKeyOf(address token) public view returns (PoolKey memory key) {
         key = lockedLP.getPoolKey(token);
-        if (address(key.hooks) != hook || address(key.hooks) == address(0)) revert NotGraduated();
+        // LockedLP only stores keys Migration seeded, so a set hook is that coin's DISCIPLE hook (maker 2026-11-19:
+        // new coins can graduate on a newer hook).
+        if (address(key.hooks) == address(0)) revert NotGraduated();
     }
 
     /// @notice Exact-in buy: spend `quoteIn` of the pool's quote asset for `token`, sent to `recipient`.
@@ -525,7 +531,10 @@ contract DiscipleRouter is IUnlockCallback {
         address v = _feeVaultOf(curve);
         if (v != address(0)) amt = ICurveFeeVaultClaim(v).claimCreatorFeesToRouter(token, msg.sender);
         if (amt == 0 || fr.creatorAccrued(token, msg.sender) != 0) amt += fr.claimCreatorFeesFor(token, msg.sender);
-        usdgOut = _toUsdg(u, q, amt, msg.sender);
+        address h = fr.creatorFeeHarvest_16();
+        usdgOut = _toUsdg(
+            u, q, amt, h == address(0) ? msg.sender : ICreatorFeeRecipient(h).creatorFeeRecipientOf(token, msg.sender)
+        );
         if (usdgOut < minUsdgOut) revert Slippage();
         emit UsdgCreatorFeesClaimed(msg.sender, token, amt, usdgOut);
         _exit();
@@ -663,6 +672,7 @@ contract DiscipleRouter is IUnlockCallback {
         uint256 minOut;
         address recipient;
         uint256 deadline;
+        uint256 maxGasFee; // most USDG the signer lets the relayer take as the network fee
     }
 
     /// @notice One-time EIP-2612 approval of PERMIT2 bundled into a trade (value 0 ⇒ skipped). USDG and every DISCIPLE
@@ -676,12 +686,12 @@ contract DiscipleRouter is IUnlockCallback {
     }
 
     bytes32 public constant TRADE_TYPEHASH = keccak256(
-        "Trade(address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline)"
+        "Trade(address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline,uint256 maxGasFee)"
     );
     /// @dev Permit2 appends this to "PermitWitnessTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline,".
     ///      EIP-712 orders referenced types by name: TokenPermissions < Trade.
     string public constant TRADE_WITNESS_TYPE = "Trade witness)TokenPermissions(address token,uint256 amount)"
-        "Trade(address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline)";
+        "Trade(address coin,bool isBuy,uint256 amountIn,uint256 minOut,address recipient,uint256 deadline,uint256 maxGasFee)";
 
     event GaslessTrade(address indexed signer, address indexed relayer, address indexed coin, bool isBuy, uint256 nonce);
 
@@ -741,7 +751,14 @@ contract DiscipleRouter is IUnlockCallback {
     function tradeWitnessHash(Trade calldata trade) public pure returns (bytes32) {
         return keccak256(
             abi.encode(
-                TRADE_TYPEHASH, trade.coin, trade.isBuy, trade.amountIn, trade.minOut, trade.recipient, trade.deadline
+                TRADE_TYPEHASH,
+                trade.coin,
+                trade.isBuy,
+                trade.amountIn,
+                trade.minOut,
+                trade.recipient,
+                trade.deadline,
+                trade.maxGasFee
             )
         );
     }
@@ -785,28 +802,30 @@ contract DiscipleRouter is IUnlockCallback {
         address u = usdg;
         address token = trade.coin;
         (address curve, address q, bool grad, PoolKey memory dkey) = _market(token);
-        uint256 usdgIn = trade.amountIn;
-        if (grad) {
+        uint256 fee = _gasFee(trade);
+        uint256 usdgIn = trade.amountIn - fee; // reverts if the fee is larger than the trade
+        if (grad || q != u || fee != 0) {
             _pull(signer, permit, trade, signature, u, address(this));
-            uint256 b = IERC20(u).balanceOf(address(this)) - usdgIn;
-            tokensOut = _route(address(this), signer, _buyHops(u, q, token, dkey), usdgIn);
+            uint256 b = IERC20(u).balanceOf(address(this)) - trade.amountIn;
+            if (fee != 0) IERC20(u).safeTransfer(gasFeeTo, fee);
+            if (grad) {
+                tokensOut = _route(address(this), signer, _buyHops(u, q, token, dkey), usdgIn);
+            } else if (q != u) {
+                usdgIn = _route(address(this), curve, _quoteHops(u, q, true), usdgIn); // now the curve's quote amount
+            } else {
+                IERC20(u).safeTransfer(curve, usdgIn);
+            }
             _sweep(u, b, signer); // a partial first-hop fill never strands the signer's USDG here
         } else {
-            uint256 quoteAmt = usdgIn;
-            if (q != u) {
-                _pull(signer, permit, trade, signature, u, address(this));
-                uint256 b = IERC20(u).balanceOf(address(this)) - usdgIn;
-                Hop[] memory h = _quoteHops(u, q, true);
-                quoteAmt = _route(address(this), curve, h, usdgIn);
-                _sweep(u, b, signer);
-            } else {
-                // USDG-quoted: Permit2 delivers straight to the curve (no router hop, one transfer)
-                _pull(signer, permit, trade, signature, u, curve);
-            }
+            // USDG-quoted, no fee: Permit2 delivers straight to the curve (no router hop, one transfer)
+            _pull(signer, permit, trade, signature, u, curve);
+        }
+        if (!grad) {
             uint256 refund;
             (tokensOut, refund) =
-                IUsdgCurve(curve).routerBuy(signer, quoteAmt, trade.minOut, trade.deadline, NO_IMPACT_CAP);
+                IUsdgCurve(curve).routerBuy(signer, usdgIn, trade.minOut, trade.deadline, NO_IMPACT_CAP);
             if (refund != 0) emit UsdgRefund(signer, token, refund, _toUsdg(u, q, refund, signer));
+            usdgIn = trade.amountIn - fee;
         }
         if (tokensOut < trade.minOut) revert Slippage();
         emit UsdgTrade(signer, token, true, usdgIn, tokensOut, !grad);
@@ -823,23 +842,34 @@ contract DiscipleRouter is IUnlockCallback {
         address token = trade.coin;
         (address curve, address q, bool grad, PoolKey memory dkey) = _market(token);
         uint256 tokensIn = trade.amountIn;
+        uint256 fee = _gasFee(trade);
+        address to = fee == 0 ? signer : address(this); // with a fee, USDG lands here first
         if (grad) {
             _pull(signer, permit, trade, signature, token, address(this));
             uint256 b = IERC20(token).balanceOf(address(this)) - tokensIn;
-            usdgOut = _route(address(this), signer, _sellHops(u, q, token, dkey), tokensIn);
+            usdgOut = _route(address(this), to, _sellHops(u, q, token, dkey), tokensIn);
             _sweep(token, b, signer);
         } else {
             _pull(signer, permit, trade, signature, token, curve);
             if (q == u) {
-                usdgOut = IUsdgCurve(curve).routerSell(signer, tokensIn, 1, trade.deadline, signer, NO_IMPACT_CAP);
+                usdgOut = IUsdgCurve(curve).routerSell(signer, tokensIn, 1, trade.deadline, to, NO_IMPACT_CAP);
             } else {
                 uint256 quoteAmt = IUsdgCurve(curve).routerSell(signer, tokensIn, 1, trade.deadline, address(this), NO_IMPACT_CAP);
-                Hop[] memory h = _quoteHops(u, q, false);
-                usdgOut = _route(address(this), signer, h, quoteAmt);
+                usdgOut = _route(address(this), to, _quoteHops(u, q, false), quoteAmt);
             }
+        }
+        if (fee != 0) {
+            usdgOut -= fee; // reverts if the fee is larger than the proceeds
+            IERC20(u).safeTransfer(gasFeeTo, fee);
+            IERC20(u).safeTransfer(signer, usdgOut);
         }
         if (usdgOut < trade.minOut) revert Slippage();
         emit UsdgTrade(signer, token, false, tokensIn, usdgOut, !grad);
+    }
+
+    /// @dev The live network fee, capped by what the signer allowed. 0 when no receiver is set.
+    function _gasFee(Trade calldata trade) private view returns (uint256 f) {
+        if (gasFeeTo != address(0)) f = Math.min(gasFee, trade.maxGasFee);
     }
 
     /// @dev Return anything of `asset` above the pre-trade balance `before` to `to` (unused router-held input).
@@ -1042,8 +1072,9 @@ contract DiscipleRouter is IUnlockCallback {
     function _hopImpact(Hop memory h, uint160 sb) private view returns (uint256) {
         (uint160 sa,,,) = poolManager.getSlot0(h.key.toId());
         if (h.disciple) {
-            (address tokenAddr,,,,) = DiscipleHook(hook).metaOf(h.key.toId());
-            return DiscipleHook(hook).impactBpsFromSqrt(sb, sa, Currency.unwrap(h.key.currency0) == tokenAddr);
+            DiscipleHook dh = DiscipleHook(address(h.key.hooks));
+            (address tokenAddr,,,,) = dh.metaOf(h.key.toId());
+            return dh.impactBpsFromSqrt(sb, sa, Currency.unwrap(h.key.currency0) == tokenAddr);
         }
         return _impactFromSqrt(sb, sa, Currency.unwrap(h.key.currency0) != usdg);
     }
@@ -1144,13 +1175,14 @@ contract DiscipleRouter is IUnlockCallback {
         }
         (uint160 sa,,,) = poolManager.getSlot0(d.key.toId());
         // token is c0 iff buying means zeroForOne == false
-        (address tokenAddr,,,,) = DiscipleHook(hook).metaOf(d.key.toId());
+        DiscipleHook dh = DiscipleHook(address(d.key.hooks));
+        (address tokenAddr,,,,) = dh.metaOf(d.key.toId());
         // Audit #13 / G-1: live quote/USD via the hook view (falls back to launch price). The hook Trade event emits
         // sqrtPriceAfter; off-chain USD mcap from it with this same price equals this quote.
-        uint256 qpx = DiscipleHook(hook).quoteUsdOf(d.key.toId());
+        uint256 qpx = dh.quoteUsdOf(d.key.toId());
         bool tokenIsC0 = Currency.unwrap(d.key.currency0) == tokenAddr;
-        uint256 impact = DiscipleHook(hook).impactBpsFromSqrt(sb, sa, tokenIsC0);
-        uint256 mcap = DiscipleHook(hook).mcapUsdFromSqrt(sa, tokenIsC0, qpx);
+        uint256 impact = dh.impactBpsFromSqrt(sb, sa, tokenIsC0);
+        uint256 mcap = dh.mcapUsdFromSqrt(sa, tokenIsC0, qpx);
         revert QuoteResult(out, impact, mcap);
     }
 

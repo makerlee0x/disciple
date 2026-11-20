@@ -9,6 +9,7 @@ import {IntegrationBase} from "../integration/IntegrationBase.sol";
 import {CreatorFeeRoutingTest} from "../CreatorFeeRouting.t.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
+import {Owned2Step} from "../../src/utils/Owned2Step.sol";
 import {FeeRouter} from "../../src/FeeRouter.sol";
 import {CurveFeeVault} from "../../src/CurveFeeVault.sol";
 import {CurveMath} from "../../src/libraries/CurveMath.sol";
@@ -121,25 +122,26 @@ contract AuditPoC3 is IntegrationBase {
         _swapExactInQuoteForToken(tok, trader1, 2_000 ether);
         _swapExactInTokenForQuote(tok, trader1, tok.balanceOf(trader1));
         c.settleFees();
-        uint256 frBal = quote.balanceOf(address(feeRouter));
         uint256 vBal = quote.balanceOf(address(feeVault));
-        uint256 victimOwed = feeRouter.creatorAccrued(address(tok), creator);
-        assertGt(frBal, 0);
+        uint256 victimOwed = feeVault.creatorAccrued(address(tok), creator);
         assertGt(vBal, 0);
         assertGt(victimOwed, 0);
 
         address evil = address(new EvilDeployer(address(quote)));
-        // Fixed: the curve deployer is write-once, so the fake-curve path is closed.
-        vm.prank(launchpad.owner());
-        vm.expectRevert(Launchpad.CurveDeployerUnset.selector);
+        // maker 2026-11-19: the Team may swap the curve code for new coins until lockCurveDeployer; once locked the
+        // fake-curve path is closed for good.
+        vm.startPrank(launchpad.owner());
+        launchpad.lockCurveDeployer();
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         launchpad.setCurveDeployer(evil);
+        vm.stopPrank();
         // And once fee settings are locked no new claim router can be added (R461-01b).
         vm.prank(feeRouter.owner());
         feeRouter.lockSettings();
         vm.prank(feeRouter.owner());
         vm.expectRevert(FeeRouter.SettingsLocked.selector);
         feeRouter.setClaimRouter(makeAddr("mallory"), true);
-        assertEq(feeRouter.creatorAccrued(address(tok), creator), victimOwed);
+        assertEq(feeVault.creatorAccrued(address(tok), creator), victimOwed);
     }
 }
 

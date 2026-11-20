@@ -256,7 +256,8 @@ contract BondingModesTest is IntegrationBase {
         uint256 sellAmt = ONE_PCT * 4 / 10;
         BondingCurve.SellQuote memory sq = c.quoteSellFor(alice, sellAmt);
         assertGt(sq.profitTax, 0, "taxed");
-        assertEq(sq.profitTax, (sq.quoteOut + sq.profitTax) * 7770 / 1e6, "0.777% of proceeds");
+        assertEq(sq.profitTax, (sq.quoteOut + sq.profitTax) * c.crewTipPpm() / 1e6, "crewTipPpm of proceeds");
+        assertEq(c.crewTipPpm(), Constants.CREW_TIP_PPM_DEFAULT, "default 3.3%");
 
         uint256 totalBefore = c.totalNet();
         uint256 aliceAfter = c.balanceOnCurve(alice) - sellAmt;
@@ -492,9 +493,9 @@ contract BondingModesTest is IntegrationBase {
         assertTrue(t.pveHooks());
         assertEq(t.pveCurve(), address(c));
         assertTrue(t.pveLive());
-        (, Token tt) = _launchMode(Constants.MODE_TRENCH);
+        (BondingCurve tc, Token tt) = _launchMode(Constants.MODE_TRENCH);
         assertFalse(tt.pveHooks());
-        assertEq(tt.pveCurve(), address(0));
+        assertEq(tt.pveCurve(), address(tc), "every coin knows its curve (no v4 pool before orbit)");
         vm.expectRevert(Token.OnlyCurve.selector);
         t.endPveHooks();
         vm.expectRevert(BondingCurve.OnlyToken.selector);
@@ -537,6 +538,87 @@ contract BondingModesTest is IntegrationBase {
         assertEq(c.accRewardPerToken(), acc0, "not folded into later holders");
         assertEq(c.rewardsHeld(), 0);
         assertGe(feeRouter.treasuryAccrued(address(quote)) - tr0, sq.profitTax, "tax accrued to treasury");
+    }
+
+    // ── maker 2026-11-19: adjustable holder tip (0–12%, default 3.3%, locked per coin) + community Safe ──
+
+    event CrewTipToCommunity(address indexed token, address indexed to, uint256 amount);
+
+    function test_crewTip_setterBounds() public {
+        assertEq(launchpad.crewTipPpm(), 33_000, "default 3.3%");
+        vm.startPrank(owner);
+        launchpad.setCrewTipPpm(120_000); // 12% accepted
+        assertEq(launchpad.crewTipPpm(), 120_000);
+        vm.expectRevert(Launchpad.CrewTipThresholdOutOfBounds.selector);
+        launchpad.setCrewTipPpm(120_001);
+        launchpad.setCrewTipPpm(0);
+        assertEq(launchpad.crewTipPpm(), 0);
+        // cutoff max raised to 12% of mcap
+        launchpad.setCrewTipThresholdBps(1200);
+        vm.expectRevert(Launchpad.CrewTipThresholdOutOfBounds.selector);
+        launchpad.setCrewTipThresholdBps(1201);
+        vm.stopPrank();
+        vm.prank(alice);
+        vm.expectRevert();
+        launchpad.setCrewTipPpm(1);
+    }
+
+    function test_crewTip_zeroMeansNoTip() public {
+        vm.prank(owner);
+        launchpad.setCrewTipPpm(0);
+        (BondingCurve c, Token t) = _pveSetup();
+        assertEq(c.crewTipPpm(), 0);
+        _buyQ(c, alice, _quoteFor(c, ONE_PCT * 8 / 10));
+        _buyQ(c, bob, _quoteFor(c, ONE_PCT * 6 / 10));
+        _pump(c, 20_000);
+        BondingCurve.SellQuote memory sq = c.quoteSellFor(alice, ONE_PCT * 4 / 10);
+        assertEq(sq.profitTax, 0, "no tip at 0");
+        uint256 held = c.rewardsHeld();
+        _sellT(c, t, alice, ONE_PCT * 4 / 10);
+        assertEq(c.rewardsHeld(), held);
+        assertEq(c.pendingRewards(bob), 0);
+    }
+
+    function test_crewTip_twelvePercent_andLockedPerCoin() public {
+        vm.prank(owner);
+        launchpad.setCrewTipPpm(120_000);
+        (BondingCurve c, Token t) = _pveSetup();
+        // the owner changes the setting after launch: this coin keeps 12%, a new coin gets 1%
+        vm.prank(owner);
+        launchpad.setCrewTipPpm(10_000);
+        (BondingCurve c2,) = _launchMode(Constants.MODE_PVE);
+        assertEq(c.crewTipPpm(), 120_000, "launch-time value kept");
+        assertEq(c2.crewTipPpm(), 10_000, "new coin, new value");
+        _buyQ(c, alice, _quoteFor(c, ONE_PCT * 8 / 10));
+        _buyQ(c, bob, _quoteFor(c, ONE_PCT * 6 / 10));
+        _pump(c, 20_000);
+        BondingCurve.SellQuote memory sq = c.quoteSellFor(alice, ONE_PCT * 4 / 10);
+        assertGt(sq.profitTax, 0);
+        assertEq(sq.profitTax, (sq.quoteOut + sq.profitTax) * 120_000 / 1e6, "12% of proceeds");
+        _sellT(c, t, alice, ONE_PCT * 4 / 10);
+        assertApproxEqAbs(c.rewardsHeld(), sq.profitTax, 1);
+    }
+
+    function test_pve_soleHolderTaxToCommunitySafe() public {
+        address community = makeAddr("communitySafe");
+        vm.prank(owner);
+        feeRouter.setReferralSink(community); // mainnet: Deploy sets the sink to COMMUNITY_SAFE
+        (BondingCurve c, Token t) = _pveSetup();
+        _buyQ(c, alice, _quoteFor(c, ONE_PCT * 8 / 10));
+        _pump(c, 20_000);
+        stdstore.target(address(c)).sig("totalNet()").checked_write(c.balanceOnCurve(alice));
+        BondingCurve.SellQuote memory sq = c.quoteSellFor(alice, ONE_PCT * 4 / 10);
+        assertGt(sq.profitTax, 0);
+        uint256 tr0 = feeRouter.treasuryAccrued(address(quote));
+        vm.prank(alice);
+        t.approve(address(c), ONE_PCT * 4 / 10);
+        vm.expectEmit(true, true, false, true, address(c));
+        emit CrewTipToCommunity(address(t), community, sq.profitTax);
+        vm.prank(alice);
+        c.sell(ONE_PCT * 4 / 10, 0, vm.getBlockTimestamp() + 1 hours);
+        assertEq(quote.balanceOf(community), sq.profitTax, "tip to the community Safe");
+        assertEq(feeRouter.treasuryAccrued(address(quote)), tr0, "treasury not paid");
+        assertEq(c.rewardsHeld(), 0);
     }
 
     // ── DISCIPLE audit round 3 HIGH: self-transfers must not touch NET / rewards ──

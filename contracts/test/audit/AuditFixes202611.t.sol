@@ -91,16 +91,12 @@ contract AuditFixes202611Test is IntegrationBase {
     }
 
     /// CH-03: the First BOOST goes through the harvest with one approval (hidden launches have no fee since 2026-11-17).
-    function test_CH03_launchAnon_feeAndBoostSameToken_works() public {
-        uint256 fee = 0;
-        uint256 boost = 10 ether;
+    function test_CH03_launchAnon_noFirstBoost() public {
         vm.startPrank(creator);
-        quote.approve(address(harvest), fee + boost);
-        ILaunchpad.LaunchResult memory r =
-            harvest.launchAnon(_params(0, boost), stealth, stealth, "", bytes1(0), fee, 1);
+        quote.approve(address(harvest), 10 ether);
+        vm.expectRevert(AnonLauncher.NoFirstBoost.selector);
+        harvest.launchAnon(_params(0, 10 ether), stealth, stealth, "", bytes1(0), 0, 1);
         vm.stopPrank();
-        assertGt(r.creatorTokensBought, 0);
-        assertEq(harvest.creatorFeeDestinationOf(r.token), 1);
     }
 
     /// CH-04: fees of a middle creator (A -> B -> C) can be routed with routeWith.
@@ -278,12 +274,11 @@ contract AuditFixes202611Test is IntegrationBase {
         vm.startPrank(owner);
         vm.expectRevert(FeeRouter.AlreadyWired.selector);
         feeRouter.setLockedLP(address(harvest));
-        vm.expectRevert(FeeRouter.AlreadyWired.selector);
+        // only Launchpad authorizes callers (each new curve at launch); the Team cannot add or drop one
+        vm.expectRevert(Owned2Step.OnlyOwner.selector);
         feeRouter.setAuthorized(address(harvest), true);
-        vm.expectRevert(FeeRouter.AlreadyWired.selector);
-        feeRouter.setAuthorized(address(hook), false);
         vm.stopPrank();
-        assertTrue(feeRouter.authorizedCallers(address(hook)));
+        assertFalse(feeRouter.authorizedCallers(address(harvest)));
     }
 
     /// maker 2026-11-17: the hook admin can be dropped for good once Migration is wired.

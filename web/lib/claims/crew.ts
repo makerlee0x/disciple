@@ -1,6 +1,6 @@
 import { scanEventHistory } from "./eventHistory";
 /**
- * CREW rewards (v4, PVE coins only — mode TRENCH=0, PVE=1, PVP=2). A 0.777% profit tax on DUMPs feeds a holder pool:
+ * CREW rewards (v4, PVE coins only — mode TRENCH=0, PVE=1, PVP=2). A per-coin profit tax (Launchpad.crewTipPpm at launch, default 3.3%) on DUMPs feeds a holder pool:
  *   mode  Launchpad.modeOf(token)
  *   view  BondingCurve.pendingRewards(holder) (quote raw; curve = Launchpad.curveOf(token)) — always read on-chain
  *   claim Launchpad.claim(token) → BondingCurve.claimFor(msg.sender); reverts ZeroAmount when nothing is pending

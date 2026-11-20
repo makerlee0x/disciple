@@ -118,11 +118,19 @@ contract ReferralOwnershipIntegrationTest is IntegrationBase {
         assertEq(feeVault.creatorAccrued(address(tok), hop1), hop1Accrued, "hop1 pre-transfer stays");
         assertGt(feeVault.creatorAccrued(address(tok), hop2), 0, "hop2 accrues");
 
-        // Claims work for each owner of their own accrual
+        // maker 2026-11-19: the current coin creator gets every unclaimed fee. Anyone sweeps past creators' fees to
+        // hop2, and any claim pays hop2, never the caller or a past creator.
+        feeVault.sweepPastCreatorFees_1311(address(tok), creator);
+        feeVault.sweepPastCreatorFees_1311(address(tok), hop1);
+        assertEq(feeVault.creatorAccrued(address(tok), creator), 0);
+        assertEq(feeVault.creatorAccrued(address(tok), hop1), 0);
+        uint256 all = feeVault.creatorAccrued(address(tok), hop2);
+        assertGt(all, oldAccrued + hop1Accrued);
         uint256 bal0 = quote.balanceOf(creator);
         vm.prank(creator);
         feeVault.claimCreatorFees(address(tok));
-        assertEq(quote.balanceOf(creator), bal0 + oldAccrued);
+        assertEq(quote.balanceOf(creator), bal0, "a past creator gets nothing");
+        assertEq(quote.balanceOf(hop2), all, "the current creator gets it all");
     }
 
     /// @notice L1 (lee, Nov 9 2026: "Leave it, the new creator gets unsettled fees."): fees still owed on the curve at a

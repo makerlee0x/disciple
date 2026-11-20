@@ -8,6 +8,10 @@ import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {ILaunchpad} from "../interfaces/ILaunchpad.sol";
 import {Owned2Step} from "../utils/Owned2Step.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {IPermit2Witness} from "../interfaces/IPermit2Witness.sol";
 
 interface ILaunchpadFor {
     function launchFor(address creator, ILaunchpad.LaunchParams calldata params, uint8 mode)
@@ -86,7 +90,7 @@ interface IHarvestAnon {
 ///      Destination 2 burns the quote. On the curve the fee is already quote, so it is burned. After orbit the
 ///      quote half is burned and the rocket-token half is sent straight to the dead address (no sell).
 ///      `route` pulls both halves itself. The launcher does not claim, approve, or deposit.
-contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
+contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step, EIP712 {
     using SafeERC20 for IERC20;
 
     /// @notice Creator fees are deposited into the rocket's locked liquidity pool, and that liquidity is renounced.
@@ -113,6 +117,10 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     mapping(address token => address launcher) public launcherOf;
     /// @notice Rocket-token fees handed over with `depositRocketTokens`, waiting for the next `route`.
     mapping(address token => uint256 amount) public rocketDeposited;
+    /// @notice Pays to (maker 2026-11-19): the wallet a creator picked for one coin's creator fees, keyed by that
+    ///         creator. Only the current `creatorOf` sets it. A new creator after `transferCreator` starts with no
+    ///         pick (the old creator's pick only applies to the old creator's own leftover fees).
+    mapping(address token => mapping(address creator => address payee)) internal _payeeOf;
 
     error ZeroAddress();
     error AlreadyWired();
@@ -125,6 +133,7 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     error AwaitingOrbit();
     error Expired();
     error Slippage();
+    error NotCreator();
 
     /// @notice `launcher` is who FeeRouter pays (`creatorOf`): the wallet, or AnonLauncher for a private coin.
     event CreatorFeeDestinationSet(address indexed token, address indexed launcher, uint8 destination);
@@ -135,8 +144,9 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
     );
     event RocketTokensDeposited(address indexed token, address indexed from, uint256 amount);
     event OwnershipRenounced();
+    event CreatorFeeRecipientSet(address indexed token, address indexed creator, address recipient);
 
-    constructor(address owner_) Owned2Step(owner_) {
+    constructor(address owner_) Owned2Step(owner_) EIP712("DISCIPLE CreatorFeeHarvest", "1") {
         if (owner_ == address(0)) revert ZeroAddress();
     }
 
@@ -220,6 +230,80 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         uint256 minQuoteIn,
         uint8 creatorFeeDestination
     ) external nonReentrant returns (ILaunchpad.LaunchResult memory result, uint256 usdgRefund) {
+        address u = router.usdg();
+        if (usdgIn != 0) {
+            if (u == address(0)) revert ZeroAddress();
+            IERC20(u).safeTransferFrom(msg.sender, address(this), usdgIn);
+        }
+        return _launchUsdg(msg.sender, params, mode, usdgIn, minQuoteIn, creatorFeeDestination);
+    }
+
+    // ── gasless coin creators (maker 2026-11-19: players hold USDG only) ──
+
+    /// @notice Canonical Permit2 (same address on Robinhood Chain 4663 and testnet 46630).
+    address public constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+
+    /// @notice The signed launch (Permit2 witness). `paramsHash` = keccak256(abi.encode(params)). `gasFee` USDG goes to
+    ///         the submitter (the relayer pays the ETH); the permit amount is `usdgIn + gasFee`.
+    struct GaslessLaunch {
+        bytes32 paramsHash;
+        uint8 mode;
+        uint256 usdgIn;
+        uint256 minQuoteIn;
+        uint8 creatorFeeDestination;
+        uint256 gasFee;
+    }
+
+    bytes32 public constant GASLESS_LAUNCH_TYPEHASH = keccak256(
+        "GaslessLaunch(bytes32 paramsHash,uint8 mode,uint256 usdgIn,uint256 minQuoteIn,uint8 creatorFeeDestination,uint256 gasFee)"
+    );
+    string public constant GASLESS_LAUNCH_WITNESS_TYPE = "GaslessLaunch witness)GaslessLaunch(bytes32 paramsHash,uint8 mode,"
+        "uint256 usdgIn,uint256 minQuoteIn,uint8 creatorFeeDestination,uint256 gasFee)TokenPermissions(address token,uint256 amount)";
+
+    error BadPermit();
+
+    /// @notice Gasless wallet launch: anyone submits the signer's Permit2 signature; the signer is the coin creator,
+    ///         pays the First BOOST and the network fee in USDG, and gets any leftover back in USDG.
+    function launchWithPermit2(
+        address signer,
+        IPermit2Witness.PermitTransferFrom calldata permit,
+        ILaunchpad.LaunchParams calldata params,
+        GaslessLaunch calldata w,
+        bytes calldata sig
+    ) external nonReentrant returns (ILaunchpad.LaunchResult memory result, uint256 usdgRefund) {
+        address u = router.usdg();
+        uint256 total = w.usdgIn + w.gasFee;
+        // the network fee is at most $3 (a launch is ~6.7M gas; room for an ETH or gas price spike)
+        if (
+            signer == address(0) || u == address(0) || w.paramsHash != keccak256(abi.encode(params))
+                || permit.permitted.token != u || permit.permitted.amount != total
+                || w.gasFee > 3 * 10 ** IERC20Metadata(u).decimals()
+        ) revert BadPermit();
+        IPermit2Witness(PERMIT2).permitWitnessTransferFrom(
+            permit,
+            IPermit2Witness.SignatureTransferDetails({to: address(this), requestedAmount: total}),
+            signer,
+            keccak256(
+                abi.encode(
+                    GASLESS_LAUNCH_TYPEHASH, w.paramsHash, w.mode, w.usdgIn, w.minQuoteIn, w.creatorFeeDestination, w.gasFee
+                )
+            ),
+            GASLESS_LAUNCH_WITNESS_TYPE,
+            sig
+        );
+        if (w.gasFee != 0) IERC20(u).safeTransfer(msg.sender, w.gasFee);
+        return _launchUsdg(signer, params, w.mode, w.usdgIn, w.minQuoteIn, w.creatorFeeDestination);
+    }
+
+    /// @dev `usdgIn` USDG is already here. Launches for `creator`, refunds the unspent First BOOST to `creator`.
+    function _launchUsdg(
+        address creator,
+        ILaunchpad.LaunchParams calldata params,
+        uint8 mode,
+        uint256 usdgIn,
+        uint256 minQuoteIn,
+        uint8 creatorFeeDestination
+    ) internal returns (ILaunchpad.LaunchResult memory result, uint256 usdgRefund) {
         if (creatorFeeDestination > 2) revert BadDestination();
         if (block.timestamp > params.deadline) revert Expired();
         ILaunchpadFor pad = launchpad;
@@ -228,12 +312,11 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         ILaunchpad.LaunchParams memory m = params;
         m.quote = q;
         address u = rtr.usdg();
-        // Audit CH-02: snapshot before any USDG or quote arrives, so `left` is only the unspent First BOOST.
-        uint256 bal0 = IERC20(q).balanceOf(address(this));
+        // Audit CH-02: snapshot before any quote arrives, so `left` is only the unspent First BOOST. On a USDG pair the
+        // First BOOST USDG is already here, so it is taken out of the snapshot.
+        uint256 bal0 = IERC20(q).balanceOf(address(this)) - (q == u ? usdgIn : 0);
         uint256 quoteAmt;
         if (usdgIn != 0) {
-            if (u == address(0)) revert ZeroAddress();
-            IERC20(u).safeTransferFrom(msg.sender, address(this), usdgIn);
             if (q == u) {
                 quoteAmt = usdgIn;
             } else {
@@ -246,15 +329,15 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         }
         m.creatorBuyQuoteIn = quoteAmt;
         if (quoteAmt != 0) IERC20(q).forceApprove(address(pad), quoteAmt);
-        result = pad.launchFor(msg.sender, m, mode);
+        result = pad.launchFor(creator, m, mode);
         uint256 left = IERC20(q).balanceOf(address(this)) - bal0;
         if (left != 0) {
             if (u == address(0) || q == u) {
-                IERC20(q).safeTransfer(msg.sender, left);
+                IERC20(q).safeTransfer(creator, left);
                 usdgRefund = left;
             } else {
                 IERC20(q).forceApprove(address(rtr), left);
-                usdgRefund = rtr.swapQuoteToUsdg(q, left, 1, msg.sender, params.deadline);
+                usdgRefund = rtr.swapQuoteToUsdg(q, left, 1, creator, params.deadline);
             }
         }
         _record(result.token, creatorFeeDestination);
@@ -550,6 +633,44 @@ contract CreatorFeeHarvest is ReentrancyGuard, Owned2Step {
         uint256 left = IERC20(q).balanceOf(address(this)) - bal0;
         if (left != 0) IERC20(q).safeTransfer(msg.sender, left);
         _record(result.token, creatorFeeDestination);
+    }
+
+    /// @notice The coin's current creator picks where its creator fees go (curve and pool claims, quote and rocket
+    ///         token). address(0) or the creator's own address clears it. Any wallet or contract can be picked.
+    function setCreatorFeeRecipient(address token, address recipient) external {
+        if (msg.sender != launchpad.creatorOf(token) || msg.sender == address(0)) revert NotCreator();
+        _setPayee(token, msg.sender, recipient);
+    }
+
+    bytes32 public constant SET_RECIPIENT_TYPEHASH =
+        keccak256("SetCreatorFeeRecipient(address token,address recipient,uint256 nonce,uint256 deadline)");
+    /// @notice Per coin creator, for `setCreatorFeeRecipientBySig`.
+    mapping(address => uint256) public sigNonces;
+
+    /// @notice Gasless `setCreatorFeeRecipient`: anyone submits the current coin creator's EIP-712 signature.
+    function setCreatorFeeRecipientBySig(address token, address recipient, uint256 deadline, bytes calldata sig)
+        external
+    {
+        address c = launchpad.creatorOf(token);
+        if (block.timestamp > deadline) revert Expired();
+        bytes32 d = _hashTypedDataV4(keccak256(abi.encode(SET_RECIPIENT_TYPEHASH, token, recipient, sigNonces[c], deadline)));
+        if (c == address(0) || !SignatureChecker.isValidSignatureNow(c, d, sig)) revert NotCreator();
+        unchecked {
+            ++sigNonces[c];
+        }
+        _setPayee(token, c, recipient);
+    }
+
+    function _setPayee(address token, address c, address recipient) internal {
+        if (recipient == c) recipient = address(0);
+        _payeeOf[token][c] = recipient;
+        emit CreatorFeeRecipientSet(token, c, recipient);
+    }
+
+    /// @notice Where `creator`'s fees for `token` are paid: their pick, else `creator`.
+    function creatorFeeRecipientOf(address token, address creator) external view returns (address) {
+        address p = _payeeOf[token][creator];
+        return p == address(0) ? creator : p;
     }
 
     function _record(address token, uint8 dest) internal {

@@ -7,7 +7,7 @@
 import { parseAbi, parseSignature, type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { ACTIVE_CHAIN } from "../chains";
 import { referrerWallet } from "../referral";
-import { bigintToDecimal, GASLESS_MAX_DEADLINE_SEC, jsonSafe, NonceBook, PERMIT2, tradeTypedData, type Erc2612, type GaslessRequest, type Permit, type Trade } from "./gaslessPermit2";
+import { bigintToDecimal, GAS_FEE_LIVE, GASLESS_GAS_FEE_USD, GASLESS_MAX_DEADLINE_SEC, jsonSafe, NonceBook, PERMIT2, tradeTypedData, type Erc2612, type GaslessRequest, type Permit, type Trade } from "./gaslessPermit2";
 
 const erc20 = parseAbi([
   "function allowance(address owner, address spender) view returns (uint256)",
@@ -63,12 +63,13 @@ export async function permitFor(pc: PublicClient, owner: LocalAccount, asset: Ad
 }
 
 /** Build + sign one gasless request (no network beyond reads). Exported for tests / scripts. */
-export async function signGaslessTrade(pc: PublicClient, owner: LocalAccount, a: { router: Address; usdg: Address; coin: Address; isBuy: boolean; amountIn: bigint; minOut: bigint; nowSec?: number }): Promise<GaslessRequest> {
+export async function signGaslessTrade(pc: PublicClient, owner: LocalAccount, a: { router: Address; usdg: Address; coin: Address; isBuy: boolean; amountIn: bigint; minOut: bigint; nowSec?: number; usdgDecimals?: number }): Promise<GaslessRequest> {
   const now = BigInt(a.nowSec ?? Math.floor(Date.now() / 1000));
   const deadline = now + BigInt(GASLESS_MAX_DEADLINE_SEC - 30);
   const asset = a.isBuy ? a.usdg : a.coin;
   const [nonce, approval] = await Promise.all([permit2NonceBook(pc).next(owner.address), permitFor(pc, owner, asset, deadline)]);
-  const trade: Trade = { coin: a.coin, isBuy: a.isBuy, amountIn: a.amountIn, minOut: a.minOut, recipient: owner.address, deadline };
+  const trade: Trade = { coin: a.coin, isBuy: a.isBuy, amountIn: a.amountIn, minOut: a.minOut, recipient: owner.address, deadline,
+    ...(GAS_FEE_LIVE ? { maxGasFee: BigInt(Math.round(GASLESS_GAS_FEE_USD * 10 ** (a.usdgDecimals ?? 6))) } : {}) };
   const permit: Permit = { permitted: { token: asset, amount: a.amountIn }, nonce, deadline };
   const signature = await owner.signTypedData(jsonSafe(tradeTypedData(ACTIVE_CHAIN.id, a.router, permit, trade)));
   return { signer: owner.address, permit, trade, signature, ...(approval ? { approval } : {}) };

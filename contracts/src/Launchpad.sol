@@ -2,12 +2,15 @@
 pragma solidity ^0.8.26;
 
 import {Owned2Step} from "./utils/Owned2Step.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Constants} from "./libraries/Constants.sol";
 import {FeeMath} from "./libraries/FeeMath.sol";
 import {CurveMath} from "./libraries/CurveMath.sol";
 import {Token} from "./Token.sol";
+import {TokenDeployer} from "./TokenDeployer.sol";
 import {BondingCurve} from "./BondingCurve.sol";
 import {CurveDeployer} from "./CurveDeployer.sol";
 import {ILaunchpad} from "./interfaces/ILaunchpad.sol";
@@ -30,7 +33,7 @@ interface IPricerLaunch {
     function launchPriceUsd(address quote) external view returns (uint256);
 }
 
-contract Launchpad is ILaunchpad, Owned2Step {
+contract Launchpad is ILaunchpad, Owned2Step, EIP712 {
     using SafeERC20 for IERC20;
 
     address public immutable feeRouter;
@@ -45,6 +48,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
     IQuotePricer public pricer;
     /// @notice BondingCurve factory (separate contract to keep Launchpad under the size limit).
     CurveDeployer public curveDeployer;
+    bool public curveDeployerLocked;
 
     mapping(address => bool) public override isLaunched;
     mapping(address => address) public override curveOf;
@@ -83,6 +87,9 @@ contract Launchpad is ILaunchpad, Owned2Step {
     /// @notice Easy crew-tip threshold for FUTURE launches, bps of the coin's mcap at the time of sale (default 0.5%;
     ///         bounds [CREW_TIP_THRESHOLD_BPS_MIN, _MAX]). Snapshotted into each curve as an immutable.
     uint256 public crewTipThresholdBps = Constants.CREW_TIP_THRESHOLD_BPS_DEFAULT;
+    /// @notice Easy holder tip for FUTURE launches, ppm of profitable sell proceeds (default 3.3%, 0 = off,
+    ///         max 12%). Each curve reads it once in its constructor and keeps it for life.
+    uint256 public crewTipPpm = Constants.CREW_TIP_PPM_DEFAULT;
     /// @notice Sniper-escrow timeout for FUTURE launches (default Constants.SNIPE_ESCROW_TIMEOUT = 12 days since 2026-11-09, was 30;
     ///         bounds [1 day, 365 days]). Snapshotted into
     ///         each curve: after it, a not-yet-graduated curve's escrow can be sent to RewardsVault by anyone.
@@ -122,6 +129,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
     event TrustedRouterSet(address indexed router, bool trusted);
     event CurveRouterKilled(address indexed curve, bool killed);
     event CrewTipThresholdSet(uint256 bps);
+    event CrewTipPpmSet(uint256 ppm);
     event SnipeEscrowTimeoutSet(uint256 secs);
     /// @notice Bonding-curve game mode chosen by the creator (0 TRENCH WARFARE, 1 PVE, 2 PVP).
     event LaunchMode(address indexed token, address indexed curve, uint8 mode);
@@ -132,10 +140,28 @@ contract Launchpad is ILaunchpad, Owned2Step {
         address indexed token, uint256 startMcapUsd, uint256 graduationMcapUsd, uint256 totalSupply, uint8 decimals_
     );
 
-    constructor(address owner_, address feeRouter_, address antiSnipe_, address migration_) Owned2Step(owner_) {
+    constructor(address owner_, address feeRouter_, address antiSnipe_, address migration_)
+        Owned2Step(owner_)
+        EIP712("DISCIPLE Launchpad", "1")
+    {
         feeRouter = feeRouter_;
         antiSnipe = antiSnipe_;
         migration = migration_;
+        // Pre-orbit v4 block (maker 2026-11-19): each Token refuses transfers into the PoolManager until orbit, except
+        // LockedLP seeding the real pool. Read once here and fixed in the Token implementation.
+        (address pm, address llp) = _v4Pointers(migration_);
+        // maker 2026-11-20: every coin is a clone of one Token implementation, made by this factory
+        tokenDeployer = new TokenDeployer(pm, llp);
+    }
+
+    TokenDeployer public immutable tokenDeployer;
+
+    function _v4Pointers(address m) private view returns (address pm, address llp) {
+        if (m.code.length == 0) return (address(0), address(0));
+        (bool ok, bytes memory r) = m.staticcall(abi.encodeWithSignature("poolManager()"));
+        if (ok && r.length >= 32) pm = abi.decode(r, (address));
+        (ok, r) = m.staticcall(abi.encodeWithSignature("lockedLP()"));
+        if (ok && r.length >= 32) llp = abi.decode(r, (address));
     }
 
     /// @notice Owner/multisig sets STRATEGY (or replacement) as the default launch quote.
@@ -146,12 +172,18 @@ contract Launchpad is ILaunchpad, Owned2Step {
         emit DefaultQuoteUpdated(quote_);
     }
 
-    /// @notice Write-once (audit 2026-11-17 R461-01): Launchpad authorizes whatever the deployer returns to book fee
-    ///         credit in FeeRouter, so a swappable deployer would let the owner mint fee credit. New curve logic = new stack.
+    /// @notice Curve code for NEW launches (maker 2026-11-19: swappable at once by the owner until `lockCurveDeployer`;
+    ///         existing coins keep their curve). Trust: the deployer's curves are authorized on FeeRouter.
     function setCurveDeployer(address d) external {
-        if (msg.sender != owner) revert OnlyOwner();
-        if (address(curveDeployer) != address(0) || d.code.length == 0) revert CurveDeployerUnset();
+        if (msg.sender != owner || curveDeployerLocked) revert OnlyOwner();
+        if (d.code.length == 0) revert CurveDeployerUnset();
         curveDeployer = CurveDeployer(d);
+    }
+
+    /// @notice Ends curve swaps for good.
+    function lockCurveDeployer() external {
+        if (msg.sender != owner) revert OnlyOwner();
+        curveDeployerLocked = true;
     }
 
     /// @notice Protocol owner sets the creator-buy cap for FUTURE launches (ceiling 7.77%).
@@ -199,6 +231,14 @@ contract Launchpad is ILaunchpad, Owned2Step {
         }
         crewTipThresholdBps = bps;
         emit CrewTipThresholdSet(bps);
+    }
+
+    /// @notice Protocol owner sets the Easy holder tip for FUTURE launches (ppm, 0 to 12%).
+    function setCrewTipPpm(uint256 ppm) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (ppm > Constants.CREW_TIP_PPM_MAX) revert CrewTipThresholdOutOfBounds();
+        crewTipPpm = ppm;
+        emit CrewTipPpmSet(ppm);
     }
 
     /// @notice Protocol owner sets the sniper-escrow timeout for FUTURE launches (seconds, bounded).
@@ -290,8 +330,8 @@ contract Launchpad is ILaunchpad, Owned2Step {
             }
         }
 
-        Token t = new Token(
-            params.name, params.ticker, creator, address(this), address(this), mode == Constants.MODE_PVE
+        Token t = Token(
+            tokenDeployer.deploy(params.name, params.ticker, creator, mode == Constants.MODE_PVE)
         );
 
         // USD price is derived on-chain (never caller-supplied); reverts if no USDG reference pool.
@@ -321,7 +361,7 @@ contract Launchpad is ILaunchpad, Owned2Step {
             )
         );
 
-        if (mode == Constants.MODE_PVE) t.setPveCurve(address(curve));
+        t.setPveCurve(address(curve)); // every mode: pre-orbit v4 block (maker 2026-11-19); PVE hooks still PVE-only
         IERC20(address(t)).safeTransfer(address(curve), Constants.TOTAL_SUPPLY);
 
         FeeRouter(feeRouter).setAuthorized(address(curve), true);
@@ -380,8 +420,82 @@ contract Launchpad is ILaunchpad, Owned2Step {
         string calldata description,
         string calldata socialsURI
     ) external {
+        _updateMetadata(token, msg.sender, imageURI, description, socialsURI);
+    }
+
+    // ── gasless coin creators (maker 2026-11-19: players hold no ETH; anyone submits the coin creator's signature) ──
+
+    bytes32 public constant TRANSFER_CREATOR_TYPEHASH =
+        keccak256("TransferCreator(address token,address newCreator,uint256 nonce,uint256 deadline)");
+    bytes32 public constant UPDATE_METADATA_TYPEHASH = keccak256(
+        "UpdateMetadata(address token,string imageURI,string description,string socialsURI,uint256 nonce,uint256 deadline)"
+    );
+    /// @notice Per coin creator; every signature here uses (and burns) the next one.
+    mapping(address => uint256) public sigNonces;
+
+    error BadSignature();
+    error SignatureExpired();
+
+    function updateMetadataBySig(
+        address token,
+        string calldata imageURI,
+        string calldata description,
+        string calldata socialsURI,
+        uint256 deadline,
+        bytes calldata sig
+    ) external {
+        address c = metaOf[token].creator;
+        _useSig(
+            c,
+            keccak256(
+                abi.encode(
+                    UPDATE_METADATA_TYPEHASH,
+                    token,
+                    keccak256(bytes(imageURI)),
+                    keccak256(bytes(description)),
+                    keccak256(bytes(socialsURI)),
+                    sigNonces[c],
+                    deadline
+                )
+            ),
+            deadline,
+            sig
+        );
+        _updateMetadata(token, c, imageURI, description, socialsURI);
+    }
+
+    function transferCreatorBySig(address token, address newCreator, uint256 deadline, bytes calldata sig) external {
+        address c = metaOf[token].creator;
+        _useSig(c, keccak256(abi.encode(TRANSFER_CREATOR_TYPEHASH, token, newCreator, sigNonces[c], deadline)), deadline, sig);
+        _transferCreator(token, c, newCreator);
+    }
+
+    /// @notice Anyone pays `holder` its Easy holder tips on `token` (gasless holders hold no ETH). The caller gets nothing.
+    function claimFor(address token, address holder) external returns (uint256) {
+        address c = curveOf[token];
+        if (c == address(0)) revert InvalidMetadata();
+        return BondingCurve(c).claimFor(holder);
+    }
+
+    function _useSig(address signer, bytes32 structHash, uint256 deadline, bytes calldata sig) internal {
+        if (block.timestamp > deadline) revert SignatureExpired();
+        if (signer == address(0) || !SignatureChecker.isValidSignatureNow(signer, _hashTypedDataV4(structHash), sig)) {
+            revert BadSignature();
+        }
+        unchecked {
+            ++sigNonces[signer];
+        }
+    }
+
+    function _updateMetadata(
+        address token,
+        address who,
+        string calldata imageURI,
+        string calldata description,
+        string calldata socialsURI
+    ) internal {
         LaunchMeta storage m = metaOf[token];
-        if (msg.sender != m.creator) revert OnlyCreator();
+        if (who != m.creator) revert OnlyCreator();
         m.imageURI = imageURI;
         m.description = description;
         m.socialsURI = socialsURI;
@@ -389,18 +503,20 @@ contract Launchpad is ILaunchpad, Owned2Step {
     }
 
     /// @notice Transfer creator ownership pack (§5 / #26): metadata + fee claim + tax rights.
-    /// @dev Fees already booked to the previous creator (FeeRouter.creatorAccrued, and CurveFeeVault.creatorAccrued
-    ///      for fees settled before the transfer) stay with them (claim anytime). lp-accrue curves (L1, lee
-    ///      2026-11-09 "Leave it, the new creator gets unsettled fees"): curve-phase fees that are still owed on the
-    ///      curve (not yet settled) are booked at settle time to the creator of record THEN, so they go to the new
-    ///      creator. To keep them, call BondingCurve.settleFees() (permissionless) before transferring.
+    /// @dev maker 2026-11-19 "the new creator gets the fees": every unclaimed creator fee follows the role. Only the
+    ///      current creator can claim on FeeRouter / CurveFeeVault; a balance still booked to a past creator moves to
+    ///      the current one with `sweepPastCreatorFees_1311` (anyone). Pool fees on the hook are paid to creatorOf at
+    ///      claim time. A creator's "Pays to" pick (CreatorFeeHarvest) does not carry over.
     function transferCreator(address token, address newCreator) external {
+        _transferCreator(token, msg.sender, newCreator);
+    }
+
+    function _transferCreator(address token, address who, address newCreator) internal {
         LaunchMeta storage m = metaOf[token];
-        if (msg.sender != m.creator) revert OnlyCreator();
+        if (who != m.creator) revert OnlyCreator();
         require(newCreator != address(0), "zero");
-        address prev = m.creator;
         m.creator = newCreator;
-        emit CreatorTransferred(token, prev, newCreator);
+        emit CreatorTransferred(token, who, newCreator);
     }
 
     /// @notice Preview the optional same-tx creator buy (tax 0) — use to set creatorBuyMinTokensOut.

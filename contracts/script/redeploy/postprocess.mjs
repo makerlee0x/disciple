@@ -10,7 +10,8 @@ const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../.
 const rec = path.join(root, "broadcast/Deploy.s.sol/46630", mode === "dry-run" ? "dry-run" : "", "run-latest.json");
 const run = JSON.parse(fs.readFileSync(rec, "utf8"));
 const NAMES = ["ReferralRegistry", "LockedLP", "FeeRouter", "DiscipleHook", "Migration", "DiscipleRouter",
-  "Launchpad", "QuotePricer", "QuoteProbe", "CurveDeployer", "RewardsVault", "AnonLauncher", "MarketLens"];
+  "Launchpad", "QuotePricer", "QuoteProbe", "CurveDeployer", "RewardsVault", "AnonLauncher", "MarketLens",
+  "CreatorFeeHarvest", "CurveFeeVault"];
 const contracts = {};
 let gas = 0n;
 const devTokens = {}; // DevToken creates: mock USDG (6-dec) and test STRATEGY, identified by symbol

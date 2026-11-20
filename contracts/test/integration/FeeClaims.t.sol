@@ -46,30 +46,32 @@ contract FeeClaimsTest is IntegrationBase {
         uint256 cTok0 = tok.balanceOf(creator);
         _swapExactInQuoteForToken(tok, trader1, 100 * U); // buy: hook fee charged in TOKEN
         assertEq(tok.balanceOf(creator), cTok0, "no push to creator");
-        uint256 accd = feeRouter.creatorTokenAccrued(address(tok), creator);
-        assertGt(accd, 0, "creator token-side accrued");
-        assertGt(feeRouter.treasuryAccrued(address(tok)), 0, "treasury token-side accrued");
-        vm.prank(creator);
-        feeRouter.claimCreatorTokenFees(address(tok));
-        assertEq(tok.balanceOf(creator) - cTok0, accd);
-        vm.prank(creator);
-        vm.expectRevert(FeeRouter.NothingToClaim.selector);
-        feeRouter.claimCreatorTokenFees(address(tok));
+        (, uint256 accd) = hook.claimable(address(tok), 0);
+        assertGt(accd, 0, "creator token-side held by the hook");
+        (, uint256 ta) = hook.claimable(address(tok), 2);
+        assertGt(ta, 0, "treasury token-side held by the hook");
+        vm.prank(makeAddr("anyone"));
+        hook.claimCreatorFees(address(tok));
+        assertEq(tok.balanceOf(creator) - cTok0, accd, "paid to the coin creator, not the caller");
+        vm.expectRevert();
+        hook.claimCreatorFees(address(tok));
         uint256 tt0 = tok.balanceOf(treasury);
-        uint256 ta = feeRouter.treasuryAccrued(address(tok));
-        feeRouter.claimTreasury(address(tok));
+        hook.claimTreasuryFees(address(tok));
         assertEq(tok.balanceOf(treasury) - tt0, ta);
     }
 
-    /// @dev Slim hook (2026-11-17) emits no events: a buy's 1% fee is taken in TOKEN (the unspecified side) and lands
-    ///      in FeeRouter, so the trader receives 99% of the swap output.
+    /// @dev maker 2026-11-19: a buy's 1% fee is taken in TOKEN (the unspecified side) and held by the hook as
+    ///      ERC-6909 until claimed, so the trader receives 99% of the swap output.
     function test_postGradBuyFeeIsOnePercentInToken() public {
         (BondingCurve c, Token tok) = _launch(0, 0);
         _graduate(c);
-        uint256 fr0 = tok.balanceOf(address(feeRouter)) + tok.balanceOf(address(lockedLP));
         _swapExactInQuoteForToken(tok, trader1, 100 * U);
         uint256 got = tok.balanceOf(trader1);
-        uint256 fee = tok.balanceOf(address(feeRouter)) + tok.balanceOf(address(lockedLP)) - fr0;
+        uint256 fee;
+        for (uint8 sh; sh < 4; ++sh) {
+            (, uint256 t) = hook.claimable(address(tok), sh);
+            fee += t;
+        }
         assertApproxEqRel(fee, (got + fee) / 100, 0.001e18, "fee = 1% of the token output");
     }
 

@@ -39,6 +39,8 @@ contract AnonLauncherTest is IntegrationBase {
         super.setUp();
         anon =
             new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), address(0));
+        vm.prank(owner);
+        anon.setHook(address(hook)); // maker 2026-11-19: post-orbit creator share is held by the hook
         (stealthA, skA) = makeAddrAndKey("stealthA");
         (stealthB, skB) = makeAddrAndKey("stealthB");
         quote.mint(payer, 1_000_000 * U);
@@ -99,33 +101,6 @@ contract AnonLauncherTest is IntegrationBase {
         return AnonLauncher.ClaimReq(o, toks, to, rf, dl, _sign(sk, o, toks, to, rf, dl));
     }
 
-    function test_launch_creator_is_stealth_not_payer_fee_and_buy_routed() public {
-        address fresh = makeAddr("fresh");
-        (uint256 expOut,,,,) = launchpad.quoteCreatorBuy(address(quote), 10 * U, 0);
-        (BondingCurve c, Token t, uint256 bought) = _anonLaunch(stealthA, fresh, 10 * U);
-        assertEq(anon.stealthOwnerOf(address(t)), stealthA);
-        assertEq(launchpad.creatorOf(address(t)), address(anon));
-        assertEq(c.creator(), address(anon));
-        assertTrue(launchpad.creatorOf(address(t)) != payer);
-        assertEq(bought, expOut, "creator buy anti-snipe exempt, via curve");
-        assertEq(t.balanceOf(fresh), bought);
-        assertEq(t.balanceOf(address(anon)), 0);
-        assertEq(c.tokensSold(), bought);
-    }
-
-    function testFuzz_buyRecipient_routing(address recipient, uint96 buy) public {
-        vm.assume(recipient != address(0) && recipient != address(anon) && uint160(recipient) > 0x100);
-        uint256 b = bound(uint256(buy), 1 * U, 40 * U);
-        (, Token t, uint256 bought) = _anonLaunch(stealthA, recipient, b);
-        assertGt(bought, 0);
-        assertEq(t.balanceOf(recipient), bought);
-    }
-
-    function test_zero_recipient_defaults_to_stealth() public {
-        (, Token t, uint256 bought) = _anonLaunch(stealthA, address(0), 10 * U);
-        assertEq(t.balanceOf(stealthA), bought);
-    }
-
     // ── maker 2026-11-17: hidden launches are free forever (no fee setting exists) ──
     function testFuzz_launchAnon_isFree_anyMaxFee(uint256 maxFee) public {
         assertEq(anon.launchFee(), 0);
@@ -140,7 +115,7 @@ contract AnonLauncherTest is IntegrationBase {
 
     // ── pack scope (lee 2026-10-24): anon launches are TRENCH-only ──
     function test_launchAnon_is_trench_only() public {
-        (BondingCurve c, Token t,) = _anonLaunch(stealthA, stealthA, 10 * U);
+        (BondingCurve c, Token t,) = _anonLaunch(stealthA, stealthA, 0);
         assertEq(launchpad.modeOf(address(t)), Constants.MODE_TRENCH, "TRENCH");
         assertFalse(t.pveHooks(), "no PVE hooks");
         assertEq(c.mode(), Constants.MODE_TRENCH, "curve mode TRENCH");
@@ -318,16 +293,19 @@ contract AnonLauncherTest is IntegrationBase {
         _graduate(c);
         _swapExactInQuoteForToken(t, trader1, 5_000 * U);
         _swapExactInTokenForQuote(t, trader1, t.balanceOf(trader1) / 2);
-        assertGt(feeRouter.creatorTokenAccrued(address(t), address(anon)), 0, "token side accrued to AnonLauncher");
-        assertGt(feeRouter.creatorAccrued(address(t), address(anon)), 0, "quote side accrued to AnonLauncher");
+        // maker 2026-11-19: the hook holds the pool fees; the coin creator's share (creator = AnonLauncher) waits there
+        (uint256 hq, uint256 ht) = hook.claimable(address(t), 0);
+        assertGt(ht, 0, "token side held for AnonLauncher");
+        assertGt(hq, 0, "quote side held for AnonLauncher");
     }
 
     function test_v2_pending_includes_token_side() public {
         Token t = _gradWithBothSides(stealthA);
         (address q, uint256 qa, uint256 ta) = anon.pending(address(t));
         assertEq(q, address(quote));
-        assertEq(qa, feeRouter.creatorAccrued(address(t), address(anon)));
-        assertEq(ta, feeRouter.creatorTokenAccrued(address(t), address(anon)));
+        (uint256 hq, uint256 ht) = hook.claimable(address(t), 0);
+        assertEq(qa, feeRouter.creatorAccrued(address(t), address(anon)) + hq);
+        assertEq(ta, feeRouter.creatorTokenAccrued(address(t), address(anon)) + ht);
     }
 
     function test_v2_claimMany_pays_both_sides() public {
@@ -340,8 +318,8 @@ contract AnonLauncherTest is IntegrationBase {
         anon.claimMany(toks, dest);
         assertEq(quote.balanceOf(dest), qa);
         assertEq(t.balanceOf(dest), ta);
-        assertEq(feeRouter.creatorAccrued(address(t), address(anon)), 0);
-        assertEq(feeRouter.creatorTokenAccrued(address(t), address(anon)), 0);
+        (uint256 hq, uint256 ht) = hook.claimable(address(t), 0);
+        assertEq(hq + ht, 0, "hook share pulled");
         assertEq(t.balanceOf(address(anon)), 0);
         (, qa, ta) = anon.pending(address(t));
         assertEq(qa + ta, 0);
@@ -373,8 +351,9 @@ contract AnonLauncherTest is IntegrationBase {
         assertEq(t1.balanceOf(relayer), 0);
         assertEq(t1.balanceOf(dest), a1 - (a1 * rf) / 10_000);
         assertEq(t2.balanceOf(dest), a2 - (a2 * rf) / 10_000);
-        assertEq(feeRouter.creatorTokenAccrued(address(t1), address(anon)), 0);
-        assertEq(feeRouter.creatorTokenAccrued(address(t2), address(anon)), 0);
+        (, uint256 h1) = hook.claimable(address(t1), 0);
+        (, uint256 h2) = hook.claimable(address(t2), 0);
+        assertEq(h1 + h2, 0);
         assertEq(anon.nonces(stealthA), 1);
     }
 

@@ -75,6 +75,7 @@ contract MigrationTest is Test {
         manager = stack.manager;
 
         vm.startPrank(owner);
+        lockedLP.setHook(address(stack.hook));
         lockedLP.setMigration(address(migration));
         lockedLP.setFeeRouter(address(feeRouter));
         lockedLP.setPoolManager(address(manager));
@@ -88,7 +89,7 @@ contract MigrationTest is Test {
         QuotePricer pricer_ = new QuotePricer(owner, IPoolManager(address(0)), address(quote));
         vm.prank(owner);
         launchpad.setPricer(address(pricer_));
-        CurveDeployer cd_ = new CurveDeployer(address(new CurveFeeVault(address(feeRouter), address(0))));
+        CurveDeployer cd_ = new CurveDeployer(address(new CurveFeeVault(address(feeRouter), address(0))), address(launchpad));
         vm.prank(owner);
         launchpad.setCurveDeployer(address(cd_));
 
@@ -96,7 +97,6 @@ contract MigrationTest is Test {
         feeRouter.setLaunchpad(address(launchpad));
         migration.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
-        feeRouter.setAuthorized(address(hook), true);
         vm.stopPrank();
 
         swapRouter = new PoolSwapTest(manager);
@@ -183,8 +183,6 @@ contract MigrationTest is Test {
     function test_postGrad_swap_charges_1pct_via_hook() public {
         (, Token tok, PoolKey memory key) = _launchAndGraduate();
 
-        uint256 treBefore = (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote)));
-        uint256 creatorBefore = feeRouter.creatorAccrued(address(tok), alice);
 
         // Swap quote → token (or reverse depending on ordering)
         bool tokenIsC0 = uint160(address(tok)) < uint160(address(quote));
@@ -206,11 +204,12 @@ contract MigrationTest is Test {
 
         swapRouter.swap(key, params, settings, "");
 
-        // Hook took 1% of output and routed — treasury and/or creator accrued should rise
-        assertTrue(
-            (quote.balanceOf(treasury) + feeRouter.treasuryAccrued(address(quote))) > treBefore || feeRouter.creatorAccrued(address(tok), alice) > creatorBefore
-                || (tok.balanceOf(treasury) + feeRouter.treasuryAccrued(address(tok))) > 0,
-            "fees should route"
-        );
+        // Hook took 1% of the output (token side on a buy) and holds it for the four claim shares
+        uint256 held;
+        for (uint8 sh; sh < 4; ++sh) {
+            (uint256 q, uint256 t) = hook.claimable(address(tok), sh);
+            held += q + t;
+        }
+        assertGt(held, 0, "fees should be held by the hook");
     }
 }

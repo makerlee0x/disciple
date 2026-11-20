@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+import {DiscipleRouter} from "../../src/DiscipleRouter.sol";
 import {IntegrationBase} from "../integration/IntegrationBase.sol";
 import {Token} from "../../src/Token.sol";
 import {BondingCurve} from "../../src/BondingCurve.sol";
@@ -57,22 +58,11 @@ contract AuditPoC4Router is IntegrationBase {
         assertGt(got, 0);
         assertEq(tok.balanceOf(alice), got, "honest buy delivered tokens");
 
-        // Router owner (the Safe, or whoever holds it) swaps the registry. No timelock, takes effect at once.
+        // Fixed: the USDG routing is set once. The Team cannot re-point the registry at a fake curve.
         EvilCurve evil = new EvilCurve(address(quote));
-        router.setUsdgRouting(address(quote), address(new EvilRegistry(address(evil))));
-
-        uint256 qBefore = quote.balanceOf(alice);
-        vm.prank(alice);
-        uint256 reported = router.buyWithUsdg(address(tok), 500 ether, 1, block.timestamp);
-        assertEq(reported, 1, "router reports success");
-        assertEq(quote.balanceOf(alice), qBefore - 500 ether, "alice paid");
-        assertEq(tok.balanceOf(alice), got, "and received nothing");
-        assertEq(quote.balanceOf(address(evil)), 500 ether, "the fake curve kept the USDG");
-
-        vm.prank(alice);
-        router.sellToUsdg(address(tok), got, 1, block.timestamp);
-        assertEq(tok.balanceOf(alice), 0, "a sell hands the tokens over as well");
-        assertEq(tok.balanceOf(address(evil)), got);
+        address reg = address(new EvilRegistry(address(evil)));
+        vm.expectRevert(DiscipleRouter.BadParam.selector);
+        router.setUsdgRouting(address(quote), reg);
         c; // silence
     }
 }

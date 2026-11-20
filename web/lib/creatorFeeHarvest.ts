@@ -45,6 +45,10 @@ export const creatorFeeHarvestAbi = parseAbi([
   "function routeWith(address token, address pastCreator) returns (uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)",
   "function depositRocketTokens(address token, uint256 amount)",
   "function creatorFeeDestinationOf(address token) view returns (uint8)",
+  // Pays to (maker 2026-11-19): only the coin's current creator sets it; a new creator starts with no pick.
+  "function setCreatorFeeRecipient(address token, address recipient)",
+  "function creatorFeeRecipientOf(address token, address creator) view returns (address)",
+  "event CreatorFeeRecipientSet(address indexed token, address indexed creator, address recipient)",
   "event CreatorFeeDestinationSet(address indexed token, address indexed launcher, uint8 destination)",
   "event CreatorFeesRouted(address indexed token, uint8 destination, uint256 quoteAmount, uint256 rocketTokenAmount, uint256 quoteBought)",
 ]);

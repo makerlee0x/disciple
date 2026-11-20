@@ -31,7 +31,7 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         anon = new AnonLauncher(owner, address(launchpad), address(feeRouter), address(quote), address(0));
         // the vault is built with the AnonLauncher (H1); swap it in exactly as DeployLpAccrue does
         feeVault = new CurveFeeVault(address(feeRouter), address(anon));
-        address d = address(new CurveDeployer(address(feeVault)));
+        address d = address(new CurveDeployer(address(feeVault), address(launchpad)));
         vm.startPrank(owner);
         vm.store(address(launchpad), bytes32(uint256(5)), bytes32(0)); // test-only: the deployer is write-once
         launchpad.setCurveDeployer(d);
@@ -174,9 +174,9 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         vm.prank(w);
         vm.expectRevert(CurveFeeVault.NotStealthOwner.selector);
         feeVault.claimCreatorFeesAsStealth(address(t), w);
-        // the launcher itself can't use the stealth path, and the creator path pays only msg.sender's own key
+        // the creator path never pays the stealth key: the coin creator is AnonLauncher, a contract that pulls its own
         vm.prank(stealth);
-        vm.expectRevert(CurveFeeVault.NothingToClaim.selector);
+        vm.expectRevert(CurveFeeVault.NotCurrentCreator.selector);
         feeVault.claimCreatorFees(address(t));
         // a wallet-launched coin is not an anonLauncher coin
         vm.prank(creator);
@@ -309,7 +309,7 @@ contract LpAccrueFollowupsTest is IntegrationBase {
         router.claimCreatorFeesToUsdg(address(t), 1);
         // not the creator
         vm.prank(trader1);
-        vm.expectRevert(FeeRouter.NothingToClaim.selector);
+        vm.expectRevert(CurveFeeVault.NotCurrentCreator.selector);
         router.claimCreatorFeesToUsdg(address(t), 1);
         // the vault's router entry is FeeRouter.isClaimRouter-only
         vm.prank(creator);

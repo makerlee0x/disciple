@@ -79,6 +79,7 @@ contract DiscipleAuditTest is IntegrationBase {
         _swapExactInQuoteForToken(tok, trader1, 50 ether);
         vm.prank(owner);
         lockedLP.setCompoundParams(1, 0); // tiny min, uncapped, 3% guard
+        _pullLpShare(tok);
         (uint256 bt, uint256 bq) = lockedLP.compoundBucket(address(tok));
         require(bt >= 2 && bq >= 2, "buckets");
         vm.roll(vm.getBlockNumber() + 1);

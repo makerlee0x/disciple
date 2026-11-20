@@ -54,6 +54,7 @@ contract LaunchpadTest is Test {
         V4Deploy.Stack memory stack = V4Deploy.deploy(owner, lockedLP, feeRouter);
         migration = stack.migration;
         vm.startPrank(owner);
+        lockedLP.setHook(address(stack.hook));
         lockedLP.setMigration(address(migration));
         lockedLP.setFeeRouter(address(feeRouter));
         lockedLP.setPoolManager(address(stack.manager));
@@ -67,7 +68,7 @@ contract LaunchpadTest is Test {
         QuotePricer pricer_ = new QuotePricer(owner, IPoolManager(address(0)), address(quote));
         vm.prank(owner);
         launchpad.setPricer(address(pricer_));
-        CurveDeployer cd_ = new CurveDeployer(address(new CurveFeeVault(address(feeRouter), address(0))));
+        CurveDeployer cd_ = new CurveDeployer(address(new CurveFeeVault(address(feeRouter), address(0))), address(launchpad));
         vm.prank(owner);
         launchpad.setCurveDeployer(address(cd_));
 
@@ -75,7 +76,6 @@ contract LaunchpadTest is Test {
         feeRouter.setLaunchpad(address(launchpad));
         migration.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
-        feeRouter.setAuthorized(address(stack.hook), true);
         vm.stopPrank();
 
         quote.mint(alice, 1_000_000 ether);

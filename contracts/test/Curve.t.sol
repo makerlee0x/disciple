@@ -78,6 +78,7 @@ contract CurveTest is Test {
         V4Deploy.Stack memory stack = V4Deploy.deploy(owner, lockedLP, feeRouter);
         migration = stack.migration;
         vm.startPrank(owner);
+        lockedLP.setHook(address(stack.hook));
         lockedLP.setMigration(address(migration));
         lockedLP.setFeeRouter(address(feeRouter));
         lockedLP.setPoolManager(address(stack.manager));
@@ -93,7 +94,7 @@ contract CurveTest is Test {
         vm.prank(owner);
         launchpad.setPricer(address(pricer_));
         feeVault = new CurveFeeVault(address(feeRouter), address(0));
-        CurveDeployer cd_ = new CurveDeployer(address(feeVault));
+        CurveDeployer cd_ = new CurveDeployer(address(feeVault), address(launchpad));
         vm.prank(owner);
         launchpad.setCurveDeployer(address(cd_));
 
@@ -101,7 +102,6 @@ contract CurveTest is Test {
         feeRouter.setLaunchpad(address(launchpad));
         migration.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
-        feeRouter.setAuthorized(address(hook), true);
         rewardsVault = new RewardsVault(owner);
         rewardsVault.setFeeRouter(address(feeRouter));
         feeRouter.setRewardsVault(address(rewardsVault));

@@ -35,6 +35,9 @@ abstract contract NetworkConfig is Script {
         mainnet = _checkNetwork();
         if (!mainnet) return false;
         _requiredAddress("TREASURY");
+        // maker 2026-11-19: the community rewards Safe (1% of every fee, unclaimed sniper fees, no-holder crew tips).
+        // A Safe is a contract, so a typo'd EOA fails here; it is fixed in the hook forever.
+        _requiredContract("COMMUNITY_SAFE");
         _requiredContract("POOL_MANAGER");
         _requiredContract("V4_QUOTER");
         address usdg = _requiredContract("USDG");

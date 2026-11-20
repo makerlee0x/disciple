@@ -41,7 +41,7 @@ contract DeployAnonModesTestnet is NetworkConfig {
             v6.owner(), address(lp), feeRouter_, address(v6.feeToken()), address(v6.announcer())
         );
         vault = new CurveFeeVault(feeRouter_, address(anon));
-        deployer = new CurveDeployer(address(vault));
+        deployer = new CurveDeployer(address(vault), address(lp));
         lp.setCurveDeployer(address(deployer));
         fwd = new DisciplePermitForwarder{salt: FORWARDER_SALT}();
         vm.stopBroadcast();

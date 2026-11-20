@@ -173,24 +173,19 @@ contract JitTwapTest is IntegrationBase {
     }
 
     function test_hook_fee_full_lp_share_to_lockedLP() public {
-        vm.recordLogs();
         _sell(whale, 300 ether); // fee in quote
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 tfr = keccak256("TradeFeeRouted(address,address,address,bool,address,uint256,uint256,uint256,uint256,address,uint256,address,uint256)");
-        uint256 cs;
-        uint256 lps;
-        uint256 ts;
-        uint256 rs;
-        for (uint256 i; i < logs.length; i++) {
-            if (logs[i].topics[0] == tfr) {
-                (,, cs,, lps, ts,, rs,,) = abi.decode(
-                    logs[i].data, (bool, address, uint256, uint256, uint256, uint256, address, uint256, address, uint256)
-                );
-            }
+        uint256 fee;
+        uint256[4] memory q;
+        for (uint8 sh; sh < 4; ++sh) {
+            (q[sh],) = hook.claimable(address(tok), sh);
+            fee += q[sh];
         }
-        uint256 fee = cs + lps + ts + rs;
         assertGt(fee, 0);
-        assertEq(lps, fee * 33 / 100, "full 33% LP share routed to LockedLP");
+        assertApproxEqAbs(q[1], fee * 33 / 100, 2, "full 33% LP share held for LockedLP");
+        (, uint256 bq0) = lockedLP.compoundBucket(address(tok));
+        hook.claimLockedLiquidityFees(address(tok));
+        (, uint256 bq1) = lockedLP.compoundBucket(address(tok));
+        assertEq(bq1 - bq0, q[1], "claim credits LockedLP");
     }
 
     function test_twm_params_owner_only_and_bounded() public {

@@ -47,6 +47,9 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     ///         Replacing LockedLP is what changes this address. It does not make locked liquidity withdrawable.
     address private immutable creatorFeeHarvest;
     IPoolManager public poolManager;
+    /// @notice maker 2026-11-19: DiscipleHook holds the post-graduation 1% and pays the 33% LP share (and the creator
+    ///         share of locked-LP coins) here when someone claims. Write-once, like the other pointers.
+    address public hook;
 
     int24 public constant TICK_SPACING = 60;
     address public constant BURN = 0x000000000000000000000000000000000000dEaD;
@@ -210,7 +213,10 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     ///         caps can never change. Refuses until every pointer is set, so nothing is left unwired.
     function renounceOwnership() external {
         if (msg.sender != owner) revert OnlyOwner();
-        if (feeRouter == address(0) || migration == address(0) || address(poolManager) == address(0) || treasury == address(0)) {
+        if (
+            feeRouter == address(0) || migration == address(0) || address(poolManager) == address(0)
+                || treasury == address(0) || hook == address(0)
+        ) {
             revert NotWired();
         }
         owner = address(0);
@@ -222,6 +228,12 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         if (msg.sender != owner) revert OnlyOwner();
         if (feeRouter != address(0) || r.code.length == 0) revert AlreadyWired(); // audit L-31: contracts only
         feeRouter = r;
+    }
+
+    function setHook(address h) external {
+        if (msg.sender != owner) revert OnlyOwner();
+        if (hook != address(0) || h.code.length == 0) revert AlreadyWired();
+        hook = h;
     }
 
     function setMigration(address m) external {
@@ -279,14 +291,18 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         return tokenAmount + quoteAmount;
     }
 
-    /// @notice Gas path for the per-trade LP share: FeeRouter has ALREADY transferred the amounts here.
-    /// @dev FeeRouter-only (it transfers exactly these amounts immediately before this call, same tx).
+    /// @notice LP share credit: the caller has ALREADY transferred the amounts here. FeeRouter (curve-phase LP share)
+    ///         or DiscipleHook (post-graduation LP share / locked-LP creator share, at claim time).
+    /// @dev Both callers transfer exactly these amounts immediately before this call, same tx.
     /// @return compoundReady post-graduation and both buckets hold >= 2 wei (informational; the keeper flushes).
     function creditLockedLiquidity(address token, address quote, uint256 tokenAmount, uint256 quoteAmount)
         external
         returns (bool compoundReady)
     {
-        if (msg.sender != feeRouter) revert Unauthorized();
+        // maker 2026-11-19: Migration can move new coins to a new hook, so the coin's own pool hook may credit it.
+        if (msg.sender != feeRouter && msg.sender != hook && IMigrationHooks(migration).hookOf(token) != msg.sender) {
+            revert Unauthorized();
+        }
         return _credit(token, quote, tokenAmount, quoteAmount);
     }
 
@@ -428,6 +444,10 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
     ///         (REF_BAND_TICKS). Returns liquidity added (0 = skipped).
     function flush(address token) external returns (uint128 liquidity) {
         if (!_positions[token].graduated) revert NotGraduated();
+        // pull this coin's 33% locked-liquidity share out of its hook first (skips when nothing is owed)
+        address h = migration == address(0) ? address(0) : IMigrationHooks(migration).hookOf(token);
+        if (h == address(0)) h = hook;
+        if (h != address(0)) try IHookLockedShare(h).claimLockedLiquidityFees(token) {} catch {}
         bytes memory r = poolManager.unlock(abi.encode(CB_FLUSH, abi.encode(token)));
         liquidity = abi.decode(r, (uint128));
     }
@@ -736,4 +756,12 @@ contract LockedLP is ILockedLP, IUnlockCallback, Owned2Step {
         Position storage p = _positions[token];
         return (p.tickLower, p.tickUpper, p.salt);
     }
+}
+
+interface IMigrationHooks {
+    function hookOf(address token) external view returns (address);
+}
+
+interface IHookLockedShare {
+    function claimLockedLiquidityFees(address token) external returns (uint256 quoteAmount, uint256 tokenAmount);
 }

@@ -8,6 +8,7 @@ import {AnonLauncher} from "../../src/addons/AnonLauncher.sol";
 
 /// @notice Security pass fuzz tests: hook fee split, TrampWallManager round-trip/auth, AnonLauncher sigs, LockedLP.
 contract SecurityFuzzTest is IntegrationBase {
+    using PoolIdLibrary for PoolKey;
     TrampWallManager twm;
     BondingCurve curve;
     Token tok;
@@ -41,7 +42,6 @@ contract SecurityFuzzTest is IntegrationBase {
 
     /// Hook fee: creator 33 / LP 33 (all to LockedLP, no donation) / treasury 33 / referral-or-treasury 1, no value lost.
     function testFuzz_hook_fee_split_33_33_33_1(uint256 amt, bool isBuy) public {
-        vm.recordLogs();
         if (isBuy) {
             amt = bound(amt, 1 ether, 5_000 ether); 
             vm.prank(whale);
@@ -51,26 +51,19 @@ contract SecurityFuzzTest is IntegrationBase {
             vm.prank(whale);
             router.sellExactIn(address(tok), amt, 1, whale, block.timestamp + 1);
         }
-        Vm.Log[] memory logs = vm.getRecordedLogs();
-        uint256 cs;
-        uint256 lps;
-        uint256 ts;
-        uint256 rs;
-        bool seen;
-        for (uint256 i; i < logs.length; i++) {
-            if (logs[i].topics[0] == TFR) {
-                (,, cs,, lps, ts,, rs,,) = abi.decode(
-                    logs[i].data, (bool, address, uint256, uint256, uint256, uint256, address, uint256, address, uint256)
-                );
-                seen = true;
-            }
+        (uint128 f0, uint128 f1) = hook.feesOf(_poolKey(tok).toId());
+        uint256 fee = uint256(f0) + f1; // one side per swap
+        assertGt(fee, 0, "fee held by the hook");
+        uint256[4] memory sh;
+        for (uint8 i; i < 4; ++i) {
+            (uint256 q, uint256 t) = hook.claimable(address(tok), i);
+            sh[i] = q + t;
         }
-        assertTrue(seen, "fee routed");
-        uint256 fee = cs + lps + ts + rs; // treasury absorbs the 1% when no referrer
-        assertEq(cs, (fee * 33) / 100, "creator 33%");
-        assertEq(lps, (fee * 33) / 100, "full LP 33% to LockedLP");
-        assertEq(rs, 0, "no referrer -> 0");
-        assertEq(ts, fee - cs - lps, "treasury 33% + 1% residual");
+        assertEq(sh[0], (fee * 33) / 100, "creator 33%");
+        assertEq(sh[1], (fee * 33) / 100, "full LP 33% to LockedLP");
+        assertEq(sh[2], (fee * 33) / 100, "treasury 33%");
+        assertEq(sh[3], fee / 100, "community 1%");
+        assertLe(sh[0] + sh[1] + sh[2] + sh[3], fee, "no value created");
     }
 
     function _trampRange() internal view returns (int24 lo, int24 hi) {

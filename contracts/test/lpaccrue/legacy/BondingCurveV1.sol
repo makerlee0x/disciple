@@ -665,7 +665,7 @@ contract BondingCurveV1 is IBondingCurve, ITradeEvents, IAltitudeEvents {
         if (netOut > costPortion) {
             uint256 threshold =
                 Math.mulDiv(CurveMath.marketCapQuote(_params, tokensSold), crewTipThresholdBps, Constants.BPS_DENOM);
-            if (netOut - costPortion > threshold) tip = (netOut * Constants.PVE_CREW_TIP_PPM) / 1e6;
+            if (netOut - costPortion > threshold) tip = (netOut * 7770) / 1e6;
         }
     }
 

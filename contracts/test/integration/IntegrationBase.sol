@@ -138,6 +138,7 @@ abstract contract IntegrationBase is Test {
         router = stack.router;
 
         vm.startPrank(owner);
+        lockedLP.setHook(address(stack.hook));
         lockedLP.setMigration(address(migration));
         lockedLP.setFeeRouter(address(feeRouter));
         lockedLP.setPoolManager(address(manager));
@@ -153,7 +154,6 @@ abstract contract IntegrationBase is Test {
         feeRouter.setLaunchpad(address(launchpad));
         migration.setLaunchpad(address(launchpad));
         feeRouter.setLockedLP(address(lockedLP));
-        feeRouter.setAuthorized(address(hook), true);
         rewardsVault = new RewardsVault(owner);
         rewardsVault.setFeeRouter(address(feeRouter));
         feeRouter.setRewardsVault(address(rewardsVault));
@@ -173,7 +173,7 @@ abstract contract IntegrationBase is Test {
         launchpad.setQuoteProbe(address(quoteProbe));
         launchpad.setPricer(address(pricer));
         feeVault = new CurveFeeVault(address(feeRouter), address(0)); // AnonLauncher tests deploy their own vault
-        launchpad.setCurveDeployer(address(new CurveDeployer(address(feeVault))));
+        launchpad.setCurveDeployer(address(new CurveDeployer(address(feeVault), address(launchpad))));
         launchpad.setTrustedRouter(address(router), true);
         feeRouter.setClaimRouter(address(router), true);
         vm.stopPrank();
@@ -186,6 +186,7 @@ abstract contract IntegrationBase is Test {
         swapRouter = new PoolSwapTest(manager);
 
         harvest = new CreatorFeeHarvest{salt: harvestSalt}(owner);
+        hook.setCreatorFeeHarvest(address(harvest)); // maker 2026-11-19: creator share of lock / burn coins at claim
         // Fund actors
         address[7] memory actors = [creator, sniper, trader1, trader2, kol, referred, address(this)];
         for (uint256 i = 0; i < actors.length; i++) {
@@ -477,5 +478,13 @@ abstract contract IntegrationBase is Test {
         // PoolManager holds seeded quote liquidity
         sum += quote.balanceOf(address(manager)) - refPoolQuoteSeed;
         return sum;
+    }
+
+    /// @dev Pull the coin's 33% locked-liquidity share out of its hook into LockedLP's bucket (flush does this too).
+    function _pullLpShare(Token tok) internal {
+        DiscipleHook h = DiscipleHook(migration.hookOf(address(tok)));
+        if (address(h) == address(0)) h = hook;
+        (uint256 q, uint256 t) = h.claimable(address(tok), 1);
+        if (q != 0 || t != 0) h.claimLockedLiquidityFees(address(tok));
     }
 }

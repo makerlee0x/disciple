@@ -51,13 +51,16 @@ contract DiscipleRouterPermit2Test is IntegrationBase {
         );
     }
 
+    uint256 internal feeCap; // Trade.maxGasFee the test signer signs
+    address internal feeBox = makeAddr("relayerFeeBox");
+
     function _trade(Token t, bool isBuy, uint256 amountIn, uint256 minOut)
         internal
         view
         returns (DiscipleRouter.Trade memory)
     {
         return DiscipleRouter.Trade({
-            coin: address(t), isBuy: isBuy, amountIn: amountIn, minOut: minOut, recipient: alice, deadline: block.timestamp + 5 minutes
+            coin: address(t), isBuy: isBuy, amountIn: amountIn, minOut: minOut, recipient: alice, deadline: block.timestamp + 5 minutes, maxGasFee: feeCap
         });
     }
 
@@ -83,7 +86,7 @@ contract DiscipleRouterPermit2Test is IntegrationBase {
             )
         );
         bytes32 witness = keccak256(
-            abi.encode(router.TRADE_TYPEHASH(), t.coin, t.isBuy, t.amountIn, t.minOut, t.recipient, t.deadline)
+            abi.encode(router.TRADE_TYPEHASH(), t.coin, t.isBuy, t.amountIn, t.minOut, t.recipient, t.deadline, t.maxGasFee)
         );
         bytes32 structHash = keccak256(
             abi.encode(
@@ -174,6 +177,66 @@ contract DiscipleRouterPermit2Test is IntegrationBase {
         _graduateWith(uCurve, quote);
         (uint256 out,) = _buy(uTok, 3 ether, 0, true);
         _sell(uTok, out / 2, 1, true);
+    }
+
+    // ───────── flat network fee (maker 2026-11-19: $0.01 USDG to the relayer, Team-tuned, max $0.25) ─────────
+
+    function _fee() internal {
+        vm.prank(router.owner());
+        router.setGasFee(feeBox, 0.01 ether);
+        feeCap = 0.01 ether;
+    }
+
+    function test_gasFee_default_off_until_receiver_set_and_capped() public {
+        assertEq(router.gasFee(), 0.01 ether, "default $0.01");
+        assertEq(router.gasFeeTo(), address(0), "off until the Team sets the receiver");
+        vm.startPrank(router.owner());
+        vm.expectRevert(DiscipleRouter.BadParam.selector);
+        router.setGasFee(feeBox, 0.25 ether + 1);
+        router.setGasFee(feeBox, 0.25 ether);
+        vm.stopPrank();
+        vm.prank(alice);
+        vm.expectRevert(DiscipleRouter.OnlyOwner.selector);
+        router.setGasFee(alice, 0);
+    }
+
+    function test_gasFee_everyPath_paysFeeBox_tradeGetsTheRest() public {
+        _fee();
+        uint256 f0 = quote.balanceOf(feeBox);
+        (uint256 out, uint256 g1) = _buy(uTok, 3 ether, 0, true); // curve, USDG pair
+        (uint256 out2, uint256 g2) = _buy(sTok, 3 ether, 1, true); // curve, two hops
+        (, uint256 g3) = _sell(uTok, out / 2, 2, true);
+        (, uint256 g4) = _sell(sTok, out2 / 2, 3, true);
+        assertEq(quote.balanceOf(feeBox) - f0, 0.04 ether, "four trades, $0.01 each");
+        _graduateWith(uCurve, quote);
+        (uint256 out3, uint256 g5) = _buy(uTok, 3 ether, 4, false); // pool (hook)
+        (, uint256 g6) = _sell(uTok, out3 / 2, 5, false);
+        assertEq(quote.balanceOf(feeBox) - f0, 0.06 ether);
+        console2.log("gas gasless curve buy (fee, first approve)", g1);
+        console2.log("gas gasless curve buy 2-hop (fee)", g2);
+        console2.log("gas gasless curve sell (fee)", g3);
+        console2.log("gas gasless curve sell 2-hop (fee)", g4);
+        console2.log("gas gasless pool buy (fee)", g5);
+        console2.log("gas gasless pool sell (fee)", g6);
+    }
+
+    function test_gasFee_signedCapWins_whenTeamRaisesIt() public {
+        _fee();
+        feeCap = 0.005 ether; // pre-signed tap allowed half a cent
+        uint256 f0 = quote.balanceOf(feeBox);
+        _buy(uTok, 3 ether, 0, true);
+        assertEq(quote.balanceOf(feeBox) - f0, 0.005 ether, "never more than the signer allowed");
+    }
+
+    function test_gasFee_largerThanTrade_reverts() public {
+        _fee();
+        DiscipleRouter.Trade memory tr = _trade(uTok, true, 0.005 ether, 1);
+        IPermit2Witness.PermitTransferFrom memory p = _permit(address(quote), 0.005 ether, 0, tr.deadline);
+        bytes memory sig = _sign(aliceKey, p, tr, address(router));
+        DiscipleRouter.Erc2612 memory a = _erc2612(address(quote), aliceKey);
+        vm.prank(relayer, relayer);
+        vm.expectRevert();
+        router.buyWithPermit2AndApprove(alice, p, tr, sig, a);
     }
 
     // ───────── binding / replay / signer == recipient ─────────

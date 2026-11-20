@@ -37,9 +37,6 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     mapping(address => mapping(address => uint256)) public override referrerAccrued;
 
     mapping(address => bool) public authorizedCallers; // curves / migration
-    /// @notice maker 2026-11-17: the owner authorizes exactly one caller (the hook) at deploy, then never again.
-    ///         Curves are authorized by the Launchpad as they launch.
-    bool public ownerAuthorizationUsed;
     /// @notice One-way (audit 2026-11-17 R461-01b / R461-04): once set, the KOL share, referral sink and claim-router
     ///         list can never change, so no later key can take creator fees or re-split existing coins' fees.
     bool public settingsLocked;
@@ -47,8 +44,8 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     /// @notice Treasury share (33% + unrouted 1% [+ 30% of a legacy routeSnipeFee call; v2 curves never make one]) accrued per asset; anyone may push it to
     ///         `treasury` with claimTreasury(asset). Replaces the per-trade treasury transfer (gas).
     mapping(address => uint256) public treasuryAccrued;
-    /// @notice Phase 3a (Maker lee 2026-10-24): when set, the 1% referral share that would go to a referrer (the
-    ///         trader's referrer, or the coin's launch KOL — the same 1% share) goes here instead. treasury →
+    /// @notice Phase 3a (Maker lee 2026-10-24; widened 2026-11-19): when set, the WHOLE 1% referral share of every
+    ///         trade (referred or not, incl. a launch KOL's) goes here: the community rewards Safe on mainnet. treasury →
     ///         credited to treasuryAccrued; any other address → claimable via claimReferrerFees. address(0) = off
     ///         (today's routing). Future trades only; already-accrued referral fees stay claimable. The KOL's 2% of
     ///         the creator share is NOT redirected. A sink equal to the treasury follows setTreasury (audit r127).
@@ -71,6 +68,8 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     error SettingsLocked();
     /// @notice Destination 1 or 2. The later-send contract pulls these fees. The launcher cannot claim them.
     error CreatorFeesRouted();
+    /// @notice maker 2026-11-19: only the coin's current creator claims; a past creator's balance moves to them.
+    error NotCurrentCreator();
 
     /// @notice Audit #11: full fee breakdown with payees. Amounts are in `feeToken` units: the curve quote
     ///         pre-graduation, and post-graduation whichever pool side the hook charged (quote OR launch token —
@@ -101,6 +100,9 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     event TreasuryUpdated(address indexed treasury);
     event SnipeFeeRouted(address indexed token, address indexed quote, uint256 toRewards, uint256 toTreasury);
     event RewardsVaultUpdated(address indexed vault);
+    event PastCreatorFeesSwept(
+        address indexed token, address indexed past, address indexed current, uint256 quoteAmount, uint256 tokenAmount
+    );
 
     /// @notice Community rewards vault: receives v2 sniper escrows released by BondingCurve.releaseSnipeEscrow
     ///         (not graduated after the timeout), and 70% of any legacy routeSnipeFee call.
@@ -191,19 +193,16 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         if (settingsLocked) revert SettingsLocked();
     }
 
+    /// @notice Launchpad only (it authorizes each curve as it launches). maker 2026-11-19: the hook no longer calls
+    ///         FeeRouter, so the owner's one-time grant is gone and no key can ever add a caller that books fee credit.
     function setAuthorized(address caller, bool ok) external {
-        if (msg.sender != launchpad) {
-            if (msg.sender != owner) revert OnlyOwner();
-            // maker 2026-11-17: one owner grant (the hook), so no key can later add a caller that books fee credit.
-            if (ownerAuthorizationUsed || !ok || caller.code.length == 0) revert AlreadyWired();
-            ownerAuthorizationUsed = true;
-        }
+        if (msg.sender != launchpad) revert OnlyOwner();
         authorizedCallers[caller] = ok;
     }
 
     /// @inheritdoc IFeeRouter
     /// @dev Resolves current creator via Launchpad.creatorOf (ownership pack §5/#26).
-    ///      Accruals already booked to a prior creator stay with them.
+    ///      Accruals booked to a prior creator are claimable only by the current one (sweepPastCreatorFees_1311).
     ///      KOL-on-creates (§4/#21): if tokenLaunchKol set, leftover 1% + 2% of creator's 33% → that KOL.
     ///      Else leftover 1% → trader's referrer (or treasury).
     function routeTradeFee(
@@ -216,17 +215,6 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     ) external override {
         if (!authorizedCallers[msg.sender]) revert OnlyAuthorized();
         _route(token, quote, trader, creator, feeAmount, creatorTaxAmount);
-    }
-
-    /// @notice Post-grad hook fee: the hook transfers the full `feeAmount` here. Split 33/33/33/1; the whole 33%
-    ///         LP share goes to LockedLP, which auto-compounds it per trade into the locked position (no in-range donation).
-    function routeHookFee(address token, address feeToken, address trader, address creator, uint256 feeAmount)
-        external
-        override
-        returns (bool compoundReady)
-    {
-        if (!authorizedCallers[msg.sender]) revert OnlyAuthorized();
-        return _route(token, feeToken, trader, creator, feeAmount, 0);
     }
 
     function _route(
@@ -262,8 +250,9 @@ contract FeeRouter is IFeeRouter, Owned2Step {
             leftoverTo = traderRef;
         }
 
-        // Referral sink: redirect the referrer's 1% (only when a referrer would have been paid).
-        if (leftoverTo != address(0)) {
+        // Referral sink (maker 2026-11-19: the community rewards Safe on mainnet): when set, it takes the WHOLE 1% of
+        // every trade, referred or not, same as the post-graduation hook. A sink equal to the treasury = treasury.
+        {
             address sink = referralSink;
             if (sink != address(0)) leftoverTo = sink == treasury ? address(0) : sink;
         }
@@ -355,15 +344,15 @@ contract FeeRouter is IFeeRouter, Owned2Step {
 
     /// @inheritdoc IFeeRouter
     function claimCreatorFees(address token) external override returns (uint256 amount) {
+        // maker 2026-11-19: anyone may claim (gasless coin creators hold no ETH); the money only ever goes to the
+        // current coin creator's Pays to wallet. A past creator's balance moves over with sweepPastCreatorFees_1311.
         _revertIfSelfClaimRouted(token);
-        amount = creatorAccrued[token][msg.sender];
+        address c = _claimant(token);
+        amount = creatorAccrued[token][c];
         if (amount == 0) revert NothingToClaim();
-        creatorAccrued[token][msg.sender] = 0;
-        // Quote asset for this token must be known by caller context; scaffold stores per-token
-        // via curve — production wires quote lookup. For now pull from token→quote registry on launchpad.
-        address quote = _quoteOf(token);
-        IERC20(quote).safeTransfer(msg.sender, amount);
-        emit CreatorFeesClaimed(token, msg.sender, amount);
+        creatorAccrued[token][c] = 0;
+        IERC20(_quoteOf(token)).safeTransfer(_payeeOf(token, c), amount);
+        emit CreatorFeesClaimed(token, c, amount);
     }
 
     /// @notice Claim-router claim on behalf of `creator` (DiscipleRouter.claimCreatorFeesToUsdg): pays the quote
@@ -373,6 +362,7 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     function claimCreatorFeesFor(address token, address creator) external returns (uint256 amount) {
         if (!isClaimRouter[msg.sender]) revert OnlyAuthorized();
         _revertIfPullNotHarvest(token);
+        if (msg.sender != creatorFeeHarvest) _revertIfNotCurrent(token, creator);
         amount = creatorAccrued[token][creator];
         if (amount == 0) revert NothingToClaim();
         creatorAccrued[token][creator] = 0;
@@ -383,14 +373,14 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     /// @notice Creator share accrued in the launch token itself (post-graduation buys pay the hook fee in token).
     function claimCreatorTokenFees(address token) external returns (uint256 amount) {
         _revertIfSelfClaimRouted(token);
-        amount = creatorTokenAccrued[token][msg.sender];
+        address c = _claimant(token);
+        amount = creatorTokenAccrued[token][c];
         if (amount == 0) revert NothingToClaim();
-        creatorTokenAccrued[token][msg.sender] = 0;
-        IERC20(token).safeTransfer(msg.sender, amount);
-        emit CreatorTokenFeesClaimed(token, msg.sender, amount);
+        creatorTokenAccrued[token][c] = 0;
+        IERC20(token).safeTransfer(_payeeOf(token, c), amount);
+        emit CreatorTokenFeesClaimed(token, c, amount);
     }
 
-    /// @notice Permissionless: push the accrued treasury balance of `asset` to the current `treasury`.
     function claimTreasury(address asset) external returns (uint256 amount) {
         amount = treasuryAccrued[asset];
         if (amount == 0) revert NothingToClaim();
@@ -424,11 +414,21 @@ contract FeeRouter is IFeeRouter, Owned2Step {
 
     /// @inheritdoc IFeeRouter
     function claimReferrerFees(address quote) external override returns (uint256 amount) {
-        amount = referrerAccrued[msg.sender][quote];
+        return _claimReferrer(msg.sender, quote);
+    }
+
+    /// @notice Anyone pays `referrer` its own `quote` balance (gasless referrers hold no ETH). The caller gets nothing.
+    ///         The `_2143` suffix keeps this selector after every function that already existed.
+    function claimReferrerFeesFor_2143(address referrer, address quote) external returns (uint256) {
+        return _claimReferrer(referrer, quote);
+    }
+
+    function _claimReferrer(address referrer, address quote) internal returns (uint256 amount) {
+        amount = referrerAccrued[referrer][quote];
         if (amount == 0) revert NothingToClaim();
-        referrerAccrued[msg.sender][quote] = 0;
-        IERC20(quote).safeTransfer(msg.sender, amount);
-        emit ReferrerFeesClaimed(quote, msg.sender, amount);
+        referrerAccrued[referrer][quote] = 0;
+        IERC20(quote).safeTransfer(referrer, amount);
+        emit ReferrerFeesClaimed(quote, referrer, amount);
     }
 
     /// @dev Launchpad registers token→quote; overridden in full wiring.
@@ -465,6 +465,7 @@ contract FeeRouter is IFeeRouter, Owned2Step {
     function claimCreatorTokenFeesFor_15(address token, address creator) external returns (uint256 amount) {
         if (!isClaimRouter[msg.sender]) revert OnlyAuthorized();
         _revertIfPullNotHarvest(token);
+        if (msg.sender != creatorFeeHarvest) _revertIfNotCurrent(token, creator);
         amount = creatorTokenAccrued[token][creator];
         if (amount == 0) revert NothingToClaim();
         creatorTokenAccrued[token][creator] = 0;
@@ -489,6 +490,45 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         return creatorFeeHarvest;
     }
 
+    /// @notice maker 2026-11-19 "the new creator gets the fees": moves what is still booked to a past creator of
+    ///         `token` (quote and rocket token) onto the current creator. Anyone may call it; nothing is paid out.
+    ///         The `_1311` suffix keeps this selector after every function that already existed.
+    function sweepPastCreatorFees_1311(address token, address past) external returns (uint256 q, uint256 t) {
+        address current = _currentCreator(token);
+        if (current == address(0) || past == current) revert NotCurrentCreator();
+        q = creatorAccrued[token][past];
+        t = creatorTokenAccrued[token][past];
+        if (q + t == 0) revert NothingToClaim();
+        if (q != 0) {
+            creatorAccrued[token][past] = 0;
+            creatorAccrued[token][current] += q;
+        }
+        if (t != 0) {
+            creatorTokenAccrued[token][past] = 0;
+            creatorTokenAccrued[token][current] += t;
+        }
+        emit PastCreatorFeesSwept(token, past, current, q, t);
+    }
+
+    /// @dev Whose balance a creator claim pays: the coin's current creator, or msg.sender without a launchpad.
+    ///      A contract creator (AnonLauncher, a Safe) pulls its own fees: only a plain wallet is paid by others.
+    function _claimant(address token) internal view returns (address c) {
+        c = _currentCreator(token);
+        if (c == address(0)) c = msg.sender;
+        if (c != msg.sender && c.code.length != 0) revert NotCurrentCreator();
+    }
+
+    function _currentCreator(address token) internal view returns (address) {
+        address lp = launchpad;
+        return lp == address(0) ? address(0) : ILaunchpad(lp).creatorOf(token);
+    }
+
+    /// @dev Unset launchpad (or an unregistered coin) keeps the old msg.sender-keyed claim.
+    function _revertIfNotCurrent(address token, address who) internal view {
+        address current = _currentCreator(token);
+        if (current != address(0) && who != current) revert NotCurrentCreator();
+    }
+
     function _quoteOf(address token) internal view returns (address) {
         address q = tokenQuote[token];
         require(q != address(0), "FeeRouter: no quote");
@@ -505,6 +545,13 @@ contract FeeRouter is IFeeRouter, Owned2Step {
         if (_destination(token) > 0 && msg.sender != creatorFeeHarvest) revert CreatorFeesRouted();
     }
 
+    /// @dev Pays to: the creator's pick on the later-send contract (CreatorFeeHarvest.setCreatorFeeRecipient).
+    function _payeeOf(address token, address creator) internal view returns (address) {
+        address harvest = creatorFeeHarvest;
+        if (harvest == address(0)) return creator;
+        return ICreatorFeeDestination(harvest).creatorFeeRecipientOf(token, creator);
+    }
+
     function _destination(address token) internal view returns (uint8) {
         address harvest = creatorFeeHarvest;
         if (harvest == address(0)) return 0;
@@ -514,4 +561,5 @@ contract FeeRouter is IFeeRouter, Owned2Step {
 
 interface ICreatorFeeDestination {
     function creatorFeeDestinationOf(address token) external view returns (uint8);
+    function creatorFeeRecipientOf(address token, address creator) external view returns (address);
 }

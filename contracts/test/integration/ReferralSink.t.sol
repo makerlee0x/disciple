@@ -110,15 +110,16 @@ contract ReferralSinkTest is IntegrationBase {
         assertEq(feeRouter.referralSink(), address(0), "off stays off");
     }
 
-    function test_no_referrer_still_treasury() public {
+    /// @dev maker 2026-11-19: every 1% goes to the community rewards Safe, referred or not.
+    function test_no_referrer_oneP_toSink_too() public {
         (BondingCurve c,) = _launch(0, 0);
         _warpPastSnipe();
         _sink(sink);
         uint256 t0 = feeVault.treasuryAccrued(address(quote));
         _buy(c, trader2, BUY, 0); // trader2 has no referrer
         c.settleFees(); // lp-accrue: settle into CurveFeeVault
-        assertEq(feeVault.referrerAccrued(sink, address(quote)), 0, "sink only replaces a referrer");
-        assertEq(feeVault.treasuryAccrued(address(quote)) - t0, 0.33 ether + REF);
+        assertEq(feeVault.referrerAccrued(sink, address(quote)), REF, "the 1% goes to the sink");
+        assertEq(feeVault.treasuryAccrued(address(quote)) - t0, 0.33 ether);
     }
 
     /// @dev Launch-KOL coins: the 1% leftover is the same referral share → redirected; the KOL's 2% of the

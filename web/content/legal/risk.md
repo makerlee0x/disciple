@@ -50,7 +50,7 @@ DISCIPLE depends on its contracts, on Robinhood Chain, on Uniswap v4, on the wal
 
 ## Fees add up
 
-Every BOOST and every DUMP pays a 1% fee, plus any creator tax the launcher set. On an Easy rocket, while it is on its first market, a sell also pays a crew tip of 0.777% of the amount that sell would pay you, but only when the profit on that sale is above a threshold set for that rocket. Network fees are paid in USDG. Trading often costs more than a single trade suggests.
+Every BOOST and every DUMP pays a 1% fee, plus any creator tax the launcher set. On an Easy rocket, while it is on its first market, a sell also pays a crew tip (up to 12%, 3.3% by default, fixed for each rocket at launch) of the amount that sell would pay you, but only when the profit on that sale is above a threshold set for that rocket. Network fees are paid in USDG. Trading often costs more than a single trade suggests.
 
 ## Look after yourself
 

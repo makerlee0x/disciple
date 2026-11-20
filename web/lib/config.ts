@@ -92,7 +92,7 @@ export const BOMB_TIERS = [
 
 export const GAS = {
   execGas: 200_000,
-  ethUsd: 2372,
+  ethUsd: 1750,
   robinhoodGwei: 0.0207,
   maxOverhead: 0.05,
 } as const;

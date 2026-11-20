@@ -46,6 +46,8 @@ interface IFeeRouterCurve {
     function accrueTreasury(address asset, uint256 amount) external;
     function rewardsVault() external view returns (address);
     function referrals() external view returns (address);
+    function referralSink() external view returns (address);
+    function treasury() external view returns (address);
 }
 
 interface IReferrerOf {
@@ -67,35 +69,36 @@ interface ICurveFeeVault {
 contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     using SafeERC20 for IERC20;
 
-    address public immutable override token;
-    address public immutable override quote;
-    address public immutable creator;
+    // maker 2026-11-20: every curve is an EIP-1167 clone of one implementation (CurveDeployer), set up by
+    // `initialize`. Per-deployment pointers stay immutables of the implementation (shared code); per-coin values live
+    // in four packed slots.
     address public immutable launchpad;
     IFeeRouter public immutable feeRouter;
     IMigration public immutable migration;
-
-    uint256 public immutable creatorTaxBps; // immutable at launch (§3 / #12)
-    uint256 public immutable quotePriceUsd; // USD WAD per 1e18 raw quote units (from QuotePricer at launch)
-    /// @notice Per-wallet curve holding cap in bps of supply, snapshotted from Launchpad at launch (0 = no cap).
-    uint256 public immutable walletCapBps;
-
-    /// @notice Game mode chosen by the creator at launch (Constants.MODE_*), immutable. Curve-only.
-    uint8 public immutable mode;
-    uint256 public immutable launchTime;
-    uint256 public immutable launchBlock;
-    /// @notice Primary trusted router snapshotted at launch (gas: no Launchpad call on its trades). Other routers
-    ///         still go through Launchpad.isTrustedRouter.
-    address public immutable trustedRouter;
-    /// @notice Easy crew-tip threshold in bps of the coin's mcap at the time of sale (snapshotted from Launchpad).
-    uint256 public immutable crewTipThresholdBps;
-    /// @notice Seconds after launch when a not-graduated curve's snipeEscrow becomes releasable to RewardsVault
-    ///         (snapshotted from Launchpad.snipeEscrowTimeout; default 12 days).
-    uint256 public immutable snipeEscrowTimeout;
     /// @notice lp-accrue: receives the creator / treasury / referral part of curve-phase fees on settle.
     ICurveFeeVault public immutable feeVault;
-    /// @notice FeeRouter's ReferralRegistry (snapshotted): a referred trader's fee is settled in the same trade so
-    ///         their referrer's 1% is attributed exactly as today (the referrer only exists at trade time).
+    /// @notice FeeRouter's ReferralRegistry: a referred trader's fee is settled in the same trade so their referrer's
+    ///         1% is attributed exactly as today (the referrer only exists at trade time).
     IReferrerOf public immutable referrals;
+
+    // slot A
+    address public override token;
+    uint16 private _creatorTaxBps; // fixed at launch (§3 / #12)
+    uint16 private _walletCapBps; // per-wallet curve holding cap, bps of supply (0 = no cap)
+    uint8 private _mode; // Constants.MODE_*, fixed at launch
+    uint16 private _crewTipThresholdBps; // Easy crew-tip threshold, bps of mcap at the time of sale
+    uint32 private _crewTipPpm; // Easy holder tip, ppm of profitable sell proceeds (maker 2026-11-19), 0 = no tip
+    // slot B
+    address public override quote;
+    uint40 private _launchTime;
+    uint32 private _snipeEscrowTimeout; // seconds after launch when snipeEscrow becomes releasable to RewardsVault
+    // slot C
+    /// @notice Primary trusted router snapshotted at launch (gas: no Launchpad call on its trades). Other routers
+    ///         still go through Launchpad.isTrustedRouter.
+    address public trustedRouter;
+    uint64 private _launchBlock;
+    // slot D
+    address public creator;
 
     CurveMath.Params private _params;
 
@@ -175,6 +178,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     event ProfitTaxCharged(
         address indexed token, address indexed seller, uint256 tax, uint256 grossQuote, uint256 costBasis
     );
+    /// @notice Easy holder tip with no other holder, paid to the community rewards Safe.
+    event CrewTipToCommunity(address indexed token, address indexed to, uint256 amount);
     event HolderRewardsClaimed(address indexed token, address indexed holder, uint256 amount);
 
     /// @notice Partial fill / graduation cap: `quoteRefund` of the input was returned to the payer (or the router).
@@ -210,45 +215,92 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         uint256 profitTax; // Easy crew tip already deducted from quoteOut (quoteSellFor only; v1 field name)
     }
 
-    constructor(
+    /// @dev Implementation only: fixes the shared pointers and locks `initialize` on the implementation itself.
+    constructor(address launchpad_, address feeRouter_, address migration_, address feeVault_) {
+        launchpad = launchpad_;
+        feeRouter = IFeeRouter(feeRouter_);
+        migration = IMigration(migration_);
+        feeVault = ICurveFeeVault(feeVault_);
+        referrals = IReferrerOf(IFeeRouterCurve(feeRouter_).referrals());
+        token = address(1);
+    }
+
+    /// @notice One-time setup of a fresh clone by its CurveDeployer (same transaction as the clone).
+    function initialize(
         address token_,
         address quote_,
         address creator_,
-        address launchpad_,
-        address feeRouter_,
-        address migration_,
         uint256 creatorTaxBps_,
-        CurveMath.Params memory params_, // CurveMath.makeParams(quotePriceUsd), computed by the Launchpad (size)
+        CurveMath.Params calldata params_, // CurveMath.makeParams(quotePriceUsd), computed by the Launchpad (size)
         uint256 walletCapBps_,
         uint8 mode_,
         address trustedRouter_,
         uint256 crewTipThresholdBps_,
-        uint256 snipeEscrowTimeout_,
-        address feeVault_
-    ) {
+        uint256 snipeEscrowTimeout_
+    ) external {
+        if (token != address(0)) revert BadParams();
         if (
-            mode_ > Constants.MODE_PVP
-                || walletCapBps_ > Constants.BPS_DENOM || creatorTaxBps_ > Constants.CREATOR_TAX_MAX_BPS
+            token_ == address(0) || mode_ > Constants.MODE_PVP || walletCapBps_ > Constants.BPS_DENOM
+                || creatorTaxBps_ > Constants.CREATOR_TAX_MAX_BPS || crewTipThresholdBps_ > type(uint16).max
+                || snipeEscrowTimeout_ > type(uint32).max
         ) revert BadParams();
         token = token_;
+        _creatorTaxBps = uint16(creatorTaxBps_);
+        _walletCapBps = uint16(walletCapBps_);
+        _mode = mode_;
+        _crewTipThresholdBps = uint16(crewTipThresholdBps_);
+        _crewTipPpm = uint32(_launchCrewTipPpm(launchpad));
         quote = quote_;
-        creator = creator_;
-        launchpad = launchpad_;
-        feeRouter = IFeeRouter(feeRouter_);
-        migration = IMigration(migration_);
-        creatorTaxBps = creatorTaxBps_;
-        quotePriceUsd = params_.quotePriceUsd;
-        walletCapBps = walletCapBps_;
-        mode = mode_;
-        launchTime = block.timestamp;
-        launchBlock = block.number;
+        _launchTime = uint40(block.timestamp);
+        _snipeEscrowTimeout = uint32(snipeEscrowTimeout_);
         trustedRouter = trustedRouter_;
-        crewTipThresholdBps = crewTipThresholdBps_;
-        snipeEscrowTimeout = snipeEscrowTimeout_;
-        feeVault = ICurveFeeVault(feeVault_);
-        referrals = IReferrerOf(IFeeRouterCurve(feeRouter_).referrals());
-
+        _launchBlock = uint64(block.number);
+        creator = creator_;
         _params = params_;
+    }
+
+    function creatorTaxBps() external view returns (uint256) {
+        return _creatorTaxBps;
+    }
+
+    /// @notice USD WAD per 1e18 raw quote units (from QuotePricer at launch).
+    function quotePriceUsd() external view returns (uint256) {
+        return _params.quotePriceUsd;
+    }
+
+    function walletCapBps() external view returns (uint256) {
+        return _walletCapBps;
+    }
+
+    function mode() external view returns (uint8) {
+        return _mode;
+    }
+
+    function launchTime() external view returns (uint256) {
+        return _launchTime;
+    }
+
+    function launchBlock() external view returns (uint256) {
+        return _launchBlock;
+    }
+
+    function crewTipThresholdBps() external view returns (uint256) {
+        return _crewTipThresholdBps;
+    }
+
+    function crewTipPpm() external view returns (uint256) {
+        return _crewTipPpm;
+    }
+
+    function snipeEscrowTimeout() external view returns (uint256) {
+        return _snipeEscrowTimeout;
+    }
+
+    /// @dev Launchpad.crewTipPpm, capped at CREW_TIP_PPM_MAX; a launchpad without the getter keeps the default.
+    function _launchCrewTipPpm(address lp) private view returns (uint256 ppm) {
+        (bool ok, bytes memory r) = lp.staticcall(abi.encodeWithSignature("crewTipPpm()"));
+        ppm = ok && r.length >= 32 ? abi.decode(r, (uint256)) : Constants.CREW_TIP_PPM_DEFAULT;
+        if (ppm > Constants.CREW_TIP_PPM_MAX) ppm = Constants.CREW_TIP_PPM_MAX;
     }
 
     // ───────────────────────────── views ─────────────────────────────
@@ -280,7 +332,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
 
     /// @dev Pre-grad: launch-time quote price (curve USD targets). Post-grad: live QuotePricer via Launchpad.
     function _quoteUsdNow() internal view returns (uint256) {
-        if (!graduated) return quotePriceUsd;
+        if (!graduated) return _params.quotePriceUsd;
         try ILaunchpadPricer(launchpad).pricer() returns (address p) {
             if (p != address(0)) {
                 try IQuotePricerLite(p).quotePriceUsd(quote) returns (uint256 v) {
@@ -288,7 +340,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
                 } catch {}
             }
         } catch {}
-        return quotePriceUsd;
+        return _params.quotePriceUsd;
     }
 
     /// @notice Alias of marketCapUsd (USD WAD). Live v4 pool price once graduated.
@@ -319,7 +371,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     /// @notice Current sniper tax in bps (99% at launch → 25% at 1s → 3% at 2s → … → 0 from 7s; per-second table
     ///         FeeMath.snipeBps; all modes; First BOOST exempt).
     function currentSnipeFeeBps() public view returns (uint256) {
-        return FeeMath.snipeBps(block.timestamp - launchTime);
+        return FeeMath.snipeBps(block.timestamp - uint256(_launchTime));
     }
 
     /// @notice Exact preview of `buy(quoteIn, ...)` at the current block (incl. 1% fee, creator tax, sniper tax).
@@ -362,7 +414,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     /// @dev Input that reaches the curve after sniper tax, protocol fee and creator tax (same rounding as _quoteBuyRaw).
     function _toCurve(uint256 quoteIn, bool snipeExempt) internal view returns (uint256) {
         uint256 afterSnipe = snipeExempt ? quoteIn : quoteIn - (quoteIn * currentSnipeFeeBps()) / Constants.BPS_DENOM;
-        return afterSnipe - FeeMath.protocolFee(afterSnipe) - FeeMath.creatorTax(afterSnipe, creatorTaxBps);
+        return afterSnipe - FeeMath.protocolFee(afterSnipe) - FeeMath.creatorTax(afterSnipe, uint256(_creatorTaxBps));
     }
 
     function _quoteBuyRaw(uint256 quoteIn, bool snipeExempt, uint256 cap) internal view returns (BuyQuote memory q) {
@@ -370,7 +422,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         if (!snipeExempt) q.snipeFee = (quoteIn * currentSnipeFeeBps()) / Constants.BPS_DENOM;
         uint256 afterSnipe = quoteIn - q.snipeFee;
         uint256 protoFee = FeeMath.protocolFee(afterSnipe);
-        uint256 tax = FeeMath.creatorTax(afterSnipe, creatorTaxBps);
+        uint256 tax = FeeMath.creatorTax(afterSnipe, uint256(_creatorTaxBps));
         q.fee = protoFee + tax;
         q.quoteToCurve = afterSnipe - q.fee;
         q.tokensOut = CurveMath.tokensOutForQuoteCapped(_params, tokensSold, q.quoteToCurve, cap);
@@ -389,7 +441,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     function quoteSell(uint256 tokensIn) public view returns (SellQuote memory q) {
         if (graduated) revert Graduated();
         q.grossQuote = CurveMath.quoteOutForTokens(_params, tokensSold, tokensIn);
-        q.fee = FeeMath.protocolFee(q.grossQuote) + FeeMath.creatorTax(q.grossQuote, creatorTaxBps);
+        q.fee = FeeMath.protocolFee(q.grossQuote) + FeeMath.creatorTax(q.grossQuote, uint256(_creatorTaxBps));
         q.quoteOut = q.grossQuote - q.fee;
         uint256 sAfter = tokensSold - tokensIn;
         q.priceAfterX18 = CurveMath.spotPriceWad(_params, sAfter);
@@ -410,9 +462,9 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     ///         Easy 1% → 3.33%, Hard 3.33% → 7.77% of supply, linear in mcap progress $3,333 → $33,333 (curve mcap now).
     ///         TRENCH: the legacy Launchpad walletCapBps (0 = none).
     function netCapNow() public view returns (uint256) {
-        uint8 m = mode;
+        uint8 m = _mode;
         if (m == Constants.MODE_TRENCH) {
-            return walletCapBps == 0 ? type(uint256).max : FeeMath.walletCap(walletCapBps);
+            return _walletCapBps == 0 ? type(uint256).max : FeeMath.walletCap(uint256(_walletCapBps));
         }
         (uint256 a, uint256 b) = m == Constants.MODE_PVE
             ? (Constants.PVE_CAP_START_BPS, Constants.PVE_CAP_END_BPS)
@@ -472,7 +524,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     /// @notice quoteSell for a specific trader: deducts the Easy crew tip (when it applies).
     function quoteSellFor(address trader, uint256 tokensIn) public view returns (SellQuote memory q) {
         q = quoteSell(tokensIn);
-        if (mode == Constants.MODE_PVE) {
+        if (_mode == Constants.MODE_PVE) {
             (uint256 tip,) = _crewTip(trader, tokensIn, q.quoteOut);
             q.profitTax = tip;
             q.quoteOut -= tip;
@@ -528,7 +580,12 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         if (msg.sender != launchpad) revert OnlyLaunchpad();
         if (maxTokens == 0) revert WalletCap();
         (tokensOut, refund) = _buy(msg.sender, buyer, quoteIn, minTokensOut, deadline, maxTokens, type(uint256).max);
-        if (mode == Constants.MODE_PVE) IPveToken(token).lockCreator(tokensOut);
+        if (_mode == Constants.MODE_PVE) _lockCreator(tokensOut);
+    }
+
+    /// @dev Split out of `buyFor` for stack depth (`token` is a storage read in a clone).
+    function _lockCreator(uint256 amount) internal {
+        IPveToken(token).lockCreator(amount);
     }
 
     /// @notice Trusted-router buy for `trader`. The router has ALREADY transferred `quoteIn` to this curve (prepaid:
@@ -587,8 +644,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
 
         bool launchBuy = firstBoostMax != 0;
         uint256 limit = launchBuy ? firstBoostMax : _roomOrRevert(trader);
-        uint256 sold = tokensSold;
-        uint256 priceBefore = CurveMath.spotPriceWad(_params, sold);
+        uint256 priceBefore = CurveMath.spotPriceWad(_params, tokensSold);
         BuyQuote memory q = _quoteBuy(quoteIn, launchBuy, limit);
         if (q.impactBps > maxImpactBps) revert PriceImpactTooHigh(q.impactBps, maxImpactBps);
         tokensOut = q.tokensOut;
@@ -597,26 +653,45 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         refund = q.refund;
         if (refund > 0) {
             quoteIn -= refund; // effective spend for cost basis + Trade event
-            // prepaid (router) → back to the router, which returns it to the trader in USDG (audit #6)
-            IERC20(quote).safeTransfer(payer == address(0) ? msg.sender : payer, refund);
-            emit BuyRefunded(token, trader, tokensOut, refund, tokensOut == limit);
+            _refundBuy(payer, trader, tokensOut, refund, tokensOut == limit);
         }
 
-        uint256 oldBal = balanceOnCurve[trader];
-        uint256 newBal = oldBal + tokensOut;
-        if (mode == Constants.MODE_PVE) _pveOnBuy(trader, oldBal, newBal, quoteIn);
-        balanceOnCurve[trader] = newBal;
-
-        unchecked {
-            tokensSold = sold + tokensOut; // <= sCurve
-        }
-        quoteReserve += q.quoteToCurve;
-        if (q.snipeFee != 0) sniperTaxEscrow += q.snipeFee; // stays here, outside reserves (mode rules v2)
+        _bookBuy(trader, tokensOut, quoteIn, q);
 
         IERC20(token).safeTransfer(trader, tokensOut);
 
         if (q.fee > 0) _takeFee(trader, FeeMath.protocolFee(quoteIn - q.snipeFee), q.fee);
 
+        _emitBuy(trader, quoteIn, tokensOut, priceBefore, q);
+
+        if (q.graduates) _graduate();
+    }
+
+    /// @dev Buy bookkeeping (NET, PVE cost basis, sold, reserve, sniper escrow). Split out of `_buy` for stack depth.
+    function _bookBuy(address trader, uint256 tokensOut, uint256 quoteIn, BuyQuote memory q) internal {
+        uint256 oldBal = balanceOnCurve[trader];
+        uint256 newBal = oldBal + tokensOut;
+        if (_mode == Constants.MODE_PVE) _pveOnBuy(trader, oldBal, newBal, quoteIn);
+        balanceOnCurve[trader] = newBal;
+
+        unchecked {
+            tokensSold += tokensOut; // <= sCurve
+        }
+        quoteReserve += q.quoteToCurve;
+        if (q.snipeFee != 0) sniperTaxEscrow += q.snipeFee; // stays here, outside reserves (mode rules v2)
+    }
+
+    /// @dev Prepaid (router) → back to the router, which returns it to the trader in USDG (audit #6). Split out of
+    ///      `_buy` for stack depth.
+    function _refundBuy(address payer, address trader, uint256 tokensOut, uint256 refund, bool atLimit) internal {
+        IERC20(quote).safeTransfer(payer == address(0) ? msg.sender : payer, refund);
+        emit BuyRefunded(token, trader, tokensOut, refund, atLimit);
+    }
+
+    /// @dev Split out of `_buy` for stack depth (`token` is a storage read in a clone, not an immutable).
+    function _emitBuy(address trader, uint256 quoteIn, uint256 tokensOut, uint256 priceBefore, BuyQuote memory q)
+        internal
+    {
         emit Trade(
             token,
             trader,
@@ -631,8 +706,6 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
             q.mcapAfterUsd
         );
         _emitAltitude(q.mcapAfterUsd);
-
-        if (q.graduates) _graduate();
     }
 
     /// @dev Holding-cap room for a regular buy (partial-fill limit). Room 0 reverts WalletCap (documented choice:
@@ -660,7 +733,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
 
     /// @dev Easy crew tip for selling `tokensIn` with `netOut` proceeds (after the 1% fee + creator tax).
     ///      Realized profit = netOut − cost × tokensIn / NET (tokens beyond NET, i.e. received outside the curve
-    ///      bookkeeping, carry zero basis). Tip = 0.777% of netOut iff profit > crewTipThresholdBps × mcap (pre-sale).
+    ///      bookkeeping, carry zero basis). Tip = crewTipPpm of netOut iff profit > crewTipThresholdBps × mcap (pre-sale).
     ///      Both sides are in the pair coin at the launch quote/USD, so the USD conversion cancels.
     function _crewTip(address seller, uint256 tokensIn, uint256 netOut)
         internal
@@ -672,8 +745,8 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         costPortion = tokensIn >= net ? cost : Math.mulDiv(cost, tokensIn, net);
         if (netOut > costPortion) {
             uint256 threshold =
-                Math.mulDiv(CurveMath.marketCapQuote(_params, tokensSold), crewTipThresholdBps, Constants.BPS_DENOM);
-            if (netOut - costPortion > threshold) tip = (netOut * Constants.PVE_CREW_TIP_PPM) / 1e6;
+                Math.mulDiv(CurveMath.marketCapQuote(_params, tokensSold), uint256(_crewTipThresholdBps), Constants.BPS_DENOM);
+            if (netOut - costPortion > threshold) tip = (netOut * uint256(_crewTipPpm)) / 1e6;
         }
     }
 
@@ -751,7 +824,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
 
         uint256 bal = balanceOnCurve[trader];
         uint256 newBal = bal < tokensIn ? 0 : bal - tokensIn;
-        if (mode == Constants.MODE_PVE) quoteOut -= _pveOnSell(trader, tokensIn, bal, newBal, q.grossQuote, quoteOut);
+        if (_mode == Constants.MODE_PVE) quoteOut -= _pveOnSell(trader, tokensIn, bal, newBal, q.grossQuote, quoteOut);
         if (quoteOut < minQuoteOut) revert Slippage();
         if (bal != newBal) balanceOnCurve[trader] = newBal;
 
@@ -799,12 +872,19 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         if (acc != 0) rewardDebt[seller] = Math.mulDiv(newBal, acc, ACC_SCALE);
     }
 
-    /// @dev Tax over everyone else's NET (`others`); audit L6: nobody else holds → treasury now (not to whoever
-    ///      buys in later). Returns the new accumulator.
+    /// @dev Tax over everyone else's NET (`others`); audit L6: nobody else holds → paid out now (not to whoever
+    ///      buys in later). maker 2026-11-19: to the community rewards Safe (FeeRouter.referralSink, which mainnet
+    ///      sets to that Safe); the treasury only when no separate sink is set. Returns the new accumulator.
     function _distributeTax(uint256 tax, uint256 others, uint256 acc) internal returns (uint256) {
         if (others == 0) {
-            IERC20(quote).safeTransfer(address(feeRouter), tax);
-            IFeeRouterCurve(address(feeRouter)).accrueTreasury(quote, tax);
+            address sink = IFeeRouterCurve(address(feeRouter)).referralSink();
+            if (sink != address(0) && sink != IFeeRouterCurve(address(feeRouter)).treasury()) {
+                IERC20(quote).safeTransfer(sink, tax);
+                emit CrewTipToCommunity(token, sink, tax);
+            } else {
+                IERC20(quote).safeTransfer(address(feeRouter), tax);
+                IFeeRouterCurve(address(feeRouter)).accrueTreasury(quote, tax);
+            }
             return acc;
         }
         acc += Math.mulDiv(tax, ACC_SCALE, others);
@@ -934,7 +1014,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
     ///      each call zeroes what it sent, so nothing is paid twice. Nothing new → ZeroAmount.
     function releaseSnipeEscrow() external returns (uint256 amount) {
         if (graduated) revert Graduated();
-        if (block.timestamp < launchTime + snipeEscrowTimeout) revert EscrowLocked();
+        if (block.timestamp < uint256(_launchTime) + uint256(_snipeEscrowTimeout)) revert EscrowLocked();
         _settleFees();
         uint256 sn = sniperTaxEscrow;
         uint256 lpE = lpFeeEscrow;
@@ -973,7 +1053,7 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
         // tax should go to community rewards". Decided here (graduating buy only, never per trade): past the timeout
         // the remaining sniper tax AND LP fee escrow go to RewardsVault (same transfer + events as releaseSnipeEscrow),
         // not the compound bucket.
-        if (block.timestamp >= launchTime + snipeEscrowTimeout) {
+        if (block.timestamp >= uint256(_launchTime) + uint256(_snipeEscrowTimeout)) {
             uint256 sn = sniperTaxEscrow;
             uint256 lpE = lpFeeEscrow;
             address v = sn + lpE != 0 ? IFeeRouterCurve(address(feeRouter)).rewardsVault() : address(0);
@@ -1008,8 +1088,9 @@ contract BondingCurve is IBondingCurve, ITradeEvents, IAltitudeEvents {
             emit SnipeEscrowToLP(token, esc);
         }
 
-        // PVE: holder rewards stay here, claimable forever; NET positions freeze (token stops notifying).
-        if (mode == Constants.MODE_PVE) IPveToken(token).endPveHooks();
+        // Every mode: the coin has orbited, so the token opens v4 transfers (maker 2026-11-19). PVE: holder rewards
+        // stay here, claimable forever; NET positions freeze (token stops notifying).
+        IPveToken(token).endPveHooks();
 
         emit GraduatedToV4(token, poolId, tokenLiq, quoteLiq);
     }

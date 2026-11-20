@@ -163,6 +163,7 @@ contract LPCompoundTest is IntegrationBase {
         _sellFrac(tok, 2);
         assertEq(_count(COMPOUNDED), 0, "no add inside a swap");
         assertEq(_liq(tok), l0);
+        _pullLpShare(tok);
         (uint256 bt, uint256 bq) = _bucket(tok);
         assertGt(bt, 1);
         assertGt(bq, 1);
@@ -171,6 +172,7 @@ contract LPCompoundTest is IntegrationBase {
 
     function test_buy_then_sell_pairing() public {
         _buy(tok, 200 ether);
+        _pullLpShare(tok);
         (uint256 bt,) = _bucket(tok);
         assertGt(bt, 1);
         _sellFrac(tok, 2);
