@@ -27,7 +27,7 @@ import { withBase } from "@/lib/base-path";
 import { CashHead, Check, ErrIcon, Warn, usd2 } from "./bits";
 import { FUND_CARD_FEE_EST, FUND_COPY, FUND_DEFAULT_USD, FUND_MAX_USD, FUND_MIN_USD, FUND_PICKS, fundAmountInput, startFunding } from "@/lib/fund";
 import { DEPOSIT_COPY } from "@/lib/deposit";
-import { onTurboCash, refreshTurboCash, setTurboWallet, turboCashDev, type TurboCash } from "@/lib/turbo/turboCash";
+import { onTurboCash, refreshTurboCash, setTurboWallet, turboCashDev, wantTurboRead, type TurboCash } from "@/lib/turbo/turboCash";
 import { clearLanding, landing, onLanding, startLanding, type Landing } from "@/lib/turbo/landing";
 import SendCrypto from "./SendCrypto";
 import SignInMarks from "@/components/SignInMarks";
@@ -300,6 +300,9 @@ export default function CashBody({ onClose, initialTab = "add" }: { onClose: () 
   const [fuelBusy, setFuelBusy] = useState(false);
   const [fuelErr, setFuelErr] = useState<string | null>(null);
   useEffect(() => onTurboCash(setTurbo), []);
+  // read Turbo while the popup is open, even on Simulator, so the Turbo tab shows on every page (maker 2026-11-20:
+  // "where did the transfer to turbo thing go": it only showed where the Turbo pill or Real money was already on)
+  useEffect(() => wantTurboRead(), []);
   const [quote, setQuote] = useState<{ fee: bigint; minAmount: bigint; feeTo: string; usdgDecimals: number } | null>(null);
   useEffect(() => onWallet(setAddr), []);
   useEffect(() => { setTurboWallet(addr); }, [addr]);

@@ -42,7 +42,7 @@ export class RoyaleLighter {
     const w = this.wallet();
     if (!w) { this.say("Sign in to fly on Lighter."); return; }
     const f = this.f = lighterFetcher(w);
-    this.ok = LighterMatch.ready(f).then((r) => { if (!r) this.say("Lighter isn't set up for this wallet. Finish set-up on /lighter."); return r; });
+    this.ok = LighterMatch.ready(f).then(async (r) => { if (!r) this.say(await LighterMatch.notReadyWhy(f)); return r; });
     if (!(await this.ok) || typeof d.id !== "string") return;
     const markets = (d.markets ?? []).filter((m) => COINS.has(m));
     const ms = Math.max(5_000, Math.min(270_000, Number(d.ms) || 240_000));
