@@ -20,6 +20,7 @@ import { LighterMatch, lighterFetcher, lighterWanted, type MatchAction } from "@
 import { turboRegion } from "@/lib/turbo/region";
 import GeoBanner from "@/components/turbo/GeoBanner";
 import { mountRealSwitch } from "@/lib/turbo/realSwitch";
+import { mountTurboPill } from "@/lib/turbo/turboPill";
 import { lighterStatus } from "@/lib/lighter/client";
 import { LIGHTER_PRICE_HOST, streamLighterBook, streamLighterMids } from "@/lib/turbo/royalePrices";
 import { onWallet } from "@/lib/walletState";
@@ -180,12 +181,14 @@ export default function ClimbScreen() {
     };
     const w = window as unknown as { DuelEngine?: { mount(root: HTMLElement, host: unknown): EngineApi } };
     let offSwitch = () => {};
+    let offPill = () => {};   // Turbo cash pill in the lobby header (lib/turbo/turboPill)
     loadDuelEngine().then(() => {
       if (dead || !ref.current || !w.DuelEngine) return;
       api = w.DuelEngine.mount(ref.current, host);
       offSwitch = mountRealSwitch(ref.current);
+      offPill = mountTurboPill(ref.current);
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load Climb. Refresh to try again."; });
-    return () => { dead = true; offSwitch(); stopPrice(); stopBackup(); offWallet(); offFuel(); api?.destroy(); };
+    return () => { dead = true; offSwitch(); offPill(); stopPrice(); stopBackup(); offWallet(); offFuel(); api?.destroy(); };
   }
   return <><GeoBanner /><div ref={ref} /><LobbySettings mode="climb" open={gear} onClose={() => setGear(false)} /></>;
 }

@@ -25,6 +25,7 @@ import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "./engineLoader";
 import { LighterMatch, lighterFetcher, lighterWanted } from "@/lib/lighter/duel";
 import GeoBanner from "@/components/turbo/GeoBanner";
 import { mountRealSwitch } from "@/lib/turbo/realSwitch";
+import { mountTurboPill } from "@/lib/turbo/turboPill";
 import { FEE, LEV, PCTS, pctUsd, fuelOf } from "@/lib/duel/rules";
 
 const trailRgb = (id?: string) => TRAILS.find((t) => trailId(t.id) === id)?.rgb;
@@ -305,16 +306,18 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
     };
 
     let offSwitch = () => {};
+    let offPill = () => {};   // Turbo cash pill in the lobby header (lib/turbo/turboPill)
     loadEngine().then(() => {
       if (dead || !ref.current || !window.DuelEngine) return;
       api = window.DuelEngine.mount(ref.current, host);
       if (!guest) offSwitch = mountRealSwitch(ref.current);
+      if (!guest) offPill = mountTurboPill(ref.current);
       void refreshMe();
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load the duel. Refresh to try again."; });
     setDuelGuest(guest);
     const offPrivy = guest ? () => {} : onPrivy(() => { void refreshMe(); });
 
-    return () => { dead = true; offSwitch(); setDuelGuest(false); stopQueue(); unfollow(); stopPrice(); offPrivy(); api?.destroy(); };
+    return () => { dead = true; offSwitch(); offPill(); setDuelGuest(false); stopQueue(); unfollow(); stopPrice(); offPrivy(); api?.destroy(); };
   }, []);
   return <><GeoBanner /><div ref={ref} /><LobbySettings mode="duel" open={gear} onClose={() => setGear(false)} /></>;
 }
