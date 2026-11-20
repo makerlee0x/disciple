@@ -16,8 +16,10 @@ import { CLIMB_FEE, CLIMB_FEE_LABEL, CLIMB_LEVELS, CLIMB_MAX_GEAR, climbLevelsFo
 import { readClimbLevel, saveClimbLevel } from "@/lib/climb/progress";
 import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "@/components/turbo/duel/engineLoader";
 import { PCTS, pctUsd } from "@/lib/duel/rules";
-import { LighterMatch, lighterBlockedHere, lighterFetcher, lighterWanted, type MatchAction } from "@/lib/lighter/duel";
-import { TURBO_BLOCKED_NOTE, turboRegion } from "@/lib/turbo/region";
+import { LighterMatch, lighterFetcher, lighterWanted, type MatchAction } from "@/lib/lighter/duel";
+import { turboRegion } from "@/lib/turbo/region";
+import GeoBanner from "@/components/turbo/GeoBanner";
+import { mountRealSwitch } from "@/lib/turbo/realSwitch";
 import { lighterStatus } from "@/lib/lighter/client";
 import { LIGHTER_PRICE_HOST, streamLighterBook, streamLighterMids } from "@/lib/turbo/royalePrices";
 import { onWallet } from "@/lib/walletState";
@@ -179,12 +181,13 @@ export default function ClimbScreen() {
       },
     };
     const w = window as unknown as { DuelEngine?: { mount(root: HTMLElement, host: unknown): EngineApi } };
+    let offSwitch = () => {};
     loadDuelEngine().then(() => {
       if (dead || !ref.current || !w.DuelEngine) return;
       api = w.DuelEngine.mount(ref.current, host);
-      if (lighterBlockedHere()) api?.climbNote?.(TURBO_BLOCKED_NOTE);
+      offSwitch = mountRealSwitch(ref.current);
     }).catch(() => { if (ref.current) ref.current.textContent = "Couldn't load Climb. Refresh to try again."; });
-    return () => { dead = true; stopPrice(); stopBackup(); offWallet(); offFuel(); api?.destroy(); };
+    return () => { dead = true; offSwitch(); stopPrice(); stopBackup(); offWallet(); offFuel(); api?.destroy(); };
   }
-  return <><div ref={ref} /><LobbySettings mode="climb" open={gear} onClose={() => setGear(false)} /></>;
+  return <><GeoBanner /><div ref={ref} /><LobbySettings mode="climb" open={gear} onClose={() => setGear(false)} /></>;
 }

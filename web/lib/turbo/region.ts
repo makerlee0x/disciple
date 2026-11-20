@@ -2,7 +2,7 @@
  * Where real-money Turbo can't run (maker 2026-11-19). Lighter refuses US connections (prices and orders), and a player
  * who hits that has no way to know why, so the site turns real-money Turbo off there and says so. Play money still runs.
  * The country is Vercel's edge read of the visitor's IP (x-vercel-ip-country, via /api/geo); a VPN reads as the VPN's
- * country, which is also what Lighter sees. The iPhone app never runs real Turbo (lib/lighter/duel lighterWanted).
+ * country, which is also what Lighter sees. The iPhone app follows the same rule, with no banner (lib/turbo/realSwitch).
  */
 import { withBase } from "@/lib/base-path";
 
