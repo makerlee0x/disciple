@@ -4,10 +4,11 @@ import "server-only";
  * Sources:
  *  - launches + fills: the last home build (lib/server/home: same filtered launch list and indexed fills as the lobby)
  *  - burns: CreatorFeeHarvest CreatorFeesRouted logs with destination 2 (burn), kept in KV with a block cursor
- *  - supply: each pair coin's totalSupply (ERC-20), cached in-process for an hour
+ *  - price: each pair coin's $ price now (QuotePricer), so burns are valued at today's market cap
  * Window: this ranked season (lib/duel/season); before Season 1 starts, all time.
  */
-import { erc20Abi, getAbiItem, type Address } from "viem";
+import { getAbiItem, type Address } from "viem";
+import { quotePricerAbi } from "@/lib/abi";
 import { deployment, ZERO } from "@/lib/chains";
 import { creatorFeeHarvestAbi, CREATOR_FEE_DESTINATION } from "@/lib/creatorFeeHarvest";
 import { seasonAt } from "@/lib/duel/season";
@@ -18,7 +19,7 @@ import { getPairInputs } from "./home";
 import { kv } from "./kv";
 
 const CACHE_MS = 30_000;
-const SUPPLY_MS = 60 * 60_000;
+const PRICE_MS = 60_000;
 const CHUNK = BigInt(Math.max(100, Number(process.env.TRADES_CHUNK_BLOCKS) || 5000));
 const ROUTED = getAbiItem({ abi: creatorFeeHarvestAbi, name: "CreatorFeesRouted" });
 
@@ -31,7 +32,7 @@ export type PairBoardResponse = {
   rows: (PairRow & { rank: number })[];
 };
 
-type G = { __dscPairBoard?: { at: number; rows: PairRow[]; season: string }; __dscPairSupply?: { at: number; v: Record<string, number> }; __dscSeasonBlock?: Map<number, number> };
+type G = { __dscPairBoard?: { at: number; rows: PairRow[]; season: string }; __dscPairPrice?: { at: number; v: Record<string, number> }; __dscSeasonBlock?: Map<number, number> };
 const g = globalThis as unknown as G;
 
 export const PAIR_COINS: PairCoin[] = WHITELIST_QUOTES.map((q) => ({ symbol: q.symbol, name: q.name, address: q.address.toLowerCase(), decimals: q.decimals, icon: q.imagePath }));
@@ -83,16 +84,17 @@ export async function indexBurns(budgetMs = 4_000): Promise<PairBurn[]> {
   }
 }
 
-async function supplies(): Promise<Record<string, number>> {
-  const c = g.__dscPairSupply;
-  if (c && Date.now() - c.at < SUPPLY_MS) return c.v;
-  const pc = serverPc();
+/** $ per whole pair coin right now (QuotePricer.quotePriceUsd: USD WAD per 1e18 raw units), cached PRICE_MS. */
+async function prices(): Promise<Record<string, number>> {
+  const c = g.__dscPairPrice;
+  if (c && Date.now() - c.at < PRICE_MS) return c.v;
+  const d = deployment(), pc = serverPc();
   const v: Record<string, number> = {};
-  await Promise.all(PAIR_COINS.map(async (p) => {
-    const t = await pc.readContract({ address: p.address as Address, abi: erc20Abi, functionName: "totalSupply" }).catch(() => null);
-    if (t != null) v[p.address] = Number(t) / 10 ** p.decimals;
+  if (d.quotePricer && d.quotePricer !== ZERO) await Promise.all(PAIR_COINS.map(async (p) => {
+    const w = await pc.readContract({ address: d.quotePricer, abi: quotePricerAbi, functionName: "quotePriceUsd", args: [p.address as Address] }).catch(() => null);
+    if (w != null) v[p.address] = (Number(w) / 1e18) * (10 ** p.decimals / 1e18);
   }));
-  if (Object.keys(v).length) g.__dscPairSupply = { at: Date.now(), v };
+  if (Object.keys(v).length) g.__dscPairPrice = { at: Date.now(), v };
   return v;
 }
 
@@ -123,13 +125,13 @@ export async function getPairBoard(by: PairSort): Promise<PairBoardResponse> {
   if (c && now - c.at < CACHE_MS && c.season === season.id) rows = c.rows;
   else {
     const fromTs = pre ? 0 : season.startsAt;
-    const [inputs, burns, sup, fromBlock] = await Promise.all([
+    const [inputs, burns, px, fromBlock] = await Promise.all([
       getPairInputs(),
       indexBurns().catch(() => [] as PairBurn[]),
-      supplies().catch(() => ({})),
+      prices().catch(() => ({})),
       blockAt(fromTs).catch(() => 0),
     ]);
-    rows = pairBoard(PAIR_COINS, inputs.launches, inputs.fills, burns, sup, fromBlock, fromTs);
+    rows = pairBoard(PAIR_COINS, inputs.launches, inputs.fills, burns, px, fromBlock, fromTs);
     g.__dscPairBoard = { at: now, rows, season: season.id };
   }
   return { sort: "pairs", by, cutBy: PAIR_CUT_BY, safe: PAIR_SAFE, season: { n: season.n, startsAt: season.startsAt, endsAt: season.endsAt }, rows: rankPairs(rows, by) };

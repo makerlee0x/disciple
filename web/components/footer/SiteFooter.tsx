@@ -15,7 +15,7 @@ const PLAY: readonly L[] = [
   { href: DUEL_HREF, label: "Duel" },
   { href: CLIMB_HREF, label: "Climb" },
   ...(MARKET_ENABLED ? [{ href: "/market", label: "Market" }] : []),
-  { href: "/leaderboard", label: "Top pilots" },
+  { href: "/leaderboard", label: "Leaderboard" },
   { href: "/profile", label: "Hangar" },
 ];
 
