@@ -6,7 +6,7 @@ import { tokenDecimals } from "../usdg";
 import { curveFeeVaultAbi } from "./vault";
 import { plainText } from "../aa/relayOp";
 
-const pricerAbi = parseAbi(["function quotePriceUsd(address quote) view returns (uint256)"]);
+const pricerAbi = parseAbi(["function quotePriceUsd(address quote) view returns (uint256)", "function spotPriceUsd(address quote) view returns (uint256)"]);
 export type Asset = { address: Address; symbol: string; decimals: number; /** USD per 1 whole unit (live QuotePricer, else null) */ usd: number | null };
 
 const metaCache = new Map<string, Promise<Asset>>();
@@ -20,7 +20,9 @@ export function assetMeta(pc: PublicClient, address: Address): Promise<Asset> {
         pc.readContract({ address, abi: tokenAbi, functionName: "symbol" }).catch(() => "?"),
         tokenDecimals(pc, address),   // config for USDG / STRATEGY; on-chain otherwise (no guessed 18 — a failure retries next call)
         deployment().quotePricer !== "0x0000000000000000000000000000000000000000"
-          ? pc.readContract({ address: deployment().quotePricer, abi: pricerAbi, functionName: "quotePriceUsd", args: [address] }).catch(() => BigInt(0))
+          ? pc.readContract({ address: deployment().quotePricer, abi: pricerAbi, functionName: "spotPriceUsd", args: [address] })   // live (no keeper pokes the TWAP once launches price from spot, maker 2026-11-20)
+              .catch(() => pc.readContract({ address: deployment().quotePricer, abi: pricerAbi, functionName: "quotePriceUsd", args: [address] }))
+              .catch(() => BigInt(0))
           : Promise.resolve(BigInt(0)),
       ]);
       // quotePriceUsd is USD WAD per 1e18 raw units ⇒ USD per whole unit = px/1e18 × 10^decimals/1e18
