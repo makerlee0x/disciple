@@ -183,6 +183,9 @@ function FundBridge() {
             destination: target,
             defaultAmount: String(usd),
             preferredPaymentMethod: payHint(navigator.userAgent),
+            // maker 2026-11-20: MoonPay took $3.58 of a ~$20 top-up. Stripe runs inside Privy's window (no "Return to
+            // Privy.io" tab) and costs less on small cards; Privy falls back to MoonPay when Stripe has no quote
+            preferredProvider: "stripe",
           });
         } catch (err) { return fundErrorResult(err); }
         return { ok: true };
