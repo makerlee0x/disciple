@@ -139,8 +139,9 @@ export default function ClimbScreen() {
           if (!wallet) { why = "Sign in to fly on Lighter."; return null; }
           const f = lighterFetcher(wallet);
           lf = f;
+          const ok = await LighterMatch.ready(f);
           const r = await readLighter().catch(() => null);
-          if (!r || r.s.step !== "ready" || r.cash == null) { why = r ? "Lighter isn't set up for this wallet. Finish set-up on /lighter." : "Can't reach Lighter right now. Try again in a moment."; return null; }
+          if (!ok || !r || r.s.step !== "ready" || r.cash == null) { why = await LighterMatch.notReadyWhy(f); return null; }
           if (r.entry != null) { why = "You still have a BTC position open on Lighter. Close it first."; return null; }
           host.climb.real = true;
           const moved = realCash == null || Math.abs(r.cash - realCash) > 0.005;
