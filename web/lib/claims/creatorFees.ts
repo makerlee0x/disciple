@@ -28,7 +28,7 @@ import { sendGaslessAction } from "../trade/gaslessActionClient";
 import { type Caps } from "./capabilities";
 import { ACTIVE_CHAIN } from "../chains";
 import { anonLaunchers, CLAIM_TYPES, claimDomain, isLegacyLauncher } from "../anon";
-import { assetMeta, indexerGet, lc, type Asset } from "./common";
+import { assetMeta, lc, type Asset } from "./common";
 import { creatorFeeHarvestAbi } from "../creatorFeeHarvest";
 import { curveFeeVaultAbi, feeVaultOf, stackFeeVault, vaultClaimDomain, vaultCreatorClaimable } from "./vault";
 
@@ -379,11 +379,7 @@ export async function sendCreatorClaims(calls: Call[]): Promise<ClaimReceipt> {
 
 /* ---------------- referral rewards (v4: referrerAccrued(referrer, quote) — referrer FIRST) ---------------- */
 /** `claimable` = FeeRouter + CurveFeeVault (lp-accrue, `vault` set); `vaultClaimable` is the vault part. */
-export type ReferralBalance = {
-  asset: Asset; claimable: bigint; vault?: Address | null; vaultClaimable?: bigint;
-  /** curve coins to settle in the vault claim (indexer /users/:u/referral-coins), so unsettled referral / KOL shares pay too */
-  settle?: Address[];
-};
+export type ReferralBalance = { asset: Asset; claimable: bigint; vault?: Address | null; vaultClaimable?: bigint };
 /**
  * Referral balances across the quote assets in use (default quote, USDG, plus any extra quotes passed in). lp-accrue:
  * the stack CurveFeeVault (lib/claims/vault.stackFeeVault) holds curve-phase referral / KOL shares. A launch-KOL's 1%
@@ -393,15 +389,13 @@ export async function referralBalances(pc: PublicClient, me: Address, extraQuote
   const d = deployment();
   const vault = stackFeeVault();
   const qs = Array.from(new Set([d.defaultQuote, d.usdg, ...extraQuotes].filter((a) => a && !/^0x0{40}$/i.test(a)).map(lc))) as Address[];
-  const settleP = vault ? indexerGet<{ tokens: string[] }>(`/users/${me}/referral-coins`).catch(() => null) : Promise.resolve(null);
   return Promise.all(qs.map(async (q) => {
     const [asset, base, inVault] = await Promise.all([
       assetMeta(pc, q),
       (pc.readContract({ address: d.feeRouter, abi: feeRouterAbi, functionName: "referrerAccrued", args: [me, q] }) as Promise<bigint>).catch(() => ZERO),
       vault ? (pc.readContract({ address: vault, abi: curveFeeVaultAbi, functionName: "referrerAccrued", args: [me, q] }) as Promise<bigint>).catch(() => ZERO) : Promise.resolve(ZERO),
     ]);
-    const settle = ((await settleP)?.tokens ?? []).filter((t) => /^0x[0-9a-fA-F]{40}$/.test(t)).slice(0, 20) as Address[];
-    return { asset, claimable: base + inVault, vault, vaultClaimable: inVault, settle };
+    return { asset, claimable: base + inVault, vault, vaultClaimable: inVault };
   }));
 }
 /**
@@ -430,8 +424,8 @@ export function referralClaimCalls(rows: ReferralBalance[], me?: Address): Call[
       ? encodeFunctionData({ abi: referrerForAbi, functionName: "claimReferrerFeesFor_2143", args: [me!, r.asset.address] })
       : encodeFunctionData({ abi: feeRouterAbi, functionName: "claimReferrerFees", args: [r.asset.address] }) });
     if (inVault > ZERO) calls.push({ to: r.vault!, data: forMe
-      ? encodeFunctionData({ abi: referrerForAbi, functionName: "claimReferrerFeesFor", args: [me!, r.asset.address, r.settle ?? []] })
-      : encodeFunctionData({ abi: curveFeeVaultAbi, functionName: "claimReferrerFees", args: [r.asset.address, r.settle ?? []] }) });
+      ? encodeFunctionData({ abi: referrerForAbi, functionName: "claimReferrerFeesFor", args: [me!, r.asset.address, []] })
+      : encodeFunctionData({ abi: curveFeeVaultAbi, functionName: "claimReferrerFees", args: [r.asset.address, []] }) });
   }
   return calls;
 }
