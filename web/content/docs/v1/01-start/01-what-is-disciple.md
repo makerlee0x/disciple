@@ -16,7 +16,11 @@ Climb | Solo | /art/modes/live.webp | /docs/turbo/climb | easy
 Daily mission | Solo | /art/modes/free.webp | /docs/daily | cyan
 ```
 
-**Launch** is real coins on-chain: launch one, or jump on someone else's. **Duel** and **Climb** are **Turbo**: leveraged BTC on a perps exchange, one minute at a time. **Daily mission** is one market a day, same for everyone, with practice cash.
+| | What you trade | Money |
+|---|---|---|
+| **Launch** | Real coins on-chain. Launch one or jump on someone else's. | Cash |
+| **Duel** · **Climb** | BTC with leverage, one minute a round. This is **Turbo**. | Turbo cash |
+| **Daily mission** | One practice rocket a day, same for everyone | Practice cash |
 
 ## A rocket's life
 
@@ -30,13 +34,13 @@ Open market | LP locked forever | easy
 ```stats
 1M | Supply, fixed
 1% | Trade fee
-0.33% | To the creator
-$33.3K | Orbit
+0.33% | To the creator | gold
+$0 | To launch | easy
 ```
 
 ## The rules that never move
 
 - 1,000,000 coins per rocket. Nobody can mint more.
 - Liquidity is locked forever once a rocket hits orbit.
-- No pause button. Rockets trade 24/7, before and after orbit.
-- The game layer (sky, bombs, wingmen, XP) never touches price, fills or odds.
+- No pause button. Rockets trade 24/7.
+- The game (sky, bombs, wingmen, XP, skins) never touches price, fills or odds.

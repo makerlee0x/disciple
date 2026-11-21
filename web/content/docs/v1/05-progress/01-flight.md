@@ -9,7 +9,7 @@ Open any rocket to fly it. Height is mcap. Every BOOST is thrust, every DUMP is 
 
 ## Live flights
 
-The list of live rockets. Sort by **Newest · Trending · Volume · Near orbit · Ascended** and filter by difficulty. A blue check means the team verified who's behind the rocket.
+The list of live rockets. Sort by **Newest · Trending · Volume · Near orbit · Ascended** and filter by difficulty. A blue check means the Team verified who's behind the rocket.
 
 ## Altitude
 
