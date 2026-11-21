@@ -123,6 +123,16 @@ export class NonceBook {
     }
     throw new Error("no free Permit2 nonce");
   }
+  /** Off-tap: read word 0 once so the first pick needs no RPC (queued like a pick, takes no bit). */
+  prime(owner: Address): Promise<unknown> {
+    const k = owner.toLowerCase();
+    if (this.words.has(k)) return Promise.resolve();
+    const p = (this.chain.get(k) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+      if (!this.words.has(k)) this.words.set(k, { word: BigInt(0), taken: await this.readBitmap(owner, BigInt(0)) });
+    });
+    this.chain.set(k, p);
+    return p;
+  }
   /** Re-read the on-chain bitmap on the next pick (after a collision / reload). */
   reset(owner: Address) { this.words.delete(owner.toLowerCase()); }
 }

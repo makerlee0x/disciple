@@ -45,6 +45,13 @@ export function nothingSent(e: unknown): boolean {
   return x?.notSent === true || x?.data?.notSent === true;
 }
 
+/** What the deposit address receives from a cash-out of `amount` with network fee `fee` (USDG base units), in dollars,
+ *  rounded down to the cent. Pure, tested. */
+export function depositNetUsd(amount: bigint, fee: bigint, decimals: number): number {
+  const net = amount > fee ? amount - fee : BigInt(0);
+  return Math.floor(Number(formatUnits(net, decimals)) * 100) / 100;
+}
+
 /** Moves `usd` of cash into Lighter and finishes set-up. `onStep` reports progress; resolves with the Lighter step. */
 export async function lighterAddCash(f: Fetcher, usd: number, signMessage: (msg: string) => Promise<string>, onStep: (s: AddCashStep, info?: AddCashInfo) => void = () => {}): Promise<LighterStep> {
   const owner = gaslessSigner();
@@ -52,22 +59,26 @@ export async function lighterAddCash(f: Fetcher, usd: number, signMessage: (msg:
   onStep("address");
   // everything up to the relay call moves nothing, so its failures are tagged notSent (lib/turbo/landing says so)
   const prep = await (async () => {
-    const [{ address, minNew, min, chainId, etaSec, outUsd }, before] = await Promise.all([
-      post<{ address: Address; minNew: number; min: number; chainId?: number | null; etaSec?: number; outUsd?: number }>(f, "deposit-address", { usd }),
+    const { quoteGaslessWithdraw, signGaslessWithdraw, submitGaslessWithdraw } = await import("@/lib/trade/gaslessWithdrawClient");
+    const { privyIdentityToken } = await import("@/lib/aa/session");
+    // The cash-out's network fee comes off the amount, so the deposit address only ever receives the net. Quote the
+    // cash-out first, then ask for the deposit address (Relay's quote and the 5 USDC Lighter check) on that net, not on
+    // the gross: at a high gas price a $6 add could land under Lighter's minimum (audit 2026-11-21).
+    const [q0, before] = await Promise.all([
+      quoteGaslessWithdraw({ signer: owner.address }),
       lighterStatus(f) as Promise<{ step: LighterStep; collateral?: string }>,
     ]);
+    const amount = parseUnits(usd.toFixed(2), q0.usdgDecimals);
+    const q = await quoteGaslessWithdraw({ amount, signer: owner.address });
+    if (amount < q.minAmount) throw new Error(`Add at least $${Number(formatUnits(q.minAmount, q.usdgDecimals)).toFixed(2)}.`);
+    const { address, minNew, min, chainId, etaSec, outUsd } =
+      await post<{ address: Address; minNew: number; min: number; chainId?: number | null; etaSec?: number; outUsd?: number }>(f, "deposit-address", { usd: depositNetUsd(amount, q.fee, q.usdgDecimals) });
     // 2026-11-18: a testnet build sent test USDG to a real Lighter main deposit address. Never send across chains.
     if (!chainId || chainId !== ACTIVE_CHAIN.id) throw new Error(`Turbo cash can't be added from this build (${ACTIVE_CHAIN.name}).`);
     const floor = before.step === "deposit" ? minNew : min;
     if (!(usd >= floor)) throw new Error(`Add at least $${floor.toFixed(2)}.`);
 
     onStep("sending");
-    const { quoteGaslessWithdraw, signGaslessWithdraw, submitGaslessWithdraw } = await import("@/lib/trade/gaslessWithdrawClient");
-    const { privyIdentityToken } = await import("@/lib/aa/session");
-    const q0 = await quoteGaslessWithdraw({ signer: owner.address });
-    const amount = parseUnits(usd.toFixed(2), q0.usdgDecimals);
-    const q = await quoteGaslessWithdraw({ amount, signer: owner.address });
-    if (amount < q.minAmount) throw new Error(`Add at least $${Number(formatUnits(q.minAmount, q.usdgDecimals)).toFixed(2)}.`);
     const tokenP = privyIdentityToken().catch(() => null);
     const req = await signGaslessWithdraw(publicClient() as never, owner, { amount, destination: address, quote: q });
     return { req, token: await tokenP, submitGaslessWithdraw, before, etaSec, outUsd };

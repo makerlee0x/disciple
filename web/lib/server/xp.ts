@@ -26,6 +26,7 @@ import {
 import { kv, type Kv } from "./kv";
 import { ACH } from "./achKeys";
 import { accountIdOf, accountWallets } from "./xpAccount";
+import { pumpedCached } from "./launchPriceCheck";
 
 const ns = () => `xp:${ACTIVE_CHAIN.id}`;
 export const XPK = {
@@ -149,8 +150,10 @@ export async function scoreXp(
     coinFills.set(c.toLowerCase(), fs.map((f) => ({ ts: f.ts, mcapUsd: f.mcapUsd, trader: f.trader, side: f.side, usd: playerUsd(f), impactBps: typeof f.impactBps === "number" ? Math.abs(f.impactBps) : undefined, block: f.block, logIndex: f.logIndex })));
     if (fs.length < COIN_FILLS_LIMIT) coinFillsComplete.add(c.toLowerCase());
   }
+  // coins whose launch price was pumped inside the launch tx earn no mission XP (lib/server/launchPriceCheck)
+  const pumped = await pumpedCached(ctx.fills.map((f) => f.coin), s).catch(() => new Set<string>());
   const fills: MissionFill[] = [
-    ...ctx.fills.map(toMissionFill),
+    ...ctx.fills.filter((f) => !pumped.has(f.coin.toLowerCase())).map(toMissionFill),
     ...(ctx.outs ?? []).map((t): MissionFill => ({ coin: t.coin.toLowerCase(), ts: t.ts, block: t.block, logIndex: t.logIndex, side: "out", tokens: t.tokens, usd: 0 })),
   ];
   const input = { wallet: w, fills, coins, coinFills, coinFillsComplete, now, asOf: now };

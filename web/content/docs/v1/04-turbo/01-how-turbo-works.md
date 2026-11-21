@@ -16,46 +16,66 @@ Climb | Solo | /art/modes/live.webp | /docs/turbo/climb | easy
 
 ```flow
 You tap | BOOST · DUMP · Cash out | gold
-DISCIPLE | Sends the order | white
-Lighter | Fills it on the BTC book | pink
-Your Turbo cash | Real PnL, real balance | easy
+DISCIPLE | Sends the order in ~0.4s | white
+Lighter | Fills it on the BTC book | cyan
+Turbo cash | Real PnL, real balance | easy
 ```
 
-- **Your account.** Turbo cash sits in your own Lighter account, tied to your wallet. It's not pooled with anyone else's.
-- **Real fills.** BOOST opens a long, DUMP opens a short, Cash out closes. Entry, exit and PnL come from Lighter's fills, not a simulation.
+- **Your account.** Turbo cash sits in your own Lighter account, tied to your wallet. It's never pooled with anyone else's.
+- **Real fills.** BOOST opens a long, DUMP opens a short, Cash out closes it all. Entry, exit and PnL come from Lighter's fills.
 - **Real prices.** The BTC price on screen is Lighter's.
-- **Fast.** A tap reaches the exchange in about 0.4s.
 - **The clock.** When the buzzer goes, anything still open is closed for you.
 
-## Cash in and out
+## Leverage, in one picture
 
-Turbo cash and Cash are separate balances. Relay moves money between them in seconds.
+What a 0.5% BTC move does to $20 at each gear:
 
-```flow
-Cash | USDG · Robinhood Chain | gold
-Relay | ~4¢ on $10 | white
-Turbo cash | USDC · Lighter | pink
+```bars
+10× | 1 | ±$1 | easy
+20× | 2 | ±$2 | easy
+30× | 3 | ±$3 | gold
+40× | 4 | ±$4 | hard
+50× | 5 | ±$5 | expert
 ```
 
-Details in [Cash and Turbo cash](/docs/funds).
+Same move, five times the swing at 50×. That cuts both ways.
+
+## The NUKE
+
+Lose too much of a position and it's closed for you, before Lighter would liquidate it. That's the **NUKE**. How far BTC can move against you first:
+
+```bars
+10× | 8 | 8% | easy
+20× | 4 | 4% | easy
+30× | 2.38 | 2.4% | gold
+40× | 1.38 | 1.4% | hard
+50× | 0.78 | 0.78% | expert
+```
 
 ## Fees
 
 ```stats
-1.1 bp | Round trip (0.011%)
+1.1 bp | Round trip (0.011%) | gold
 50× | Max leverage
+$0 | Gas
 ```
 
-That's the exchange fee plus a tiny DISCIPLE cut, both per side.
+That's Lighter's fee plus a tiny DISCIPLE cut, both per side. On a $1,000 position, a round trip costs about 11¢.
 
-## Real money vs play money
+## Your Turbo page
 
-| | Real money | Play money |
+**Turbo** in the top bar opens your page: Turbo cash, PnL by day, week and all time, your Duel and Climb record and every trade. Others see it at `/u/<name>/turbo`, without your balance.
+
+## Real money vs Simulator
+
+The switch at the top of the Duel and Climb lobbies.
+
+| | Real money | Simulator |
 |---|---|---|
-| Modes | Duels and Climb on Turbo cash | Bot duels and practice |
+| Money | Your Turbo cash | Play money |
 | Orders on Lighter | Yes | No |
 | Ranked | Quick-match duels | Never |
 
-## Liquidation
+Real money isn't offered in the US. There it's Simulator only.
 
-Leverage cuts both ways. Lose most of the cash in a position and it's liquidated: the **NUKE**. It's your money on the line, so size it like it.
+Cash in and out: [Cash and Turbo cash](/docs/funds).

@@ -9,9 +9,14 @@ Every rocket starts on its own bonding curve. Each buy costs a bit more than the
 
 ```stats
 $3,333 | Start mcap
-84.24% | Sold on the curve
 $33,333 | Orbit | gold
-15.76% | Kept for the LP
+```
+
+## Where the 1M coins go
+
+```split
+84.24 | Sold on the curve | 84.24% | gold
+15.76 | Kept for the LP | 15.76% | easy
 ```
 
 ## Orbit
@@ -36,5 +41,3 @@ In that one trade, the 15.76% kept back plus everything the curve raised go into
 | Sniper tax | First 7s | None |
 
 After orbit the pool is a normal Uniswap v4 pool. Other apps can trade it, and those trades still pay the 1%. The rocket keeps climbing through the [altitude tiers](/docs/game/flight#altitude).
-
-The app's curve quote is exact for the current block, fees included.

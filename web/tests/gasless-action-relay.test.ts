@@ -23,6 +23,7 @@ import { strikeSource } from "../lib/server/relayLockdown";
 import { ACTION_TX_GAS_LIMIT, actionGas, transferTypedData, withdrawFeeRaw } from "../lib/trade/gaslessAction";
 import { trampWallManagerAbi, anonLauncherAbi } from "../lib/abi";
 import { DEPLOYMENTS } from "../lib/chains";
+import { ANON_ADDONS } from "../lib/anon";
 import type { GaslessDeps } from "../lib/server/gaslessRelay";
 
 const user = privateKeyToAccount(generatePrivateKey()), other = privateKeyToAccount(generatePrivateKey());
@@ -56,16 +57,28 @@ function feeNow(kind: "anonClaim" = "anonClaim") {
   return withdrawFeeRaw(actionGas(kind, 1, false), BASE, actionUsdgPerEth(), DEPLOYMENTS[46630].usdgDecimals);
 }
 function claimCall() {
-  return { to: "0x00000000000000000000000000000000000000aa", data: encodeFunctionData({
+  return { to: ANON_ADDONS[46630].anonLauncher, data: encodeFunctionData({
     abi: anonLauncherAbi, functionName: "claimManyBySig",
     args: [{ owner: user.address, tokens: [usdg], to: user.address, relayerFeeBps: 0n, deadline: BigInt(NOW + 120), sig: "0x11" as Hex }],
   }) };
 }
-async function wireClaim(o: { signer?: typeof user; fee?: bigint } = {}) {
+/** a public (non-stealth) claim: FeeRouter.claimCreatorFees(token), which carries the wallet's USDG fee */
+function publicClaimCall() {
+  return { to: DEPLOYMENTS[46630].feeRouter, data: encodeFunctionData({
+    abi: [{ type: "function", name: "claimCreatorFees", stateMutability: "nonpayable", inputs: [{ name: "t", type: "address" }], outputs: [] }] as const,
+    functionName: "claimCreatorFees", args: [usdg],
+  }) };
+}
+const wire = (x: unknown) => JSON.parse(JSON.stringify(x, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
+/** a hidden coin's stealth claim: no fee, no permit (audit 2026-11-21), the gas goes on the private tab */
+function wireStealthClaim() {
+  return wire({ kind: "anonClaim", signer: user.address, calls: [claimCall()], fee: 0n, feeTo: actionFeeTo() });
+}
+async function wireClaim(o: { signer?: typeof user; fee?: bigint; calls?: { to: string; data: Hex }[] } = {}) {
   const s = o.signer ?? user, fee = o.fee ?? feeNow(), deadline = BigInt(NOW + 120);
   const feePermit = { permitted: { token: usdg, amount: fee }, nonce: 0n, deadline };
   return JSON.parse(JSON.stringify({
-    kind: "anonClaim", signer: s.address, calls: [claimCall()], fee, feeTo: actionFeeTo(),
+    kind: "anonClaim", signer: s.address, calls: o.calls ?? [publicClaimCall()], fee, feeTo: actionFeeTo(),
     feePermit, feeSignature: await s.signTypedData(transferTypedData(46630, feePermit)),
   }, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
 }
@@ -114,6 +127,21 @@ describe("admission + exact simulation", () => {
     const tx = parseTransaction(raw);
     expect(tx.to?.toLowerCase()).toBe("0xcA11bde05977b3631167028862bE2a173976CA11".toLowerCase());
     expect(tx.gas).toBe(ACTION_TX_GAS_LIMIT.anonClaim);
+  });
+  it("stealth claim: sent with no wallet fee, its gas goes on the private tab; a wallet fee permit is refused", async () => {
+    const r = await relay(wireStealthClaim());
+    expect(r.success).toBe(true);
+    expect(h.incrBy).toHaveBeenCalledWith(expect.stringMatching(/^launchtab:46630:0x/), expect.any(Number), expect.any(Number));
+    h.send.mockClear();
+    await expect(relay(await wireClaim({ calls: [claimCall()] }))).rejects.toMatchObject({ notSent: true });
+    expect(h.send).not.toHaveBeenCalled();
+  });
+  it("stealth action quote is fee 0 (nothing for the wallet to sign); a full tab refuses, nothing sent", async () => {
+    const q = await quoteGaslessAction({ kind: "anonClaim", signer: user.address, calls: [claimCall()] }, { baseFee: BASE, needsPermit: false });
+    expect(q.fee).toBe("0");
+    h.incrBy.mockResolvedValue(260_000); // tab past 25c once this one is added
+    await expect(relay(wireStealthClaim())).rejects.toMatchObject({ notSent: true });
+    expect(h.send).not.toHaveBeenCalled();
   });
   it("trampPull with fee 0 needs no Permit2 signature and still passes the gate", async () => {
     const r = await relay(wirePull());

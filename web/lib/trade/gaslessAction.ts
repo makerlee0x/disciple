@@ -159,8 +159,18 @@ function isClaimTarget(s: Hex, to: Address, extra?: ReadonlySet<string>): boolea
 
 export function isRelayableCall(kind: ActionKind, c: ActionCall, extra?: ReadonlySet<string>): boolean {
   const s = selOf(c.data);
-  if (kind === "anonClaim") return s === SEL.claimManyBySig || s === SEL.claimManyAsStealthBySig || isClaimTarget(s, c.to, extra);
-  if (kind === "anonTransferCreator") return s === SEL.transferCreatorBySig;
+  // Audit 2026-11-21 C-1: every selector is tied to its contract. Before, claimManyBySig / claimManyAsStealthBySig /
+  // transferCreatorBySig were accepted at ANY address, so a no-USDG wallet's free claim could aim the relayer at its own
+  // gas-burning contract.
+  if (kind === "anonClaim") {
+    if (s === SEL.claimManyBySig) return isAnonLauncher(c.to);
+    if (s === SEL.claimManyAsStealthBySig) {
+      const v = deployment().curveFeeVault;
+      return (isSet(v) && eq(c.to, v)) || !!extra?.has(c.to.toLowerCase());
+    }
+    return isClaimTarget(s, c.to, extra);
+  }
+  if (kind === "anonTransferCreator") return s === SEL.transferCreatorBySig && isAnonLauncher(c.to);
   if (kind === "anonCreatorMeta") return s === SEL.updateMetadataBySig && isAnonLauncher(c.to);
   if (kind === "creatorEdit") {
     const d = deployment();
@@ -168,6 +178,36 @@ export function isRelayableCall(kind: ActionKind, c: ActionCall, extra?: Readonl
     return s === SEL.setCreatorFeeRecipientBySig && isSet(d.creatorFeeHarvest) && eq(c.to, d.creatorFeeHarvest);
   }
   return s === SEL.pull && eq(c.to, deployment().trampWallManager);
+}
+
+/**
+ * A hidden coin's own action, signed by its stealth key: AnonLauncher edit info, creator transfer, or a stealth claim
+ * (claimManyBySig / claimManyAsStealthBySig). These never carry a USDG fee from the player's wallet: a fee permit puts
+ * the wallet (Permit2 owner, ActionRelayed.owner) in the same tx as the hidden coin (audit 2026-11-21). The relay sends
+ * them fee-free and puts the gas on the account's private anon tab (lib/server/launchTab), like a hidden launch.
+ */
+export function isStealthAction(q: { kind: unknown; calls?: unknown }): boolean {
+  if (q.kind === "anonCreatorMeta" || q.kind === "anonTransferCreator") return true;
+  if (q.kind !== "anonClaim" || !Array.isArray(q.calls) || !q.calls.length) return false;
+  return q.calls.every((c) => {
+    const d = (c as { data?: unknown } | null)?.data;
+    if (typeof d !== "string") return false;
+    const s = d.slice(0, 10).toLowerCase();
+    return s === SEL.claimManyBySig || s === SEL.claimManyAsStealthBySig;
+  });
+}
+
+/** Most calls one relayed action may carry (a claim batches its coins inside one call, so a few is plenty). */
+export const MAX_ACTION_CALLS = 8;
+
+/** A stealth claim's coins (ClaimReq.tokens), for the server's own-vault read. */
+export function stealthClaimTokens(c: ActionCall): Address[] {
+  const s = selOf(c.data);
+  if (s !== SEL.claimManyBySig && s !== SEL.claimManyAsStealthBySig) return [];
+  try {
+    const dec = decodeFunctionData({ abi: claimAbi, data: c.data });
+    return [...((dec.args[0] as { tokens: readonly Address[] }).tokens ?? [])].slice(0, 32);
+  } catch { return []; }
 }
 
 /** A public claim's coin (first address argument), for the server's own-vault / own-hook read. */
@@ -205,6 +245,7 @@ export function parseGaslessActionRequest(x: unknown): GaslessActionRequest {
   if (typeof o.signer !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(o.signer) || /^0x0{40}$/i.test(o.signer))
     throw new GaslessReject("bad signer");
   if (!Array.isArray(o.calls) || o.calls.length < 1) throw new GaslessReject("no calls");
+  if (o.calls.length > MAX_ACTION_CALLS) throw new GaslessReject("too many calls in one request");
   const calls: ActionCall[] = o.calls.map((c, i) => {
     const r = (c ?? {}) as Record<string, unknown>;
     if (typeof r.to !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(r.to)) throw new GaslessReject(`bad call ${i} to`);

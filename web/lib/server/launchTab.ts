@@ -47,3 +47,19 @@ export async function payTab(wallet: Address | string, paid: bigint, s: Kv = kv(
   const left = await s.incrByEx(key(wallet), -Number(paid), TAB_TTL_SEC);
   if (left <= 0) await s.del(key(wallet));
 }
+
+/**
+ * Puts `amount` on the tab BEFORE the relayed tx is sent, refusing (and taking it back) when that would pass tabMax().
+ * Audit 2026-11-21 M-1: checking first and adding only after the tx landed let many launches sent at once all pass the
+ * check. Returns the function that takes the reservation back (call it when nothing landed).
+ */
+export async function reserveTab(wallet: Address | string, amount: bigint, refusal: string, s: Kv = kv()): Promise<() => Promise<void>> {
+  if (amount <= BigInt(0)) return async () => undefined;
+  const now = BigInt(await s.incrByEx(key(wallet), Number(amount), TAB_TTL_SEC));
+  const release = () => payTab(wallet, amount, s);
+  if (now > tabMax()) {
+    await release().catch(() => undefined);
+    throw Object.assign(new Error(refusal), { notSent: true });
+  }
+  return release;
+}

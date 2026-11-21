@@ -45,5 +45,6 @@ export async function send(coin: string, text: string): Promise<SendResult> {
 }
 export async function login() { return { token: "mock", exp: Date.now() + 3600_000, addr: ME }; }
 export function logout() { /* noop */ }
-export const DiscipleChatMock = { history, subscribe, send, login, logout, EMOTES };
+export async function report(_coin: string, _id: string, _reason?: string) { return { ok: true }; }
+export const DiscipleChatMock = { history, subscribe, send, login, logout, report, EMOTES };
 export function installMock() { if (typeof window !== "undefined") (window as unknown as { DiscipleChat: typeof DiscipleChatMock }).DiscipleChat = DiscipleChatMock; }

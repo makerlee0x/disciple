@@ -40,7 +40,9 @@ export type PrivyHooks = { /** Privy finished loading (usePrivy().ready) */ read
   linkX?: () => void };
 let privyHooks: PrivyHooks | null = null;
 const privySubs = new Set<() => void>();
+let idTok: { tok: string; exp: number } | undefined;   // privyIdentityToken cache
 export function registerPrivy(h: PrivyHooks | null) {
+  if (!h?.authenticated) idTok = undefined;
   privyHooks = h;
   // a Sign in tap that came before the Privy chunk finished loading opens the window as soon as Privy is ready
   if (h && h.ready !== false && pendingLoginAt && Date.now() - pendingLoginAt < PENDING_LOGIN_MS) { pendingLoginAt = 0; queueMicrotask(() => h.login()); }
@@ -66,9 +68,21 @@ export const privySecurity = (): PrivySecurity | null => (privyHooks?.authentica
 export async function privyAccessToken(): Promise<string | null> {
   try { return (await privyHooks?.getAccessToken?.()) ?? null; } catch { return null; }
 }
+/** The identity token, reused until 2 min before its exp (maker 2026-11-21: Privy's getIdentityToken took 150-225 ms on
+ *  every trade). The relay checks exp itself, so a reused token is never accepted past its life. */
+const jwtExpMs = (t: string): number => {
+  try { const p = JSON.parse(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))) as { exp?: number }; return typeof p.exp === "number" ? p.exp * 1000 : 0; } catch { return 0; }
+};
 export async function privyIdentityToken(): Promise<string | null> {
-  try { return (await privyHooks?.getIdentityToken?.()) ?? null; } catch { return null; }
+  if (idTok && idTok.exp - Date.now() > 120_000) return idTok.tok;
+  try {
+    const tok = (await privyHooks?.getIdentityToken?.()) ?? null;
+    idTok = tok ? { tok, exp: jwtExpMs(tok) } : undefined;
+    return tok;
+  } catch { return null; }
 }
+/** Drop the cached identity token (sign-out, or the relay refused it). */
+export function forgetIdentityToken() { idTok = undefined; }
 export function privyLogin() {
   if (!privyHooks) {
     // Privy is set up but its chunk is still on the way: start it and open the window once it's ready

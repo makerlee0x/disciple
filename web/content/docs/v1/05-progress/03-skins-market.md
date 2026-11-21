@@ -35,7 +35,20 @@ Each copy also rolls a burn grade (Factory Fresh → Burnt Out), a pattern, and 
 
 Buy and sell skins for USDG. Equip what you own under **Your rocket** in your Hangar.
 
-| | |
-|---|---|
-| Market fee | 7% of the sale |
-| Network fee | Shown before you buy |
+```cards
+List it | Anyone can buy | | | gold
+Private sale | Only one pilot can buy | | | cyan
+Cash offer | Offer on any skin | | | pink
+```
+
+- **Cash offer:** offer a price on any tradable copy. No money is held. If the seller accepts, you have a day to pay. Offers last a week.
+- Prices run from $1 to $10,000.
+
+On a $100 sale:
+
+```split
+93 | Seller gets | $93 | up
+7 | Market fee | $7 | white
+```
+
+The network fee on a buy shows before you confirm.

@@ -17,12 +17,13 @@ Every number in one place.
 | Orbit | $33,333 · 84.24% sold on the curve |
 | Into the locked LP | 15.76% of supply + base raised |
 | After orbit | Uniswap v4, LP locked forever |
-| Pair coins | 12 · STRATEGY default |
+| Pair coins | 12 · STRATEGY default · priced live at launch |
 | Smallest buy | $3 |
 | Burn | Any holder, any time |
 | Max buy / sell | None |
 | Price protection | 5 · 15 · 30 · 50% or Off · default 15% |
-| Launch fee | $0 |
+| Launch fee | $0 (network fee from Cash, shown first) |
+| Trade network fee | Flat, in USDG, 25¢ max |
 
 ## Fees
 
@@ -32,6 +33,7 @@ Every number in one place.
 | Split | 0.33% creator · 0.33% locked LP · 0.33% treasury · 0.01% community rewards |
 | Creator tax | 0–7%, curve only, ends at orbit |
 | Creator fees go to | Creator, locked pool or burn · locked at launch |
+| Crew tip | 3.3% default, Team range 0–12%, fixed per rocket at launch |
 | Sniper tax | 99 · 25 · 3 · 1 · 0.3 · 0.1 · 0.03% by second, 0% from 7s |
 | Sniper tax goes to | Locked LP if orbit within 12 days, else community rewards |
 
@@ -41,7 +43,7 @@ Every number in one place.
 |---|---|---|---|
 | Max bag | 1% → 3.33% | 3.33% → 7.77% | None |
 | Creator Ticket | 1.2% · locked to orbit | 3.33% | 7.77% |
-| Crew tip | 3.3% over 0.5% of mcap profit (set per rocket at launch) | — | — |
+| Crew tip | 3.3% over 0.5% of mcap profit | — | — |
 
 Over the max bag: fills to the cap, refunds the rest.
 
@@ -63,11 +65,27 @@ Over the max bag: fills to the cap, refunds the rest.
 | Fee | 1.1 bp round trip |
 | Leverage | Duel 50× · Climb 10–50× |
 | Cash in / out | Relay · USDG ⇄ USDC · from $6 |
+| Real money | Not in the US (Simulator only there) |
 | Duel | 1 min · fuel $20 / $50 / $150 · NUKE at −39% (50×) · 30s overtime |
-| Climb | 5 levels · 1 min · then free mode |
+| Climb | 5 levels · 1 min · 10–50× · targets +1 / +3 / +5 / +7.5 / +10% · from $2 a round · then free mode |
 
 ## Altitude and bombs
 
 18 tiers, Launch Pad ($3,333) to Seventh Heaven ($7.77B). See [Flight and altitude](/docs/game/flight).
 
 GRENADE <2% · BUNKER BUSTER 2–5% · WARHEAD 5–12% · MOAB 12–25% · ATOM BOMB 25–50% · NUKE 50%+
+
+## Market
+
+| | |
+|---|---|
+| Fee | 7% of the sale |
+| Prices | $1 to $10,000 |
+| Cash offers | Last 7 days · 1 day to pay once accepted |
+
+## Add cash
+
+| | |
+|---|---|
+| Card or Apple Pay | $10 to $2,000 |
+| Send USDG | Robinhood Chain only |

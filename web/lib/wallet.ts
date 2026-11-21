@@ -180,8 +180,73 @@ export async function execCalls(calls: Call[], o: SendOpts = {}): Promise<ExecRe
 export async function warmGaslessSell(coin: Address): Promise<void> {
   const owner = gaslessSigner();
   if (!owner) return;
-  const [{ createPublicClient, http }, { primePermit }] = await Promise.all([import("viem"), import("./trade/gaslessClient")]);
-  await primePermit(createPublicClient({ chain: ACTIVE_CHAIN, transport: http() }) as never, owner.address, coin);
+  const [pc, { primePermit }] = await Promise.all([gaslessPc(), import("./trade/gaslessClient")]);
+  await primePermit(pc as never, owner.address, coin);
+}
+/** One public client for gasless reads (keeps the RPC connection warm between the warm-up and the tap). */
+let gaslessPcP: Promise<unknown> | undefined;
+function gaslessPc(): Promise<unknown> {
+  gaslessPcP ??= import("viem").then(({ createPublicClient, http }) => createPublicClient({ chain: ACTIVE_CHAIN, transport: http() }));
+  return gaslessPcP;
+}
+/**
+ * Off-tap warm-up for the first BUY (speed, maker 2026-11-21: first buy 2.1 s vs 0.9 s sell): learn the USDG → PERMIT2
+ * allowance and read the Permit2 nonce word, so the tap signs with no chain reads, and ask the relay to warm its
+ * relayer key / base fee / nonce / RPC connections (disciple_gaslessWarm; signs and sends nothing).
+ */
+export async function warmGaslessBuy(): Promise<void> {
+  const owner = gaslessSigner();
+  if (!owner) return;
+  const [{ deployment }, pc, { primePermit, permit2NonceBook }] = await Promise.all([import("./chains"), gaslessPc(), import("./trade/gaslessClient")]);
+  await Promise.allSettled([
+    import("./aa/session").then(m => m.privyIdentityToken()),   // cached until near exp: the tap reuses it
+    primePermit(pc as never, owner.address, deployment().usdg),
+    permit2NonceBook(pc as never).prime(owner.address),
+    warmGaslessRelay(owner.address),
+  ]);
+}
+/** Relay warm ping (server-side keys, fee and RPC TLS); cheap, safe to repeat. */
+export function warmGaslessRelay(signer: Address): Promise<unknown> {
+  return fetch("/api/gasless", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_gaslessWarm", params: [signer] }) }).catch(() => undefined);
+}
+
+/*
+ * PRE-SIGNED TAPS (maker 2026-11-21: "chain is 93 ms and we're 900 ms, unacceptable"): the browser signs the selected
+ * BOOST / DUMP preset's Permit2 witness in the background, so a tap POSTs at once instead of waiting ~0.2-0.5 s for
+ * Privy. One use per signature (own Permit2 nonce bit; unused ones just leave a bit unspent). Used only for the same
+ * coin, side and exact amount, within PRE_TOL_BPS of the tap's own minOut and PRE_MAX_AGE_MS old; otherwise the tap
+ * signs fresh as before. Never cached with a first-time EIP-2612 approval (its nonce is single-use).
+ */
+type Presigned = { q: import("./trade/gaslessPermit2").GaslessRequest; minOut: bigint; at: number };
+const PRESIGNED = new Map<string, Presigned>(), PRESIGNING = new Set<string>();
+const PRE_MAX_AGE_MS = 45_000, PRE_REFRESH_MS = 30_000, PRE_TOL_BPS = BigInt(25), PRE_MAX = 8;
+const preKey = (signer: Address, coin: Address, isBuy: boolean, amountIn: bigint) => `${signer.toLowerCase()}:${coin.toLowerCase()}:${isBuy ? "b" : "s"}:${amountIn}`;
+const preNear = (a: bigint, b: bigint) => (a > b ? a - b : b - a) * BigInt(10_000) <= b * PRE_TOL_BPS;
+export async function presignGasless(a: { coin: Address; isBuy: boolean; amountIn: bigint; minOut: bigint }): Promise<void> {
+  const owner = gaslessSigner();
+  if (!owner || a.amountIn <= BigInt(0) || a.minOut <= BigInt(0)) return;
+  const k = preKey(owner.address, a.coin, a.isBuy, a.amountIn), cur = PRESIGNED.get(k);
+  if (cur && Date.now() - cur.at < PRE_REFRESH_MS && preNear(cur.minOut, a.minOut)) return;
+  if (PRESIGNING.has(k)) return;
+  PRESIGNING.add(k);
+  try {
+    const [{ deployment }, pc, { signGaslessTrade }] = await Promise.all([import("./chains"), gaslessPc(), import("./trade/gaslessClient")]);
+    const d = deployment();
+    const q = await signGaslessTrade(pc as never, owner, { router: d.gaslessRouter, usdg: d.usdg, coin: a.coin, isBuy: a.isBuy, amountIn: a.amountIn, minOut: a.minOut });
+    if (q.approval || gaslessSigner()?.address !== owner.address) return;
+    // one per coin + side (the selected preset): a newer amount replaces the older one
+    const side = k.slice(0, k.lastIndexOf(":"));
+    for (const x of PRESIGNED.keys()) if (x.startsWith(side + ":")) PRESIGNED.delete(x);
+    PRESIGNED.set(k, { q, minOut: a.minOut, at: Date.now() });
+    while (PRESIGNED.size > PRE_MAX) PRESIGNED.delete(PRESIGNED.keys().next().value as string);
+  } finally { PRESIGNING.delete(k); }
+}
+function takePresigned(owner: Address, a: { coin: Address; isBuy: boolean; amountIn: bigint; minOut: bigint }) {
+  const k = preKey(owner, a.coin, a.isBuy, a.amountIn), p = PRESIGNED.get(k);
+  if (!p) return undefined;
+  PRESIGNED.delete(k);   // single use, whatever happens next
+  if (Date.now() - p.at > PRE_MAX_AGE_MS || !preNear(p.minOut, a.minOut)) return undefined;
+  return p.q;
 }
 
 /**
@@ -194,15 +259,15 @@ export async function execGasless(a: { coin: Address; isBuy: boolean; amountIn: 
   const owner = gaslessSigner();
   if (!owner) throw new SignInRequired();
   const { deployment } = await import("./chains");
-  const { createPublicClient, http } = await import("viem");
   const { signGaslessTrade, submitGasless, resetGaslessNonces, GaslessError } = await import("./trade/gaslessClient");
   const { AAError } = await import("./aa/core");
   const d = deployment();
-  const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
+  const pc = await gaslessPc();
   // Privy identity token (linked accounts; cached/auto-refreshed by Privy) fetched in parallel with signing.
   const tokenP = import("./aa/session").then(m => m.privyIdentityToken()).catch(() => null);
   const t0 = performance.now();
-  const q = await signGaslessTrade(pc as never, owner, { router: d.gaslessRouter, usdg: d.usdg, coin: a.coin, isBuy: a.isBuy, amountIn: a.amountIn, minOut: a.minOut });
+  const pre = takePresigned(owner.address, a);
+  const q = pre ?? await signGaslessTrade(pc as never, owner, { router: d.gaslessRouter, usdg: d.usdg, coin: a.coin, isBuy: a.isBuy, amountIn: a.amountIn, minOut: a.minOut });
   const tSigned = performance.now();
   try {
     const tok = await tokenP;
@@ -210,14 +275,15 @@ export async function execGasless(a: { coin: Address; isBuy: boolean; amountIn: 
     const r = await submitGasless(q, "/api/gasless", fetch, tok);
     const tResp = performance.now();
     // ?timing=1 box (lib/trade/flowTiming): where a gasless trade's time goes
-    void import("./trade/flowTiming").then(m => m.showGaslessTiming({ side: a.isBuy ? "buy" : "sell", sign: tSigned - t0, token: tPost - tSigned, relay: tResp - tPost, t: r.t, via: r.via, server: r.server })).catch(() => undefined);
+    void import("./trade/flowTiming").then(m => m.showGaslessTiming({ side: a.isBuy ? "buy" : "sell", presigned: !!pre, sign: tSigned - t0, token: tPost - tSigned, relay: tResp - tPost, t: r.t, via: r.via, server: r.server })).catch(() => undefined);
     handOffLogs(r.txHash, r.logs);
     return { txHash: r.txHash, logs: r.logs, gasMode: "gasless", pressId: a.pressId };
   } catch (e) {
     if (!(e instanceof GaslessError)) throw e;
+    if (/identity token|Privy session|session's wallet/i.test(e.message)) void import("./aa/session").then(m => m.forgetIdentityToken()).catch(() => undefined);
     if (e.data.unclear) throw new AAError("Timeout", e.message, { txHash: e.data.txHash });
     if (e.data.txHash && e.data.notSent !== true) throw new AAError("Reverted", e.message, { txHash: e.data.txHash, ...(e.data.revert ? { revertData: e.data.revert } : {}) });
-    if (/InvalidNonce|0x756688fe/i.test(e.message + (e.data.revert ?? ""))) resetGaslessNonces(owner.address);
+    if (/InvalidNonce|0x756688fe/i.test(e.message + (e.data.revert ?? ""))) { resetGaslessNonces(owner.address); PRESIGNED.clear(); }
     throw new AAError("Estimate", e.message, { revertData: e.data.revert, notSent: true });
   }
 }
