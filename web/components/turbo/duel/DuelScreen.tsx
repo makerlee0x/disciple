@@ -7,6 +7,8 @@
  */
 import { mountTurboPill } from "@/lib/turbo/turboPill";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import DuelPilots, { type PilotsHost } from "./DuelPilots";
 import LobbySettings from "@/components/turbo/LobbySettings";
 import { getTurboAdapter } from "@/lib/turbo";
 import { onPrivy, privyAccessToken, privyAuthenticated, privyLogin } from "@/lib/aa/sessionState";
@@ -71,6 +73,9 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
   const [gear, setGear] = useState(false);
   // bumped by the Simulator / Real money switch: the duel is set up again in place, no page reload
   const [run, setRun] = useState(0);
+  // friends + rivals (DuelPilots), portalled into the engine's VS FRIEND pane once a signed-in pilot is known
+  const [pilots, setPilots] = useState<{ slot: HTMLElement; host: PilotsHost } | null>(null);
+  const pilotsHost = useRef<PilotsHost | null>(null);
   useTurboMusic();
   useEffect(() => {
     let dead = false, api: EngineApi | null = null, me: string | null = null, myName: string | null = null, roomId: string | null = null;
@@ -193,22 +198,33 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
     };
     const refreshMe = async () => {
       if (guest && !(await ensureGuest())) { if (!dead) { me = null; api?.setMe(null, false); } return; }
-      if (!guest && !privyAuthenticated()) { me = null; api?.setMe(null, false); if (pendingRequest) api?.error(`Sign in to send @${pendingRequest} a duel request.`); return; }
+      if (!guest && !privyAuthenticated()) { me = null; setPilots(null); api?.setMe(null, false); if (pendingRequest) api?.error(`Sign in to send @${pendingRequest} a duel request.`); return; }
       const r = await duelApi.me();
       if (dead) return;
-      if (!r.ok) { me = null; api?.setMe(null, false); return; }
+      if (!r.ok) { me = null; setPilots(null); api?.setMe(null, false); return; }
+      if (!guest && ref.current && pilotsHost.current) {
+        const pane = ref.current.querySelector<HTMLElement>('[data-pane="friend"]:not(.budget)');
+        let slot = pane?.querySelector<HTMLElement>(".dp-slot") ?? null;
+        if (pane && !slot) { slot = document.createElement("div"); slot.className = "dp-slot"; pane.appendChild(slot); }
+        if (slot) { const host = pilotsHost.current; setPilots((p) => (p?.slot === slot ? p : { slot: slot!, host })); }
+      }
       me = r.pid; myName = r.name; void loadShips([r.pid]); if (fwGet() === "1") void claimFirstWin(); api?.setMe({ w: r.rating.w, l: r.rating.l, rating: r.rating.r, streak: r.rating.streak }, true);
       if (r.active) follow(r.active.id);
       else if (pendingCode) { const c = pendingCode; pendingCode = null; const j = await duelApi.join(c); if (j.ok) { trackFunnel("duel_join"); follow(j.room.id); } else api?.error(j.reason); }
-      else if (pendingRequest) {
-        const to = pendingRequest; pendingRequest = null;
-        const inv = await duelApi.invite("pro", DUEL_LEN_MS);
-        if (!inv.ok) { api?.error(inv.reason); return; }
-        api?.invite(inv.code, location.origin + inv.path, inv.share ? location.origin + inv.share : undefined); follow(inv.room.id);
-        const sent = await duelApi.request(to, inv.code);
-        trackFunnel("duel_request");
-        if (!sent.ok) api?.error(sent.reason);
-      }
+      else if (pendingRequest) { const to = pendingRequest; pendingRequest = null; await requestDuel(to); }
+    };
+    /** open a friend room and ping `to` (a username or wallet) to join it: /vs/<pilot>'s request, and DUEL on a friend or rival */
+    const requestDuel = async (to: string) => {
+      const inv = await duelApi.invite("pro", DUEL_LEN_MS);
+      if (!inv.ok) { api?.error(inv.reason); return; }
+      api?.invite(inv.code, location.origin + inv.path, inv.share ? location.origin + inv.share : undefined); follow(inv.room.id);
+      const sent = await duelApi.request(to, inv.code);
+      trackFunnel("duel_request");
+      if (!sent.ok) api?.error(sent.reason);
+    };
+    pilotsHost.current = {
+      challenge: (slug: string) => { void requestDuel(slug); },
+      join: (code: string) => { void host.join(code); },
     };
     // the welcome crate pays on the pilot's first win (lib/server/collection firstWinCrate) and opens on the result card
     let claiming = false;
@@ -342,7 +358,7 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
     setDuelGuest(guest);
     const offPrivy = guest ? () => {} : onPrivy(() => { void refreshMe(); });
 
-    return () => { dead = true; offSwitch(); offPill(); setDuelGuest(false); stopQueue(); unfollow(); stopPrice(); offPrivy(); api?.destroy(); };
+    return () => { dead = true; pilotsHost.current = null; setPilots(null); offSwitch(); offPill(); setDuelGuest(false); stopQueue(); unfollow(); stopPrice(); offPrivy(); api?.destroy(); };
   }, [run]);
-  return <><GeoBanner /><div ref={ref} /><LobbySettings mode="duel" open={gear} onClose={() => setGear(false)} /></>;
+  return <><GeoBanner /><div ref={ref} /><LobbySettings mode="duel" open={gear} onClose={() => setGear(false)} />{pilots && createPortal(<DuelPilots host={pilots.host} />, pilots.slot)}</>;
 }

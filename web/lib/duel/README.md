@@ -14,7 +14,13 @@ buzzer = one 30 s overtime. No cash pot: rewards are rating, XP and trophies onl
 | `app/api/duel/*` | `queue` (poll/leave), `invite`, `join`, `me`, `room/[id]` (GET state, POST ops), `room/[id]/stream` (SSE) |
 | `components/turbo/duel/DuelScreen.tsx` | host for the screen engine: server calls, live price, events |
 | `public/turbo/duel/engine.js` | the screens (lobby, search, invite, ready check, race, chat, result), ported from the signed-off prototype |
+| `lib/duel/social.ts`, `lib/server/duel/social.ts` | friends (added by name) and rivals (from your finished duels), `GET/POST /api/duel/social`, shown in the VS FRIEND tab (`components/turbo/duel/DuelPilots.tsx`) |
 | `scripts/test-duel.mts` | `pnpm test:duel` |
+| `scripts/test-duel-pvp.mts` | `pnpm test:duel-pvp`: matchmaking rating, repeat-opponent cap, friends and rivals |
+
+Matchmaking pairs on a hidden matchmaking rating (MMR, `duel:mmr:*`) that moves on every queue duel, ranked or unranked,
+so pairing is by skill even while ranked play is off. The same two pilots past 3 queue duels in an hour only pair again
+once both have waited 20 s, and a ranked rematch past that cap is unranked.
 
 Flow: quick match polls `POST /api/duel/queue` every 1.5 s; the window widens 15 rating points a second (cap 400); after
 20 s the lobby offers a bot match (labelled, unrated, runs in the browser). Friend: `POST /api/duel/invite` → code +

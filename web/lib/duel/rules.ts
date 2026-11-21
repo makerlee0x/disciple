@@ -186,6 +186,20 @@ export const matchWindow = (waitedMs: number) => Math.min(400, 50 + Math.floor(w
 /** After this long in the queue the lobby offers a practice bot (always labelled as a bot). */
 export const BOT_OFFER_MS = 20_000;
 
+/* ---------- matchmaking rating + repeat opponents ---------- */
+/** Quick match pairs on a hidden matchmaking rating (MMR), not the shown rating. MMR moves on every online duel from the
+ *  queue, ranked or unranked, with the same Elo as `rate`, so pairing is by skill even while ranked play is off and the
+ *  shown rating sits at 1,200 for everyone. A pilot with no MMR yet starts from their shown rating. */
+export const mmrSeed = (shown: Rating): Rating => ({ ...newRating(), r: shown.r, games: shown.games, s: shown.s });
+/** The same two pilots meeting through the queue or a ranked rematch more than this many times in PAIR_WINDOW_S stops counting
+ *  toward rank (the rematch is unranked) and the queue looks for someone else first. Stops two friends trading wins. */
+export const PAIR_CAP = 3;
+export const PAIR_WINDOW_S = 3600;
+/** After this long in the queue a repeat opponent is fine again (a quiet hour beats an empty queue). */
+export const REPEAT_OK_MS = 20_000;
+/** Can these two pair from the queue? Repeat opponents wait until both have queued REPEAT_OK_MS. */
+export const pairOk = (games: number, waitedA: number, waitedB: number) => games < PAIR_CAP || (waitedA >= REPEAT_OK_MS && waitedB >= REPEAT_OK_MS);
+
 /* ---------- invite codes ---------- */
 const CODE_ABC = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 export function makeCode(rand: () => number = Math.random): string { let c = ""; for (let i = 0; i < 4; i++) c += CODE_ABC[Math.floor(rand() * CODE_ABC.length)]; return c; }

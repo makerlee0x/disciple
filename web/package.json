@@ -28,6 +28,7 @@
     "test:lighter": "tsx --conditions=react-server --test scripts/test-lighter.mts",
     "test:turbo-profile": "tsx --test scripts/test-turbo-profile.mts",
     "test:duel": "tsx --conditions=react-server --test scripts/test-duel.mts && NEXT_PUBLIC_DUEL_RANKED=1 tsx --conditions=react-server --test scripts/test-duel.mts",
+    "test:duel-pvp": "tsx --conditions=react-server --test scripts/test-duel-pvp.mts",
     "test:climb": "tsx --test scripts/test-climb.mts",
     "test:chat-no-trades": "tsx --conditions=react-server --test scripts/test-chat-no-trades.mts",
     "test:sim": "node scripts/test-sim.mjs",
