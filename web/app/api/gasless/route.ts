@@ -61,7 +61,7 @@ export async function POST(req: Request) {
     });
     void ipGate.catch(() => undefined);
     if (body.method === "disciple_gaslessWarm") { await ipGate; return NextResponse.json({ jsonrpc: "2.0", id, result: await warmGasless(body.params[0], metrics) }); }
-    if (body.method === "disciple_gaslessWithdrawQuote") { await ipGate; return NextResponse.json({ jsonrpc: "2.0", id, result: await quoteGaslessWithdraw(body.params[0]) }); }
+    if (body.method === "disciple_gaslessWithdrawQuote") { await ipGate; return NextResponse.json({ jsonrpc: "2.0", id, result: await quoteGaslessWithdraw(body.params[0], { idToken: identityToken(req) }) }); }
     if (body.method === "disciple_gaslessActionQuote") { await ipGate; return NextResponse.json({ jsonrpc: "2.0", id, result: await quoteGaslessAction(body.params[0]) }); }
     if (body.method === "disciple_walletLaunchQuote") { await ipGate; return NextResponse.json({ jsonrpc: "2.0", id, result: await quoteWalletLaunch(body.params[0]) }); }
     if (body.method === "disciple_anonFreeLaunchQuote") { await ipGate; return NextResponse.json({ jsonrpc: "2.0", id, result: await quoteAnonFreeLaunch(body.params[0]) }); }

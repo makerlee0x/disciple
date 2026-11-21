@@ -29,6 +29,7 @@ import { relayBreaker } from "./relayBreaker";
 import type { RelayMetrics } from "./relayMetrics";
 import { relayerKey } from "./relayer";
 import { relayReadTransport } from "./relayReadTransport";
+import { payTab, tabSlice } from "./launchTab";
 
 const timed = <T>(m: RelayMetrics | undefined, stage: string, task: () => Promise<T>) => m ? m.span(stage, task) : task();
 const notSent = (e: unknown) => Object.assign(e as Error, { notSent: true });
@@ -60,7 +61,19 @@ export type QuoteOpts = {
   usdgDecimals?: number;
   /** more forwarder withdraws batched into the same tx (a market buy pays the seller and the treasury: 1) */
   extraWithdraws?: number;
+  /** the caller's Privy identity token: only a quote whose sign-in owns `signer` carries that account's anon launch tab */
+  idToken?: string | null;
 };
+
+/** The anon launch tab slice a quote for `signer` carries: only with a sign-in that owns the wallet (never public). */
+async function quotedTabSlice(signer: unknown, idToken: string | null | undefined): Promise<bigint> {
+  if (!idToken || typeof signer !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(signer)) return BigInt(0);
+  try {
+    const session = await verifySessionToken(idToken);
+    if (!session.user.wallets.includes(signer.toLowerCase())) return BigInt(0);
+    return await tabSlice(signer);
+  } catch { return BigInt(0); }
+}
 
 /** disciple_gaslessWithdrawQuote: no signature, no Privy session. */
 export async function quoteGaslessWithdraw(raw: unknown = {}, opts: QuoteOpts = {}): Promise<WithdrawQuoteResult> {
@@ -82,7 +95,8 @@ export async function quoteGaslessWithdraw(raw: unknown = {}, opts: QuoteOpts = 
   const feeTo = opts.feeTo ?? withdrawFeeTo();
   const baseFee = opts.baseFee ?? (await directRelayer()).fee;
   const rate = opts.rate ?? await liveUsdgPerEth();
-  const fee = withdrawFeeRaw(gas, baseFee, rate, decimals);
+  // network fee + (signed in as this wallet) up to tabStep() of its anon launch tab (lib/server/launchTab)
+  const fee = withdrawFeeRaw(gas, baseFee, rate, decimals) + await quotedTabSlice(o.signer, opts.idToken);
   return {
     fee: fee.toString(), feeTo, gas: gas.toString(), gasPrice: baseFee.toString(), rate: rate.toString(),
     usdg: dep.usdg, usdgDecimals: decimals, minAmount: minWithdrawAmount(fee, decimals).toString(),
@@ -137,6 +151,7 @@ export async function relayGaslessWithdraw(raw: unknown, d: GaslessDeps = {}): P
   const t0 = Date.now();
   let q: AnyWithdrawRequest;
   let target: Address;
+  let minFeeNow = BigInt(0);
   const dep = deployment();
   try {
     requireGaslessMode();
@@ -154,6 +169,7 @@ export async function relayGaslessWithdraw(raw: unknown, d: GaslessDeps = {}): P
     // between quote and send); the player still pays the quoted (signed) fee.
     const current = feeFloor(withdrawFeeRaw(gas, (await directRelayer()).fee, rate, dep.usdgDecimals));
     if (q.fee < current) throw new GaslessReject("fee changed, please retry");
+    minFeeNow = current;
     const nowSec = d.nowSec ?? Math.floor(Date.now() / 1000);
     if (isForwarderWithdraw(q)) {
       checkForwarderWithdrawRequest(q, { usdg: dep.usdg, usdgDecimals: dep.usdgDecimals, nowSec, feeTo, minFee: current });
@@ -171,7 +187,12 @@ export async function relayGaslessWithdraw(raw: unknown, d: GaslessDeps = {}): P
   } catch (e) { throw notSent(e); }
   const data = isForwarderWithdraw(q) ? encodeForwarderWithdrawCall(q) : encodeWithdrawCall(q, dep.usdg);
   const { relayer, did } = await admitWithdraw(q.signer, target, data, d);
-  return commitWithdraw(q.signer, target, data, WITHDRAW_TX_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did);
+  // what this cash-out carries toward the anon launch tab: the signed fee covers today's network fee + the slice
+  const slice = await tabSlice(q.signer).catch(() => BigInt(0));
+  const carried = slice > BigInt(0) && q.fee >= minFeeNow + slice ? slice : BigInt(0);
+  const res = await commitWithdraw(q.signer, target, data, WITHDRAW_TX_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did);
+  if (res.success && carried > BigInt(0)) await payTab(q.signer, carried).catch((e) => console.error("[disciple] launch tab not paid down", { e: String(e) }));
+  return res;
 }
 
 /** Where the market's 7% goes (MARKET_TREASURY_ADDRESS). Unset ⇒ null, and buying stays off (fail closed). */

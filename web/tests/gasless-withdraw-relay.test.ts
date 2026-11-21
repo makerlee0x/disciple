@@ -23,6 +23,7 @@ import { strikeSource } from "../lib/server/relayLockdown";
 import { MULTICALL3, multicall3Abi, transferTypedData, WITHDRAW_TX_GAS_LIMIT, withdrawFeeRaw, withdrawGas } from "../lib/trade/gaslessWithdraw";
 import { DEPLOYMENTS } from "../lib/chains";
 import type { GaslessDeps } from "../lib/server/gaslessRelay";
+import { tabStep } from "../lib/server/launchTab";
 
 const user = privateKeyToAccount(generatePrivateKey()), other = privateKeyToAccount(generatePrivateKey());
 const APP = "testapp0001";
@@ -89,6 +90,35 @@ describe("quote (no signature)", () => {
     expect(q.spender.toLowerCase()).toBe(MULTICALL3.toLowerCase());
     expect(BigInt(q.fee)).toBe(feeNow(false));
     expect(BigInt(q.minAmount)).toBe(feeNow(false) + 1n);
+  });
+});
+
+describe("anon launch tab (maker 2026-11-20: launch gas paid on later cash-outs)", () => {
+  const tabKey = () => `launchtab:46630:${user.address.toLowerCase()}`;
+  const owe = (raw: string) => h.get.mockImplementation(async (k: string) => (k === tabKey() ? raw : null));
+  const opts = () => ({ needsPermit: false, baseFee: BASE, rate: withdrawUsdgPerEth(), feeTo: feeTo() });
+  it("a quote signed in as the wallet carries up to one step of the tab", async () => {
+    owe("300000");
+    const q = await quoteGaslessWithdraw({ signer: user.address }, { ...opts(), idToken: TOKEN });
+    expect(BigInt(q.fee)).toBe(feeNow(false) + tabStep());
+    owe("5000");
+    const small = await quoteGaslessWithdraw({ signer: user.address }, { ...opts(), idToken: TOKEN });
+    expect(BigInt(small.fee)).toBe(feeNow(false) + 5000n);
+  });
+  it("never shows the tab without a sign-in that owns the wallet (no public leak)", async () => {
+    owe("300000");
+    for (const idToken of [null, "junk", session([other.address]).token]) {
+      const q = await quoteGaslessWithdraw({ signer: user.address }, { ...opts(), idToken });
+      expect(BigInt(q.fee)).toBe(feeNow(false));
+    }
+  });
+  it("a landed cash-out that carried the slice pays the tab down; one that didn't leaves it", async () => {
+    owe("300000");
+    await relay(await wire({ fee: feeNow() + tabStep() }));
+    expect(h.incrBy).toHaveBeenCalledWith(tabKey(), -Number(tabStep()), expect.any(Number));
+    h.incrBy.mockClear();
+    await relay(await wire());
+    expect(h.incrBy.mock.calls.filter((c) => c[0] === tabKey())).toHaveLength(0);
   });
 });
 

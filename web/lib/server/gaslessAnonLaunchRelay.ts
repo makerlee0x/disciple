@@ -30,9 +30,10 @@ import { directRelayer, sendDirect, simulateDirect, strikeSender, type DirectRel
 import { relayBreaker } from "./relayBreaker";
 import type { RelayMetrics } from "./relayMetrics";
 import { relayReadTransport } from "./relayReadTransport";
-import { isForwarderWithdraw, parseAnyWithdrawRequest, withdrawFeeRaw } from "../trade/gaslessWithdraw";
-import { relayGaslessWithdraw, withdrawFeeTo } from "./gaslessWithdrawRelay";
-import { feeFloor, liveUsdgPerEth } from "./usdgEthRate";
+import { withdrawFeeRaw } from "../trade/gaslessWithdraw";
+import { withdrawFeeTo } from "./gaslessWithdrawRelay";
+import { liveUsdgPerEth } from "./usdgEthRate";
+import { addToTab, tabMax, tabOwed } from "./launchTab";
 
 const timed = <T>(m: RelayMetrics | undefined, stage: string, task: () => Promise<T>) => m ? m.span(stage, task) : task();
 const notSent = (e: unknown) => Object.assign(e as Error, { notSent: true });
@@ -165,39 +166,30 @@ export async function quoteAnonFreeLaunch(raw: unknown, d: { nowSec?: number } =
 /**
  * disciple_anonFreeLaunch (maker 2026-11-19): an anon launch with no Ticket buy and creator fees burned or locked in the pool.
  * The relayer calls CreatorFeeHarvest.launchAnon(WithMode) itself, so the launch tx holds the relayer, the harvest,
- * AnonLauncher and the stealth owner only. The player pays the launch's gas in USDG with `payment`: a signed gasless cash-out
- * to the relayer (amount − its own network fee ≥ the launch gas fee), sent as its OWN transaction just before the launch,
- * so the wallet never appears in the launch tx. Order: every check + the exact launch simulation → payment → launch.
+ * AnonLauncher and the stealth owner only.
+ * maker 2026-11-20 ("Tab on next fees"): no payment tx at all. The old payment (a cash-out from the player's wallet to the
+ * relayer, one relayer nonce before the launch) tied $SPACE to its host on chain. The launch's gas in USDG now goes on the
+ * account's tab (lib/server/launchTab) and is paid a little at a time on later cash-outs. A `payment` an old app still sends
+ * is ignored (never relayed). Refused, nothing sent, while the tab plus this launch would pass tabMax().
  */
 export async function relayAnonFreeLaunch(raw: unknown, d: GaslessDeps = {}): Promise<GaslessConfirmed> {
   const t0 = Date.now();
   let q: FreeAnonLaunchRequest;
   let call: { harvest: Address; data: Hex };
-  const payRaw = (raw as { payment?: unknown } | null)?.payment;
   try {
     requireGaslessMode();
     relayBreaker.assertClosed();
     q = parseFreeAnonLaunchRequest(raw);
-    if (payRaw == null) throw new GaslessReject("anon launches pay their network fee now; reload and try again");
-    const pay = parseAnyWithdrawRequest(payRaw);
-    if (!isForwarderWithdraw(pay)) throw new GaslessReject("please update the app and try again");
-    if (pay.signer.toLowerCase() !== q.wallet.toLowerCase()) throw new GaslessReject("pay from the wallet you're signed in with");
-    if (pay.destination.toLowerCase() !== withdrawFeeTo().toLowerCase()) throw new GaslessReject("the launch fee isn't to the relayer");
     call = await freeLaunchCall(q, d.nowSec ?? Math.floor(Date.now() / 1000));
   } catch (e) { throw notSent(e); }
   const { relayer, did } = await admitLaunch(q.wallet, call.harvest, call.data, d);
+  let fee: bigint;
   try {
-    const { fee } = await launchGasFee(call.harvest, call.data, relayer.address);
-    const pay = parseAnyWithdrawRequest(payRaw);
-    if (pay.amount - pay.fee < feeFloor(fee)) throw new GaslessReject("the network fee changed, please retry");
+    ({ fee } = await launchGasFee(call.harvest, call.data, relayer.address));
+    if ((await tabOwed(q.wallet)) + fee > tabMax()) throw new GaslessReject("cash out once to settle your last anon launch's network fee, then launch again");
   } catch (e) { throw notSent(e); }
-  // the payment is its own tx (same gates, budget and fee rules as any cash out); nothing is launched unless it landed
-  const paid = await relayGaslessWithdraw(payRaw, { ...d, onPending: undefined });
-  if (!paid.success) throw notSent(new GaslessReject("the launch fee didn't go through, so nothing was launched"));
-  try {
-    return await commitLaunch(q.wallet, call.harvest, call.data, ANON_LAUNCH_TX_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did);
-  } catch (e) {
-    console.error("[disciple] anon launch failed after its fee was paid", { wallet: q.wallet, feeTx: paid.txHash, notSent: (e as { notSent?: boolean }).notSent === true });
-    throw e;
-  }
+  const res = await commitLaunch(q.wallet, call.harvest, call.data, ANON_LAUNCH_TX_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did);
+  // only a landed launch goes on the tab (a revert is the relayer's loss, as for any relayed tx)
+  if (res.success) await addToTab(q.wallet, fee).catch((e) => console.error("[disciple] anon launch tab not recorded", { e: String(e) }));
+  return res;
 }
