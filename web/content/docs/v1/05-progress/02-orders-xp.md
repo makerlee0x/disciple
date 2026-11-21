@@ -13,29 +13,49 @@ section: Progress
 
 ## Orders
 
-Three daily (new at 00:00 UTC) and three weekly (new Monday 00:00 UTC). Everyone gets the same ones. They're checked from on-chain trades, so there's nothing to claim. XP lands a minute or two after the trade that finished it.
+Three daily (new at 00:00 UTC) and three weekly (new Monday 00:00 UTC). Everyone gets the same ones. They're checked from your trades, so there's nothing to claim. XP lands a minute or two after the trade that finished it.
 
-| Example Order | XP |
-|---|---|
-| Ride a rocket up one tier | 100 |
-| Boost an Easy, a Hard and an Expert rocket | 200 |
-| Stay aboard one rocket for 24 hours | 500 |
-| Launch a rocket | 750 |
-| Be aboard when a rocket hits orbit | 1,000 |
+```bars
+Ride a rocket up one tier | 100 | 100 XP | cyan
+Boost Easy, Hard and Expert | 200 | 200 XP | cyan
+Stay aboard 24 hours | 500 | 500 XP | gold
+Launch a rocket | 750 | 750 XP | gold
+Be aboard at orbit | 1000 | 1,000 XP | champagne
+```
 
 Finish all of the week's Orders for an Epic crate.
 
 ## Trophies
 
-One-time, paid once by rarity: Common 100 · Rare 250 · Epic 600 · Legendary 1,500 · Mythic 4,000 XP. Your first launch pays 500.
+One-time, paid once by rarity:
+
+```bars
+Common | 100 | 100 XP | #A7AFBE
+Rare | 250 | 250 XP | #4F8BFF
+Epic | 600 | 600 XP | #A066FF
+Legendary | 1500 | 1,500 XP | #FF9A3C
+Mythic | 4000 | 4,000 XP | champagne
+```
+
+Your first launch pays 500.
 
 ## Levels and prestige
 
-Level 2 costs 200 XP, and each level after costs 40 more. An active pilot hits 50 in about 12 weeks. At 50 you can **prestige**: back to level 1, prestige badge up. Prestige 0 is **Normie**.
+Level 2 costs 200 XP, and each level after costs 40 more. Total XP to reach each level:
+
+```bars
+Level 10 | 3240 | 3,240 | cyan
+Level 20 | 10640 | 10,640 | cyan
+Level 30 | 22040 | 22,040 | gold
+Level 40 | 37440 | 37,440 | gold
+Level 50 | 56840 | 56,840 | champagne
+```
+
+An active pilot hits 50 in about 12 weeks. At 50 you can **prestige**: back to level 1, prestige badge up. Prestige 0 is **Normie**.
 
 ## Ranks
 
-**Top pilots** ranks pilots on points from every mode, plus Duel and Climb boards and a Rockets board by $ PnL. Ranks reset every 12 weeks. Lifetime points add up and never reset.
+The **Leaderboard** ranks pilots on points from every mode, plus Duel and Climb boards and a Rockets board by $ PnL. Ranks reset every 12 weeks. Lifetime points add up and never reset.
 
 ## Fair play
 

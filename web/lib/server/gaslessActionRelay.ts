@@ -12,7 +12,7 @@ import { ACTIVE_CHAIN, deployment } from "../chains";
 import { GaslessReject, PERMIT2 } from "../trade/gaslessPermit2";
 import {
   MULTICALL3, actionGas, actionTxGasLimit, actionWitness, checkGaslessActionRequest, claimTokenArg, encodeActionCall, encodeForwarderActionCall,
-  isActionKind, parseGaslessActionRequest, transferTypedData, withdrawFeeRaw, type ActionKind, type GaslessActionRequest,
+  isActionKind, isStealthAction, parseGaslessActionRequest, stealthClaimTokens, transferTypedData, withdrawFeeRaw, type ActionKind, type GaslessActionRequest,
 } from "../trade/gaslessAction";
 import { feeFloor, liveUsdgPerEth, rateFromEnv, unmarkedRate } from "./usdgEthRate";
 import { requireGaslessMode, type GaslessConfirmed, type GaslessDeps } from "./gaslessRelay";
@@ -20,10 +20,22 @@ import { shouldStrikeIncludedRevert } from "./gaslessStrike";
 import { relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";
 import { requireSessionWallet, verifySessionToken } from "./gaslessSession";
 import { directRelayer, sendDirect, simulateDirect, strikeSender, type DirectRelayer, type OnPending } from "./fastRelay";
-import { relayBreaker } from "./relayBreaker";
+import { recordSenderRevert, relayBreaker } from "./relayBreaker";
 import type { RelayMetrics } from "./relayMetrics";
 import { relayerKey } from "./relayer";
 import { relayReadTransport } from "./relayReadTransport";
+
+import { reserveTab } from "./launchTab";
+/** Runs `send` with `amount` reserved on the tab first; a send that moved nothing, or a revert, takes it back. */
+async function withTab<T extends { success: boolean }>(wallet: Address, amount: bigint, refusal: string, send: () => Promise<T>): Promise<T> {
+  const release = await reserveTab(wallet, amount, refusal);
+  let res: T;
+  try { res = await send(); }
+  catch (e) { if ((e as { notSent?: boolean }).notSent) await release().catch(() => undefined); throw e; }
+  if (!res.success) await release().catch(() => undefined);   // a revert is the relayer's loss, as for any relayed tx
+  return res;
+}
+
 
 const timed = <T>(m: RelayMetrics | undefined, stage: string, task: () => Promise<T>) => m ? m.span(stage, task) : task();
 const notSent = (e: unknown) => Object.assign(e as Error, { notSent: true });
@@ -83,7 +95,8 @@ async function claimHomes(q: Pick<GaslessActionRequest, "kind" | "calls">): Prom
   const out = new Set<string>();
   if (q.kind !== "anonClaim") return out;
   const dep = deployment();
-  const tokens = [...new Set(q.calls.map(claimTokenArg).filter((t): t is Address => !!t).map((t) => t.toLowerCase() as Address))];
+  const named = [...q.calls.map(claimTokenArg).filter((t): t is Address => !!t), ...q.calls.flatMap(stealthClaimTokens)];
+  const tokens = [...new Set(named.map((t) => t.toLowerCase() as Address))].slice(0, 32);
   await Promise.all(tokens.map(async (t) => {
     const [hook, curve] = await Promise.all([
       isZeroAddr(dep.migration) ? null : pc.readContract({ address: dep.migration, abi: coinHomeAbi, functionName: "hookOf", args: [t] }).catch(() => null),
@@ -119,7 +132,10 @@ export async function quoteGaslessAction(raw: unknown = {}, opts: ActionQuoteOpt
   const baseFee = opts.baseFee ?? (await directRelayer()).fee;
   const rate = opts.rate ?? await liveUsdgPerEth();
   const quoted = kind === "trampPull" ? 0n : withdrawFeeRaw(gas, baseFee, rate, decimals);
-  const sponsored = await sponsoredClaim(kind, typeof o.signer === "string" ? o.signer as Address : undefined, quoted);
+  // a hidden coin's own action never takes a fee from the wallet (it would name the wallet next to the coin): its gas
+  // goes on the private anon tab when it lands (relayGaslessAction)
+  const stealth = isStealthAction({ kind, calls: o.calls });
+  const sponsored = stealth || await sponsoredClaim(kind, typeof o.signer === "string" ? o.signer as Address : undefined, quoted);
   const fee = sponsored ? 0n : quoted;
   let keeperTipBps = 0;
   if (kind === "trampPull") {
@@ -165,7 +181,8 @@ async function commitAction(signer: Address, to: Address, data: Hex, gas: bigint
     catch (e) { revertData = (e as { data?: string }).data; }
     if (shouldStrikeIncludedRevert({ revertData, gasUsed: BigInt(res.rc.gasUsed), gasLimit: gas })) strikeSender(signer, did);
     const price = res.rc.effectiveGasPrice ? BigInt(res.rc.effectiveGasPrice) : BigInt(0);
-    await relayBreaker.record({ reverted: true, lossWei: BigInt(res.rc.gasUsed) * price }).catch(() => false);
+    const many = await recordSenderRevert({ who: signer, reverted: true, lossWei: BigInt(res.rc.gasUsed) * price }).catch(() => ({ tooMany: false }));
+    if (many.tooMany) strikeSender(signer, did);
   }
   return { kind: "confirmed", txHash: res.txHash, success, receipt: res.rc, gasUsed, via: String(res.via),
     t: { admission: tAdm, budget, send: res.sendMs + res.minedMs, total: Date.now() - t0 } };
@@ -177,6 +194,7 @@ export async function relayGaslessAction(raw: unknown, d: GaslessDeps = {}): Pro
   let q: GaslessActionRequest;
   let target: Address = MULTICALL3;
   let forwarder = false;
+  let tabFee = 0n;
   const dep = deployment();
   try {
     requireGaslessMode();
@@ -187,6 +205,12 @@ export async function relayGaslessAction(raw: unknown, d: GaslessDeps = {}): Pro
     const gas = actionGas(q.kind, q.calls.length, needsPermit);
     const rate = await liveUsdgPerEth();
     let current = q.kind === "trampPull" ? 0n : feeFloor(withdrawFeeRaw(gas, (await directRelayer()).fee, rate, dep.usdgDecimals));
+    if (isStealthAction(q)) {
+      // audit 2026-11-21: no wallet fee permit next to a hidden coin. The gas goes on the private tab instead.
+      if (q.fee > 0n || q.feePermit || q.feeSignature || (q.approval && q.approval.value > 0n)) throw new GaslessReject("please update the app and try again");
+      tabFee = withdrawFeeRaw(gas, (await directRelayer()).fee, rate, dep.usdgDecimals);
+      current = 0n;
+    }
     // a no-fee claim only when the wallet's USDG really can't cover it (re-read now)
     if (q.fee === 0n && current > 0n && await sponsoredClaim(q.kind, q.signer, current)) current = 0n;
     if (q.fee < current) throw new GaslessReject("fee changed, please retry");
@@ -207,7 +231,8 @@ export async function relayGaslessAction(raw: unknown, d: GaslessDeps = {}): Pro
   const data = forwarder ? encodeForwarderActionCall(q) : encodeActionCall(q, dep.usdg);
   const limit = actionTxGasLimit(q.kind, q.calls.length);
   const { relayer, did } = await admitAction(q.signer, target, data, limit, d);
-  return commitAction(q.signer, target, data, limit, relayer, d, t0, Date.now() - t0, did);
+  const send = () => commitAction(q.signer, target, data, limit, relayer, d, t0, Date.now() - t0, did);
+  return tabFee > 0n ? withTab(q.signer, tabFee, "cash out once to settle your last hidden rocket's network fee, then try again", send) : send();
 }
 
 export type { OnPending };

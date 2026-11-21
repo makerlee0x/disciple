@@ -1,5 +1,6 @@
 /** flow/gasless-claims: allowlist, fee math, blocked msg.sender-only selectors, typed-data + multicall shape. */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+vi.hoisted(() => { process.env.NEXT_PUBLIC_RHT_CURVE_FEE_VAULT = "0x00000000000000000000000000000000000000bb"; });
 import { decodeFunctionData, encodeFunctionData, recoverTypedDataAddress, type Address, type Hex } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { anonLauncherAbi, trampWallManagerAbi } from "../lib/abi";
@@ -12,13 +13,14 @@ import {
 } from "../lib/trade/gaslessAction";
 import { multicall3Abi } from "../lib/trade/gaslessWithdraw";
 import { curveFeeVaultAbi } from "../lib/claims/vault";
+import { ANON_ADDONS } from "../lib/anon";
 import { unmarkedRate } from "../lib/server/usdgEthRate";
 import { rateFromEnv } from "../lib/server/usdgEthRate";
 
 const user = privateKeyToAccount(generatePrivateKey());
 const feeTo = "0x00000000000000000000000000000000000000ee" as Address;
 const usdg = DEPLOYMENTS[46630].usdg;
-const launcher = "0x00000000000000000000000000000000000000aa" as Address;
+const launcher = ANON_ADDONS[46630].anonLauncher;
 const NOW = 1_000_000;
 
 function claimCall(to = user.address): ActionCall {
@@ -46,6 +48,21 @@ describe("allowlist and blocked functions", () => {
     expect(relayable).toHaveLength(1);
     expect(b).toHaveLength(1);
     expect(blockedCallsMessage(b)).toMatch(/claimCreatorFees/);
+  });
+});
+
+describe("audit 2026-11-21 C-1: stealth selectors only at their own contracts", () => {
+  it("claimManyBySig / transferCreatorBySig at any other address are refused; too many calls refused", () => {
+    const elsewhere = { ...claimCall(), to: "0x00000000000000000000000000000000000000aa" as Address };
+    expect(isRelayableCall("anonClaim", elsewhere)).toBe(false);
+    const xfer = { to: "0x00000000000000000000000000000000000000aa" as Address, data: encodeFunctionData({ abi: anonLauncherAbi, functionName: "transferCreatorBySig", args: [usdg, user.address, 1n, "0x11"] }) };
+    expect(isRelayableCall("anonTransferCreator", xfer)).toBe(false);
+    expect(isRelayableCall("anonTransferCreator", { ...xfer, to: launcher })).toBe(true);
+    const stealthVaultElsewhere = { to: "0x00000000000000000000000000000000000000cc" as Address, data: encodeFunctionData({ abi: curveFeeVaultAbi, functionName: "claimManyAsStealthBySig",
+      args: [{ owner: user.address, tokens: [usdg], to: user.address, relayerFeeBps: 0n, deadline: 1n, sig: "0x11" as Hex }] }) };
+    expect(isRelayableCall("anonClaim", stealthVaultElsewhere)).toBe(false);
+    expect(isRelayableCall("anonClaim", stealthVaultElsewhere, new Set(["0x00000000000000000000000000000000000000cc"]))).toBe(true);
+    expect(() => parseGaslessActionRequest({ kind: "anonClaim", signer: user.address, calls: Array(9).fill(claimCall()), fee: 0n, feeTo })).toThrow(/too many/);
   });
 });
 

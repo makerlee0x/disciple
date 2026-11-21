@@ -18,7 +18,9 @@ export interface LighterPlayer {
   approvedFee?: number;   // partner fee units the player approved (0 = none yet)
   approvedExpiry?: number;
   lev?: Record<string, number>; // market id → leverage set on Lighter
-  pending?: { kind: "key" | "approve" | "withdraw"; txType: number; txInfo: string; message: string; at: number; to?: string; usd?: number };
+  pending?: { kind: "key" | "approve" | "withdraw"; txType: number; txInfo: string; message: string; at: number; to?: string; usd?: number;
+    /** a re-key of a ready account: the new key, swapped in only once Lighter took the signed ChangePubKey */
+    next?: { account: number; keyIndex: number; pub: string; enc: string } };
 }
 
 const k = (cfg: LighterConfig, pid: string) => `lighter:${cfg.network}:player:${pid.toLowerCase()}`;

@@ -16,11 +16,11 @@ Read this before you put money in. Nothing here is financial advice.
 
 ## Turbo is leverage
 
-Up to 50×. A small BTC move can wipe a position. Turbo cash sits on Lighter, a separate exchange, so its risks apply too.
+Up to 50×. At 50× a 0.78% BTC move against you is a NUKE. Turbo cash sits on Lighter, a separate exchange, so its risks apply too.
 
 ## Code and admin
 
-Contracts can have bugs. The team's multisig holds the settings listed in [Contracts and admin](/docs/safety), with no timelock. USDG and USDC are assumed to hold $1.
+Contracts can have bugs. The Team's 2-of-3 Safe holds the settings listed in [Contracts and admin](/docs/safety), with no timelock. USDG and USDC are assumed to hold $1.
 
 ## Your account
 

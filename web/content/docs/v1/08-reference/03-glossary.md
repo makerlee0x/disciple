@@ -15,6 +15,7 @@ section: Reference
 | **BOOST** | Buy. In Turbo, go long. |
 | **Cash** | Your USDG on Robinhood Chain. |
 | **Climb** | Solo Turbo: five levels, one minute each. |
+| **Community rewards** | A Safe that gets 0.01% of every trade. Paid out by the Team, in public. |
 | **Creator fee** | 0.33% of every trade, to the creator, the locked pool or a burn. |
 | **Creator tax** | Optional 0–7% on curve trades. Ends at orbit. |
 | **Creator Ticket** | The creator's buy inside the launch. |
@@ -28,11 +29,14 @@ section: Reference
 | **NUKE** | The biggest bomb (50%+ impact). In Turbo, getting liquidated. |
 | **Orbit** | $33,333 mcap. The curve sells out and the rocket lists on Uniswap. |
 | **Orders** | Daily and weekly XP tasks. |
+| **Pairs board** | Leaderboard tab ranking the 12 pair coins. |
 | **Pilot** | A player. |
 | **Relay** | Moves money between Cash and Turbo cash. |
+| **Simulator** | Turbo on play money. Unranked. |
 | **Rocket** | A coin launched on DISCIPLE. |
 | **Trench** | Nickname for Expert. |
 | **Turbo** | Leveraged BTC on Lighter: Duel and Climb. |
 | **Turbo cash** | Your USDC in your Lighter account. |
+| **Team** | The people who run DISCIPLE, acting through a 2-of-3 Safe. |
 | **USDG** | Dollar stablecoin on Robinhood Chain. |
 | **XP** | Off-chain progress. Not a token. |

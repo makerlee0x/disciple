@@ -39,7 +39,8 @@ export type PrivyHooks = { /** Privy finished loading (usePrivy().ready) */ read
   linkX?: () => void };
 let privyHooks: PrivyHooks | null = null;
 const privySubs = new Set<() => void>();
-export function registerPrivy(h: PrivyHooks | null) { privyHooks = h; privySubs.forEach((f) => f()); }
+let idTok: { tok: string; exp: number } | undefined;   // privyIdentityToken cache
+export function registerPrivy(h: PrivyHooks | null) { if (!h?.authenticated) idTok = undefined; privyHooks = h; privySubs.forEach((f) => f()); }
 // dev only (screenshots of signed-in screens, like window.__walletDev): a stand-in session whose token the page sends to /api.
 // Also in the local-signer e2e build (NEXT_PUBLIC_AA_SIGNER=local is inlined at build time, so real builds drop this),
 // where e2e/turbo-cash.spec.ts uses it to reach the Turbo popup's /api/lighter calls, which it answers itself.
@@ -57,9 +58,21 @@ export const privySecurity = (): PrivySecurity | null => (privyHooks?.authentica
 export async function privyAccessToken(): Promise<string | null> {
   try { return (await privyHooks?.getAccessToken?.()) ?? null; } catch { return null; }
 }
+/** The identity token, reused until 2 min before its exp (maker 2026-11-21: Privy's getIdentityToken took 150-225 ms on
+ *  every trade). The relay checks exp itself, so a reused token is never accepted past its life. */
+const jwtExpMs = (t: string): number => {
+  try { const p = JSON.parse(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))) as { exp?: number }; return typeof p.exp === "number" ? p.exp * 1000 : 0; } catch { return 0; }
+};
 export async function privyIdentityToken(): Promise<string | null> {
-  try { return (await privyHooks?.getIdentityToken?.()) ?? null; } catch { return null; }
+  if (idTok && idTok.exp - Date.now() > 120_000) return idTok.tok;
+  try {
+    const tok = (await privyHooks?.getIdentityToken?.()) ?? null;
+    idTok = tok ? { tok, exp: jwtExpMs(tok) } : undefined;
+    return tok;
+  } catch { return null; }
 }
+/** Drop the cached identity token (sign-out, or the relay refused it). */
+export function forgetIdentityToken() { idTok = undefined; }
 export function privyLogin() {
   if (!privyHooks) throw new Error("Login is still loading — try again in a second.");
   privyHooks.login();

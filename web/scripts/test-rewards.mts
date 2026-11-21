@@ -252,3 +252,12 @@ test("gasless anonCreatorMeta: only updateMetadataBySig, only to an AnonLauncher
   assert.equal(isRelayableCall("anonCreatorMeta", { to: "0x000000000000000000000000000000000000dEaD", data }), false);
   assert.equal(isRelayableCall("anonCreatorMeta", { to: launcher ?? "0x000000000000000000000000000000000000dEaD", data: `${SEL.transferCreatorBySig}${"00".repeat(64)}` as `0x${string}` }), false);
 });
+
+test("Pays to / transfer creator: DISCIPLE contracts are refused (fees there are stuck for good; audit 2026-11-21)", async () => {
+  const { isProtocolSink } = await import("../lib/claims/coinAdmin.ts");
+  const { deployment } = await import("../lib/chains.ts");
+  const d = deployment();
+  for (const a of [d.launchpad, d.feeRouter, d.usdg, "0x000000000022D473030F116dDEE9F6B43aC78BA3"].filter((x) => !/^0x0{40}$/i.test(x)))
+    assert.equal(isProtocolSink(a), true, a);
+  assert.equal(isProtocolSink("0x00000000000000000000000000000000000000a1"), false);
+});

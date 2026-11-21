@@ -21,6 +21,7 @@
     "test:gamechat": "node scripts/test-gamechat.mjs",
     "test:tier-labels": "node scripts/test-tier-labels.mjs",
     "test:default-username": "node scripts/test-default-username.mjs",
+    "test:chat-moderation": "tsx --conditions=react-server --test scripts/test-chat-moderation.mts",
     "test:chat": "node scripts/test-chat.mjs",
     "test:native": "tsx --conditions=react-server --test scripts/test-native.mts",
     "test:app-home": "tsx --test scripts/test-app-home.mts",

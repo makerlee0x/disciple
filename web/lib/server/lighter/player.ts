@@ -45,8 +45,13 @@ export async function startKey(cfg: LighterConfig, pid: string): Promise<{ messa
   const r = checked(w.SignChangePubKey(key.publicKey, 0, nonce, cfg.apiKeyIndex, acct));
   if (!r.messageToSign) throw new Error("lighter: no message to sign");
   const prev = await getPlayer(cfg, pid);
-  const p: LighterPlayer = { ...(prev ?? {}), account: acct, keyIndex: cfg.apiKeyIndex, pub: key.publicKey, enc: seal(cfg.keySecret, key.privateKey), keyReady: false,
-    pending: { kind: "key", txType: r.txType, txInfo: r.txInfo, message: r.messageToSign, at: Date.now() } };
+  const fresh = { account: acct, keyIndex: cfg.apiKeyIndex, pub: key.publicKey, enc: seal(cfg.keySecret, key.privateKey) };
+  const pending = { kind: "key" as const, txType: r.txType, txInfo: r.txInfo, message: r.messageToSign, at: Date.now() };
+  // Audit 2026-11-21: a working key stays in place until the new one is registered. Overwriting it here (keyReady false)
+  // left any open position with no key to close it (buzzer, NUKE, flatten) if the re-key was never signed.
+  const p: LighterPlayer = prev?.keyReady
+    ? { ...prev, pending: { ...pending, next: fresh } }
+    : { ...(prev ?? {}), ...fresh, keyReady: false, pending };
   await putPlayer(cfg, pid, p);
   return { message: r.messageToSign };
 }
@@ -60,7 +65,7 @@ export async function finishSigned(cfg: LighterConfig, pid: string, kind: "key" 
   if (!who || who.toLowerCase() !== pid.toLowerCase()) throw new LighterError(403, "That signature isn't from your wallet.");
   const txInfo = JSON.stringify({ ...JSON.parse(pend.txInfo), L1Sig: sig });
   const hash = await sendTx(cfg, pend.txType, txInfo);
-  if (kind === "key") Object.assign(p, { keyReady: true });
+  if (kind === "key") Object.assign(p, pend.next ?? {}, { keyReady: true });
   else Object.assign(p, { approvedFee: cfg.partnerFee, approvedExpiry: Date.now() + APPROVAL_DAYS * 86_400_000 });
   delete p.pending;
   await putPlayer(cfg, pid, p);

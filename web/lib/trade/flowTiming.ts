@@ -170,14 +170,15 @@ function pushTimingBox(line: string) {
 
 /** The gasless (Permit2 witness) trade path's split for the ?timing=1 box: build + sign in the browser, the Privy token
  *  wait, and the /api/gasless round trip with the relay's own stages (lib/wallet execGasless). */
-export function showGaslessTiming(x: { side: string; sign: number; token: number; relay: number; t?: Record<string, number>; via?: string; server?: unknown }) { guarded(() => {
+export function showGaslessTiming(x: { side: string; presigned?: boolean; sign: number; token: number; relay: number; t?: Record<string, number>; via?: string; server?: unknown }) { guarded(() => {
   if (typeof document === "undefined" || !timingBoxOn()) return;
   const r = (v: unknown) => (typeof v === "number" ? String(Math.round(v)) : "-");
   const srv = (x.server && typeof x.server === "object" ? x.server : {}) as Record<string, number>;
-  const top = Object.entries(srv).filter(([k, v]) => typeof v === "number" && v >= 15 && k !== "elapsed").sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => `${k} ${Math.round(v)}`).join(" · ");
+  const top = Object.entries(srv).filter(([k, v]) => typeof v === "number" && v >= 15 && k !== "elapsed" && k !== "instanceReq" && k !== "instanceAgeS").sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => `${k} ${Math.round(v)}`).join(" · ");
   const t = x.t ?? {};
   pushTimingBox(`${new Date().toLocaleTimeString()} gasless ${x.side} (${x.via ?? "?"})\n` +
-    `browser sign ${r(x.sign)} · token ${r(x.token)} · relay ${r(x.relay)} ms\n` +
+    `browser sign ${x.presigned ? "pre-signed " : ""}${r(x.sign)} · token ${r(x.token)} · relay ${r(x.relay)} ms\n` +
     `relay: admission ${r(t.admission)} · budget ${r(t.budget)} · send+mined ${r(t.send)} · total ${r(t.total)} ms\n` +
-    `stages: ${top || "-"}`);
+    `stages: ${top || "-"}` +
+    (typeof srv.instanceReq === "number" ? `\nserver instance: request #${srv.instanceReq} · up ${r(srv.instanceAgeS)} s` : ""));
 }); }

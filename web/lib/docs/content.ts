@@ -102,6 +102,10 @@ const slugify = (s: string) => plain(s).toLowerCase().replace(/[`*_~]/g, "").rep
  *   flow    title | sub | tone                     boxes joined by arrows (money / order flow)
  *   split   weight | label | value | tone          one bar cut into shares (fee split)
  *   ladder  name | from | mark                     tier ladder, low at the bottom; mark "*" highlights a row
+ *   bars    label | value | shown | tone           horizontal bar graph, bars scaled to the biggest value
+ *   keys    key key … | does | tone                keycaps (space between keys; "Space", "Shift" etc. render wide)
+ *   tree    title | sub | tone                     first row splits into the rows under it (fee split, where money goes)
+ *   logos   name | img | tag                       coin logos in a grid (pair coins)
  * ------------------------------------------------------------------------------------------------------------------------- */
 const TONES: Record<string, string> = {
   easy: "#5FF0A0", hard: "#FF7A3D", expert: "#F0307F", gold: "#F2C14E", champagne: "#F3DFA8",
@@ -116,12 +120,23 @@ const BLOCKS = {
   cards: (r: string[][]) => `<div class="dv-v dv-v-cards">${r.map(([title, tag, art, link, t]) => {
     const inner = `<span class="dv-v-art"${art ? ` style="background-image:url('${esc(href(art))}')"` : ""}></span>`
       + `<span class="dv-v-cardtx"><b>${esc(title)}</b>${tag ? `<span class="dv-v-chip">${esc(tag)}</span>` : ""}</span>`;
-    return link ? `<a class="dv-v-card" href="${esc(href(link))}"${toneStyle(t)}>${inner}</a>` : `<span class="dv-v-card"${toneStyle(t)}>${inner}</span>`;
+    const cls = `dv-v-card${art ? "" : " is-plain"}`;
+    return link ? `<a class="${cls}" href="${esc(href(link))}"${toneStyle(t)}>${inner}</a>` : `<span class="${cls}"${toneStyle(t)}>${inner}</span>`;
   }).join("")}</div>\n`,
   stats: (r: string[][]) => `<div class="dv-v dv-v-stats">${r.map(([v, label, t]) => `<div class="dv-v-stat"${toneStyle(t)}><b>${esc(v)}</b><span>${inline(label ?? "")}</span></div>`).join("")}</div>\n`,
   steps: (r: string[][]) => `<ol class="dv-v dv-v-steps">${r.map(([title, line], i) => `<li><span class="dv-v-n">${i + 1}</span><b>${esc(title)}</b>${line ? `<span>${inline(line)}</span>` : ""}</li>`).join("")}</ol>\n`,
   flow: (r: string[][]) => `<div class="dv-v dv-v-flow">${r.map(([title, sub, t], i) => `${i ? '<span class="dv-v-arrow" aria-hidden="true"></span>' : ""}<div class="dv-v-node"${toneStyle(t)}><b>${esc(title)}</b>${sub ? `<span>${inline(sub)}</span>` : ""}</div>`).join("")}</div>\n`,
   split: (r: string[][]) => `<div class="dv-v dv-v-split"><div class="dv-v-bar">${r.map(([w, label, , t]) => `<i style="flex:${Math.max(0.6, Number(w) || 1)};${tone(t) ? `--vt:${tone(t)}` : ""}" title="${esc(label ?? "")}"></i>`).join("")}</div><div class="dv-v-legend">${r.map(([, label, v, t]) => `<span${toneStyle(t)}><i></i><b>${esc(v ?? "")}</b>${esc(label ?? "")}</span>`).join("")}</div></div>\n`,
+  bars: (r: string[][]) => {
+    const max = Math.max(...r.map(([, v]) => Number(v) || 0), 1e-9);
+    return `<div class="dv-v dv-v-bars">${r.map(([label, v, shown, t]) => `<div class="dv-v-brow"${toneStyle(t)}><span class="dv-v-blabel">${inline(label ?? "")}</span><span class="dv-v-btrack"><i style="width:${Math.max(1.5, ((Number(v) || 0) / max) * 100).toFixed(1)}%"></i></span><b>${esc(shown ?? v ?? "")}</b></div>`).join("")}</div>\n`;
+  },
+  keys: (r: string[][]) => `<div class="dv-v dv-v-keys">${r.map(([ks, does, t]) => `<div class="dv-v-krow"${toneStyle(t)}><span class="dv-v-kcaps">${(ks ?? "").split(/\s+/).filter(Boolean).map((k) => `<kbd${k.length > 2 ? ' class="is-wide"' : ""}>${esc(k)}</kbd>`).join("")}</span><span>${inline(does ?? "")}</span></div>`).join("")}</div>\n`,
+  tree: (r: string[][]) => {
+    const [[title, sub, t], ...kids] = r;
+    return `<div class="dv-v dv-v-tree"><div class="dv-v-node dv-v-root"${toneStyle(t)}><b>${esc(title ?? "")}</b>${sub ? `<span>${inline(sub)}</span>` : ""}</div><div class="dv-v-kids">${kids.map(([kt, ks, kc]) => `<div class="dv-v-node"${toneStyle(kc)}><b>${esc(kt ?? "")}</b>${ks ? `<span>${inline(ks)}</span>` : ""}</div>`).join("")}</div></div>\n`;
+  },
+  logos: (r: string[][]) => `<div class="dv-v dv-v-logos">${r.map(([name, img, tag]) => `<span class="dv-v-logo"><img src="${esc(href(img ?? ""))}" alt="" loading="lazy" decoding="async" /><b>${esc(name ?? "")}</b>${tag ? `<span class="dv-v-chip">${esc(tag)}</span>` : ""}</span>`).join("")}</div>\n`,
   ladder: (r: string[][]) => `<ol class="dv-v dv-v-ladder">${[...r].reverse().map(([name, from, mark]) => `<li${mark === "*" ? ' class="is-mark"' : ""}><b>${esc(name)}</b><span>${esc(from ?? "")}</span></li>`).join("")}</ol>\n`,
 };
 type BlockKind = keyof typeof BLOCKS;

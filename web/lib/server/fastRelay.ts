@@ -164,6 +164,8 @@ function normalizeReceipt(rc: RelayReceipt): RelayReceipt {
 export type DirectRelayer = { address: Hex; fee: bigint; st: RelayerState };
 /** Relayer EOA (pool lease when on) + warm base fee + warm nonce, in parallel. Read-only (nothing allocated/signed). */
 const stage = <T>(metrics: RelayMetrics | undefined, name: string, task: () => Promise<T>) => metrics ? metrics.span(name, task) : task();
+/** The relayer address alone (no base fee / nonce wait), so the admission eth_call can start before those land. */
+export async function directRelayerAddress(): Promise<Hex> { return (await ready()).account.address; }
 export async function directRelayer(metrics?: RelayMetrics): Promise<DirectRelayer> {
   const st = await stage(metrics, "relayerReady", ready);
   const [fee] = await Promise.all([stage(metrics, "baseFee", baseFee), stage(metrics, "nonceWarm", () => st.nonces.warm())]);

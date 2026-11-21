@@ -53,7 +53,7 @@ vi.mock("../lib/chains", async (orig) => {
   return { ...real, deployment: () => ({ ...real.deployment(), creatorFeeHarvest: "0x00000000000000000000000000000000000000a2", usdgDecimals: 6 }) };
 });
 vi.mock("../lib/server/gaslessRelay", () => ({ requireGaslessMode: () => undefined }));
-vi.mock("../lib/server/relayBreaker", () => ({ relayBreaker: { assertClosed: () => undefined, record: async () => true } }));
+vi.mock("../lib/server/relayBreaker", () => ({ relayBreaker: { assertClosed: () => undefined, record: async () => true }, recordSenderRevert: async () => ({ tooMany: false }) }));
 vi.mock("../lib/server/gaslessSession", () => ({
   verifySessionToken: async () => { if (h.rejectSession) throw Object.assign(new Error("sign in again"), { notSent: true }); return { did: "did:privy:1", wallets: [] }; },
   requireSessionWallet: async () => undefined,

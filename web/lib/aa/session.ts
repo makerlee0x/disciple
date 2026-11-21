@@ -12,7 +12,7 @@ import type { TradeTiming } from "../trade/timing";
 import { _publishSession, privyHooksNow, SESSION_LS, type OwnerKind } from "./sessionState";
 export {
   aaSession, onSessionChange, registerPrivy, privyReady, privyLoaded, hasSavedSession, onPrivy, privyAuthenticated, privyAccount, privySecurity,
-  privyAccessToken, privyIdentityToken, privyLogin,
+  privyAccessToken, privyIdentityToken, forgetIdentityToken, privyLogin,
 } from "./sessionState";
 export type { OwnerKind, SessionSummary, PrivyAccountInfo, PrivyMfaMethod, PrivySecurity } from "./sessionState";
 
