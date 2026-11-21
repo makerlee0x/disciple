@@ -16,9 +16,19 @@ $250 | Practice cash
 
 ```steps
 Launch | A fresh rocket on a bonding curve.
-Trade it | BOOST and DUMP against the bots aboard.
+Trade it | BOOST and sell against the bots aboard.
 Cash out | Your PnL goes on the daily board.
 ```
+
+## Keys
+
+```keys
+Space | BOOST | up
+Shift | Sell half | down
+Enter | Cash out everything | gold
+```
+
+## Tips
 
 - The other pilots are bots. They only react to trades that already landed. Before a bot dumps big, it peels off and the feed warns you. Reading that is the skill.
 - Sign in to get on the board. Signed out, you still fly and see where you'd have placed.

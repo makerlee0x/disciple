@@ -5,29 +5,33 @@ section: Game modes
 ---
 # Climb
 
-Solo Turbo. Five levels, one minute each. Hit the $ goal before the clock runs out.
+Solo Turbo. Five levels, one minute each. Hit the target before the clock runs out.
 
 ```steps
-Pick a level | It sets your fuel and gear.
-Hit the goal | Make the % before 0:00.
+Pick your stake | How much every round flies with.
+Hit the target | Make the % before 0:00.
 Level up | Clear 5 to unlock free mode.
 ```
 
 ## The ladder
 
-| Level | Fuel | Gear | Goal |
-|---|---|---|---|
-| 1 | 1% of balance | 10× | +1% |
-| 2 | 2.75% | 20× | +3% |
-| 3 | 6.4% | 30× | +5% |
-| 4 | 27.75% | 40× | +7.5% |
-| 5 | 83% of your balance | 50× | +10% |
+```bars
+Level 1 · 10× | 1 | +1% | easy
+Level 2 · 20× | 3 | +3% | easy
+Level 3 · 30× | 5 | +5% | gold
+Level 4 · 40× | 7.5 | +7.5% | hard
+Level 5 · 50× | 10 | +10% | expert
+```
 
-Fuel scales with your Turbo cash, so the ladder fits a $20 balance or a $2,000 one. The smallest level fuel is $2.
+Each level has its own gear and a % target. On a $250 round, Level 3 means making $12.50 in a minute at 30×.
 
-- Clear a level and the next one opens. Beat a higher level's goal and you jump straight there.
+## Per round
+
+Three quick picks or a custom amount, from $2 up. The top pick (MAX) is the most your Turbo cash can back at 50×, about 83% of it.
+
+- Clear a level and the next one opens. Beat a higher level's target and you jump straight there.
 - Unlocked levels stay unlocked.
-- **Free mode** (after level 5): any fuel, any gear up to 50×, no clock.
-- **NUKE:** closes the position before Lighter would liquidate it: 39% of the fuel at 50×, 55% at 40×, 71% at 30×, 80% at 20× and under.
+- **Free mode** (after level 5): any gear up to 50×, no clock.
+- **NUKE:** closes the position before Lighter would liquidate it. See [How Turbo works](/docs/turbo#the-nuke).
 
-Same keys as [Duel](/docs/turbo/duel). Miss the goal or get NUKED and you can run it back.
+Same keys as [Duel](/docs/turbo/duel). Miss the target or get NUKED and you can run it back.

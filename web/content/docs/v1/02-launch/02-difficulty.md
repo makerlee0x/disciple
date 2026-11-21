@@ -7,6 +7,12 @@ section: Launch
 
 Picked at launch, locked for good. The rules only run on the bonding curve. At orbit every cap switches off and all rockets trade the same.
 
+```cards
+Easy | Max bag + crew tip | | | easy
+Hard | Bigger max bag | | | hard
+Expert | No caps | | | expert
+```
+
 ![Max bag by difficulty: Easy grows from 1% to 3.33%, Hard from 3.33% to 7.77% as the rocket climbs from $3,333 to $33,333. Expert has no cap.](/illustrations/docs/holding-caps.svg)
 
 | | Easy | Hard | Expert |
@@ -22,7 +28,16 @@ The cap grows in a straight line as mcap climbs from $3,333 to $33,333. It follo
 
 ## Crew tip (Easy)
 
-Sell at a profit bigger than 0.5% of the rocket's mcap and 3.3% of what you get goes to the other holders. Each rocket keeps the tip and cutoff it launched with. You don't share in your own tip. No other holders: it goes to community rewards.
+Sell at a profit bigger than 0.5% of the rocket's mcap and 3.3% of what you get goes to the other holders.
+
+On a $1,000 winning sell:
+
+```split
+967 | You get | $967 | up
+33 | Other holders | $33 | easy
+```
+
+Each rocket keeps the tip it launched with. You don't share in your own tip. No other holders: it goes to community rewards.
 
 ## Burning
 

@@ -9,14 +9,16 @@ Your buy, placed inside the launch. First dibs on your own rocket, before any bo
 
 ```stats
 $0 · $5 · $20 | Quick picks, or type any amount
-0% | Sniper tax on your Ticket
+0% | Sniper tax on your Ticket | easy
 ```
 
-| Difficulty | Ticket max | Locked |
-|---|---|---|
-| Easy | 1.2% of supply | Until orbit |
-| Hard | 3.33% | No |
-| Expert | 7.77% | No |
+```bars
+Easy | 1.2 | 1.2% · locked to orbit | easy
+Hard | 3.33 | 3.33% | hard
+Expert | 7.77 | 7.77% | expert
+```
+
+That's the most of the supply a Ticket can buy on each difficulty.
 
 - Over the max: you get the max and the rest comes back.
 - Your Ticket can go over the max bag, then counts toward it. No more buys until the cap grows past your bag.
