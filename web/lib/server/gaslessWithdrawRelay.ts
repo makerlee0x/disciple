@@ -25,7 +25,7 @@ import { shouldStrikeIncludedRevert } from "./gaslessStrike";
 import { relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";
 import { requireSessionWallet, verifySessionToken } from "./gaslessSession";
 import { directRelayer, sendDirect, simulateDirect, strikeSender, type DirectRelayer, type OnPending } from "./fastRelay";
-import { relayBreaker } from "./relayBreaker";
+import { recordSenderRevert, relayBreaker } from "./relayBreaker";
 import type { RelayMetrics } from "./relayMetrics";
 import { relayerKey } from "./relayer";
 import { relayReadTransport } from "./relayReadTransport";
@@ -136,7 +136,8 @@ async function commitWithdraw(signer: Address, to: Address, data: Hex, gas: bigi
     catch (e) { revertData = (e as { data?: string }).data; }
     if (shouldStrikeIncludedRevert({ revertData, gasUsed: BigInt(res.rc.gasUsed), gasLimit: gas })) strikeSender(signer, did);
     const price = res.rc.effectiveGasPrice ? BigInt(res.rc.effectiveGasPrice) : BigInt(0);
-    await relayBreaker.record({ reverted: true, lossWei: BigInt(res.rc.gasUsed) * price }).catch(() => false);
+    const many = await recordSenderRevert({ who: signer, reverted: true, lossWei: BigInt(res.rc.gasUsed) * price }).catch(() => ({ tooMany: false }));
+    if (many.tooMany) strikeSender(signer, did);
   }
   return { kind: "confirmed", txHash: res.txHash, success, receipt: res.rc, gasUsed, via: String(res.via),
     t: { admission: tAdm, budget, send: res.sendMs + res.minedMs, total: Date.now() - t0 } };

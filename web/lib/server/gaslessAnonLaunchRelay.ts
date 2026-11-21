@@ -27,13 +27,23 @@ import { shouldStrikeIncludedRevert } from "./gaslessStrike";
 import { relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";
 import { requireSessionWallet, verifySessionToken } from "./gaslessSession";
 import { directRelayer, sendDirect, simulateDirect, strikeSender, type DirectRelayer } from "./fastRelay";
-import { relayBreaker } from "./relayBreaker";
+import { recordSenderRevert, relayBreaker } from "./relayBreaker";
 import type { RelayMetrics } from "./relayMetrics";
 import { relayReadTransport } from "./relayReadTransport";
 import { withdrawFeeRaw } from "../trade/gaslessWithdraw";
 import { withdrawFeeTo } from "./gaslessWithdrawRelay";
 import { liveUsdgPerEth } from "./usdgEthRate";
-import { addToTab, tabMax, tabOwed } from "./launchTab";
+import { reserveTab } from "./launchTab";
+/** Runs `send` with `amount` reserved on the tab first; a send that moved nothing, or a revert, takes it back. */
+async function withTab<T extends { success: boolean }>(wallet: Address, amount: bigint, refusal: string, send: () => Promise<T>): Promise<T> {
+  const release = await reserveTab(wallet, amount, refusal);
+  let res: T;
+  try { res = await send(); }
+  catch (e) { if ((e as { notSent?: boolean }).notSent) await release().catch(() => undefined); throw e; }
+  if (!res.success) await release().catch(() => undefined);   // a revert is the relayer's loss, as for any relayed tx
+  return res;
+}
+
 
 const timed = <T>(m: RelayMetrics | undefined, stage: string, task: () => Promise<T>) => m ? m.span(stage, task) : task();
 const notSent = (e: unknown) => Object.assign(e as Error, { notSent: true });
@@ -78,7 +88,8 @@ async function commitLaunch(signer: Address, to: Address, data: Hex, gas: bigint
     catch (e) { revertData = (e as { data?: string }).data; }
     if (shouldStrikeIncludedRevert({ revertData, gasUsed: BigInt(res.rc.gasUsed), gasLimit: gas })) strikeSender(signer, did);
     const price = res.rc.effectiveGasPrice ? BigInt(res.rc.effectiveGasPrice) : BigInt(0);
-    await relayBreaker.record({ reverted: true, lossWei: BigInt(res.rc.gasUsed) * price }).catch(() => false);
+    const many = await recordSenderRevert({ who: signer, reverted: true, lossWei: BigInt(res.rc.gasUsed) * price }).catch(() => ({ tooMany: false }));
+    if (many.tooMany) strikeSender(signer, did);
   }
   return { kind: "confirmed", txHash: res.txHash, success, receipt: res.rc, gasUsed, via: String(res.via),
     t: { admission: tAdm, budget, send: res.sendMs + res.minedMs, total: Date.now() - t0 } };
@@ -184,12 +195,9 @@ export async function relayAnonFreeLaunch(raw: unknown, d: GaslessDeps = {}): Pr
   } catch (e) { throw notSent(e); }
   const { relayer, did } = await admitLaunch(q.wallet, call.harvest, call.data, d);
   let fee: bigint;
-  try {
-    ({ fee } = await launchGasFee(call.harvest, call.data, relayer.address));
-    if ((await tabOwed(q.wallet)) + fee > tabMax()) throw new GaslessReject("cash out once to settle your last anon launch's network fee, then launch again");
-  } catch (e) { throw notSent(e); }
-  const res = await commitLaunch(q.wallet, call.harvest, call.data, ANON_LAUNCH_TX_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did);
-  // only a landed launch goes on the tab (a revert is the relayer's loss, as for any relayed tx)
-  if (res.success) await addToTab(q.wallet, fee).catch((e) => console.error("[disciple] anon launch tab not recorded", { e: String(e) }));
-  return res;
+  try { ({ fee } = await launchGasFee(call.harvest, call.data, relayer.address)); }
+  catch (e) { throw notSent(e); }
+  // reserved before the send (audit 2026-11-21 M-1: launches sent at once all passed a check-then-add)
+  return withTab(q.wallet, fee, "cash out once to settle your last anon launch's network fee, then launch again",
+    () => commitLaunch(q.wallet, call.harvest, call.data, ANON_LAUNCH_TX_GAS_LIMIT, relayer, d, t0, Date.now() - t0, did));
 }

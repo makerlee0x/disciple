@@ -22,7 +22,7 @@ import { shouldStrikeIncludedRevert } from "./gaslessStrike";
 import { relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";
 import { requireSessionWallet, verifySessionToken } from "./gaslessSession";
 import { directRelayer, sendDirect, simulateDirect, strikeSender, type DirectRelayer } from "./fastRelay";
-import { relayBreaker } from "./relayBreaker";
+import { recordSenderRevert, relayBreaker } from "./relayBreaker";
 import { relayReadTransport } from "./relayReadTransport";
 import { feeFloor, liveUsdgPerEth } from "./usdgEthRate";
 
@@ -112,6 +112,9 @@ export async function relayWalletLaunch(raw: unknown, d: GaslessDeps = {}): Prom
   // so the harvest's gas fee still lands with the relayer and never with a multicall)
   if (q.approval && q.approval.value > BigInt(0) && await needsUsdgPermit(q.signer)) {
     const a = q.approval;
+    // audit 2026-11-21 M-2: this tx goes out before the launch is checked, so only a lasting (max) approval is sent: a
+    // 1-wei one could be repeated for free forever, each time on the relayer's gas
+    if (a.value < BigInt(2) ** BigInt(255)) throw notSent(new GaslessReject("please update the app and try again"));
     const pdata: Hex = encodeFunctionData({ abi: erc2612PermitAbi, functionName: "permit", args: [q.signer, PERMIT2, a.value, a.deadline, a.v, a.r, a.s] });
     try { await simulateDirect(relayer.address, dep.usdg, pdata, PERMIT_TX_GAS); } catch (e) { throw notSent(e); }
     const refund = await relaySendBudget(q.signer, d.metrics).catch((e) => { throw notSent(e); });
@@ -143,7 +146,8 @@ export async function relayWalletLaunch(raw: unknown, d: GaslessDeps = {}): Prom
     catch (e) { revertData = (e as { data?: string }).data; }
     if (shouldStrikeIncludedRevert({ revertData, gasUsed: BigInt(res.rc.gasUsed), gasLimit: WALLET_LAUNCH_TX_GAS_LIMIT })) strikeSender(q.signer, did);
     const price = res.rc.effectiveGasPrice ? BigInt(res.rc.effectiveGasPrice) : BigInt(0);
-    await relayBreaker.record({ reverted: true, lossWei: BigInt(res.rc.gasUsed) * price }).catch(() => false);
+    const many = await recordSenderRevert({ who: q.signer, reverted: true, lossWei: BigInt(res.rc.gasUsed) * price }).catch(() => ({ tooMany: false }));
+    if (many.tooMany) strikeSender(q.signer, did);
   }
   return { kind: "confirmed", txHash: res.txHash, success, receipt: res.rc, gasUsed: Number(BigInt(res.rc.gasUsed)), via: String(res.via),
     t: { admission: Date.now() - t0, budget, send: res.sendMs + res.minedMs, total: Date.now() - t0 } };

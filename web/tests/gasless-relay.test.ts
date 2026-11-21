@@ -483,12 +483,28 @@ describe("loss breaker (runs last: it stays open for this module)", () => {
   it("included revert ⇒ loss breaker record; 2 reverts open the breaker ⇒ next request refused notSent", async () => {
     h.send.mockResolvedValue(okRc("0x0"));
     const r = await relayGaslessTrade(await wire()); expect(r.success).toBe(false);
-    h.incr.mockResolvedValue(2);   // window revert count
+    h.incr.mockImplementation(async (k: string) => (k.startsWith("relay:breaker:by:") ? 1 : 2));   // window revert count; first revert for this sender
     TOKEN = session([other.address]).token;   // a different Privy user — the first signer (and their did) is struck
     await relayGaslessTrade(await wire({ signer: other, isBuy: false, amountIn: 5n })).catch(() => undefined);
     expect(h.setNX).toHaveBeenCalledWith("relay:breaker:open", expect.any(String), expect.any(Number));
     expect(relayBreaker.isOpen()).toBe(true);
     const third = privateKeyToAccount(generatePrivateKey());
     await expect(relayGaslessTrade(await wire({ signer: third }))).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("relay paused") });
+  });
+});
+
+describe("audit 2026-11-21 H-1: one sender can't trip the breaker alone", () => {
+  it("a sender's repeat reverts don't count toward the revert trip; the third one asks for a strike", async () => {
+    const { RelayBreaker, recordSenderRevert } = await import("../lib/server/relayBreaker");
+    const counts = new Map<string, number>();
+    const store = { incrEx: async (k: string) => { counts.set(k, (counts.get(k) ?? 0) + 1); return counts.get(k)!; }, incrByEx: async () => 0, setNX: async () => true, get: async () => null };
+    const b = new RelayBreaker(() => store as never);
+    const who = "0x00000000000000000000000000000000000000a1";
+    expect((await recordSenderRevert({ who, reverted: true, lossWei: 0n }, b, () => store as never)).tooMany).toBe(false);
+    expect((await recordSenderRevert({ who, reverted: true, lossWei: 0n }, b, () => store as never)).tooMany).toBe(false);
+    expect(b.isOpen()).toBe(false);   // two reverts, one sender: still closed
+    expect((await recordSenderRevert({ who, reverted: true, lossWei: 0n }, b, () => store as never)).tooMany).toBe(true);
+    await recordSenderRevert({ who: "0x00000000000000000000000000000000000000b2", reverted: true, lossWei: 0n }, b, () => store as never);
+    expect(b.isOpen()).toBe(true);    // a second sender's revert trips it
   });
 });

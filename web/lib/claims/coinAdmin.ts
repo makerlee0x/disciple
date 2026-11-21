@@ -18,7 +18,7 @@
 import { encodeFunctionData, parseAbi, type Address, type Hex, type LocalAccount, type PublicClient } from "viem";
 import { anonLauncherAbi, launchpadAbi } from "../abi";
 import { ACTIVE_CHAIN, deployment } from "../chains";
-import { claimDomain, TRANSFER_TYPES } from "../anon";
+import { ANON_ADDONS, claimDomain, TRANSFER_TYPES } from "../anon";
 import { execCalls, gaslessSigner } from "../wallet";
 import { clientGaslessMode } from "../aa/sponsorshipMode";
 import { sendGaslessAction } from "../trade/gaslessActionClient";
@@ -126,8 +126,21 @@ export async function saveCoinMeta(pc: PublicClient, me: Address, r: Row, m: Coi
   return (await sendGaslessAction("anonCreatorMeta", [{ to: launcher, data }], pc)).txHash;
 }
 
+/**
+ * Protocol contracts that can never use a coin's creator role or creator fees: fees paid there are stuck for good, and a
+ * creator role there can be claimed by anyone through a relayed call (audit 2026-11-21 I-2 / addons Info). Pure, tested.
+ */
+export function isProtocolSink(a: string): boolean {
+  const d = deployment();
+  const anon = ANON_ADDONS[ACTIVE_CHAIN.id];
+  const list = [d.launchpad, d.hook, d.router, d.gaslessRouter, d.feeRouter, d.lockedLP, d.migration, d.curveFeeVault, d.creatorFeeHarvest,
+    d.permitForwarder, d.usdg, d.poolManager, anon?.anonLauncher, "0xcA11bde05977b3631167028862bE2a173976CA11", "0x000000000022D473030F116dDEE9F6B43aC78BA3"];
+  return list.some((x) => !!x && !/^0x0{40}$/i.test(x) && lc(x) === lc(a));
+}
+
 export async function transferCreatorTo(pc: PublicClient, me: Address, r: Row, to: Address): Promise<Hex> {
   if (!/^0x[0-9a-fA-F]{40}$/.test(to) || lc(to) === lc(ZERO)) throw new Error("Pick who gets the rocket.");
+  if (isProtocolSink(to)) throw new Error("That's a DISCIPLE contract. Pick a wallet.");
   const w = !r.anon ? gaslessCreator() : null;
   if (w) {
     const pad = deployment().launchpad;
@@ -167,6 +180,7 @@ export async function readPayTo(pc: PublicClient, me: Address, r: Row): Promise<
 export async function setPayTo(me: Address, r: Row, to: Address | null, pc?: PublicClient): Promise<Hex> {
   const harvest = deployment().creatorFeeHarvest!;
   const pick = !to || lc(to) === lc(me) ? ZERO : to;
+  if (pick !== ZERO && isProtocolSink(pick)) throw new Error("That's a DISCIPLE contract. Pick a wallet.");
   const w = gaslessCreator();
   if (w) {
     const client = pc ?? (await import("../protocol-viem")).publicClient();

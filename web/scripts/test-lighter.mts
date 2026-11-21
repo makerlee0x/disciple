@@ -159,3 +159,11 @@ test("Turbo add failure copy: real error kept, says nothing was sent when that's
   assert.equal(landingErrorCopy("Add at least $6.", true), "Add at least $6.");
   assert.equal(landingErrorCopy("Lighter hasn't credited it yet.", false), "Turbo hasn't credited it yet.");
 });
+
+test("Turbo add: the deposit address is quoted on what lands (amount minus the cash-out fee), never the gross", async () => {
+  const { depositNetUsd } = await import("../lib/lighter/deposit");
+  assert.equal(depositNetUsd(BigInt(6_000_000), BigInt(25_000), 6), 5.97);
+  assert.equal(depositNetUsd(BigInt(6_000_000), BigInt(2_970_000), 6), 3.03); // 8 gwei day: under Lighter's 5 USDC
+  assert.equal(depositNetUsd(BigInt(6_000_000), BigInt(6_000_001), 6), 0);
+  assert.equal(depositNetUsd(BigInt(10_000_000), BigInt(9_999), 6), 9.99); // rounds down, never up
+});

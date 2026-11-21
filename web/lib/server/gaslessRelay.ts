@@ -44,7 +44,7 @@ import { relayReadTransport } from "./relayReadTransport";
 import { requireSessionWallet, verifySessionToken } from "./gaslessSession";
 import { privyEnv, verificationKeys } from "./privyAuth";
 import { directRelayer, directRelayerAddress, sendDirect, simulateDirect, strikeSender, type DirectRelayer, type OnPending } from "./fastRelay";
-import { relayBreaker } from "./relayBreaker";
+import { recordSenderRevert, relayBreaker } from "./relayBreaker";
 import type { RelayMetrics } from "./relayMetrics";
 import { kv } from "./kv";
 
@@ -250,7 +250,8 @@ async function commit(signer: Address, to: Hex, data: Hex, gas: bigint, r: Direc
     if (shouldStrikeIncludedRevert({ revertData, gasUsed: BigInt(res.rc.gasUsed), gasLimit: gas })) strikeSender(signer, did);
     const price = res.rc.effectiveGasPrice ? BigInt(res.rc.effectiveGasPrice) : BigInt(0);
     // market-move reverts (slippage on rapid taps) count toward the loss threshold only, not the 2-revert trip
-    await relayBreaker.record({ reverted: !isMarketMoveRevert(revertData), lossWei: BigInt(res.rc.gasUsed) * price }).catch(() => false);
+    const many = await recordSenderRevert({ who: signer, reverted: !isMarketMoveRevert(revertData), lossWei: BigInt(res.rc.gasUsed) * price }).catch(() => ({ tooMany: false }));
+    if (many.tooMany) strikeSender(signer, did);
   }
   return { kind: "confirmed", txHash: res.txHash, success, receipt: res.rc, gasUsed, via: String(res.via), ...(revertData ? { revert: revertData } : {}),
     t: { admission: tAdm, budget, send: res.sendMs + res.minedMs, total: Date.now() - t0 } };

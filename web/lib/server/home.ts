@@ -17,6 +17,7 @@ import { storeSrc, STORE_ID_RE, uriKey } from "@/lib/coinImages";
 import { pairOf, pairSymOf, shortHex } from "@/lib/home/pairs";
 import { pairLogoBySymbol } from "@/lib/whitelistQuotes";
 import { isHiddenCoin } from "@/lib/home/hiddenCoins";
+import { pumpedLaunchSet } from "./launchPriceCheck";
 import { flaggedCopySet } from "@/lib/server/nameLock";
 import { chipOf, lobbyAgeTokens, pickHero, statsFromFills, type HomeCoin, type HomeData } from "@/lib/home/trending";
 import { bestCalls, pilotBoard, positionBoard, rocketSeasonSp, type PositionBoard, topPilots, tickerOf, type BestCalls, type BoardOpts, type PilotBoard, type TickerItem, type TopPilots } from "@/lib/home/topPilots";
@@ -84,7 +85,12 @@ async function build(): Promise<HomeData> {
   const copies = await flaggedCopySet(launches.map((x) => x.token)).catch(() => new Set<string>());
   const shown = launches.filter((x) => !isHiddenCoin(x.token) && !copies.has(x.token.toLowerCase()));
   const list = shown.slice(0, MAX_COINS);
-  const fillsBy = await Promise.all(list.map((c) => tradesOf(c.token, null, FILLS_CAP, "desc").catch(() => [])));
+  const [fillsBy, pumped] = await Promise.all([
+    Promise.all(list.map((c) => tradesOf(c.token, null, FILLS_CAP, "desc").catch(() => []))),
+    // launch price pumped inside the launch tx (lib/server/launchPriceCheck): listed, but off every board and SP tally
+    timeout(pumpedLaunchSet(pc, list).catch(() => new Set<string>()), 2_500, new Set<string>()),
+  ]);
+  const boardFills = fillsBy.map((f, i) => (pumped.has(list[i].token.toLowerCase()) ? [] : f));
   const coins: HomeCoin[] = list.map((x, i) => {
     const fills = fillsBy[i];
     return {
@@ -113,15 +119,15 @@ async function build(): Promise<HomeData> {
     : [];
   // board guardrails need who launched each rocket and which reached orbit (lib/home/topPilots BOARD_RULES)
   const opts: BoardOpts = { creators: new Map(list.map((x) => [x.token.toLowerCase(), String(x.creator).toLowerCase()])), graduated: new Set(list.filter((x) => x.graduated).map((x) => x.token.toLowerCase())) };
-  const pilots = topPilots(fillsBy, now, 5, opts);
-  const calls = bestCalls(fillsBy, now, opts);
+  const pilots = topPilots(boardFills, now, 5, opts);
+  const calls = bestCalls(boardFills, now, opts);
   for (const k of Object.keys(calls) as (keyof BestCalls)[]) { const c = calls[k]; if (c) c.coinName = coins.find((x) => x.token === c.coin)?.ticker ?? ""; }
   // the full /leaderboard (lib/server/leaderboard) ranks from the same fills; kept server side, not in HomeData
-  g.__dscBoard = { at: now, v: pilotBoard(fillsBy, now, opts) };
-  g.__dscPositions = { at: now, v: positionBoard(fillsBy, now, opts) };
+  g.__dscBoard = { at: now, v: pilotBoard(boardFills, now, opts) };
+  g.__dscPositions = { at: now, v: positionBoard(boardFills, now, opts) };
   const season = rankSeasonAt(now);
-  g.__dscRocketSp = { at: now, season: season.id, v: rocketSeasonSp(fillsBy, now, season.startsAt, season.endsAt, opts) };
-  g.__dscPairIn = { launches: shown.map((x) => ({ token: x.token.toLowerCase(), quote: String(x.quote).toLowerCase(), block: Number(x.block) })), fills: fillsBy.flat() };
+  g.__dscRocketSp = { at: now, season: season.id, v: rocketSeasonSp(boardFills, now, season.startsAt, season.endsAt, opts) };
+  g.__dscPairIn = { launches: shown.filter((x) => !pumped.has(x.token.toLowerCase())).map((x) => ({ token: x.token.toLowerCase(), quote: String(x.quote).toLowerCase(), block: Number(x.block) })), fills: boardFills.flat() };
   const ticker = tickerOf(fillsBy, new Map(coins.map((c) => [c.token, c.name])));
   await timeout(namePilots(pilots, ticker, calls), 2_500, undefined);
   return { at: now, coins, ...pick, chips, pilots, bestCalls: calls, ticker };
