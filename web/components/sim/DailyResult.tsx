@@ -109,7 +109,7 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
     if (!verdict || s.invested <= 0) return;
     let alive = true;
     fetch(`/api/daily/card?id=${id}&run=${verdict.runId}`).then((r) => (r.ok ? r.blob() : null))
-      .then((b) => { if (alive && b && b.type.startsWith("image/")) setCard(new File([b], `disciple-daily-${id}.png`, { type: b.type })); }).catch(() => {});
+      .then((b) => { if (alive && b && b.type.startsWith("image/")) setCard(new File([b], `disciple-daily-${id}.${b.type === "image/png" ? "png" : "jpg"}`, { type: b.type })); }).catch(() => {});
     return () => { alive = false; };
   }, [id, verdict?.runId, s.invested]);   // eslint-disable-line react-hooks/exhaustive-deps
   const send = async (url: string, text: string) => {

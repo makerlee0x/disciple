@@ -135,8 +135,8 @@ test("Daily flight: fly it, get scored by the server, and see the same result ne
   await expect.poll(async () => {
     await res.getByTestId("daily-share").click();
     const last = await page.evaluate(() => { const a = (window as unknown as { __shared: { files: string[] }[] }).__shared; return a[a.length - 1]; });
-    return last?.files?.[0] ?? null;
-  }, { timeout: 20_000 }).toBe("image/png");
+    return last?.files?.[0] ?? "";
+  }, { timeout: 20_000 }).toMatch(/^image\/(png|jpeg)$/);
   const shared = await page.evaluate(() => { const a = (window as unknown as { __shared: { text: string }[] }).__shared; return a[a.length - 1]; });
   expect(shared.text).toMatch(/\/d\/\d+\?c=[0-9a-f]{16}/);
 
