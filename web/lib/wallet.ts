@@ -180,8 +180,33 @@ export async function execCalls(calls: Call[], o: SendOpts = {}): Promise<ExecRe
 export async function warmGaslessSell(coin: Address): Promise<void> {
   const owner = gaslessSigner();
   if (!owner) return;
-  const [{ createPublicClient, http }, { primePermit }] = await Promise.all([import("viem"), import("./trade/gaslessClient")]);
-  await primePermit(createPublicClient({ chain: ACTIVE_CHAIN, transport: http() }) as never, owner.address, coin);
+  const [pc, { primePermit }] = await Promise.all([gaslessPc(), import("./trade/gaslessClient")]);
+  await primePermit(pc as never, owner.address, coin);
+}
+/** One public client for gasless reads (keeps the RPC connection warm between the warm-up and the tap). */
+let gaslessPcP: Promise<unknown> | undefined;
+function gaslessPc(): Promise<unknown> {
+  gaslessPcP ??= import("viem").then(({ createPublicClient, http }) => createPublicClient({ chain: ACTIVE_CHAIN, transport: http() }));
+  return gaslessPcP;
+}
+/**
+ * Off-tap warm-up for the first BUY (speed, maker 2026-11-21: first buy 2.1 s vs 0.9 s sell): learn the USDG → PERMIT2
+ * allowance and read the Permit2 nonce word, so the tap signs with no chain reads, and ask the relay to warm its
+ * relayer key / base fee / nonce / RPC connections (disciple_gaslessWarm; signs and sends nothing).
+ */
+export async function warmGaslessBuy(): Promise<void> {
+  const owner = gaslessSigner();
+  if (!owner) return;
+  const [{ deployment }, pc, { primePermit, permit2NonceBook }] = await Promise.all([import("./chains"), gaslessPc(), import("./trade/gaslessClient")]);
+  await Promise.allSettled([
+    primePermit(pc as never, owner.address, deployment().usdg),
+    permit2NonceBook(pc as never).prime(owner.address),
+    warmGaslessRelay(owner.address),
+  ]);
+}
+/** Relay warm ping (server-side keys, fee and RPC TLS); cheap, safe to repeat. */
+export function warmGaslessRelay(signer: Address): Promise<unknown> {
+  return fetch("/api/gasless", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_gaslessWarm", params: [signer] }) }).catch(() => undefined);
 }
 
 /**
@@ -194,11 +219,10 @@ export async function execGasless(a: { coin: Address; isBuy: boolean; amountIn: 
   const owner = gaslessSigner();
   if (!owner) throw new SignInRequired();
   const { deployment } = await import("./chains");
-  const { createPublicClient, http } = await import("viem");
   const { signGaslessTrade, submitGasless, resetGaslessNonces, GaslessError } = await import("./trade/gaslessClient");
   const { AAError } = await import("./aa/core");
   const d = deployment();
-  const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
+  const pc = await gaslessPc();
   // Privy identity token (linked accounts; cached/auto-refreshed by Privy) fetched in parallel with signing.
   const tokenP = import("./aa/session").then(m => m.privyIdentityToken()).catch(() => null);
   const t0 = performance.now();
