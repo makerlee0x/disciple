@@ -149,6 +149,10 @@ async function gaslessFillsCurve(coin: Address, usdgIn: bigint, kvStatus?: strin
   }
 }
 
+/** coin:side → when a trade on it last needed the 3M gas cap (per process). */
+const needsBigGas = new Map<string, number>(), smallGasOk = new Map<string, number>();
+const BIG_GAS_MEMO_MS = 10 * 60_000;
+
 async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: Address, isBuy: boolean, amountIn: bigint, extra: Promise<unknown>[] = []): Promise<{ relayer: DirectRelayer; did: string; fillsCurve: boolean; refDone: string | null; simGas: bigint }> {
   const m = d.metrics;
   const relayer = directRelayer(m);
@@ -170,16 +174,29 @@ async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: 
   // larger allowance, so a trade that needs more than 900k passed admission, ran out of gas on chain, and two of those
   // tripped the shared breaker (every player's buys then failed "didn't go through" for 15 min). A trade that only
   // fails at 900k is re-simulated at the 3M cap and, if that passes, is sent with 3M.
+  // Any 900k failure falls back to the 3M cap, revert data or not: a Uniswap v4 hook that runs out of gas comes back WRAPPED
+  // with data (WrappedError(hook, afterSwap, WrappedError(token, transfer, …), HookCallFailed)), which the old "has data ⇒
+  // real revert" rule refused. That blocked every buy of STRATEGY-paired coins on mainnet: the route's MSTR→STRATEGY pool
+  // hook runs a ~550k-gas buyback loop (maker's $SPACE test buy, 2026-11-20; ~1.26M gas total). A real revert fails at 3M
+  // too and is refused with that error.
+  // Speed (maker 2026-11-20 "so slow"): the 3M simulation runs AT THE SAME TIME as the 900k one instead of after it (one
+  // eth_call round trip, not two), and a coin + side that needed 3M skips the 900k try for 10 minutes.
   const sim = Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", async (): Promise<bigint> => {
-    try { await simulateDirect(r.address, to, data, GASLESS_GAS_LIMIT); return GASLESS_GAS_LIMIT; }
-    catch {
-      // Any 900k failure is re-simulated at the 3M cap, revert data or not: a Uniswap v4 hook that runs out of gas comes
-      // back WRAPPED with data (WrappedError(hook, afterSwap, WrappedError(token, transfer, …), HookCallFailed)), which the
-      // old "has data ⇒ real revert" rule refused. That blocked every buy of STRATEGY-paired coins on mainnet: the route's
-      // MSTR→STRATEGY pool hook runs a ~550k-gas buyback loop (maker's $SPACE test buy, 2026-11-20; ~1.26M gas total).
-      // A real revert fails at 3M too and is refused with that error.
-      await simulateDirect(r.address, to, data, GASLESS_GRAD_GAS_LIMIT).catch(e2 => { throw legacyLogin(e2); });
-      return GASLESS_GRAD_GAS_LIMIT;
+    const key = `${coin.toLowerCase()}:${isBuy ? "b" : "s"}`, big = needsBigGas.get(key);
+    const at3m = () => simulateDirect(r.address, to, data, GASLESS_GRAD_GAS_LIMIT).then(() => GASLESS_GRAD_GAS_LIMIT);
+    if (big !== undefined && Date.now() - big < BIG_GAS_MEMO_MS) return at3m().catch(e2 => { throw legacyLogin(e2); });
+    // the parallel 3M try only while this coin + side has no recent 900k pass (no second eth_call on every ordinary trade)
+    const lo = simulateDirect(r.address, to, data, GASLESS_GAS_LIMIT);
+    const fits = smallGasOk.get(key), hi = fits !== undefined && Date.now() - fits < BIG_GAS_MEMO_MS ? null : at3m(); hi?.catch(() => undefined);
+    try {
+      await lo;
+      smallGasOk.set(key, Date.now()); if (smallGasOk.size > 500) smallGasOk.delete(smallGasOk.keys().next().value as string);
+      return GASLESS_GAS_LIMIT;
+    } catch {
+      const g = await (hi ?? at3m()).catch(e2 => { throw legacyLogin(e2); });
+      smallGasOk.delete(key);
+      needsBigGas.set(key, Date.now()); if (needsBigGas.size > 500) needsBigGas.delete(needsBigGas.keys().next().value as string);
+      return g;
     }
   }));
   // Graduation-fill check ∥ sim. Starts after the gate MGET so a cached curve is reused (no extra curveOf).
