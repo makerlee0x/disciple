@@ -69,4 +69,10 @@
   .touch { display: block; }
   .count b { font-size: 120px; }
 }
+/* iPhone SE (1st gen) and other 320 px phones: the title and the "New in" chip didn't both fit */
+@media (max-width: 359px) {
+  .top { gap: 6px; }
+  .title { font-size: 18px; letter-spacing: .4px; }
+  .chip { font-size: 11px; padding: 4px 7px; }
+}
 @media (hover: none) and (min-width: 761px) { .ctl .keys { display: none; } .touch { display: block; } }

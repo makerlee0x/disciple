@@ -31,8 +31,10 @@ export async function generateMetadata(p: P): Promise<Metadata> {
   return {
     title, description,
     openGraph: { title, description, images: [{ url: img, width: 1200, height: 630 }] },
-    twitter: { card: "player", site: "@disciplevip", title, description, images: [square], // no streamUrl: that's for a raw video file, and this player is a page
-      players: [{ playerUrl: player, width: 480, height: 480 } as unknown as { playerUrl: string; streamUrl: string; width: number; height: number }] },
+    // The player tags go in `other`: Next's own `players` writer calls streamUrl.toString() and crashed the whole page
+    // ("This page didn't load") without one. There's no stream here (that's for a raw video file; this player is a page).
+    twitter: { card: "player", site: "@disciplevip", title, description, images: [square], players: [] },
+    other: { "twitter:player": player, "twitter:player:width": "480", "twitter:player:height": "480" },
   };
 }
 

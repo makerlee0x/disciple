@@ -24,7 +24,10 @@
 @media (max-width: 760px) {
   .foot { margin-top: 48px; padding: 0 16px 24px; }
   .top { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; gap: 20px; padding: 24px 0; }
-  .links, .end { justify-content: center; gap: 10px 20px; }
+  .links, .end { justify-content: center; gap: 0 8px; }
+  /* 18 px tall text links were hard to hit with a thumb: pad them to a 40 px target without moving the text */
+  .links a:not(.x), .legal a { display: inline-flex; align-items: center; min-height: 40px; padding: 0 6px; }
+  .legal { gap: 8px; }
   .built { order: 3; }
   .base { flex-direction: column-reverse; gap: 12px; }
 }

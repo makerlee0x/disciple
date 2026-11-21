@@ -44,3 +44,14 @@ test("Trading duel lobby opens (after PR #364 lands)", async ({ page, pilot }) =
   // the engine draws the lobby into its own root; it must mount without errors and offer a match
   await expect(page.getByText(/quick match|find a match|play a bot|ranked/i).filter({ visible: true }).first()).toBeVisible({ timeout: 15_000 });
 });
+
+test("a duel challenge link (/vs/<pilot>) opens and carries the X player card", async ({ page }) => {
+  // the X player tags once crashed the whole page ("This page didn't load") through Next's metadata writer
+  const r = await page.request.get("/vs/nobody-here");
+  expect(r.status()).toBe(200);
+  const html = await r.text();
+  expect(html).toContain('name="twitter:player"');
+  expect(html).toContain('name="twitter:card" content="player"');
+  await page.goto("/vs/nobody-here");
+  await expect(page.getByTestId("duel-challenge-go")).toBeVisible();
+});

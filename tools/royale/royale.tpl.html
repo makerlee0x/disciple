@@ -352,6 +352,8 @@ html,body{margin:0;height:100%;background:#07080c}
 /* lobby gear (maker 2026-11-18): opens the page's settings sheet (components/turbo/LobbySettings) */
 .duel-root .pre-r{justify-self:end;display:flex;align-items:center;gap:10px;min-width:0}
 .duel-root .pre-gear{flex:none;display:grid;place-items:center;width:36px;height:36px;padding:0;border-radius:12px;background:rgba(18,19,39,.7);border:1px solid var(--line);color:var(--text);cursor:pointer}
+/* phones up to 400 px: the title ran into the pilots-in count; shrink both so the header row fits */
+@media (max-width:400px){.duel-root .pre-top .pre-title{font-size:18px;letter-spacing:.4px}.duel-root .pre-r{gap:6px}.duel-root .pre-r .me-chip b{font-size:16px;white-space:nowrap}.duel-root .pre-r .me-chip small{font-size:10px;white-space:nowrap}}
 .duel-root .pre-gear:hover{border-color:rgba(242,193,78,.55);color:var(--gold)}.duel-root .pre-gear:focus-visible{outline:3px solid #fff;outline-offset:2px}
 </style>
 </head>

@@ -8,7 +8,8 @@ import "../docs/docs.css";
 export default function LegalLayout({ children }: { children: ReactNode }) {
   return (
     <div className="dv-root" data-testid="legal-page">
-      {children}
+      {/* same side margins as the docs and /security pages; without them the text ran into the screen edge on phones */}
+      <div className="dv-main dv-solo">{children}</div>
     </div>
   );
 }
