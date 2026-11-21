@@ -201,9 +201,16 @@ export async function execGasless(a: { coin: Address; isBuy: boolean; amountIn: 
   const pc = createPublicClient({ chain: ACTIVE_CHAIN, transport: http() });
   // Privy identity token (linked accounts; cached/auto-refreshed by Privy) fetched in parallel with signing.
   const tokenP = import("./aa/session").then(m => m.privyIdentityToken()).catch(() => null);
+  const t0 = performance.now();
   const q = await signGaslessTrade(pc as never, owner, { router: d.gaslessRouter, usdg: d.usdg, coin: a.coin, isBuy: a.isBuy, amountIn: a.amountIn, minOut: a.minOut });
+  const tSigned = performance.now();
   try {
-    const r = await submitGasless(q, "/api/gasless", fetch, await tokenP);
+    const tok = await tokenP;
+    const tPost = performance.now();
+    const r = await submitGasless(q, "/api/gasless", fetch, tok);
+    const tResp = performance.now();
+    // ?timing=1 box (lib/trade/flowTiming): where a gasless trade's time goes
+    void import("./trade/flowTiming").then(m => m.showGaslessTiming({ side: a.isBuy ? "buy" : "sell", sign: tSigned - t0, token: tPost - tSigned, relay: tResp - tPost, t: r.t, via: r.via, server: r.server })).catch(() => undefined);
     handOffLogs(r.txHash, r.logs);
     return { txHash: r.txHash, logs: r.logs, gasMode: "gasless", pressId: a.pressId };
   } catch (e) {
