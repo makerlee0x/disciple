@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_PUSH_PREFS, pushCopy, readPrefs } from "@/lib/push";
 
 describe("push alerts", () => {
-  it("orbit, launch milestones, duel requests and market sales are on by default; unknown keys are ignored", () => {
-    expect(DEFAULT_PUSH_PREFS).toEqual({ orbit: true, host: true, crew: false, duel: true, market: true });
-    expect(readPrefs({ host: false, evil: true, orbit: "yes", market: false })).toEqual({ orbit: true, host: false, crew: false, duel: true, market: false });
+  it("orbit, launch milestones, duel requests, market sales, rivals and the daily flight are on by default; unknown keys are ignored", () => {
+    expect(DEFAULT_PUSH_PREFS).toEqual({ orbit: true, host: true, crew: false, duel: true, market: true, rival: true, daily: true });
+    expect(readPrefs({ host: false, evil: true, orbit: "yes", market: false })).toEqual({ orbit: true, host: false, crew: false, duel: true, market: false, rival: true, daily: true });
     expect(readPrefs(null)).toEqual(DEFAULT_PUSH_PREFS);
   });
   it("copy names what happened, never a trade", () => {
-    const all = [pushCopy.orbit("HALO", "LAUNCH PAD"), pushCopy.host("LUMA", 50), pushCopy.crew("NOVA", "OUTER SPACE", 4)];
+    const all = [pushCopy.orbit("HALO", "LAUNCH PAD"), pushCopy.host("LUMA", 50), pushCopy.crew("NOVA", "OUTER SPACE", 4), pushCopy.rivalDaily("@nova", 4, 52), pushCopy.rivalOverall("@nova", 9), pushCopy.dailyOpen(31, 3, 41)];
     expect(all[0].body).toBe("You boarded at the Launch Pad and were aboard for it. See its flight.");
     expect(all[2]).toEqual({ title: "[NOVA] flew to Outer Space", body: "Your crew's 4th rocket past the Kármán Line this week." });
     for (const m of all) expect(`${m.title} ${m.body}`).not.toMatch(/\b(buy|sell|dump|price|win it back|\$\d)/i);

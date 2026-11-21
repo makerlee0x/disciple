@@ -20,6 +20,7 @@ import {
 } from "@/lib/duel/rules";
 import { duelCandles, priceAt, type Candle } from "./price";
 import { onDuelSettled } from "@/lib/server/collection";
+import { recordPlay } from "@/lib/server/plays";
 import type { DuelEvent, DuelMode, DuelPlayer, DuelResult, DuelRoom, NewDuelEvent } from "@/lib/duel/types";
 
 const K = {
@@ -429,6 +430,8 @@ async function settle(r: DuelRoom, price: number, s: Kv): Promise<NewDuelEvent> 
   r.result = { winner, profit, delta, rating, books, price, ...(season ? { season } : {}), ...(streak ? { streak } : {}) };
   // collection crates (lib/server/collection): a ranked win drops a crate; never let it break settling
   if (r.mode === "ranked") await onDuelSettled(r.id, winner, winner ? (winner === a.pid ? b.pid : a.pid) : null, Date.now(), s).catch((e) => console.error("[duel] crate", e));
+  // flight streak (lib/streaks): a finished duel of any kind counts for each signed-in pilot (guests have no wallet)
+  for (const p of r.players) await recordPlay(p.pid, "duel", Date.now(), s).catch(() => false);
   for (const p of r.players) await s.delIfEq(K.active(p.pid), r.id);
   return { type: "end", result: r.result };
 }

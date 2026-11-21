@@ -1,6 +1,11 @@
 /* Steady-hand streaks (main mode hook loop mockup board, maker 2026-11-13). Brand v3 tokens. Phone column, centred. */
 .page { max-width: 480px; margin: 0 auto; padding: 24px 16px calc(96px + var(--ap-safe-bottom, 0px)); box-sizing: border-box; display: flex; flex-direction: column; gap: 16px;
   color: #D7D9E4; font-family: var(--dsc-font-ui); min-height: calc(100vh - 80px); }
+.hd { display: flex; align-items: center; justify-content: space-between; gap: 12px; position: relative; }
+.info summary { list-style: none; cursor: pointer; color: #9EA3B5; display: grid; place-items: center; width: 44px; height: 44px; }
+.info summary::-webkit-details-marker { display: none; }
+.info ul { position: absolute; right: 0; top: 48px; z-index: 5; width: min(340px, calc(100vw - 32px)); margin: 0; padding: 14px 16px 14px 30px; border-radius: 14px; background: #1F2228; border: 1px solid #2E323A;
+  font-size: 13px; line-height: 1.45; color: #D7D9E4; display: grid; gap: 6px; box-shadow: 0 12px 30px rgba(0,0,0,.5); }
 .h1 { margin: 0; font: 800 40px/0.95 var(--dsc-font-game); color: #FFF6DC; text-transform: uppercase; }
 .lede { margin: 0; font-size: 14px; line-height: 1.45; color: #9EA3B5; }
 .loading { height: 260px; border-radius: 18px; background: rgba(22,24,28,.5); border: 1px solid #2E323A; }
@@ -8,7 +13,7 @@
 .cardGold { border-color: rgba(243,223,168,.35); gap: 14px; }
 .small { padding: 16px 18px; gap: 0; }
 .top { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
-.eb { font: 500 12px var(--dsc-font-mono); color: #9EA3B5; text-transform: uppercase; }
+.eb { margin: 0; font: 500 12px var(--dsc-font-mono); color: #9EA3B5; text-transform: uppercase; }
 .ebGold { color: #F3DFA8; }
 .big { font: 800 56px/0.9 var(--dsc-font-game); color: #FFF6DC; margin-top: 6px; }
 .mid { font-size: 40px; }
@@ -34,3 +39,32 @@
 .xp { font-size: 14px; color: #D7D9E4; margin-top: 8px; line-height: 1.5; }
 .grow { flex-grow: 1; }
 .note { margin: 0; font-size: 11px; line-height: 1.4; color: #7D8296; }
+.big small { font-size: .5em; color: #9EA3B5; }
+.bigRow { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.bigRow .big { margin-top: 0; }
+.shield .best { margin-left: auto; }
+.claim { flex: none; border: 0; cursor: pointer; font: italic 800 15px/1 var(--dsc-font-game); padding: 11px 14px; border-radius: 10px; min-height: 44px;
+  background: #F2C14E; color: #1A1405; box-shadow: 0 3px 0 #8A5F0D; }
+.claim:active { transform: translateY(2px); box-shadow: 0 1px 0 #8A5F0D; }
+.claim:disabled { opacity: .6; }
+.claim:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
+.err { margin: 0; font-size: 13px; color: #FF7FB2; }
+/* daily drop: 7 days */
+.drops { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.drop { height: 58px; border-radius: 10px; background: #1A1B22; border: 1px solid #2E323A; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+.drop b { font: 800 15px/1 var(--dsc-font-game); color: #FFF6DC; }
+.drop span { font: 500 10px/1 var(--dsc-font-mono); color: #9EA3B5; display: inline-flex; }
+.dropNow { border-color: #F2C14E; background: rgba(242,193,78,.12); }
+.dropPast { opacity: .55; }
+.dropPast span { color: #5FF0A0; }
+.dropCrate { width: 30px; height: 30px; object-fit: contain; }
+/* season track */
+.bar { height: 10px; border-radius: 5px; background: #23263A; overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: 5px; background: linear-gradient(90deg, #F2C14E, #FF9A3C); }
+.barN { font: 500 11px var(--dsc-font-mono); color: #9EA3B5; text-align: right; margin-top: -4px; }
+.nodes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.node { border-radius: 10px; border: 1px solid #2E323A; background: #1A1B22; display: flex; flex-direction: column; align-items: center; padding: 6px 0; gap: 2px; }
+.node img { width: 36px; height: 36px; object-fit: contain; opacity: .5; filter: grayscale(.6); }
+.node span { font: 500 10px/1 var(--dsc-font-mono); color: #9EA3B5; display: inline-flex; }
+.nodeGot img { opacity: 1; filter: none; }
+.nodeGot span { color: #5FF0A0; }

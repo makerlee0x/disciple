@@ -4,6 +4,7 @@ import "server-only";
  *  - orbit: a rocket graduated; everyone aboard at the orbit fill (host excluded) gets "reached orbit"
  *  - host:  a launch passed 25 / 50 / 100 … passengers; its host gets the milestone. Also its first 3 pilots aboard
  *           (first day only), with a link that opens the "your rocket is live" share card
+ *  - daily / rival: the daily flight opening and rivals passing you (lib/server/pushRetention)
  *  - crew:  a rocket climbed into a zone at or past the Kármán Line with 2+ of a crew aboard; that crew hears about it
  * The first run only records where everything stands, so nothing old is announced.
  */
@@ -18,6 +19,7 @@ import { guilds, guildTagsOf } from "./guilds";
 import { kv } from "./kv";
 import { toLog } from "./logbook";
 import { notify } from "./push";
+import { runRetentionPushes } from "./pushRetention";
 import { tradesOf } from "./trades";
 
 const WATCH = 40;
@@ -36,8 +38,11 @@ export async function runPushEvents(budgetMs = 45_000, now = Date.now()): Promis
   const s = kv(), t0 = Date.now(), seeded = !!(await s.get(S.seeded));
   const coins = (await getHomeData()).coins;
   const orbited = new Set(await s.smembers(S.orbited));
-  const sent: Record<PushKind, number> = { orbit: 0, host: 0, crew: 0, duel: 0, market: 0 };
+  const sent: Record<PushKind, number> = { orbit: 0, host: 0, crew: 0, duel: 0, market: 0, rival: 0, daily: 0 };
   const count = (k: PushKind) => (r: string) => { if (r === "sent") sent[k]++; };
+  // daily flight opening and rivals passing you (lib/server/pushRetention): first, so a long rocket scan can't starve them
+  const rt = await runRetentionPushes(now, s).catch(() => ({ daily: 0, rival: 0 }));
+  sent.daily += rt.daily; sent.rival += rt.rival;
 
   if (!seeded) {
     const grads = coins.filter((c) => c.graduated).map((c) => c.token.toLowerCase());

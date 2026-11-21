@@ -1,0 +1,17 @@
+/* Flight streak + daily drop row (components/streaks/DailyDropBar). Brand v3 tokens. */
+.bar { display: flex; align-items: center; gap: 10px; }
+.streak { display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px; border-radius: 14px; background: #15172A; border: 1px solid #23263A; color: #fff; text-decoration: none; min-height: 44px; box-sizing: border-box; }
+.streak b { font: 800 20px/1 var(--dsc-font-game); }
+.streak span { font: 500 11px/1 var(--dsc-font-mono); color: var(--dsc3-light-champagne, #F3DFA8); text-transform: uppercase; }
+.lit { color: #FF9A3C; filter: drop-shadow(0 0 6px rgba(255,154,60,.6)); }
+.unlit { color: #4A4E66; }
+.claim, .claimed, .got { flex: 1; min-width: 0; min-height: 44px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 14px;
+  font: italic 800 17px/1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .02em; white-space: nowrap; }
+.claim { border: 0; cursor: pointer; background: var(--dsc3-light-gold, #F2C14E); color: #1A1405; box-shadow: 0 3px 0 #8A5F0D; animation: pulse 2.4s ease-in-out infinite; }
+.claim:active { transform: translateY(2px); box-shadow: 0 1px 0 #8A5F0D; }
+.claim:disabled { opacity: .7; }
+.claim:focus-visible, .streak:focus-visible, .claimed:focus-visible { outline: none; box-shadow: var(--dsc-glow-focus-ring); }
+.claimed { background: rgba(95,240,160,.1); border: 1px solid rgba(95,240,160,.35); color: #5FF0A0; text-decoration: none; }
+.got { background: rgba(242,193,78,.15); border: 1px solid rgba(242,193,78,.5); color: #F2C14E; }
+@keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.025); } }
+@media (prefers-reduced-motion: reduce) { .claim { animation: none; } }

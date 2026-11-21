@@ -2,6 +2,7 @@
 /**
  * iPhone app home, concept C "Play feed" (maker picked 2026-11-16, mockup https://claude.ai/artifact/Re98NdbGd8G75ika5gFf3U).
  * The app only: the website lobby is unchanged (AppSwitch picks one before paint from the app's user agent).
+ *   Flight streak + daily drop (components/streaks/DailyDropBar, signed in) → /streaks
  *   Orders bar (daily XP missions) → /achievements
  *   Featured: Daily mission (today's daily flight) with the time left until 00:00 UTC
  *   Duel card → the duel lobby
@@ -28,6 +29,7 @@ import LiveRockets from "./LiveRockets";
 import { QUICK_PLAY_EVENT } from "./events";
 import s from "./appHome.module.css";
 import AnimClip from "@/components/ui/AnimClip";
+import DailyDropBar from "@/components/streaks/DailyDropBar";
 
 const POLL_MS = 30_000;
 const FREE_HREF = "/flight/sim";
@@ -93,6 +95,7 @@ export default function AppHome({ initial }: { initial: HomeData }) {
 
   return (
     <div className={s.home} data-testid="app-home">
+      <DailyDropBar wallet={wallet} />
       {missions && (
         <Link href="/achievements" className={s.mbar} data-testid="app-missions">
           <b>Orders</b>

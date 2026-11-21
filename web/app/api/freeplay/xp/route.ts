@@ -12,6 +12,7 @@ import { kv } from "@/lib/server/kv";
 import { clientIp, hitLimit } from "@/lib/server/limits";
 import { authenticate, bearer, privyEnv } from "@/lib/server/privyAuth";
 import { awardFreePlay } from "@/lib/server/xp";
+import { recordPlay } from "@/lib/server/plays";
 import { bindOwner, boardRun, boardedRunOf, readRun, runIdOf } from "@/lib/server/daily";
 import { FREE_PLAY_XP, freePlayXp } from "@/lib/xp";
 import { dailyToday, validInputs, verifyPractice } from "@/lib/sim/daily";
@@ -47,6 +48,7 @@ export async function POST(req: Request) {
     if (had && had !== run.runId) return out(409, { ok: false, reason: "You already posted a score on this daily. One run per pilot." });
     if (!(await bindOwner(id, run.runId, wallet))) return out(409, { ok: false, reason: "This run is saved to another pilot." });
     if (!(await boardRun(id, run, wallet))) return out(409, { ok: false, reason: "You already posted a score on this daily. One run per pilot." });
+    if (id === today) await recordPlay(wallet, "daily").catch(() => false);   // flight streak (lib/streaks)
     const r = await awardFreePlay(wallet, `fp:d:${id}`, run.flags?.length ? 0 : freePlayXp("daily", run.score), `Daily flight #${id}`);   // a flagged run pays nothing
     return r.ok ? out(200, { ...r, perDay: FREE_PLAY_XP.perDay, runId: run.runId }) : out(409, r);
   }
@@ -56,6 +58,7 @@ export async function POST(req: Request) {
     if (!validInputs(inputs, PLAYER.defaultMinutes * 60, true)) return out(400, { ok: false, reason: "bad run" });
     const score = verifyPractice(difficulty as DifficultyId, seed as number, inputs as PlayerInput[]);
     const day = new Date().toISOString().slice(0, 10);
+    await recordPlay(wallet, "practice").catch(() => false);
     const r = await awardFreePlay(wallet, `fp:p:${day}:${difficulty}:${seed}`, freePlayXp("practice", score), "Free play practice");
     return r.ok ? out(200, { ...r, perDay: FREE_PLAY_XP.perDay, multiple: score.multiple }) : out(409, r);
   }
