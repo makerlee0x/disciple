@@ -9,7 +9,7 @@ import SnipeChip from "@/components/flight/SnipeChip";
 import { snipeState } from "@/lib/snipe";
 import { SIM_LAUNCH_TS } from "@/lib/game/snipeCountdown";
 import Icon from "@/components/ui/Icon";
-import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
+import dynamic from "next/dynamic";
 import { TRAMP_WALLS_ENABLED } from "@/lib/features";
 import { PLAYER, cloneConfig, mergeTune, resetSimStorage, SIM_STORAGE, type ArchetypeId, type DifficultyId, type SimConfig } from "@/lib/sim/config";
 import { SIM_POS_EVENT, SimDriver } from "@/lib/sim/driver";
@@ -25,6 +25,9 @@ import RocketClear from "@/components/sim/RocketClear";
 import DailyPreflight, { CountOverlay, useCountdown } from "@/components/sim/DailyPreflight";
 import { FreePlayHub, FreePlayStrip, PracticeResult, savePracticeBest, type StripAlert } from "@/components/sim/FreePlay";
 import { scoreRun } from "@/lib/sim/daily";
+
+// tramp walls are flagged off: their card loads only when the flag is on
+const TrampWallPanel = dynamic(() => import("@/components/trampwalls/TrampWallPanel"), { ssr: false });
 
 /** a challenger's run on a daily (GET /api/daily?run=): flown as a ghost when this run is that exact flight */
 type Ghost = { day: number; /** null for today (the seed comes with the start ticket) */ seed: number | null; name: string; multiple: number; boardedAtS: number | null; outAtS: number | null };

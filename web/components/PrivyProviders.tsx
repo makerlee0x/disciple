@@ -8,7 +8,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useState, type ReactNode } from "react";
 import { isCoinPath } from "@/lib/coinPath";
-import { hasSavedSession } from "@/lib/aa/sessionState";
+import { PRIVY_WANTED_EVENT, hasSavedSession } from "@/lib/aa/sessionState";
 import { PRIVY_APP_ID, SIGNER_MODE } from "@/lib/aa/env"; // not lib/aa/session: that would put viem + noble in every page's first-load JS
 
 const PrivyMount = dynamic(() => import("./PrivyMount"), { ssr: false });
@@ -17,33 +17,44 @@ const PrivyMount = dynamic(() => import("./PrivyMount"), { ssr: false });
  *  doesn't fight the flight engine for the main thread (maker 2026-11-20: "it needs to be under a second"). It starts on
  *  the first tap or key, the engine's first price + idle, or 4 s, whichever comes first. The signed-in pill paints from
  *  its cache meanwhile (WalletButton lastPill). A signed-in browser waits at most 1.5 s, so its wallet is ready to trade.
- *  Every other page mounts it right away, as before. */
-export const PRIVY_DEFER_MAX_MS = 4000, PRIVY_DEFER_SIGNED_IN_MS = 1500;
-function useDeferOnCoinPage(): boolean {
+ *  Every other page (speed pass 2026-11-21): a browser with a saved session mounts it right away, as before; a signed-out
+ *  visitor gets it once the page has loaded and gone idle (its images and art come first), on the first tap or key, or
+ *  when something asks for it (PRIVY_WANTED_EVENT: a Sign in tap opens the window once it's ready). */
+export const PRIVY_DEFER_MAX_MS = 4000, PRIVY_DEFER_SIGNED_IN_MS = 1500, PRIVY_DEFER_PAGE_MAX_MS = 5000;
+function useDeferPrivy(): boolean {
   const [go, setGo] = useState(false);
   useEffect(() => {
-    if (!isCoinPath(location.pathname)) { setGo(true); return; }
+    const coin = isCoinPath(location.pathname);
+    const signedIn = hasSavedSession();
+    if (!coin && signedIn) { setGo(true); return; }
     let done = false, idleId: number | undefined;
     const start = () => { if (done) return; done = true; cleanup(); setGo(true); };
     const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
-    const onMark = () => { idleId = w.requestIdleCallback ? w.requestIdleCallback(start, { timeout: 1200 }) : window.setTimeout(start, 300); };
-    const t = window.setTimeout(start, hasSavedSession() ? PRIVY_DEFER_SIGNED_IN_MS : PRIVY_DEFER_MAX_MS);
+    const idle = () => { idleId = w.requestIdleCallback ? w.requestIdleCallback(start, { timeout: 1200 }) : window.setTimeout(start, 300); };
+    const t = window.setTimeout(start, coin ? (signedIn ? PRIVY_DEFER_SIGNED_IN_MS : PRIVY_DEFER_MAX_MS) : PRIVY_DEFER_PAGE_MAX_MS);
+    // coin page: the engine's first price; other pages: the window load event (already past on a client-side navigation)
+    const onLoad = () => idle();
     function cleanup() {
       clearTimeout(t);
-      removeEventListener("disciple:mark", onMark);
+      removeEventListener("disciple:mark", idle);
+      removeEventListener("load", onLoad);
       removeEventListener("pointerdown", start, true);
       removeEventListener("keydown", start, true);
+      removeEventListener(PRIVY_WANTED_EVENT, start);
     }
-    addEventListener("disciple:mark", onMark, { once: true });
+    if (coin) addEventListener("disciple:mark", idle, { once: true });
+    else if (document.readyState === "complete") idle();
+    else addEventListener("load", onLoad, { once: true });
     addEventListener("pointerdown", start, true);
     addEventListener("keydown", start, true);
+    addEventListener(PRIVY_WANTED_EVENT, start);
     return () => { cleanup(); void idleId; };
   }, []);
   return go;
 }
 
 export default function PrivyProviders({ children }: { children: ReactNode }) {
-  const go = useDeferOnCoinPage();
+  const go = useDeferPrivy();
   return (
     <>
       {children}

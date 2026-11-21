@@ -25,13 +25,16 @@ export async function GET(req: Request) {
   if (!isAddr(coin)) return NextResponse.json({ error: "bad coin" }, { status: 400 });
   let hit = memo.get(coin);
   if (!hit || Date.now() - hit.at > MEMO_MS) {
-    const rl = await hitLimit(kv(), `coinmcap:${clientIp(req.headers)}`, PER_IP.limit, PER_IP.windowSec);
-    if (!rl.ok) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+    // the limit check (a KV round trip) runs alongside the chain reads instead of before them (speed pass 2026-11-21):
+    // this number gates the rocket's first frame. A limited caller still gets its 429; the read only warms the memo.
+    const limit = hitLimit(kv(), `coinmcap:${clientIp(req.headers)}`, PER_IP.limit, PER_IP.windowSec);
     const p = readCoinMcap(serverPc() as unknown as PublicClient, coin as Address).then((m) => ({ mcapUsd: m.mcapUsd, graduated: m.graduated }));
     hit = { at: Date.now(), p };
     memo.set(coin, hit);
     p.catch(() => memo.delete(coin));
     if (memo.size > 500) memo.delete(memo.keys().next().value as string);
+    const rl = await limit;
+    if (!rl.ok) return NextResponse.json({ error: "rate limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
   }
   try {
     return NextResponse.json(await hit.p, { headers: CACHE });

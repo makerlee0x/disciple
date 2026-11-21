@@ -1,3 +1,4 @@
+import { SIGNER_MODE } from "./env";
 /**
  * Signed-in state without the wallet stack (mobile plan 2026-11-13, speed fix 1).
  * The lobby top bar and the game sidebar only need "who is signed in" and change events, but importing lib/aa/session
@@ -40,7 +41,18 @@ export type PrivyHooks = { /** Privy finished loading (usePrivy().ready) */ read
 let privyHooks: PrivyHooks | null = null;
 const privySubs = new Set<() => void>();
 let idTok: { tok: string; exp: number } | undefined;   // privyIdentityToken cache
-export function registerPrivy(h: PrivyHooks | null) { if (!h?.authenticated) idTok = undefined; privyHooks = h; privySubs.forEach((f) => f()); }
+export function registerPrivy(h: PrivyHooks | null) {
+  if (!h?.authenticated) idTok = undefined;
+  privyHooks = h;
+  // a Sign in tap that came before the Privy chunk finished loading opens the window as soon as Privy is ready
+  if (h && h.ready !== false && pendingLoginAt && Date.now() - pendingLoginAt < PENDING_LOGIN_MS) { pendingLoginAt = 0; queueMicrotask(() => h.login()); }
+  privySubs.forEach((f) => f());
+}
+/** Privy (~2 MB) mounts after the page has loaded for signed-out visitors (components/PrivyProviders). Anything that needs it
+ *  sooner fires this to start it now. */
+export const PRIVY_WANTED_EVENT = "disciple:privy-wanted";
+let pendingLoginAt = 0;
+const PENDING_LOGIN_MS = 15_000;
 // dev only (screenshots of signed-in screens, like window.__walletDev): a stand-in session whose token the page sends to /api.
 // Also in the local-signer e2e build (NEXT_PUBLIC_AA_SIGNER=local is inlined at build time, so real builds drop this),
 // where e2e/turbo-cash.spec.ts uses it to reach the Turbo popup's /api/lighter calls, which it answers itself.
@@ -74,7 +86,11 @@ export async function privyIdentityToken(): Promise<string | null> {
 /** Drop the cached identity token (sign-out, or the relay refused it). */
 export function forgetIdentityToken() { idTok = undefined; }
 export function privyLogin() {
-  if (!privyHooks) throw new Error("Login is still loading — try again in a second.");
+  if (!privyHooks) {
+    // Privy is set up but its chunk is still on the way: start it and open the window once it's ready
+    if (SIGNER_MODE === "privy" && typeof window !== "undefined") { pendingLoginAt = Date.now(); dispatchEvent(new Event(PRIVY_WANTED_EVENT)); return; }
+    throw new Error("Login is still loading — try again in a second.");
+  }
   privyHooks.login();
 }
 

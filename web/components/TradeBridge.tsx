@@ -26,8 +26,7 @@ import { NO_REFUSE_SLIPPAGE_BPS } from "@/lib/trade/queuePricing";
 import { capRoomUsd, COPY_PENDING_LEE, nextAlert, type TradeAlert } from "@/lib/trade/tradeGuards";
 import AmmoTierNotice from "./AmmoTierNotice";
 import { fmtMoney } from "@/lib/pnl";
-import SwapSettingsModal from "./trade/SwapSettingsModal";
-import PhoneBoostSheet from "./flight/PhoneBoostSheet";
+import dynamic from "next/dynamic";
 import PhoneThrottle from "./flight/PhoneThrottle";
 import { DEFAULT_BUY, SELL_KEYS, SWAP_PREFIX, loadSettings, sanitize, saveSettings, sellLabel, type SellSlot, type SwapSettings } from "@/lib/trade/swapSettings";
 import { keyLabel, useGameSettings } from "@/lib/game/settings";
@@ -47,6 +46,10 @@ import { graduationStatus, liveMaxImpactBps } from "@/lib/flight/gradAdapter";
 import { longHidden, onTabVisible } from "@/lib/tabIdle";
 import { pctBuyLabel, pctBuyUsd } from "@/lib/sim/daily";
 import { GASLESS_GAS_FEE_USD } from "@/lib/trade/gaslessPermit2";
+
+// The buy/sell settings popups open on a tap, so they load then (speed pass 2026-11-21), not with the flight screen.
+const SwapSettingsModal = dynamic(() => import("./trade/SwapSettingsModal"), { ssr: false });
+const PhoneBoostSheet = dynamic(() => import("./flight/PhoneBoostSheet"), { ssr: false });
 
 type Ammo = { tier: number | null; rocketTier?: number | null; name: string | null; usd: number[]; names: string[]; mode: number };
 

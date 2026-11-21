@@ -44,6 +44,8 @@ export function fullCsp(env = process.env, framers = "'self'") {
     "https://*.alchemy.com", "wss://*.alchemy.com",
     ...originOf(env.NEXT_PUBLIC_RH_RPC_URL), ...originOf(env.NEXT_PUBLIC_RHT_RPC_URL),
     ...originOf(env.NEXT_PUBLIC_ANVIL_RPC_URL), ...originOf(env.NEXT_PUBLIC_INDEXER_URL),
+    // always-on trade relay (web/relay, Fly.io)
+    ...originOf(env.NEXT_PUBLIC_GASLESS_RELAY_URL),
     // Turbo prices (Hyperliquid, Lighter) and coin data
     "https://api.hyperliquid.xyz", "wss://api.hyperliquid.xyz",
     "https://mainnet.zklighter.elliot.ai", "wss://mainnet.zklighter.elliot.ai", "https://*.lighter.xyz", "wss://*.lighter.xyz",

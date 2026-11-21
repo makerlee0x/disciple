@@ -205,9 +205,24 @@ export async function warmGaslessBuy(): Promise<void> {
     warmGaslessRelay(owner.address),
   ]);
 }
-/** Relay warm ping (server-side keys, fee and RPC TLS); cheap, safe to repeat. */
+/**
+ * Always-on trade relay (web/relay on Fly.io, maker 2026-11-21): NEXT_PUBLIC_GASLESS_RELAY_URL. Trades go there only
+ * while its last warm ping answered within RELAY_OK_MS; otherwise (unset, down, never pinged) /api/gasless on Vercel,
+ * as before. A trade is never re-sent to the other relay (a signed trade that may have been sent is not retried).
+ */
+const ALWAYS_ON = (process.env.NEXT_PUBLIC_GASLESS_RELAY_URL || "").replace(/\/+$/, "");
+const RELAY_OK_MS = 120_000;
+let relayOkAt = 0;
+export function gaslessTradeUrl(): string {
+  return ALWAYS_ON && Date.now() - relayOkAt < RELAY_OK_MS ? `${ALWAYS_ON}/api/gasless` : "/api/gasless";
+}
+/** Relay warm ping (server-side keys, fee and RPC TLS); cheap, safe to repeat. Pings the always-on relay when set. */
 export function warmGaslessRelay(signer: Address): Promise<unknown> {
-  return fetch("/api/gasless", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_gaslessWarm", params: [signer] }) }).catch(() => undefined);
+  const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_gaslessWarm", params: [signer] });
+  if (!ALWAYS_ON) return fetch("/api/gasless", { method: "POST", headers: { "content-type": "application/json" }, body }).catch(() => undefined);
+  return fetch(`${ALWAYS_ON}/api/gasless`, { method: "POST", headers: { "content-type": "application/json" }, body })
+    .then(async (r) => { const j = await r.json().catch(() => ({})) as { result?: unknown }; if (r.ok && j.result) relayOkAt = Date.now(); else relayOkAt = 0; })
+    .catch(() => { relayOkAt = 0; });
 }
 
 /*
@@ -272,7 +287,7 @@ export async function execGasless(a: { coin: Address; isBuy: boolean; amountIn: 
   try {
     const tok = await tokenP;
     const tPost = performance.now();
-    const r = await submitGasless(q, "/api/gasless", fetch, tok);
+    const r = await submitGasless(q, gaslessTradeUrl(), fetch, tok);
     const tResp = performance.now();
     // ?timing=1 box (lib/trade/flowTiming): where a gasless trade's time goes
     void import("./trade/flowTiming").then(m => m.showGaslessTiming({ side: a.isBuy ? "buy" : "sell", presigned: !!pre, sign: tSigned - t0, token: tPost - tSigned, relay: tResp - tPost, t: r.t, via: r.via, server: r.server })).catch(() => undefined);

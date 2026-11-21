@@ -19,6 +19,8 @@ import AnimClip from "@/components/ui/AnimClip";
 
 /* Grok loops over the poster art (A3, 2026-11-17: image-to-video on the same plates, so the still and the clip line up).
    Royale has none yet. Each plays only while its card is on screen. */
+/** the mode plates' smaller cuts (512 / 768 px wide) next to the 1024 px original */
+const artSrcSet = (art: string) => { const b = art.replace(/\.webp$/, ""); return `${withBase(`${b}-512.webp`)} 512w, ${withBase(`${b}-768.webp`)} 768w, ${withBase(art)} 1024w`; };
 const CLIP: Partial<Record<ModeId, string>> = { launch: "A3-mode-launch", duel: "A3-mode-duel", climb: "A3-mode-live", daily: "A3-mode-free" };
 
 type ModeId = "launch" | "duel" | "royale" | "climb" | "daily";
@@ -138,9 +140,11 @@ export default function ModeSelect({ signedIn }: { signedIn: boolean; flying?: n
               data-sfx="none"
               onClick={() => { if (appFeel()) playSfx("mode_select"); go(m); }}
             >
-              {/* every card can be on the first screen, so none is lazy; the starting card's art is fetched first */}
+              {/* every card can be on the first screen, so none is lazy; the starting card's art is fetched first. The cards are
+                  250-340 px wide, so phones and desktops take the 768 px cut (~1/3 the bytes of the 1024 px plate, speed pass
+                  2026-11-21); public/art/modes/<id>-512|768.webp */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img className={s.art} src={withBase(m.art)} alt="" style={{ objectPosition: m.pos }} loading="eager" fetchPriority={m.id === start ? "high" : "auto"} decoding="async" />
+              <img className={s.art} src={withBase(m.art)} srcSet={artSrcSet(m.art)} sizes="(max-width: 760px) 250px, 340px" alt="" style={{ objectPosition: m.pos }} loading="eager" fetchPriority={m.id === start ? "high" : "auto"} decoding="async" />
               {CLIP[m.id] && <AnimClip id={CLIP[m.id]!} ratio="none" loop poster whenVisible className={s.art} style={{ objectPosition: m.pos }} />}
               <span className={s.scrim} aria-hidden />
               <span className={s.tag} style={{ color: m.tone }}>{m.tag}</span>

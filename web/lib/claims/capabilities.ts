@@ -65,6 +65,9 @@ export function probeCaps(pc: PublicClient): Promise<Caps> {
   probed = (async (): Promise<Caps> => {
     if (!isDeployed()) return s;
     const d = deployment();
+    const key = cacheKey(s);
+    const hit = readCached(key);
+    if (hit) return hit;
     const [quote, token, ref, crew, gate, anon, vault] = await Promise.all([
       s.creatorFees ? ok(pc.readContract({ address: d.feeRouter, abi: feeRouterAbi, functionName: "creatorAccrued", args: [Z, Z] })) : false,
       s.creatorTokenFees ? ok(pc.readContract({ address: d.feeRouter, abi: feeRouterAbi, functionName: "creatorTokenAccrued", args: [Z, Z] })) : false,
@@ -74,8 +77,31 @@ export function probeCaps(pc: PublicClient): Promise<Caps> {
       s.anonClaims ? ok(pc.readContract({ address: anonLauncherAddr()!, abi: anonLauncherAbi, functionName: "stealthOwnerOf", args: [Z] })) : false,
       s.curveFeeVault ? ok(pc.readContract({ address: d.curveFeeVault, abi: curveFeeVaultAbi, functionName: "referrerAccrued", args: [Z, Z] })) : false,
     ]);
-    return { creatorFees: quote, creatorTokenFees: token, referrerFees: ref, crew, referralGate: gate, anonClaims: anon, curveFeeVault: vault };
+    const caps: Caps = { creatorFees: quote, creatorTokenFees: token, referrerFees: ref, crew, referralGate: gate, anonClaims: anon, curveFeeVault: vault };
+    writeCached(key, s, caps);
+    return caps;
   })();
   probed.catch(() => { probed = null; });
   return probed;
+}
+
+/* Probe cache (speed pass 2026-11-21): the 7 reads above ran on every page load for every signed-in player. The answer
+   only changes with a redeploy, so a full pass (every capability the ABI and addresses allow answered) is kept for 6 hours,
+   keyed by chain and the probed addresses. A partial or failed pass is never kept, so a flaky RPC can't hide a card. */
+const CAPS_LS = "disciple.caps.v1";
+const CAPS_TTL_MS = 6 * 3600_000;
+function cacheKey(s: Caps): string {
+  const d = isDeployed() ? deployment() : null;
+  return [ACTIVE_CHAIN.id, d?.feeRouter, d?.launchpad, d?.usdgDepositNotifier, d?.curveFeeVault, anonLauncherAddr(), JSON.stringify(s)].join("|").toLowerCase();
+}
+function readCached(key: string): Caps | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(CAPS_LS) || "null") as { key?: string; at?: number; caps?: Caps } | null;
+    if (!v || v.key !== key || !v.caps || typeof v.at !== "number" || Date.now() - v.at > CAPS_TTL_MS || v.at > Date.now()) return null;
+    return v.caps;
+  } catch { return null; }
+}
+function writeCached(key: string, s: Caps, caps: Caps) {
+  const full = (Object.keys(s) as (keyof Caps)[]).every((k) => !s[k] || caps[k]);
+  try { if (full) localStorage.setItem(CAPS_LS, JSON.stringify({ key, at: Date.now(), caps })); } catch { /* private mode */ }
 }
