@@ -90,6 +90,14 @@ test("a deposit address for another chain is never paid: Add stops before any ca
   await standInLighter(page, l, pilot.address);
   const gasless: string[] = [];
   page.on("request", (r) => { if (r.url().includes("/api/gasless") && r.method() === "POST") gasless.push(r.postData() ?? ""); });
+  // Add quotes the cash-out's network fee first and asks for the deposit address on the net (lib/lighter/deposit, audit
+  // 2026-11-21); the e2e server has no relayer, so the quote is answered here ($0.04 fee) and everything after it is real
+  await page.route("**/api/gasless", async (route) => {
+    const body = route.request().postData() ?? "";
+    if (!/disciple_gaslessWithdrawQuote"/.test(body)) return route.continue();
+    const result = { fee: "40000", feeTo: "0x3333333333333333333333333333333333333333", gas: "200000", gasPrice: "1000000", rate: "3000000000", usdg: "0x4444444444444444444444444444444444444444", usdgDecimals: 6, minAmount: "1000000", spender: "0x5555555555555555555555555555555555555555" };
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ jsonrpc: "2.0", id: 1, result }) });
+  });
   const pop = await openTurbo(page);
   await pop.getByTestId("cash-turbo-amount").fill("10");
   await pop.getByTestId("cash-turbo-btn").click();
@@ -97,7 +105,7 @@ test("a deposit address for another chain is never paid: Add stops before any ca
   await expect(alert).toBeVisible({ timeout: 15_000 });
   await expect(alert).toContainText(/nothing was sent|can't be added from this build/i);
   expect(l.calls.map((c) => c.op)).toContain("deposit-address");
-  expect(l.calls.find((c) => c.op === "deposit-address")?.body.usd).toBe(10);
+  expect(l.calls.find((c) => c.op === "deposit-address")?.body.usd).toBe(9.96);   // $10 less the $0.04 network fee
   // no cash-out was signed or sent (a quote may be read for the fee line; a submit never)
   expect(gasless.filter((b) => /disciple_gaslessWithdraw"/.test(b))).toHaveLength(0);
   await expect(pop.getByTestId("turbo-pop-cash")).toContainText("$20.00");
