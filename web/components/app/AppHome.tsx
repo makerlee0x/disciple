@@ -199,5 +199,6 @@ export default function AppHome({ initial }: { initial: HomeData }) {
 
 function Thumb({ src }: { src: string }) {
   // eslint-disable-next-line @next/next/no-img-element
-  return <img className={s.optTh} src={withBase(src)} alt="" loading="lazy" decoding="async" />;
+  // small thumbnails: the 512 px cut of the mode plate, not the 1024 px original (speed pass 2026-11-21)
+  return <img className={s.optTh} src={withBase(src.replace(/\.webp$/, "-512.webp"))} alt="" loading="lazy" decoding="async" />;
 }
