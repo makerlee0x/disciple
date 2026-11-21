@@ -338,11 +338,13 @@ test("Difficulty is three cards with the caps written on them (canvas board \"La
 });
 
 test("pool / burn with a first boost in dollars is refused until the fixed harvest is live (audit CH-02)", () => {
-  assert.equal(HARVEST_USDG_BOOST_LIVE, false);
+  // mainnet's harvest has the CH-02 fix (2026-11-20); every other chain still refuses
+  assert.equal(HARVEST_USDG_BOOST_LIVE, Number(process.env.NEXT_PUBLIC_CHAIN_ID || 0) === 4663);
   assert.equal(QUICK_LAUNCH_COPY.creatorFeesNoBoost, "Pool and burn can't take a first boost yet. Launch without one, or keep the creator fees.");
   const here = dirname(fileURLToPath(import.meta.url));
   const page = readFileSync(join(here, "../app/create/page.tsx"), "utf8");
   const proto = readFileSync(join(here, "../lib/protocol-viem.ts"), "utf8");
   assert.ok(page.indexOf("C.creatorFeesNoBoost") < page.indexOf("storeImage(badge)"), "checked before the image upload");
-  assert.match(proto, /feeDest && !lp\.private && usdgIn > B\(0\) && !HARVEST_USDG_BOOST_LIVE/);
+  // the gasless wallet launch (CreatorFeeHarvest.launchWithPermit2, #551) pays the boost itself and skips this check
+  assert.match(proto, /feeDest && !lp\.private && !gaslessWallet && usdgIn > B\(0\) && !HARVEST_USDG_BOOST_LIVE/);
 });

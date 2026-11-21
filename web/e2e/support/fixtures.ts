@@ -77,3 +77,12 @@ export async function settle(page: Page) {
   await page.waitForLoadState("load");
   await page.waitForTimeout(400);
 }
+
+/** Opens the pilot menu. On phones the menu button covers the whole pilot pill but the cash balance sits on top of it
+ *  and opens Cash (WalletButton, maker 2026-11-19), so tap the pill's left end (the level ring), not its middle. */
+export async function openPilotMenu(page: Page) {
+  const btn = page.getByRole("button", { name: "Your pilot menu" }).filter({ visible: true }).first();
+  await btn.waitFor();
+  const box = await btn.boundingBox();
+  await btn.click(isPhone(page) && box ? { position: { x: Math.min(14, box.width / 4), y: box.height / 2 } } : {});
+}

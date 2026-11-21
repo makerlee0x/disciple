@@ -52,7 +52,7 @@ test("sign-in line, fees, and the locked-LP sentence match the code we could ver
   assert.match(html, /Sign in with email, Google, X or wallet/);
   assert.match(html, /a 1% fee/);
   assert.match(html, /from 0% up to 7%/);
-  assert.match(html, /0\.777%/);
+  assert.match(html, /crew tip of up to 12% \(3\.3% by default\)/); // Constants.CREW_TIP_PPM_MAX / _DEFAULT (#553)
   assert.match(html, /rises to 3\.33%/);
   assert.match(html, /rises to 7\.77%/);
   assert.match(html, /locked forever in the Uniswap v4 LP/);
@@ -62,7 +62,8 @@ test("sign-in line, fees, and the locked-LP sentence match the code we could ver
   assert.match(html, /Upstash/);
   assert.match(html, /Vercel/);
   assert.match(html, /Google Cloud Vision/);
-  assert.match(html, /does not include a separate analytics tool/);
+  assert.match(html, /Vercel Web Analytics to count page views/); // @vercel/analytics is in app/layout (#601)
+  assert.match(html, /do not use advertising tools/);
 });
 
 test("does not make a positive claim that the product is audited, safe, secure, or guaranteed, and hides addresses", () => {

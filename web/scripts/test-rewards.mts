@@ -123,21 +123,23 @@ test("claimAllCalls: every type in one list, zeros skipped, tagged by type", () 
     creator: [rocket(TOKEN, BigInt(5), BigInt(7)), rocket(TOKEN2, ZERO, ZERO), rocket(PRIV, BigInt(3), ZERO, { anon: true, launcher: LAUNCHER })],
     crew: [{ token: TOKEN, pending: BigInt(9) }, { token: TOKEN2, pending: ZERO }],
   }, ALL, ME);
-  assert.deepEqual(calls.map((c) => c.kind), ["referral", "creator", "creator", "creator", "crew"]);
+  // private (anon) rockets claim through anonSigClaimCalls (claimManyBySig, gasless relay), never the plain list (#543/#551)
+  assert.deepEqual(calls.map((c) => c.kind), ["referral", "creator", "creator", "crew"]);
   const dec = calls.map((c) => {
-    for (const abi of [feeRouterAbi, anonLauncherAbi, launchpadAbi] as const) {
+    for (const abi of [feeRouterAbi, anonLauncherAbi, launchpadAbi, FOR_ABI] as const) {
       try { const d = decodeFunctionData({ abi, data: c.data }); return [c.to.toLowerCase(), d.functionName, ...(d.args as unknown[]).map((a) => (Array.isArray(a) ? a.map(String).join(",") : String(a)).toLowerCase())]; } catch { /* next */ }
     }
     return ["?"];
   });
   assert.deepEqual(dec, [
-    [fr.toLowerCase(), "claimReferrerFees", USDG.toLowerCase()],
+    // gasless is the only mode (lib/aa/sponsorshipMode): referral and crew use the For variants that pay `me`
+    [fr.toLowerCase(), "claimReferrerFeesFor_2143", ME.toLowerCase(), USDG.toLowerCase()],
     [fr.toLowerCase(), "claimCreatorFees", TOKEN.toLowerCase()],
     [fr.toLowerCase(), "claimCreatorTokenFees", TOKEN.toLowerCase()],
-    [LAUNCHER.toLowerCase(), "claimMany", PRIV.toLowerCase(), ME.toLowerCase()],
-    [deployment().launchpad.toLowerCase(), "claim", TOKEN.toLowerCase()],
+    [deployment().launchpad.toLowerCase(), "claimFor", TOKEN.toLowerCase(), ME.toLowerCase()],
   ]);
 });
+const FOR_ABI = parseAbi(["function claimReferrerFeesFor_2143(address referrer, address quote)", "function claimFor(address token, address holder)"]);
 
 test("claimAllCalls: types the deployment doesn't have are left out", () => {
   const input = { referral: [{ asset: asset(USDG, 6, 1), claimable: E6 } as never], creator: [rocket(TOKEN, BigInt(5), BigInt(7))], crew: [{ token: TOKEN, pending: BigInt(9) }] };
@@ -181,17 +183,13 @@ test("one op: the claim list encodes into a single executeBatch with every call 
   assert.equal(accountCalls(mav2)?.length, calls.length);
 });
 
-test("session policy: referral, creator and crew claims stay one-tap; a private-rocket claim moves the op to an owner signature", async () => {
-  const d = deployment();
-  const cfg: PolicyCfg = { launchpad: d.launchpad, router: A(2), trampWallManager: A(3), mintable: [], defaultLimit: BigInt(10) ** BigInt(30), feeRouter: d.feeRouter, usdgDepositNotifier: A(5), usdg: USDG };
-  const st = () => ({ expiresAt: Date.now() + 60_000, spent: {} });
-  const pcNoCurve = { readContract: async () => { throw new Error("not a curve"); } } as never;
-  const fees = claimAllCalls({ referral: [{ asset: asset(USDG, 6, 1), claimable: E6 } as never], creator: [rocket(TOKEN, BigInt(5), BigInt(1))], crew: [] }, ALL, ME);
-  await checkCalls(pcNoCurve, cfg, st(), fees, ME);
-  const crew = claimAllCalls({ referral: [], creator: [], crew: [{ token: TOKEN, pending: BigInt(9) }] }, ALL, ME);
-  await checkCalls(pcNoCurve, cfg, st(), [...fees, ...crew], ME);
-  const priv = claimAllCalls({ referral: [], crew: [], creator: [rocket(PRIV, BigInt(3), ZERO, { anon: true, launcher: LAUNCHER })] }, ALL, ME);
-  await assert.rejects(checkCalls(pcNoCurve, cfg, st(), [...fees, ...crew, ...priv], ME), PolicyError);
+test("gasless: referral, creator and crew claims relay as public claims; a private rocket is never in the plain list", async () => {
+  // the 4337 session policy this used to check is gone (gasless is the only mode); the relay's allowlist decides now
+  const { isRelayableCall } = await import("../lib/trade/gaslessAction");
+  const fees = claimAllCalls({ referral: [{ asset: asset(USDG, 6, 1), claimable: E6 } as never], creator: [rocket(TOKEN, BigInt(5), BigInt(1))], crew: [{ token: TOKEN, pending: BigInt(9) }] }, ALL, ME);
+  assert.equal(fees.length, 4);
+  for (const c of fees) assert.ok(isRelayableCall("anonClaim", { to: c.to, data: c.data }), c.kind);
+  assert.deepEqual(claimAllCalls({ referral: [], crew: [], creator: [rocket(PRIV, BigInt(3), ZERO, { anon: true, launcher: LAUNCHER })] }, ALL, ME), []);
 });
 
 test("copy: Rewards strings are plain words, dollars only (static scan of RewardsPanel)", async () => {

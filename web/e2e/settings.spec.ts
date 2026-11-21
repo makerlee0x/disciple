@@ -1,9 +1,9 @@
 /** Settings popup v2 (signed off 2026-11-14): open from the pilot menu, change things, they stick. */
-import { test, expect } from "./support/fixtures";
+import { test, expect, openPilotMenu } from "./support/fixtures";
 import type { Page } from "@playwright/test";
 
 async function openSettings(page: Page) {
-  await page.getByRole("button", { name: "Your pilot menu" }).filter({ visible: true }).first().click();
+  await openPilotMenu(page);
   await page.getByTestId("account-menu").getByRole("menuitem", { name: /settings/i }).click();
   const m = page.getByTestId("settings-modal");
   await expect(m).toBeVisible();
