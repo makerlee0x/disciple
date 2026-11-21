@@ -2,7 +2,7 @@
  * Simulator / Real money switch at the top of the Duel and Climb lobbies (maker 2026-11-19). It drives the same
  * per-browser setting as ?lighter=1 (lib/lighter/duel lighterWanted). Each mode reads it once as it sets up, so the
  * screen passes `onSwitch` to set itself up again in place (maker 2026-11-20: a full reload blacked out the page). In a blocked country (lib/turbo/region) the web shows it greyed out on Simulator under the GeoBanner strip,
- * and the iPhone app has no switch (and no banner) at all: play money only. Elsewhere it works on both (maker 2026-11-19).
+ * and the iPhone app has no switch (and no banner) at all: play money only, everywhere (store-readiness pass 2026-11-21).
  */
 import { isNativeApp } from "@/lib/native";
 import { lighterWanted, setLighterWanted } from "@/lib/lighter/duel";
@@ -43,7 +43,7 @@ export function mountRealSwitch(root: HTMLElement, onSwitch?: () => void): () =>
   };
   const locked = () => turboBlockedCached();
   const show = () => {
-    el.hidden = isNativeApp() && locked();
+    el.hidden = isNativeApp();   // play money only in the app (App Review 3.1.5(iii), 5.3)
     btn.disabled = locked(); btn.title = locked() ? "Real money isn't available in your region" : "";
     paint(lighterWanted() && !locked());
   };

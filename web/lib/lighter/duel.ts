@@ -7,6 +7,7 @@
  * runs for a signed-in pilot whose Lighter set-up is finished (/lighter), and never from a blocked country (lib/turbo/region).
  */
 import { withBase } from "@/lib/base-path";
+import { isNativeApp } from "@/lib/native";
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import { turboBlockedCached, turboRegion } from "@/lib/turbo/region";
 import { cashNeed } from "@/lib/duel/rules";
@@ -19,8 +20,10 @@ export const NOT_REACHED = "Can't reach Turbo right now. Try again in a moment."
 const FLAG = "disciple.lighter";
 /** reads / applies the ?lighter= switch */
 export function lighterWanted(): boolean {
-  // the iPhone app too, outside blocked countries (maker 2026-11-19); the lobby switch (lib/turbo/realSwitch) sets it
-  if (typeof window === "undefined") return false;
+  // Web only. maker 2026-11-19 let the iPhone app use it outside blocked countries; store-readiness pass 2026-11-21 turns it
+  // off in the app for App Review 3.1.5(iii) (crypto futures need a licensed firm) and 5.3 (real-money PvP). The lobby
+  // switch (lib/turbo/realSwitch) sets it.
+  if (typeof window === "undefined" || isNativeApp()) return false;
   try {
     const q = new URLSearchParams(location.search).get("lighter");
     if (q === "1") localStorage.setItem(FLAG, "1");

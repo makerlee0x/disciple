@@ -37,6 +37,7 @@ import { SampleTag, isCashAsset, pc, shortA } from "./ui";
 import { CashHead, Check, ErrIcon } from "@/components/cash/bits";
 import { CLAIM_COPY, ClaimBody, type ClaimRow } from "./ClaimSheet";
 import type { Rewards } from "./useRewards";
+import { isNativeApp } from "@/lib/native";
 
 const ZERO_TX = `0x${"0".repeat(64)}` as Hex;
 const lc = (a: string) => a.toLowerCase();
@@ -152,6 +153,11 @@ export default function RewardsPanel({ open, onClose, r, start }: { open: boolea
   const { me, caps, demo, data, gate, username, canClaim } = r;
   const [view, setView] = useState<View>(start ?? { v: "home" });
   const [copied, setCopied] = useState(false);
+  // App Review 3.1.5(v): crypto apps can't pay for inviting people or posting. Inside the iPhone app the invite link, the
+  // Referral tile and the referral deposit card stay hidden (earned referral funds still claim through Claim). Bonus has no
+  // source yet ($0), so it goes too and the two tiles left fill the phone grid.
+  const [app, setApp] = useState(false);
+  useEffect(() => { setApp(isNativeApp()); }, []);
   // claim (all, or one rocket)
   const [claimScope, setClaimScope] = useState<ClaimScope>(null);
   const [feeNote, setFeeNote] = useState<string | null>(null);
@@ -244,7 +250,7 @@ export default function RewardsPanel({ open, onClose, r, start }: { open: boolea
     { k: "crew", label: T.tiles.crew, usd: s?.byKind.crew.earnedUsd ?? 0, sub: T.rocketsN(nCrew) },
     { k: "referral", label: T.tiles.referral, usd: s?.byKind.referral.earnedUsd ?? 0, sub: data?.friendsInvited != null ? T.invitedN(data.friendsInvited) : "" },
     { k: "bonus", label: T.tiles.bonus, usd: 0, sub: "" },
-  ];
+  ].filter((x) => !app || (x.k !== "referral" && x.k !== "bonus"));
   const coin = "token" in view ? hosted.find((x) => lc(x.token) === lc(view.token)) ?? null : null;
   const back = () => setView(view.v === "payto" || view.v === "transfer" ? { v: "coin", token: (view as { token: string }).token } : { v: "home" });
   const onSheetClose = () => {
@@ -306,7 +312,7 @@ export default function RewardsPanel({ open, onClose, r, start }: { open: boolea
           </div>
         ) : (
           <div className="p5-tabbody" data-testid="rewards-history">
-            {caps.referralGate && gate && (
+            {caps.referralGate && gate && !app && (
               <div className="p5-card p5-deposit" data-testid="referral-deposit">
                 <span className="p5-l">Referral deposit</span>
                 <p className="p5-fine">{T.depositNote}</p>
@@ -350,13 +356,13 @@ export default function RewardsPanel({ open, onClose, r, start }: { open: boolea
             ) : <p className="p5-fine">{T.noHistory}</p>}
           </div>
         )}
-        <div className="p5-rw-invite">
+        {!app && <div className="p5-rw-invite">
           <span className="lab">{T.inviteLink}</span>
           <div className="p5-ref" data-testid="referral-link">
             <span className="u">{me ? refLabel(username || null, me, typeof window !== "undefined" ? window.location.host : undefined) : "disciple.vip/r/you"}</span>
             <button type="button" className="p5-btn sm" onClick={copy} disabled={!link} data-testid="copy-ref"><Icon name="copy" size={16} /> {copied ? T.copied : T.copy}</button>
           </div>
-        </div>
+        </div>}
       </>}
 
       {coin && view.v === "coin" && <CoinView key={coin.token} coin={coin} me={me} demo={demo} icon={icons[coin.token]} ready={ready("creator", coin.token)}

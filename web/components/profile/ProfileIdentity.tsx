@@ -11,6 +11,7 @@ import {
 } from "@/lib/profile";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 import { refLabel } from "@/lib/referral";
+import { isNativeApp } from "@/lib/native";
 import { formatLocalWhen } from "@/lib/usernameCooldown";
 import { PROFILE_COPY as C } from "@/lib/copy/profile";
 
@@ -31,6 +32,9 @@ export default function ProfileIdentity({ hideUsername = false, usernameOnly = f
   const [copied, setCopied] = useState("");
 
   useEffect(() => onWallet(setAddr), []);
+  // App Review 3.1.5(v): no invite link inside the iPhone app
+  const [app, setApp] = useState(false);
+  useEffect(() => { setApp(isNativeApp()); }, []);
   useEffect(() => { setUsername(localUsername()); }, []);
   // 24h username cooldown (server-enforced): when the next change is allowed, in the viewer's local time.
   const [nextNameAt, setNextNameAt] = useState<number | null>(null);
@@ -127,7 +131,7 @@ export default function ProfileIdentity({ hideUsername = false, usernameOnly = f
           </div>
         )} />
 
-        <div className="pid-block">
+        {!app && <div className="pid-block">
           <span className="pid-label">REFERRAL LINK</span>
           <div className="pid-value">
             {username || addr ? <>
@@ -136,7 +140,7 @@ export default function ProfileIdentity({ hideUsername = false, usernameOnly = f
               {!username && <span className="muted tiny">Set a username for a shorter link</span>}
             </> : <span className="muted">Sign in to get one</span>}
           </div>
-        </div>
+        </div>}
         </>}
       </div>
       {IS_STATIC_PREVIEW && <p className="muted tiny">Static preview: usernames are saved in this browser only (no uniqueness check).</p>}

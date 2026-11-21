@@ -11,7 +11,7 @@ import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { isCoinPath } from "@/lib/coinPath";
-import { NATIVE_UA_TAG } from "@/lib/native";
+import { NATIVE_UA_TAG, isNativeApp } from "@/lib/native";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
 import { onWallet } from "@/lib/walletState";
 
@@ -50,6 +50,7 @@ function ReferralGate() {
   const [on, setOn] = useState(false);
   useEffect(() => {
     if (process.env.NODE_ENV === "development" && new URLSearchParams(location.search).get("demo") === "1") { setOn(true); return; }
+    if (isNativeApp()) return; // App Review 3.1.5(v): no invite incentives inside the iPhone app
     return onWallet((a) => { if (a) setOn(true); });
   }, []);
   return on ? <ReferralOnboarding /> : null;
