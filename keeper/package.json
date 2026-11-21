@@ -13,6 +13,7 @@
     "once": "node src/main.ts --once",
     "status": "node src/main.ts --status",
     "collect": "node src/main.ts --collect",
+    "health": "node src/main.ts --health",
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "trades": "node src/trades.ts",

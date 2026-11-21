@@ -13,6 +13,10 @@ export interface ChainCfg {
   logCallsPerTick: number;
   priorityFee: bigint;
   maxFee: bigint;
+  /** Multicall3 on this chain: the keeper's view calls in one round go out as one aggregate3 eth_call (viem batches
+   *  calls made together). Default the canonical 0xcA11…CA11, used only when code is found there at start; "off"
+   *  sends each call on its own. */
+  multicall3?: Hex;
 }
 
 export interface RouteCfg {
@@ -88,6 +92,9 @@ export interface Sampling {
   settleEverySec: number;
   /** How often to look at each pool's epoch, seconds (5 storage reads + 1 eth_call per pool). */
   settleCheckSec: number;
+  /** Most transactions in flight at once per chain (sent, waiting for a receipt). Nonces are still handed out one
+   *  by one; only the wait for receipts overlaps. 1 = the old one-at-a-time behaviour. */
+  maxInFlight: number;
 }
 
 export interface Alerts {
@@ -97,6 +104,20 @@ export interface Alerts {
   balanceEverySec: number;
   /** Alert after this many same-chain rounds in a row fail for one entry (RPC down, say). */
   errorsBeforeAlert: number;
+  /** A sent transaction with no receipt after this many seconds is stuck: alert, and read the nonce fresh. */
+  stuckTxSec: number;
+  /** The RPC's latest block older than this (seconds) counts as a failed round: the node is behind or stalled. */
+  staleHeadSec: number;
+  /** No round finished for this long (seconds, something hung): the keeper exits so systemd restarts it. 0 = off. */
+  stallSec: number;
+  /** Alert when a pool's centre stays at least `offLeaderBps` from its leader for `offLeaderSec`: the keeper is
+   *  not keeping it at the market (samples reverting, out of gas, hook paused). */
+  offLeaderBps: number;
+  offLeaderSec: number;
+  /** How often to check each pool's gap to its leader for the alert above and the health file, seconds. */
+  gapEverySec: number;
+  /** Send a summary (transactions, gas, balance, pool gaps) to ALERT_URL this often, seconds. 0 = never. */
+  summaryEverySec: number;
 }
 
 export interface Policy {
@@ -123,6 +144,8 @@ export interface Policy {
 export interface Config {
   account: string;
   stateFile: string;
+  /** Written after every round: what `--health` reads (no keys needed). Default: the state file + ".health.json". */
+  healthFile: string;
   pollSeconds: number;
   chains: Record<string, ChainCfg>;
   routes: RouteCfg[];
@@ -147,6 +170,9 @@ const DEFAULT_CHAINS: Record<string, Partial<ChainCfg> & { rpcEnv: string }> = {
   },
 };
 
+/** Multicall3's address on nearly every EVM chain (deployed from the same keyless transaction). */
+export const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
+
 const b = (v: unknown, d: bigint): bigint => (v === undefined || v === null ? d : BigInt(v as string | number));
 
 export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): Config {
@@ -168,6 +194,7 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       logCallsPerTick: Number(c.logCallsPerTick ?? 20),
       priorityFee: parseGwei(String(c.priorityFeeGwei ?? (name === "ethereum" ? "0.003" : "0"))),
       maxFee: parseGwei(String(c.maxFeeGwei ?? (name === "ethereum" ? "30" : "1"))),
+      multicall3: c.multicall3 === "off" || c.multicall3 === false ? undefined : getAddress((c.multicall3 as string) ?? MULTICALL3),
     };
   }
   const routes: RouteCfg[] = (raw.routes ?? []).map((r: Record<string, unknown>) => {
@@ -205,9 +232,11 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
   const sm = raw.sampling ?? {};
   const p = raw.policy ?? {};
   const al = raw.alerts ?? {};
+  const stateFile = env.KEEPER_STATE ?? raw.stateFile ?? "keeper-state.json";
   return {
     account: env.KEEPER_ACCOUNT ?? raw.account ?? "disciple",
-    stateFile: env.KEEPER_STATE ?? raw.stateFile ?? "keeper-state.json",
+    stateFile,
+    healthFile: env.KEEPER_HEALTH ?? raw.healthFile ?? `${stateFile.replace(/\.json$/, "")}.health.json`,
     pollSeconds: Number(raw.pollSeconds ?? 12),
     chains,
     routes,
@@ -227,6 +256,7 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       matchSampleMaxPerHour: Number(sm.matchSampleMaxPerHour ?? 12),
       settleEverySec: Number(sm.settleEverySec ?? 3600),
       settleCheckSec: Number(sm.settleCheckSec ?? 300),
+      maxInFlight: Math.max(1, Number(sm.maxInFlight ?? 4)),
     },
     policy: {
       moveBps: b(p.moveBps, 102n),
@@ -243,6 +273,13 @@ export function loadConfig(path: string, env: NodeJS.ProcessEnv = process.env): 
       minEth: parseEther(String(al.minEth ?? "0.003")),
       balanceEverySec: Number(al.balanceEverySec ?? 600),
       errorsBeforeAlert: Number(al.errorsBeforeAlert ?? 10),
+      stuckTxSec: Number(al.stuckTxSec ?? 180),
+      staleHeadSec: Number(al.staleHeadSec ?? 300),
+      stallSec: Number(al.stallSec ?? 900),
+      offLeaderBps: Number(al.offLeaderBps ?? 100),
+      offLeaderSec: Number(al.offLeaderSec ?? 1800),
+      gapEverySec: Number(al.gapEverySec ?? 60),
+      summaryEverySec: Number(al.summaryEverySec ?? 86_400),
     },
   };
 }

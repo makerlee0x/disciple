@@ -32,6 +32,18 @@ export async function alert(key: string, text: string, everySec = 6 * 3600): Pro
   }
 }
 
+/** Tells HEARTBEAT_URL the keeper stopped on an error, when it is a healthchecks.io ping URL (`<url>/fail` marks the
+ *  check down right away instead of after the grace period). Never throws. */
+export async function heartbeatFail(msg: string): Promise<void> {
+  const url = env.HEARTBEAT_URL;
+  if (!url || !/^https:\/\/hc-ping\.com\//.test(url)) return;
+  try {
+    await fetch(`${url.replace(/\/$/, "")}/fail`, { method: "POST", body: msg.slice(0, 1000), signal: AbortSignal.timeout(10_000) });
+  } catch {
+    /* nothing more to do */
+  }
+}
+
 /** Pings HEARTBEAT_URL when the last interval has passed. Call after a round that worked. Never throws. */
 export async function heartbeat(): Promise<void> {
   const url = env.HEARTBEAT_URL;

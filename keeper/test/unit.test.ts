@@ -116,8 +116,10 @@ test("config: same-chain sets, sampling and jar policy defaults", () => {
   assert.equal(c.sameChain[0].hook, "0xcEdc3C312C5B3C4310F0fba0323DDeC797E4aA88");
   assert.deepEqual(c.sameChain[0].pools, ["0xabcd"]);
   assert.equal(c.sameChain[0].scanPools, true);
-  assert.deepEqual(c.sampling, { everySec: 13, missesBeforeRest: 3, restSec: 3600, minGapSec: 13, selfPayBps: 0, selfPayBpsCarry: 15, selfPayMaxPerHour: 60, sweepEverySec: 60, sweepBandBps: 20_000, matchEverySec: 60, matchSteps: 20, matchSampleMaxPerHour: 12, settleEverySec: 3600, settleCheckSec: 300 });
-  assert.deepEqual(c.alerts, { minEth: 3_000_000_000_000_000n, balanceEverySec: 600, errorsBeforeAlert: 10 });
+  assert.deepEqual(c.sampling, { everySec: 13, missesBeforeRest: 3, restSec: 3600, minGapSec: 13, selfPayBps: 0, selfPayBpsCarry: 15, selfPayMaxPerHour: 60, sweepEverySec: 60, sweepBandBps: 20_000, matchEverySec: 60, matchSteps: 20, matchSampleMaxPerHour: 12, settleEverySec: 3600, settleCheckSec: 300, maxInFlight: 4 });
+  assert.deepEqual(c.alerts, { minEth: 3_000_000_000_000_000n, balanceEverySec: 600, errorsBeforeAlert: 10, stuckTxSec: 180, staleHeadSec: 300, stallSec: 900, offLeaderBps: 100, offLeaderSec: 1800, gapEverySec: 60, summaryEverySec: 86_400 });
+  assert.equal(c.chains.robinhood.multicall3, "0xcA11bde05977b3631167028862bE2a173976CA11");
+  assert.equal(c.healthFile, "keeper-state.health.json");
   assert.equal(c.sameChain[0].abi, "disciple");
   assert.equal(c.policy.minJar, 0n);
   assert.equal(c.policy.collectEverySec, 86_400);
