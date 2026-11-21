@@ -69,36 +69,68 @@ function singleState(): RelayerState {
  * Relayer key pool (lib/server/relayerPool), OFF unless RELAYER_KEY_POOL is set; never while the relayer is the faucet
  * (they must share ONE cursor). The single key must still resolve (fail-closed check + fallback when no lease).
  */
-let pool: RelayerKeyPool | null | undefined;
-const INSTANCE_ID = `${process.env.VERCEL_REGION ?? "local"}:${globalThis.crypto.randomUUID()}`;
-function poolOf(): RelayerKeyPool | null {
-  if (pool !== undefined) return pool;
+let pools: RelayerKeyPool[] | undefined;
+const INSTANCE_ID = `${process.env.VERCEL_REGION ?? process.env.FLY_REGION ?? "local"}:${globalThis.crypto.randomUUID()}`;
+/**
+ * Leases this process holds at once: 1 on Vercel (many short-lived copies, one key each). The always-on relay server
+ * (relay/server.ts, maker 2026-11-21) sets RELAY_LEASES to take several pool keys and rotates trades across them, so
+ * rapid taps from many players don't queue on one EOA's nonces.
+ */
+const LEASES = Math.max(1, Math.min(32, Math.floor(Number(process.env.RELAY_LEASES) || 1)));
+/** Longer leases for the always-on server (fewer KV renewals); Vercel keeps the 60 s default. */
+const LEASE_TTL = Number(process.env.RELAY_LEASE_TTL_SEC) > 0 ? Number(process.env.RELAY_LEASE_TTL_SEC) : undefined;
+function poolsOf(): RelayerKeyPool[] {
+  if (pools !== undefined) return pools;
   const names = uniquePoolNames(process.env, poolNames(process.env));
-  if (!names.length) return (pool = null);
-  if (relayerIsFaucet()) { console.warn("[relayer-pool] RELAYER_KEY_POOL ignored: the relayer is the faucet key"); return (pool = null); }
-  return (pool = new RelayerKeyPool({ names, store: kv(), id: INSTANCE_ID, resolve: (n) => poolKey(process.env, n) }));
+  if (!names.length) return (pools = []);
+  if (relayerIsFaucet()) { console.warn("[relayer-pool] RELAYER_KEY_POOL ignored: the relayer is the faucet key"); return (pools = []); }
+  const ttl = LEASE_TTL ? { ttlSec: LEASE_TTL, renewSec: Math.max(10, Math.floor(LEASE_TTL / 3)) } : {};
+  return (pools = Array.from({ length: Math.min(LEASES, names.length) }, (_, i) =>
+    new RelayerKeyPool({ names, store: kv(), id: LEASES > 1 ? `${INSTANCE_ID}#${i}` : INSTANCE_ID, resolve: (n) => poolKey(process.env, n), ...ttl })));
 }
+let turn = 0;
 /** The relayer this process signs with (sync; production: RelayerNotConfiguredError → 503, never the faucet key). */
 function active(): RelayerState {
   const fallback = singleState();   // always resolved first: fail closed exactly as before
-  const p = poolOf();
-  if (!p) return fallback;
-  p.maybeRenew();   // off the hot path (not awaited)
-  const l = p.current();
-  if (!l) return fallback;
-  let st = pooled.get(l.address);
-  if (!st) { st = { ...stateOf(privateKeyToAccount(l.key)), epoch: l.epoch }; pooled.set(l.address, st); }
-  // AUDIT Info: a re-acquired lease (new epoch) ⇒ another instance may have signed with this EOA meanwhile: resync
-  else if (st.epoch !== l.epoch) { st.nonces.invalidate(); st.epoch = l.epoch; }
-  const epoch = l.epoch;
-  return { account: st.account, nonces: st.nonces, canSign: () => p.holds(epoch) };
+  const ps = poolsOf();
+  if (!ps.length) return fallback;
+  for (const p of ps) p.maybeRenew();   // off the hot path (not awaited)
+  // round-robin across the leases this process holds right now
+  for (let k = 0; k < ps.length; k++) {
+    const p = ps[(turn + k) % ps.length], l = p.current();
+    if (!l) continue;
+    turn = (turn + k + 1) % ps.length;
+    let st = pooled.get(l.address);
+    if (!st) { st = { ...stateOf(privateKeyToAccount(l.key)), epoch: l.epoch }; pooled.set(l.address, st); }
+    // AUDIT Info: a re-acquired lease (new epoch) ⇒ another instance may have signed with this EOA meanwhile: resync
+    else if (st.epoch !== l.epoch) { st.nonces.invalidate(); st.epoch = l.epoch; }
+    const epoch = l.epoch;
+    return { account: st.account, nonces: st.nonces, canSign: () => p.holds(epoch) };
+  }
+  return fallback;
 }
-/** active(), after (re-)acquiring a pool lease when the pool is on and this instance holds none (no-op when off). */
+/** active(), after (re-)acquiring pool leases when the pool is on: waits only when this process holds none. */
 async function ready(): Promise<RelayerState> {
   singleState();
-  const p = poolOf();
-  if (p && !p.current()) await p.ensure().catch(() => undefined);
+  const ps = poolsOf();
+  if (ps.length) {
+    const missing = ps.filter((p) => !p.current());
+    if (missing.length === ps.length) await Promise.all(missing.map((p) => p.ensure().catch(() => undefined)));
+    else for (const p of missing) void p.ensure().catch(() => undefined);
+  }
   return active();
+}
+/**
+ * Always-on relay server only (relay/server.ts): keep every lease, nonce cursor, base fee and the RPC / sequencer
+ * connections hot so a trade never pays a cold read or a TLS handshake. Called on a short interval; cheap when warm.
+ */
+export async function keepRelayHot(): Promise<void> {
+  singleState();
+  const ps = poolsOf();
+  await Promise.allSettled(ps.map((p) => { p.maybeRenew(); return p.current() ? Promise.resolve() : p.ensure(); }));
+  const states = [singleState(), ...[...pooled.values()]];
+  await Promise.allSettled([refreshBase(), ...states.map((st) => st.nonces.warm())]);
+  if (Date.now() - seqWarmAt > 10_000) { seqWarmAt = 0; warmSequencer(); }   // sequencer TLS: a light ping every 10 s
 }
 function account() { return active().account; }
 /**
