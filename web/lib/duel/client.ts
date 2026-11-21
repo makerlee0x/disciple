@@ -2,6 +2,7 @@
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import type { LengthMs, TierId, TradeAction } from "./rules";
 import type { DuelEvent, DuelRoom } from "./types";
+import type { PilotRow } from "./social";
 
 export type Res<T> = ({ ok: true } & T) | { ok: false; reason: string; status?: number };
 export interface RoomRes { room: DuelRoom; events: DuelEvent[]; now: number }
@@ -31,6 +32,9 @@ export const duelApi = {
   join: (code: string) => call<{ room: DuelRoom }>("POST", "/api/duel/join", { code }),
   /** ping a pilot to join your open friend room (lib/server/duel/challenge, the /vs/<pilot> rematch request) */
   request: (to: string, code: string) => call<{ sent: string }>("POST", "/api/duel/request", { to, code }),
+  /** friends + rivals for the lobby panel (lib/server/duel/social) */
+  social: () => call<{ friends: PilotRow[]; rivals: PilotRow[] }>("GET", "/api/duel/social"),
+  friend: (op: "add" | "remove", who: string) => call<{ added?: boolean }>("POST", "/api/duel/social", { op, who }),
   room: (id: string, after = 0) => call<RoomRes>("GET", `/api/duel/room/${id}?after=${after}`, undefined, false),
   op: (id: string, body: { op: "ready" | "leave" | "rematch" | "report" } | { op: "trade"; action: TradeAction; usd: number } | { op: "chat"; text: string } | { op: "trick"; kind: "spin" | "flip" }, after = 0) =>
     call<RoomRes>("POST", `/api/duel/room/${id}`, { ...body, after }),

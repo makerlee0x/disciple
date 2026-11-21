@@ -15,6 +15,7 @@ import { kv, type Kv } from "@/lib/server/kv";
 import { ulid } from "@/lib/chat/ulid";
 import {
   COUNTDOWN_MS, OT_MS, applyTrade, bombAt, carryRating, makeCode, matchWindow, needsOvertime, newBook, newRating, profitOf, rate, settleBook, fuelOf, okStake, isCustomFuel,
+  PAIR_CAP, PAIR_WINDOW_S, mmrSeed, pairOk,
   type LengthMs, type Rating, type TierId, type TradeAction,
   DUEL_LEN_MS,
 } from "@/lib/duel/rules";
@@ -48,6 +49,10 @@ const K = {
   sboard: (season: string) => `duel:sboard:${season}`,
   /** finished online duels per pilot (sorted set, score = settle time, member = HistRow JSON), newest HIST_MAX kept */
   hist: (pid: string) => `duel:hist:${pid}`,
+  /** hidden matchmaking rating (lib/duel/rules mmrSeed): moves on every queue duel, ranked or not */
+  mmr: (pid: string) => `duel:mmr:${pid}`,
+  /** queue duels between these two pilots in the last PAIR_WINDOW_S (fixed window), either order */
+  pair: (a: string, b: string) => `duel:pair:${[a, b].sort().join(":")}`,
 };
 const HIST_MAX = 100;
 /** a live duel nobody ticked for longer than this is judged from the candle tape, not today's price */
@@ -135,6 +140,29 @@ export async function ratingOf(pid: string, s: Kv = kv()): Promise<Rating> {
   return x ? carryRating(x, n) : { ...newRating(), s: n };
 }
 
+/** The hidden matchmaking rating quick match pairs on (lib/duel/rules mmrSeed). */
+export async function mmrOf(pid: string, s: Kv = kv()): Promise<Rating> {
+  const n = seasonAt(Date.now()).n;
+  const x = parse<Rating>(await s.get(K.mmr(pid)));
+  return x ? carryRating(x, n) : mmrSeed(await ratingOf(pid, s));
+}
+/** How many queue duels these two have played in the current pair window. */
+export async function pairGames(a: string, b: string, s: Kv = kv()): Promise<number> {
+  return Number(await s.get(K.pair(a, b))) || 0;
+}
+/** After a ranked or unranked queue duel: both MMRs move (same Elo as the rating) and the pair counter ticks. Never breaks settling. */
+async function noteMatch(r: DuelRoom, scoreA: 0 | 0.5 | 1, s: Kv) {
+  const [a, b] = r.players;
+  const [k1, k2] = [a.pid, b.pid].sort().map((p) => `duel:mlock:${p}`);
+  await withLockKey(s, k1, () => withLockKey(s, k2, async () => {
+    const ma = await mmrOf(a.pid, s), mb = await mmrOf(b.pid, s);
+    const out = rate(ma, mb, scoreA);
+    out.a.s = ma.s; out.b.s = mb.s;
+    await s.set(K.mmr(a.pid), JSON.stringify(out.a)); await s.set(K.mmr(b.pid), JSON.stringify(out.b));
+  }));
+  await s.incrEx(K.pair(a.pid, b.pid), PAIR_WINDOW_S);
+}
+
 /* ---------- quick match ---------- */
 /**
  * One poll of the ranked queue (the lobby calls this every ~1.5 s while searching). Pairs you with the waiting pilot
@@ -151,7 +179,7 @@ export async function pollQueue(me: Pilot, tier: TierId, lenMs: LengthMs, s: Kv 
     await s.setNX(K.qsince(me.pid), String(now), 120);
     await s.setNX(K.qseen(me.pid), "1", 25);
     const since = Number(await s.get(K.qsince(me.pid))) || now;
-    const mine = await ratingOf(me.pid, s);
+    const mine = await mmrOf(me.pid, s);
     const members = await s.zrange(K.queue(tier, lenMs, casual), 200);
     let best: { pid: string; name: string; gap: number } | null = null;
     for (const m of members) {
@@ -162,7 +190,9 @@ export async function pollQueue(me: Pilot, tier: TierId, lenMs: LengthMs, s: Kv 
       if (await activeRoomOf(e.pid, s)) { await s.zrem(K.queue(tier, lenMs, casual), m); continue; } // seated elsewhere
       const theirSince = Number(await s.get(K.qsince(e.pid))) || now;
       const gap = Math.abs(e.r - mine.r);
-      if (gap <= matchWindow(now - since) && gap <= matchWindow(now - theirSince) && (!best || gap < best.gap)) best = { pid: e.pid, name: e.name, gap };
+      if (!(gap <= matchWindow(now - since) && gap <= matchWindow(now - theirSince) && (!best || gap < best.gap))) continue;
+      if (!pairOk(await pairGames(me.pid, e.pid, s), now - since, now - theirSince)) continue; // played a lot this hour: look for someone else first
+      best = { pid: e.pid, name: e.name, gap };
     }
     const meMember = JSON.stringify({ pid: me.pid, name: me.name, r: mine.r });
     if (!best) {
@@ -421,6 +451,7 @@ async function settle(r: DuelRoom, price: number, s: Kv): Promise<NewDuelEvent> 
   if ((r.mode === "ranked" || r.mode === "casual") && (await s.setNX(K.rated(r.id), "1", 7 * 86400))) {
     let out: Awaited<ReturnType<typeof rateDuel>>;
     try { out = DUEL_RANKED_LIVE && r.mode === "ranked" ? await rateDuel(r, tie ? 0.5 : d > 0 ? 1 : 0, s) : await recordDuel(r, tie ? 0.5 : d > 0 ? 1 : 0, s); } catch (e) { await s.del(K.rated(r.id)); throw e; } // retry next tick
+    await noteMatch(r, tie ? 0.5 : d > 0 ? 1 : 0, s).catch((e) => console.error("[duel] mmr", e));
     delta[a.pid] = out.da; delta[b.pid] = out.db; rating[a.pid] = out.a.r; rating[b.pid] = out.b.r;
     season = Object.keys(out.sp).length ? out.sp : undefined;
     streak = { [a.pid]: out.a.streak, [b.pid]: out.b.streak };
@@ -546,7 +577,9 @@ export async function rematch(id: string, pid: string, s: Kv = kv()) {
     if (!r.rematch.by.includes(pid)) r.rematch.by.push(pid);
     if (r.players.every((p) => r.rematch!.by.includes(p.pid))) {
       const seats = await Promise.all(r.players.map((p) => playerOf(p, s)));
-      make = await createRoom(r.mode, r.tier, DUEL_LEN_MS, seats, s, undefined, r.fuel);
+      // a ranked pair past PAIR_CAP this hour plays on, unranked (record and streak only), so rematches can't farm rank
+      const mode: DuelMode = r.mode === "ranked" && (await pairGames(r.players[0].pid, r.players[1].pid, s)) >= PAIR_CAP ? "casual" : r.mode;
+      make = await createRoom(mode, r.tier, DUEL_LEN_MS, seats, s, undefined, r.fuel);
       r.rematch.roomId = make.id;
     }
     return [{ type: "rematch", pid, roomId: r.rematch.roomId }];
