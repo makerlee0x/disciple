@@ -62,7 +62,7 @@ export function mountTurboPill(root: HTMLElement): () => void {
   let stopRead: (() => void) | null = null;
   const blocked = () => turboBlockedCached();
   const paint = () => {
-    if (!known || !addr || (isNativeApp() && blocked())) { btn.hidden = true; return; }
+    if (!known || !addr || isNativeApp()) { btn.hidden = true; return; }   // no Turbo cash in the app (App Review 3.1.5(iii))
     btn.hidden = false;
     if (blocked()) {
       btn.classList.add("lock"); btn.disabled = true; btn.title = TURBO_BLOCKED_NOTE;

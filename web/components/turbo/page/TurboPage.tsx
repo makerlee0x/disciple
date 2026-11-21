@@ -15,6 +15,7 @@ import { usePilotWallet } from "@/lib/xpClient";
 import { onTurboCash, turboCash, wantTurboRead, type TurboCash } from "@/lib/turbo/turboCash";
 import { openTurbo } from "@/lib/turbo/turboPill";
 import { turboBlockedCached } from "@/lib/turbo/region";
+import { isNativeApp } from "@/lib/native";
 import type { TurboProfile } from "@/lib/turbo/profile";
 import TurboView, { type TurboData } from "./TurboView";
 import { TURBO_PAGE_MODES } from "./modes";
@@ -86,6 +87,6 @@ export default function TurboPage({ username }: { username?: string }) {
     modes: TURBO_PAGE_MODES,
     pilotHref: pilotTurboHref,
   };
-  const money = own && !blocked;
+  const money = own && !blocked && !isNativeApp();   // no Turbo cash moves in the iPhone app (App Review 3.1.5(iii))
   return <TurboView d={d} onAdd={money && cash?.canAdd ? () => openTurbo("add") : undefined} onWithdraw={money && cash?.canWithdraw ? () => openTurbo("out") : undefined} />;
 }

@@ -19,6 +19,7 @@ import Tooltip from "@/components/ui/Tooltip";
 import { onTurboCash } from "@/lib/turbo/turboCash";
 import { hangarValueUsd } from "@/lib/portfolio";
 import { openSend } from "@/lib/send/open";
+import { isNativeApp } from "@/lib/native";
 
 /** Rocket bag send (fleet card icon → components/send/SendHost): off until the gasless token transfer is wired. */
 const SEND_ROCKETS = false;
@@ -40,8 +41,13 @@ export function ServiceRecord({ pf, isPrivate, rewards }: {
   const total = ok ? hangarValueUsd(pf.cashUsd, pf.rows, isPrivate ? turbo : 0) : null;
   const today = ok && pf.rows.every((r) => Number.isFinite(r.price24h)) ? pf.rows.reduce((s, r) => s + r.tokens * (r.priceNow - r.price24h), 0) : null;
   const rewardsLive = !!rewards && rewards.usd != null && rewards.usd >= 0.005;
+  // no Turbo cash tile in the iPhone app (App Review 3.1.5(iii)): its value still counts in Hangar value
+  const [app, setApp] = useState(false);
+  useEffect(() => { setApp(isNativeApp()); }, []);
+  const turboTile = isPrivate && !app;
+  const tiles = 2 + (turboTile ? 1 : 0) + (isPrivate && rewards ? 1 : 0);
   return (
-    <section className={`hg-record${isPrivate ? rewards ? " four" : " three" : ""}`} aria-label="Service record" data-testid="profile-portfolio">
+    <section className={`hg-record${tiles === 4 ? " four" : tiles === 3 ? " three" : ""}`} aria-label="Service record" data-testid="profile-portfolio">
       <div>
         <span className="l">Hangar value</span>
         <b data-testid="portfolio-total">{total != null ? usd2(total) : "—"}</b>
@@ -53,7 +59,7 @@ export function ServiceRecord({ pf, isPrivate, rewards }: {
         {/* maker 2026-11-19 (pins on the rewards mockup): Cash gets a clear Deposit, Turbo cash a Transfer */}
         {isPrivate ? <span className="hg-cashacts"><Link href={DEPOSIT_HREF} onClick={onDepositClick} className="dsc3-btn dsc3-btn-white" data-testid="hangar-deposit">Deposit</Link></span> : <span className="s" />}
       </div>
-      {isPrivate && (
+      {turboTile && (
         <div>
           <span className="l">Turbo cash</span>
           <b data-testid="portfolio-turbo">{usd2(turbo)}</b>
