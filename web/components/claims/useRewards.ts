@@ -19,7 +19,7 @@ const inflight = new Map<string, Promise<RewardsData | null>>();
 
 export function useRewards(enabled = true) {
   const me = useWalletAddr();
-  const { caps, ready, demo } = useCaps();
+  const { caps, ready, demo } = useCaps(enabled);
   const [data, setData] = useState<RewardsData | null>(() => (me ? cache.get(me.toLowerCase()) ?? null : null));
   const [gate, setGate] = useState<GateState | null>(null);
   const [username, setUsername] = useState("");
