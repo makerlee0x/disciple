@@ -114,6 +114,11 @@
 .as-chip { display: inline-block; margin-left: 6px; padding: 2px 6px; border-radius: 6px; font-size: 10px; font-weight: 600; background: rgba(242, 193, 78, .14); color: var(--dsc-gold); }
 .as-chip.lg { margin: 0; padding: 6px 10px; font-size: 12px; background: rgba(255, 255, 255, .06); color: var(--dsc-text); }
 .as-chip.lg b { margin-left: 4px; color: #F2F3F5; }
+.as-seg { margin-left: auto; display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: rgba(255, 255, 255, .06); }
+.as-seg button { padding: 4px 10px; border: 0; border-radius: 6px; background: none; color: var(--dsc-muted); font: 600 11px/1 var(--dsc-font-ui); cursor: pointer; }
+.as-seg button[aria-pressed="true"] { background: rgba(255, 255, 255, .1); color: #F2F3F5; }
+.as-bar { display: inline-block; min-width: 120px; padding: 3px 6px; border-radius: 4px; background: linear-gradient(90deg, rgba(242, 193, 78, .28) var(--w, 0%), rgba(255, 255, 255, .04) var(--w, 0%)); }
+.as-gap tr:first-child td { border-top: 1px solid rgba(255, 255, 255, .16); }
 .as-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .as-pulse { height: 120px; border-radius: 16px; background: #16181C; animation: as-pulse 1.2s ease-in-out infinite; }
 @keyframes as-pulse { 50% { opacity: .45; } }
