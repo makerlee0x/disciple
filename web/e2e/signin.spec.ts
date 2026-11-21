@@ -3,7 +3,7 @@
  * instead of opening Privy, so everything after the Privy window is the real flow (account chip, welcome toast,
  * account menu, sign out).
  */
-import { test, expect, isPhone } from "./support/fixtures";
+import { test, expect, isPhone, openPilotMenu } from "./support/fixtures";
 
 test("sign in from the lobby, see the welcome toast and the pilot chip, then sign out", async ({ page }) => {
   await page.goto("/");
@@ -24,10 +24,11 @@ test("sign in from the lobby, see the welcome toast and the pilot chip, then sig
   await expect(page.getByRole("button", { name: "Your pilot menu" }).filter({ visible: true }).first()).toBeVisible();
   await expect(page.getByTestId("welcome-toast")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Your pilot menu" }).filter({ visible: true }).first().click();
+  await openPilotMenu(page);
   const menu = page.getByTestId("account-menu");
   await expect(menu).toBeVisible();
-  for (const name of [/hangar/i, /orders \+ trophies/i, /cash/i, /rewards/i, /settings/i]) await expect(menu.getByRole("menuitem", { name })).toBeVisible();
+  // menu as of #594 (2026-11-20): Hangar, Achievements, Deposit now, Rewards, and the Settings gear
+  for (const name of [/hangar/i, /achievements/i, /deposit/i, /rewards/i, /settings/i]) await expect(menu.getByRole("menuitem", { name })).toBeVisible();
   await page.getByTestId("account-signout").click();
   await expect(page.getByTestId("lobby-signed-out")).toBeVisible();
   await expect(page.getByRole("button", { name: /^sign in$/i }).filter({ visible: true }).first()).toBeVisible();

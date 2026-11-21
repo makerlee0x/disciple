@@ -35,6 +35,7 @@ docker run --rm --network host --ipc=host -v "$PWD/..:/repo" -w /repo/web mcr.mi
 | `launch.spec.ts` | launch builder preview, name check, Advanced (tax stepper), refused launch in plain words, sign-in from Launch |
 | `claims.spec.ts` | Rewards popup (nothing ready, Claim off, tabs), referral link copy, host dashboard |
 | `settings.spec.ts` | Settings popup: max price move, bombs, vibration, Turbo leave stick; 2-step page; sign out; /settings link |
+| `turbo-cash.spec.ts` | Turbo popup: Turbo cash vs Cash, $6 minimum (and the first-deposit minimum), wrong-chain deposit guard, Withdraw signed by the pilot's own key, refusals in plain words, no Withdraw tab while cash back is closed |
 | `turbo.spec.ts` | early-access gate, a stand-in run (BOOST → cash out → result), Trading duel lobby (skips until PR #364 is on main) |
 | `docs.spec.ts` | every docs page opens with its title, no `[CONFIRM]` left, a crawl for broken same-site links, no sideways scroll |
 | `screens.spec.ts` | `@screens` screenshot checks of the signed-off screens |
@@ -52,6 +53,9 @@ Every test also fails on an uncaught page error (a crash or a React hydration mi
 - **Server**: real API routes with the local KV file (`KV_ALLOW_LOCAL=1`, wiped at the start of `pnpm e2e`). Each test
   gets its own client IP header (`TRUSTED_PROXY=1`), so per-IP limits never collide.
 - **Turbo prices**: `support/venue.ts` stands in for Hyperliquid's price feed (HTTP + WebSocket).
+- **Lighter**: `turbo-cash.spec.ts` answers `/api/lighter` in the browser (`page.route`), and the page gets a stand-in
+  session token from `window.__privyDev` (defined only in dev and local-signer builds; a mainnet build refuses the local
+  signer). The server side of these flows is covered by the unit tests in `tests/money-*.test.ts`.
 
 ## Next
 

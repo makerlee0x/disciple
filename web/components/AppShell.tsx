@@ -78,12 +78,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     const f = () => setDeskFlight(window.innerWidth > 760); f();
     addEventListener("resize", f); return () => removeEventListener("resize", f);
   }, [flightRoute]);
-  // Trading Duel + Turbo Royale show their own fuel in the HUD; the wallet pill sat on top of the duel title, rating, clock
+  // Trading Duel, Climb + Turbo Royale show their own fuel in the HUD; the wallet pill sat on top of the duel title, rating, clock
   // and PnL on phones (app audit 2026-11-15). Kept mounted (sign-in, wallet id events), just not drawn.
   // Site footer (maker 2026-11-20): every lobby-shell page except the launch builder (a one-screen flow sized to the
   // viewport) and team-only pages. The iPhone app hides it in CSS (.app-web).
   const showFooter = !isGame && !/^\/(create|admin|dev)(\/|$)/.test(pathname ?? "");
-  const hideWallet = /^\/turbo\/(duel|royale)(\/|$)/.test(pathname ?? "");
+  const hideWallet = /^\/turbo\/(duel|royale|climb)(\/|$)/.test(pathname ?? "");
   // html.app (root layout APP_JS) is set before paint, but a page that calls notFound() re-renders the root <html> on the
   // client and React writes its className back without it: the website's 4-tab bar and Play now then showed in the app.
   // Put it back whenever anything rewrites the class.

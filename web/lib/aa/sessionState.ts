@@ -53,8 +53,10 @@ export function registerPrivy(h: PrivyHooks | null) {
 export const PRIVY_WANTED_EVENT = "disciple:privy-wanted";
 let pendingLoginAt = 0;
 const PENDING_LOGIN_MS = 15_000;
-// dev only (screenshots of signed-in screens, like window.__walletDev): a stand-in session whose token the page sends to /api
-if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") (window as unknown as { __privyDev?: (t: string) => void }).__privyDev = (t: string) => registerPrivy({ ready: true, authenticated: true, getAccessToken: async () => t, getIdentityToken: async () => t } as unknown as PrivyHooks);
+// dev only (screenshots of signed-in screens, like window.__walletDev): a stand-in session whose token the page sends to /api.
+// Also in the local-signer e2e build (NEXT_PUBLIC_AA_SIGNER=local is inlined at build time, so real builds drop this),
+// where e2e/turbo-cash.spec.ts uses it to reach the Turbo popup's /api/lighter calls, which it answers itself.
+if ((process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_AA_SIGNER === "local") && typeof window !== "undefined") (window as unknown as { __privyDev?: (t: string) => void }).__privyDev = (t: string) => registerPrivy({ ready: true, authenticated: true, getAccessToken: async () => t, getIdentityToken: async () => t } as unknown as PrivyHooks);
 export function privyHooksNow(): PrivyHooks | null { return privyHooks; }
 export function privyReady() { return !!privyHooks; }
 /** Privy has loaded and knows whether this visitor is signed in. */

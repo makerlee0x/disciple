@@ -137,17 +137,18 @@ function Hull({ skin }: { skin?: string }) {
 /** Season countdown, a real clock (maker 2026-11-18: "way more pronounced"): days / hours / minutes to the season's end, or to its start before launch. */
 function SeasonClock({ n, startsAt, endsAt }: { n: number; startsAt: number; endsAt: number }) {
   const [now, setNow] = useState(() => Date.now());
-  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
+  // the page is prerendered at build time: catch up on mount, and let the digits differ from the server HTML (React #418)
+  useEffect(() => { setNow(Date.now()); const id = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(id); }, []);
   const pre = now < startsAt;
   const left = Math.max(0, (pre ? startsAt : endsAt) - now);
   const d = Math.floor(left / 86_400_000), h = Math.floor(left / 3_600_000) % 24, m = Math.floor(left / 60_000) % 60;
   const span = endsAt - startsAt, done = pre ? 0 : Math.min(1, Math.max(0, (now - startsAt) / span));
   const C = LEADERBOARD_COPY;
   return (
-    <div className="tp-clock" data-testid="lb-season-clock" aria-label={`${C.season(n)} ${pre ? C.starts : C.ends} ${d} days ${h} hours`}>
+    <div className="tp-clock" data-testid="lb-season-clock" suppressHydrationWarning aria-label={`${C.season(n)} ${pre ? C.starts : C.ends} ${d} days ${h} hours`}>
       <div className="tp-clockh"><b className="r2-g">{C.season(n)}</b><span>{pre ? C.starts : C.ends}</span></div>
       <div className="tp-clockd" aria-hidden>
-        {([[d, "D"], [h, "H"], [m, "M"]] as const).map(([v, u]) => <span key={u}><b className="r2-g">{String(v).padStart(2, "0")}</b><i>{u}</i></span>)}
+        {([[d, "D"], [h, "H"], [m, "M"]] as const).map(([v, u]) => <span key={u}><b className="r2-g" suppressHydrationWarning>{String(v).padStart(2, "0")}</b><i>{u}</i></span>)}
       </div>
       <i className="tp-clockbar" aria-hidden><i style={{ width: `${Math.round(done * 100)}%` }} /></i>
     </div>

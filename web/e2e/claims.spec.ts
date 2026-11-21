@@ -2,11 +2,11 @@
  * Claims: the Rewards panel (Hangar fourth tile, maker 2026-11-19) and the host dashboard. A new pilot has nothing to claim, so Claim stays
  * off and each tab explains how rewards come in; the referral link is the pilot's own.
  */
-import { test, expect } from "./support/fixtures";
+import { test, expect, openPilotMenu } from "./support/fixtures";
 import type { Page } from "@playwright/test";
 
 async function openRewards(page: Page) {
-  await page.getByRole("button", { name: "Your pilot menu" }).filter({ visible: true }).first().click();
+  await openPilotMenu(page);
   await page.getByTestId("account-rewards").click();
   const pop = page.getByTestId("rewards-popup");
   await expect(pop).toBeVisible();

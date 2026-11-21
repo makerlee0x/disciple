@@ -1,10 +1,19 @@
 /** Host a launch: the builder (launch flow board, signed off 2026-11-13) and what happens when you light the engines. */
 import { test, expect, hydrated } from "./support/fixtures";
+import type { Page } from "@playwright/test";
+
+/** /create picks a random rocket name once it hydrates (shuffleName on mount); typing before that gets overwritten */
+async function nameField(page: Page) {
+  const f = page.getByRole("textbox", { name: /name/i }).first();
+  await hydrated(f);
+  await expect(f).not.toHaveValue("");
+}
 
 test("the pad preview follows what you type and pick", async ({ page, pilot }) => {
   await pilot.signIn({ cash: 25 });
   await page.goto("/create");
   await expect(page.getByRole("heading", { name: "Launch control" })).toBeVisible();
+  await nameField(page);
   await page.getByRole("textbox", { name: /name/i }).first().fill("E2E Comet");
   await expect(page.getByTestId("pad-name")).toContainText("E2E COMET", { ignoreCase: true });
   await page.getByTestId("mode-card-hard").click();
@@ -23,6 +32,7 @@ test("the pad preview follows what you type and pick", async ({ page, pilot }) =
 test("a rocket needs a name before it can launch", async ({ page, pilot }) => {
   await pilot.signIn({ cash: 25 });
   await page.goto("/create");
+  await nameField(page);
   await page.getByRole("textbox", { name: /name/i }).first().fill("");
   await page.getByTestId("create-launch").click();
   await expect(page.getByRole("status").filter({ hasText: /name/i }).first()).toHaveText(/Give your rocket a name and a ticker\./);
@@ -45,6 +55,7 @@ test("Advanced holds host fees and the creator tax stepper", async ({ page, pilo
 test("lighting the engines when the chain says no ends in plain words, with the form kept", async ({ page, pilot }) => {
   await pilot.signIn({ cash: 25 });
   await page.goto("/create");
+  await nameField(page);
   await page.getByRole("textbox", { name: /name/i }).first().fill("E2E Comet");
   const go = page.getByTestId("create-launch");
   await go.click();

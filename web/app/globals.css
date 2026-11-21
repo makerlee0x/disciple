@@ -1006,6 +1006,9 @@ button, [role="button"], [role="tab"], [role="switch"], a, summary, label, selec
 }
 @media (pointer: coarse) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea { font-size: max(16px, 1em); }
+  /* the floor above outranks a field's own bigger size (it read the parent's 1em): put the big number fields back */
+  .first-boost-row input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { font-size: 18px; }
+  .mk-offer-in input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { font-size: 28px; }
 }
 
 /* Flight routes are a game, not a page (mobile plan touch rule 4): no pull-to-refresh or rubber-band scroll, and no
