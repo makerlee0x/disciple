@@ -89,6 +89,11 @@
 .inp:focus-within { border-color: rgba(243, 223, 168, .6); }
 .inp input { flex: 1; min-width: 0; height: 100%; border: 0; outline: none; background: transparent; color: inherit; font: 600 17px / 1 var(--dsc-font-ui, Inter, sans-serif); padding: 0; }
 .inpBig input { font: 800 23px / 1 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .02em; }
+/* touch screens: globals.css floors inputs at max(16px, 1em) with a stronger selector, which shrank these to 16px */
+@media (pointer: coarse) {
+  .inp input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { font-size: 17px; }
+  .inpBig input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) { font-size: 23px; }
+}
 .pre { color: #9095A0; font: 500 17px / 1 var(--dsc-font-ui, Inter, sans-serif); }
 .dice { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; flex: none; cursor: pointer; background: rgba(22, 24, 28, .9); border: 1px solid #2E323A; color: #E8EAEE; }
 .dice:hover:not(:disabled) { border-color: #4A4F5A; }

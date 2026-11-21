@@ -91,7 +91,7 @@ input.r2-field:focus, .r2-field:focus-within { border-color: rgba(242,193,78,0.5
 .cx-split { display: flex; justify-content: space-between; gap: 12px; }
 .cx-big { margin-top: 8px; min-height: 76px; border-color: rgba(242,193,78,0.55); }
 .cx-dollar { font-size: 40px; color: #9095A0; }
-.cx-big input#cx-amt, .cx-big input#cx-tamt, .cx-big input#cx-bamt, .cx-big input#sd-amt, .cx-big input { all: unset; flex: 1; min-width: 0; color: #FFFFFF; font: 800 48px/1 var(--dsc-font-game); }
+.cx-big input#cx-amt, .cx-big input#cx-tamt, .cx-big input#cx-bamt, .cx-big input#sd-amt, .cx-big input#cx-famt, .cx-big input { all: unset; flex: 1; min-width: 0; color: #FFFFFF; font: 800 48px/1 var(--dsc-font-game); }
 .cx-big input::placeholder { color: #5A5F6A; }
 .cx-help { display: block; margin-top: 6px; font-size: 12px; color: #9095A0; }
 /* Add cash by card or Apple Pay (lib/fund, maker 2026-11-14) */
@@ -158,7 +158,7 @@ input.r2-field:focus, .r2-field:focus-within { border-color: rgba(242,193,78,0.5
   .cx-addtxt span { color: #BCC0CA; }
   .cx-big { min-height: 72px; }
   .cx-dollar { font-size: 36px; }
-  .cx-big input, .cx-big input#cx-amt, .cx-big input#cx-tamt, .cx-big input#cx-bamt, .cx-big input#sd-amt { font-size: 44px; }
+  .cx-big input, .cx-big input#cx-amt, .cx-big input#cx-tamt, .cx-big input#cx-bamt, .cx-big input#sd-amt, .cx-big input#cx-famt { font-size: 44px; }
   .r2-note.warn { font-size: 12px; }
   .cx-page { padding: 0; }
   .ds-modal.cx-static { min-height: calc(100dvh - var(--ap-topbar-offset, 0px) - var(--ap-bottom-nav, 0px)); }
@@ -1057,7 +1057,7 @@ html:not([data-you]) .lb-tabs a.lb-you-only, html[data-you] .lb-tabs a.lb-out-on
   .cx-sheet .cx-card > .cx-amt { margin-top: 0; font-size: 40px; }
   .cx-sheet .cx-big { min-height: 60px; }
   .cx-sheet .cx-dollar { font-size: 32px; }
-  .cx-sheet .cx-big input, .cx-sheet .cx-big input#cx-amt, .cx-sheet .cx-big input#cx-tamt, .cx-sheet .cx-big input#cx-bamt, .cx-sheet .cx-big input#sd-amt { font-size: 38px; }
+  .cx-sheet .cx-big input, .cx-sheet .cx-big input#cx-amt, .cx-sheet .cx-big input#cx-tamt, .cx-sheet .cx-big input#cx-bamt, .cx-sheet .cx-big input#sd-amt, .cx-sheet .cx-big input#cx-famt { font-size: 38px; }
   .cx-sheet .r2-gold { min-height: 50px; }
   .cx-sheet .cx-sendrow { min-height: 50px; padding: 8px 16px; }
   .cx-sheet .r2-r { padding: 11px 16px; }

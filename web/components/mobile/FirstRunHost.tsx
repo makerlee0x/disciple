@@ -114,6 +114,8 @@ export default function FirstRunHost() {
       {coachOn && handle && (
         <div className="fr-lev" role="status" data-testid="fr-coach-lever" aria-label={`${INTRO_COPY.boost}, ${INTRO_COPY.fire}`}
           style={{ left: handle.left + handle.width / 2, top: handle.top + handle.height / 2 }}>
+          {/* the lever's own resting "Slide up to buy" said the same thing right under this line: one hint at a time */}
+          <style>{".thr-tip:not(.b):not(.d){display:none}"}</style>
           <span className="fr-lev-tip" aria-hidden><b>{INTRO_COPY.boost}</b><small>{INTRO_COPY.fire}</small></span>
           <span className="fr-lev-trail" aria-hidden />
           <svg className="fr-lev-hand" width="44" height="52" viewBox="0 0 44 52" aria-hidden>
