@@ -44,10 +44,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const METHODS = new Set(["disciple_gaslessTrade", "disciple_gaslessWarm", "disciple_gaslessWithdrawQuote", "disciple_gaslessWithdraw", "disciple_gaslessActionQuote", "disciple_gaslessAction", "disciple_gaslessAnonLaunch", "disciple_anonFreeLaunch", "disciple_anonFreeLaunchQuote", "disciple_walletLaunchQuote", "disciple_walletLaunch"]);
 const GASLESS_IP_LIMIT = 120;
+const BOOT_MS = Date.now(); let INSTANCE_REQS = 0;   // ?timing=1: cold vs warm instance
 const IP_SEEN = new Map<string, { n: number; at: number }>();   // last shared count per IP on this instance   // same relay:ip window as the self-bundler route (per minute)
 
 export async function POST(req: Request) {
-  const metrics = new RelayMetrics();
+  const metrics = new RelayMetrics(); INSTANCE_REQS++;
   let body: { method?: string; id?: unknown; params?: unknown[] };
   try { body = await req.json(); } catch { return NextResponse.json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "parse error" } }, { status: 400 }); }
   const id = body?.id ?? null;
@@ -85,7 +86,7 @@ export async function POST(req: Request) {
             : await relayGaslessTrade(body.params[0], { ipGate, metrics, idToken: identityToken(req) });
     await flushRelayTrust().catch(() => undefined);
     console.info("[disciple] gasless relay " + JSON.stringify({ method: body.method, txHash: result.txHash, ok: result.success, gasUsed: result.gasUsed, t: result.t, request: metrics.snapshot() }));
-    return NextResponse.json({ jsonrpc: "2.0", id, result: { ...result, server: metrics.snapshot() } });
+    return NextResponse.json({ jsonrpc: "2.0", id, result: { ...result, server: { ...metrics.snapshot(), instanceReq: INSTANCE_REQS, instanceAgeS: Math.round((Date.now() - BOOT_MS) / 1000) } } });
   } catch (e) {
     await flushRelayTrust().catch(() => undefined);
     const x = e as { message?: string; notSent?: boolean; txHash?: string; unclear?: boolean; data?: unknown; limited?: boolean };
