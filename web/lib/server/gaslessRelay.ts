@@ -42,6 +42,7 @@ import { relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";
 import { gaslessReferralHooks, referralDoneKey, referrerFromRaw, REFERRAL_DONE } from "./gaslessReferral";
 import { relayReadTransport } from "./relayReadTransport";
 import { requireSessionWallet, verifySessionToken } from "./gaslessSession";
+import { privyEnv, verificationKeys } from "./privyAuth";
 import { directRelayer, directRelayerAddress, sendDirect, simulateDirect, strikeSender, type DirectRelayer, type OnPending } from "./fastRelay";
 import { recordSenderRevert, relayBreaker } from "./relayBreaker";
 import type { RelayMetrics } from "./relayMetrics";
@@ -290,6 +291,7 @@ export async function relayGaslessTrade(raw: unknown, d: GaslessDeps = {}): Prom
 export async function warmGasless(signer: unknown, metrics?: RelayMetrics) {
   requireGaslessMode();
   if (typeof signer !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(signer)) throw notSent(new Error("warm requires a wallet"));
-  const r = await directRelayer(metrics);
+  // also the Privy verification keys (a cold instance fetched the JWKS on the trade: authSession 152 ms)
+  const [r] = await Promise.all([directRelayer(metrics), verificationKeys(privyEnv()).catch(() => [])]);
   return { relayer: r.address };
 }

@@ -8,7 +8,7 @@ import { useIsPhoneHud } from "./flight/PhoneHud";
 import { deployment, isDeployed, usdgRouters } from "@/lib/chains";
 import { MODES } from "@/lib/config";
 import type { Address } from "@/lib/protocol";
-import { tradeErrorKind, balanceHint, balanceNow, coldClient, createViemProtocol, decimalsOf, publicClient, readQuote, quoteOutUsd, tokenBalance, usdToAmountIn, warmRoute, shotAmountIn, shotAmountNow, bumpBalance, peekReceiptBalance, syncReceiptBalance } from "@/lib/protocol-viem";
+import { tradeErrorKind, balanceHint, balanceNow, coldClient, createViemProtocol, decimalsOf, publicClient, readQuote, quoteOutUsd, tokenBalance, usdToAmountIn, warmRoute, presignMinOut, shotAmountIn, shotAmountNow, bumpBalance, peekReceiptBalance, syncReceiptBalance } from "@/lib/protocol-viem";
 import { withinBudget, COLD_READ_BUDGET_MS } from "@/lib/rpc/readTransport";
 import { decodeTradeFill, units, type LogLike } from "@/lib/flight/fills";
 import { OpMarks, blockOfLogs, boostHoverMs, doneLine, ownReceipt, takeReceipt, tradeClick, tradeMs, tradeStart, setTradeClickMark, type TradeMs } from "@/lib/flight/tradeSpeed";
@@ -17,7 +17,7 @@ import { beginFlowTiming, flowClick, flowFill, takeFlowClick, flowTimingReady, f
 import { freshSellBalance, sellAmount, sellAmountFor, tapSellBalance } from "@/lib/flight/liveSell";
 import { OWN, RECONCILE_MIN_MS, ownRead } from "@/lib/flight/ownLedger";
 import { DEFAULT_SUPPLY } from "@/lib/pnl";
-import { activeAddress, gaslessSigner, isSmartMode, onWallet, warmGaslessBuy, warmGaslessRelay, warmGaslessSell } from "@/lib/wallet";
+import { activeAddress, gaslessSigner, isSmartMode, onWallet, presignGasless, warmGaslessBuy, warmGaslessRelay, warmGaslessSell } from "@/lib/wallet";
 import { aaWarm, sessionMaxSlippageBps } from "@/lib/aa/session";
 import { plainText } from "@/lib/aa/relayOp";
 import { isSentUnknown } from "@/lib/trade/pendingWatch";
@@ -524,8 +524,15 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
           else if (Date.now() - relayWarmAt > 45_000) { relayWarmAt = Date.now(); void warmGaslessRelay(gs.address); }
         }
         // Buy quotes must not wait for the independent account/balance hint.
+        // Pre-signed tap (lib/wallet presignGasless): after the selected preset's quote is warm, sign its witness off the tap.
+        const slipBps = clampSlippage(NO_REFUSE_SLIPPAGE_BPS, sessionMaxSlippageBps()).bps;
+        const presign = (side: "buy" | "sell", a: bigint) => {
+          if (!gs) return;
+          const mo = presignMinOut(token as Address, side, a, slipBps);
+          if (mo) void presignGasless({ coin: token as Address, isBuy: side === "buy", amountIn: a, minOut: mo }).catch(() => undefined);
+        };
         const buy = shotAmountIn(pc, token as Address, "buy", usd).then((a) => Promise.allSettled([
-          warmRoute(pc, token as Address, "buy", a),
+          warmRoute(pc, token as Address, "buy", a).then(() => presign("buy", a)),
           ...(probe ? [warmRoute(pc, token as Address, "buy", a * BigInt(2))] : []),
         ]));
         const sell = (async () => {
@@ -539,7 +546,8 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
           const selected = fractions[sellSelRef.current] ?? 0.25;
           if (probe) fractions.push(selected >= 0.5 ? selected / 2 : Math.min(1, selected * 2));
           const amounts = [...new Set(fractions.filter((f) => f > 0 && f <= 1).map((f) => sellAmount(bal, f)))];
-          await Promise.allSettled(amounts.map((a) => warmRoute(pc, token as Address, "sell", a)));
+          const selAmt = sellAmount(bal, selected);
+          await Promise.allSettled(amounts.map((a) => warmRoute(pc, token as Address, "sell", a).then(() => { if (a === selAmt) presign("sell", a); })));
         })();
         await Promise.allSettled([buy, sell]);
       })().finally(() => { warming = undefined; });

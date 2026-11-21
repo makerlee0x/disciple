@@ -43,7 +43,8 @@ function identityToken(req: Request): string | null {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const METHODS = new Set(["disciple_gaslessTrade", "disciple_gaslessWarm", "disciple_gaslessWithdrawQuote", "disciple_gaslessWithdraw", "disciple_gaslessActionQuote", "disciple_gaslessAction", "disciple_gaslessAnonLaunch", "disciple_anonFreeLaunch", "disciple_anonFreeLaunchQuote", "disciple_walletLaunchQuote", "disciple_walletLaunch"]);
-const GASLESS_IP_LIMIT = 120;   // same relay:ip window as the self-bundler route (per minute)
+const GASLESS_IP_LIMIT = 120;
+const IP_SEEN = new Map<string, { n: number; at: number }>();   // last shared count per IP on this instance   // same relay:ip window as the self-bundler route (per minute)
 
 export async function POST(req: Request) {
   const metrics = new RelayMetrics();
@@ -56,9 +57,15 @@ export async function POST(req: Request) {
     requireGaslessMode();
     // Per-IP limit runs IN PARALLEL with admission + simulation (lee: auth, sim and rate limit together); nothing is
     // signed before it resolves under the limit.
-    const ipGate = metrics.span("rateLimitStore", () => kv().incrEx(`relay:ip:${clientIp(req.headers)}`, 60)).then(n => {
+    // Speed (maker 2026-11-21): the shared KV count still runs on every call, but an IP this instance saw well under the
+    // limit in the last minute doesn't WAIT for it (~150 ms Upstash round trip on the trade path). Near or over ⇒ awaited.
+    const ip = clientIp(req.headers), seen = IP_SEEN.get(ip);
+    const counted = metrics.span("rateLimitStore", () => kv().incrEx(`relay:ip:${ip}`, 60)).then(n => {
+      IP_SEEN.set(ip, { n, at: Date.now() }); if (IP_SEEN.size > 5000) IP_SEEN.delete(IP_SEEN.keys().next().value as string);
       if (n > GASLESS_IP_LIMIT) throw Object.assign(new Error("rate limited"), { limited: true });
     });
+    void counted.catch(() => undefined);
+    const ipGate = seen && Date.now() - seen.at < 60_000 && seen.n < GASLESS_IP_LIMIT / 2 ? Promise.resolve() : counted;
     void ipGate.catch(() => undefined);
     if (body.method === "disciple_gaslessWarm") { await ipGate; return NextResponse.json({ jsonrpc: "2.0", id, result: await warmGasless(body.params[0], metrics) }); }
     if (body.method === "disciple_gaslessWithdrawQuote") { await ipGate; return NextResponse.json({ jsonrpc: "2.0", id, result: await quoteGaslessWithdraw(body.params[0], { idToken: identityToken(req) }) }); }

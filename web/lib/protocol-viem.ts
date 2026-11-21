@@ -580,6 +580,14 @@ export async function shotAmountIn(pc: PublicClient, token: Address, side: "buy"
   if (side === "buy" && (await usdgRouteFor(pc, token))) return usdToUsdgRaw(usd);
   return usdToAmountIn(pc, token, side, usd);
 }
+/** Gasless pre-sign (lib/wallet presignGasless): the minOut a tap would sign right now, from quote memory; else undefined. */
+export function presignMinOut(token: Address, side: "buy" | "sell", amountIn: bigint, slippageBps: number | undefined): bigint | undefined {
+  if (amountIn <= B(0)) return undefined;
+  const m = MODEL.quote(usdgModelRoute(token), side, amountIn);
+  if (!m || m.ageMs > STALE_QUOTE_MS || m.lo <= B(0)) return undefined;
+  const mo = tradeMinOut(m, slippageBps, sessionMaxSlippageBps(), DEFAULT_SLIPPAGE_BPS);
+  return mo > B(0) ? mo : undefined;
+}
 /** Warm the quote a tap will need (USDG route: the router's end-to-end quoteUsdgRoute; else the native quote). */
 export async function warmRoute(pc: PublicClient, token: Address, side: "buy" | "sell", amountIn: bigint) {
   if (amountIn <= B(0)) return;
