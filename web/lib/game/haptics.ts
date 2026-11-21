@@ -10,13 +10,17 @@
  *   does not exist), and the page maps those cues to haptics here, on the main thread, with one dedupe for both modes.
  * - Off when Settings → Sound → Vibration is off (lib/game/settings.ts `haptics`, on by default).
  *
+ * - The Duel and Royale engines (public/turbo/…) call window.DiscipleBuzz(kind, pattern) (gameBuzz below; the Royale frame reaches
+ *   its parent's), so the iPhone app's Taptic Engine plays them too. They used navigator.vibrate alone, silent on every iPhone.
+ *
  * Mark an element with data-haptic="boost" (or any HapticKind) to pick its buzz, or data-haptic="off" to skip it.
  * Any other button, link or toggle gets the light "tap".
  */
 import { getGameSettings } from "./settings";
-import { isNativeApp, nativeHaptic } from "../native";
+import { isNativeApp, nativeHaptic, nativePattern } from "../native";
 
-export type HapticKind = "tap" | "select" | "boost" | "dump" | "fill" | "fail" | "zone" | "hit" | "orbit" | "celebrate" | "hold" | "trick";
+export type HapticKind = "tap" | "select" | "boost" | "dump" | "fill" | "fail" | "zone" | "hit" | "orbit" | "celebrate" | "hold" | "trick"
+  | "go" | "win" | "lose" | "combo" | "warn" | "count";
 
 export const HAPTIC_PATTERNS: Record<HapticKind, number | number[]> = {
   tap: 6,
@@ -31,6 +35,12 @@ export const HAPTIC_PATTERNS: Record<HapticKind, number | number[]> = {
   celebrate: [12, 30, 12, 30, 40],
   hold: 3,
   trick: [10, 30, 16],
+  go: 30,
+  win: [20, 40, 20, 40, 60],
+  lose: 80,
+  combo: [12, 24, 12, 24, 30],
+  warn: [30, 40, 30],
+  count: 8,
 };
 /** Kinds that come from a finger on the glass (the only ones iPhone can tick for). */
 const TAP_KINDS = new Set<HapticKind>(["tap", "select", "boost", "dump", "hold", "trick"]);
@@ -88,19 +98,48 @@ export function hapticsEnabled(): boolean {
  * Fire one haptic. `fromTap` = called synchronously inside a click/touch handler (needed for the iPhone tick).
  * Returns true if something was played.
  */
-export function haptic(kind: HapticKind, fromTap = false): boolean {
-  if (typeof window === "undefined" || !hapticsEnabled()) return false;
+/** Dedupe gate shared by haptic() and gameBuzz(): false = this kind just played. */
+function fresh(kind: HapticKind): boolean {
   const now = performance.now();
   if (now - (lastAt[kind] ?? -1e9) < DEDUPE_MS) return false;
   // a boost/dump tap already buzzed: the plain tap from the same finger is redundant
   if (kind === "tap" && (now - (lastAt.boost ?? -1e9) < DEDUPE_MS || now - (lastAt.dump ?? -1e9) < DEDUPE_MS)) return false;
   lastAt[kind] = now;
+  return true;
+}
+
+export function haptic(kind: HapticKind, fromTap = false): boolean {
+  if (typeof window === "undefined" || !hapticsEnabled()) return false;
+  if (!fresh(kind)) return false;
   if (rich && RICH_KINDS.has(kind)) return true;
   if (nativeHaptic(kind)) return true;
   if (canVibrate()) {
     try { return navigator.vibrate(HAPTIC_PATTERNS[kind]); } catch { return false; }
   }
   if (fromTap && TAP_KINDS.has(kind) && isIOS()) { iosTick(); return true; }
+  return false;
+}
+
+/** Core Haptics one-shots (NativeRumble's patterns) for engine kinds, while the rumble is running. */
+const RICH_PATTERN: Partial<Record<HapticKind, string>> = { hit: "bomb", trick: "trick", fill: "fill", zone: "zone" };
+type UserActivationNav = Navigator & { userActivation?: { isActive: boolean } };
+
+/**
+ * A Duel / Royale engine moment (window.DiscipleBuzz). `pattern` is the engine's own Android vibration; inside the app the kind
+ * picks the Taptic Engine buzz (or the richer Core Haptics pattern while the engine rumble runs). iPhone Safari can only tick,
+ * and only inside a tap.
+ */
+export function gameBuzz(kind: string, pattern?: number | number[]): boolean {
+  if (typeof window === "undefined" || !hapticsEnabled()) return false;
+  const k = (kind in HAPTIC_PATTERNS ? kind : "tap") as HapticKind;
+  if (!fresh(k)) return false;
+  const rp = rich ? RICH_PATTERN[k] : undefined;
+  if (rp && nativePattern(rp)) return true;
+  if (nativeHaptic(k)) return true;
+  if (canVibrate()) {
+    try { return navigator.vibrate(pattern ?? HAPTIC_PATTERNS[k]); } catch { return false; }
+  }
+  if (TAP_KINDS.has(k) && isIOS() && (navigator as UserActivationNav).userActivation?.isActive) { iosTick(); return true; }
   return false;
 }
 
@@ -144,8 +183,11 @@ export function installHaptics(): () => void {
   else if (isIOS()) addEventListener("click", onClick, { capture: true, passive: true });
   addEventListener("disciple:sfx", onSfx);
   addEventListener("disciple:haptic", onApp);
+  const w = window as unknown as { DiscipleBuzz?: typeof gameBuzz };
+  w.DiscipleBuzz = gameBuzz;   // the Duel / Royale engines (public/turbo/…)
   return () => {
     installed = false;
+    if (w.DiscipleBuzz === gameBuzz) delete w.DiscipleBuzz;
     removeEventListener("pointerdown", onDown, { capture: true } as EventListenerOptions);
     removeEventListener("click", onClick, { capture: true } as EventListenerOptions);
     removeEventListener("disciple:sfx", onSfx);

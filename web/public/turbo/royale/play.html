@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Geist:wght@400;500;600;700&display=swap">
 <style>
 html,body{margin:0;height:100%;background:#07080c}
-.duel-root .arena .avid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;opacity:0;transition:opacity .5s ease;pointer-events:none}.duel-root .arena.vid .avid{opacity:1}.duel-root .arena.vid .art{visibility:hidden}.duel-root .rvid{position:fixed;inset:0;z-index:58;width:100%;height:100%;object-fit:cover;pointer-events:none;background:#07080c}.duel-root .rvid.dim{filter:brightness(.45) blur(2px);transition:filter .6s ease}.duel-root #result{z-index:59}.duel-root .nvid{position:absolute;z-index:6;width:min(80vmin,620px);height:min(80vmin,620px);transform:translate(-50%,-50%);mix-blend-mode:screen;pointer-events:none}
+.duel-root .mid b.beat{display:inline-block;animation:clkBeat .38s ease-out}@keyframes clkBeat{0%{transform:scale(1.4);color:var(--pinkl)}100%{transform:scale(1)}}.duel-root .acount.pwait{animation:pwPulse 1.1s ease-in-out infinite;letter-spacing:.08em}@keyframes pwPulse{0%,100%{opacity:.3}50%{opacity:1}}.duel-root .arena .avid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:1;opacity:0;transition:opacity .5s ease;pointer-events:none}.duel-root .arena.vid .avid{opacity:1}.duel-root .arena.vid .art{visibility:hidden}.duel-root .rvid{position:fixed;inset:0;z-index:58;width:100%;height:100%;object-fit:cover;pointer-events:none;background:#07080c}.duel-root .rvid.dim{filter:brightness(.45) blur(2px);transition:filter .6s ease}.duel-root #result{z-index:59}.duel-root .nvid{position:absolute;z-index:6;width:min(80vmin,620px);height:min(80vmin,620px);transform:translate(-50%,-50%);mix-blend-mode:screen;pointer-events:none}
 .duel-root .app.embed,.duel-root .app.embed.big{--ch:64px}.duel-root .app.embed .feed,.duel-root .app.embed .size,.duel-root .app.embed .chatb{display:none!important}.duel-root .app.embed .boost,.duel-root .app.embed .dump{height:58px}
 .duel-root .sline{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin-top:10px;padding:10px 14px;border-radius:14px;background:rgba(242,193,78,.08);border:1px solid rgba(242,193,78,.35);font:700 15px/1.2 var(--f-game);letter-spacing:.4px;text-transform:uppercase}.duel-root .sline i{font-style:normal;color:var(--muted)}.duel-root .sline .up{color:var(--green)}.duel-root .sline .dn{color:var(--pinkl)}.duel-root .sline .fire{color:#FFB48F}
 .duel-root .xlink{display:flex;align-items:center;gap:10px;margin-top:10px;padding:12px 14px;border-radius:14px;border:1px solid rgba(95,240,160,.45);background:rgba(95,240,160,.08);color:var(--text);text-decoration:none;font:600 15px/1.25 var(--f-ui,system-ui,sans-serif)}.duel-root .xlink span{flex:1;min-width:0;font-size:14px}.duel-root .xlink b{white-space:nowrap;color:var(--green);font-family:var(--f-game);font-size:18px;letter-spacing:.3px}.duel-root .xlink em{margin-left:auto;font-style:normal;color:var(--gold);font-family:var(--f-game);font-size:17px;white-space:nowrap}
@@ -213,7 +213,7 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .opt.on{border-color:var(--gold);background:rgba(242,193,78,.16)}
 .duel-root .go{height:58px;border-radius:16px;border:0;background:var(--gold);color:#121327;font:800 26px/1 var(--f-game);letter-spacing:1px}
 .duel-root .go:focus-visible,.duel-root .btn:focus-visible,.duel-root .opt:focus-visible{outline:3px solid #fff;outline-offset:2px}
-.duel-root .fine{margin:0;font-size:11px;color:rgba(215,217,228,.55);text-align:center}
+.duel-root .rk{display:inline-block;margin-left:2px;padding:4px 8px 3px;border-radius:999px;font:800 11px/1 var(--f-game);letter-spacing:.1em;text-transform:uppercase;font-style:normal;vertical-align:1px;white-space:nowrap}.duel-root .rk.on{background:rgba(242,193,78,.16);color:#F2C14E;box-shadow:inset 0 0 0 1px rgba(242,193,78,.45)}.duel-root .rk.un{background:rgba(255,255,255,.07);color:#C9CED6;box-shadow:inset 0 0 0 1px rgba(255,255,255,.18)}.duel-root .choice.main .rk{background:rgba(18,19,39,.14);color:#121327;box-shadow:inset 0 0 0 1px rgba(18,19,39,.3)}.duel-root .fine{margin:0;font-size:11px;color:rgba(215,217,228,.55);text-align:center}
 .duel-root .res h1{text-align:center;font-size:60px}
 .duel-root .margin{text-align:center;margin:-8px 0 2px}
 .duel-root .margin small{display:block;font:700 13px/1 var(--f-game);letter-spacing:1.5px;color:var(--muted)}
@@ -239,8 +239,8 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .stats div{flex:1;border-radius:14px;padding:8px 10px;background:#1d1f27;border:1px solid #2E323A}
 .duel-root .stats small{display:block;font-size:11px;color:var(--muted)}
 .duel-root .stats b{font:800 20px/1 var(--f-game)}
-.duel-root .rrow{display:flex;gap:8px}
-.duel-root .rrow .go{flex:2}
+.duel-root .rrow{display:flex;gap:8px}.duel-root .rrow.r2{margin-top:8px}.duel-root .rrow.r2 .sec{height:44px;font-size:17px}
+.duel-root .rrow .go{flex:2}.duel-root .res .rrow .sec{margin-top:0}.duel-root .res .rrow{margin-top:10px}.duel-root .res .rrow.r2{margin-top:8px}
 .duel-root .res .save{width:100%;margin-top:8px;height:50px;font-size:19px;background:transparent;color:var(--gold);border:2px solid var(--gold);box-shadow:none}
 .duel-root .rrow .sec{flex:1;height:58px;border-radius:16px;background:#23262F;border:2px solid #2E323A;font:800 20px/1 var(--f-game)}
 .duel-root .toast{position:absolute;left:50%;top:calc(var(--ch) + 150px);transform:translateX(-50%);padding:9px 14px;border-radius:12px;background:rgba(18,19,39,.94);border:1px solid var(--line);font-size:13px;white-space:nowrap;opacity:0;transition:opacity .2s;pointer-events:none}
@@ -362,7 +362,7 @@ html,body{margin:0;height:100%;background:#07080c}
 .duel-root .choice.main small{color:rgba(18,19,39,.72)}
 .duel-root .choice.main:hover{background:#f5cb63}
 @media (max-width:420px){.duel-root .choice{min-height:64px;padding:10px 12px;gap:12px}.duel-root .choice .ci{width:38px;height:38px}.duel-root .choice b{font-size:21px}.duel-root .choice small{font-size:12px}}
-
+.duel-root .size.pct>span{display:none}.duel-root .size.pct{padding-left:5px}.duel-root .side .kh,.duel-root .pill .kh{display:none!important}
 /* royale additions, same tokens as the duel */
 /* lobby: intro + fill (maker 2026-11-15: "no context of what's happening") */
 .duel-root .ihead{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;margin:2px 0 4px}
@@ -876,7 +876,7 @@ const mmss=s=>{s=Math.max(0,Math.ceil(s));return Math.floor(s/60)+":"+String(s%6
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 
 /* ---------- rules ---------- */
-const FEE=0.000055 /* 1.1 bp round trip: Lighter Plus test */, FUEL0=50, TICK=0.2;
+const FEE=0.000055 /* 1.1 bp round trip: Lighter Plus test */, LIQ=0.8, FUEL0=50, TICK=0.2;
 const ORDER=["HYPE","SOL","ETH","BTC"];
 /* each market is a different map: aggressive at the top, defensive at the bottom */
 const MKD={
@@ -914,8 +914,6 @@ addEventListener("message",e=>{ if(e.origin!==location.origin||!e.data) return; 
 function lx(d){ toParent(Object.assign({type:"disciple:royale"},d)); }
 function lxGuns(){ if(!G||!G.me||!G.me.alive) return; const me=G.me;
   lx({op:"guns",mk:me.mk,sel:me.sel,sizes:me.inv.map(w=>{ const ww=W(w,me.mk); return Math.min(ww.usd,Math.floor(me.fuel*100)/100)*ww.lev/(MAXLEV[me.mk]||50); })}); }
-/* NUKE line by gear (lib/duel/rules liqFrac): 0.42% before Lighter liquidates; BTC 50x 39% ... 20x- 80% */
-const LIQ_OF=pl=>{ const m=MAXLEV[pl.mk]||50, g=pl.pos&&pl.pos.w?W(pl.pos.w,pl.mk).lev:1; return Math.min(.8,1.2-.81*g/m); };
 const levOf=(k,mk)=>{ const sh=WPN[k].share; return sh?Math.max(1,Math.round(sh*(MAXLEV[mk]||50))):1; };
 const RAR=[{n:"COMMON",c:"#A7AFBE",rgb:"167,175,190"},{n:"UNCOMMON",c:"#5FF0A0",rgb:"95,240,160"},{n:"RARE",c:"#4F8BFF",rgb:"79,139,255"},{n:"EPIC",c:"#A066FF",rgb:"160,102,255"},{n:"LEGENDARY",c:"#FF9A3C",rgb:"255,154,60"}];
 /* W(w, mk): the gun's numbers on map mk (default: the map you're on) */
@@ -948,7 +946,7 @@ function rollMaps(){ const o=ORDER.slice().sort(()=>Math.random()-.5); ROLL={fin
 const finalMk=()=>(ROLL||rollMaps()).final;
 function plan(){ const r=ROLL||rollMaps(), close={}, target={}; r.order.forEach((k,i)=>{ close[k]=[45,80,115][i]; target[k]=[9,6,4][i]; });
   return {close,warn:10,target,shrink:15,df:10,duel:30,w0:6,dfCool:12,jumpCool:5}; }
-const liqPct=pl=>pl.pos?Math.max(0,-pnlOf(pl.pos,price(pl))/(LIQ_OF(pl)*pl.pos.coll)):0;
+const liqPct=pl=>pl.pos?Math.max(0,-pnlOf(pl.pos,price(pl))/(LIQ*pl.pos.coll)):0;
 
 /* ---------- state ---------- */
 let G=null;
@@ -1009,12 +1007,13 @@ function open(pl,side){
 function close(pl,why){
   if(!pl.pos) return 0; const p=price(pl), pos=pl.pos, fee=pos.size*FEE, net=Math.max(0,pos.coll+pnlOf(pos,p))-fee;
   pl.fuel+=net; pl.pos=null; const res=net-pos.coll; if(res>pl.best) pl.best=res;
-  if(pl.me){ lx({op:"close",mk:pl.mk}); lxGuns(); G.marks.push({t:G.t,p,k:"x",mk:pl.mk}); if(why!=="flip"&&why!=="jump"&&why!=="storm"&&why!=="duel"){ popAt(pl,usd(res,true),res>=0?"#5FF0A0":"#FF8FBD"); if(res>0.05) sheet("cashout",xOf(pl),pl.y-LAY.rh*.3,LAY.rh*1.6,.7); sfx(res>=0?"cash":"lose"); }
+  if(pl.me){ lx({op:"close",mk:pl.mk}); lxGuns(); G.marks.push({t:G.t,p,k:"x",mk:pl.mk}); if(why!=="flip"&&why!=="jump"&&why!=="storm"&&why!=="duel"){ popAt(pl,usd(res,true),res>=0?"#5FF0A0":"#FF8FBD"); if(res>0.05) sheet("cashout",xOf(pl),pl.y-LAY.rh*.3,LAY.rh*1.6,.7);
+      const c=G.combo=res>0.005?(G.combo||0)+1:0; sfx(res>=0?"cash":"lose",null,null,c>=2?1+Math.min(.4,(c-1)*.07):1); if(c>=2) combo(pl,c); else buzz(res>=0?[12,30,12]:[30],res>=0?"fill":"fail"); }
     if(Math.abs(res)>=1.5) G.moments.push({t:G.t,txt:(res>=0?"Cashed out ":"Took a loss ")+"in "+pl.mk,v:res}); }
   return res;
 }
 function liqCheck(pl){
-  if(!pl.pos) return; const loss=-pnlOf(pl.pos,price(pl)); if(loss<LIQ_OF(pl)*pl.pos.coll) return;
+  if(!pl.pos) return; const loss=-pnlOf(pl.pos,price(pl)); if(loss<LIQ*pl.pos.coll) return;
   const lost=pl.pos.coll; pl._lastW=pl.pos.w; pl.pos=null; pl.nukes=(pl.nukes||0)+1; if(pl.me){ lx({op:"close",mk:pl.mk}); lxGuns(); G.marks.push({t:G.t,p:price(pl),k:"x",mk:pl.mk}); G.moments.push({t:G.t,txt:"NUKE in "+pl.mk,v:-lost}); }
   if(pl.me||visible(pl)) fxBomb(pl);
   // a NUKE costs the stake and blows up the weapon that fired it; you fly on with what's left
@@ -1025,13 +1024,13 @@ function liqCheck(pl){
 // a shield is an extra life: it takes the hit from one NUKE or one storm cut
 function saved(pl,what){ pl.shields--;
   if(pl.me){ feed("s","◆",`Your shield took the ${what} · you're still in`); FX.pops.push({txt:"SHIELD SAVED YOU",c:"#8FB8FF",x:SW/2,y:LAY.mid-LAY.rh*.9,age:0,max:2,size:30});
-    FX.rings.push({x:xOf(pl),y:pl.y||LAY.mid,r:20,vr:520,life:.7,max:.7,w:10,col:"143,184,255"}); sfx(pl.shields>0?"shHit":"shBrk"); buzz([30,30,60]); }
+    FX.rings.push({x:xOf(pl),y:pl.y||LAY.mid,r:20,vr:520,life:.7,max:.7,w:10,col:"143,184,255"}); sfx(pl.shields>0?"shHit":"shBrk"); buzz([30,30,60],"hit"); }
   else if(pl.mk===G.me.mk||what!=="NUKE") feed("s","◆",`<b>${pl.name}</b>'s shield took the ${what}`); }
 function stormCut(why){ if(G&&G.me.alive) sfx("storm"); for(const pl of alive().sort((a,b)=>profit(a)-profit(b))){ if(pl.shields>0){ saved(pl,"storm cut"); continue; } knockOut(pl,why(pl)); return; } }
 function knockOut(pl,why){
   if(!pl.alive) return; pl.alive=false; pl.place=alive().length+1; pl.why=why; if(pl.pos) close(pl,"storm"); pl.fin=profit(pl);
   if(pl.df) endDf(pl.df,true);
-  if(pl.me){ feed("p","☢",`You were ${why}`); sfx("out"); endMe(); }
+  if(pl.me){ feed("p","☢",`You were ${why}`); sfx("out"); buzz([80],"lose"); if(!reduce) FX.shake=Math.max(FX.shake,16); endMe(); }
   else if(pl.y!=null) rivalSfx("lose",.65,(xOf(pl)/SW)*2-1);
   else { feed("p","☢",`<b>${pl.name}</b> ${why}`); rivalSfx("knock",.6); }
 }
@@ -1087,7 +1086,7 @@ function trick(pl,kind){ if(!G||!G.started||G.over||!pl||pl.y==null||(pl.me&&!pl
   pl.trick={kind,t0:performance.now(),dur:TRICKS[kind].dur}; FX.pops.push({txt:TRICKS[kind].txt,c:TRICKS[kind].c,x:xOf(pl),y:pl.y-LAY.rh*.75,age:0,max:1.1,size:pl.me?28:22});
   FX.rings.push({x:xOf(pl),y:pl.y,r:20,vr:420,life:.5,max:.5,w:5,col:kind==="spin"?"143,227,255":"242,193,78"});
   for(let i=0;i<24;i++){ const a=rnd(0,Math.PI*2), sp=rnd(120,320); part({x:xOf(pl),y:pl.y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:rnd(.4,.8),size:rnd(2,3.5),col:kind==="spin"?"143,227,255":"255,214,120"}); }
-  if(pl.me){ sfx("trick"); buzz(12);
+  if(pl.me){ sfx("trick"); buzz(12,"trick");
     const near=(G._shown||[]).filter(o=>!o.me&&o.alive&&o.y!=null).sort((u,v)=>Math.abs(u.y-pl.y)-Math.abs(v.y-pl.y))[0];
     if(near&&Math.random()<.35) setTimeout(()=>trick(near,Math.random()<.5?"spin":"flip"),rnd(500,1200)); }
   else feed("t","\u2605",`${pl.name} did a <b>${kind}</b> on you`); }
@@ -1149,7 +1148,7 @@ function dfCheck(){
 function startDf(a,b){
   const d={a,b,base:{a:profit(a),b:profit(b)},end:G.t+G.P.df};
   a.df=b.df=d; G.dfs.push(d);
-  if(a.me||b.me){ const o=a.me?b:a, me=G.me; me.lane=.3; me.xt=me.xo=0; me.yt=me.yo=0; o.lane=.72; o.xt=o.xo=0; feed("p","◎",`Locked on <b>${o.name}</b>`); sfx("lock"); buzz([20,40,20]); }
+  if(a.me||b.me){ const o=a.me?b:a, me=G.me; me.lane=.3; me.xt=me.xo=0; me.yt=me.yo=0; o.lane=.72; o.xt=o.xo=0; feed("p","◎",`Locked on <b>${o.name}</b>`); sfx("lock"); buzz([20,40,20],"zone"); }
 }
 const dfGain=(d,pl)=>profit(pl)-(pl===d.a?d.base.a:d.base.b);
 function endDf(d,abort){
@@ -1160,7 +1159,7 @@ function endDf(d,abort){
   const lw=l.inv.filter(x=>x.k!=="PISTOL").sort((a,b)=>W(b).r-W(a).r)[0]; let note;
   if(lw){ dropWeapon(l,lw); if(w.me) loot(lw,"dogfight"); else give(w,lw); note=lw.k; } else { l.fuel-=2; note=null; }
   if(w.me) paintHot(); if(l.me) paintHot();
-  if(w.me){ feed("w","W",`You won the dogfight vs <b>${l.name}</b> · ${note?"took their <b>"+note+"</b>":"they had no loot, −$2 for them"}`); sfx("win"); buzz([20,30,40]); popAt(w,"WON","#F2C14E"); G.moments.push({t:G.t,txt:"Won a dogfight vs "+l.name,v:dfGain(d,w)-dfGain(d,l)}); }
+  if(w.me){ feed("w","W",`You won the dogfight vs <b>${l.name}</b> · ${note?"took their <b>"+note+"</b>":"they had no loot, −$2 for them"}`); sfx("win"); buzz([20,30,40],"win"); popAt(w,"WON","#F2C14E"); G.moments.push({t:G.t,txt:"Won a dogfight vs "+l.name,v:dfGain(d,w)-dfGain(d,l)}); }
   else if(l.me){ sheet("boom-small",xOf(l),l.y,LAY.rh*1.2,.6); feed("p","L",`You lost the dogfight to <b>${w.name}</b> · ${note?"they took your <b>"+note+"</b>":"−$2"}`); sfx("lose"); G.moments.push({t:G.t,txt:"Lost a dogfight to "+w.name,v:dfGain(d,l)-dfGain(d,w)}); }
   else feed("w","W",`<b>${w.name}</b> won a dogfight in ${w.mk}`);
 }
@@ -1187,7 +1186,7 @@ function startDuel(){
   for(const pl of [a,b]) if(pl.pos) close(pl,"duel");
   G.duel={a,b,base:{a:profit(a),b:profit(b)},end:G.t+G.P.duel}; G.final=null; G.band=null;
   feed("w","⚔",`<b>LAST 2</b> · ${a.me?"you":a.name} vs ${b.me?"you":b.name}`);
-  if(a.me||b.me){ const o=a.me?b:a; G.me.lane=.3; G.me.xt=G.me.xo=0; o.lane=.72; o.xt=o.xo=0; sfx("lock"); buzz([30,40,30]); }
+  if(a.me||b.me){ const o=a.me?b:a; G.me.lane=.3; G.me.xt=G.me.xo=0; o.lane=.72; o.xt=o.xo=0; sfx("lock"); buzz([30,40,30],"zone"); }
 }
 const duelGain=pl=>profit(pl)-(pl===G.duel.a?G.duel.base.a:G.duel.base.b);
 function endDuel(){ const {a,b}=G.duel, ga=duelGain(a), gb=duelGain(b); const w=ga>=gb?a:b, l=w===a?b:a; l.alive=false; l.place=2; l.why="lost the final duel"; l.fin=profit(l); w.duelG=duelGain(w); l.duelG=duelGain(l); winner(w); }
@@ -1207,7 +1206,7 @@ function simTick(){
   dfCheck();
   for(const d of G.dfs.slice()) if(G.t>=d.end) endDf(d);
   if(G.final){ G.band.top+=(topP()-G.band.top)*.25;
-    for(const pl of alive()) if(profit(pl)<bandBot()){ pl.fuel-=TICK; if(pl.me&&Math.random()<.2) buzz(8); }
+    for(const pl of alive()) if(profit(pl)<bandBot()){ pl.fuel-=TICK; if(pl.me&&Math.random()<.2) buzz(8,"count"); }
     if(G.t>=G.final.next) shrink(); }
   if(G.duel&&G.t>=G.duel.end) endDuel();
   // supply drops near you
@@ -1222,7 +1221,7 @@ function simTick(){
   // arrivals: pilots drop into your map one at a time
   for(const pl of G.pilots) if(!pl.me&&pl.alive&&!pl.arrived&&G.t>=pl.arrive){ pl.arrived=true; if(pl.mk===G.me.mk&&G.me.alive) feed("m","↓",`<b>${pl.name}</b> dropped into ${pl.mk}`); }
   // liquidation warning buzz
-  const lp=liqPct(G.me); if(lp>=.85&&Math.random()<TICK*1.5) buzz(15); if(lp>=.85&&G.me.pos&&G.t>=(G.warnAt||0)){ G.warnAt=G.t+1.2; sfx("nukeWarn"); }
+  const lp=liqPct(G.me); if(lp>=.85&&Math.random()<TICK*1.5) buzz(15,"count"); if(lp>=.85&&G.me.pos&&G.t>=(G.warnAt||0)){ G.warnAt=G.t+1.2; sfx("nukeWarn"); }
 }
 
 /* ---------- start / end ---------- */
@@ -1235,7 +1234,7 @@ function buildDrop(){
     const b=document.createElement("button"); b.type="button"; b.dataset.k=k; b.className="mkc"+(k===dropMk?" on":"")+(fin?" final":""); b.setAttribute("aria-pressed",k===dropMk);
     b.style.backgroundImage=`url("${A[d.sky]}")`; b.setAttribute("aria-label",`${k}: loot up to ${d.best.toLowerCase()}, ${fin?"the final circle":"closes at "+mmss(cl)}`);
     b.innerHTML=`${fin?'<span class="fin">FINAL CIRCLE</span>':""}<span class="rar${fin?" r2":""}" style="color:${rc}">${d.best}</span>${em?`<img class="emb" src="${em}" alt="">`:""}<b class="nm">${k}<span class="pips"></span></b><span class="ft"></span>${k===dropMk?'<span class="you">YOU</span>':""}`;
-    b.addEventListener("click",()=>{ if(dropMk===k) return; dropMk=k; sfx("tick"); buzz(10); buildDrop(); }); box.appendChild(b); }
+    b.addEventListener("click",()=>{ if(dropMk===k) return; dropMk=k; sfx("tick"); buzz(10,"select"); buildDrop(); }); box.appendChild(b); }
   $("dGo").textContent="DROP INTO "+dropMk; paintLZ(); paintSizes();
 }
 // the dots on each card are the pilots dropping there; bots make up their minds (and sometimes switch) while the doors count down
@@ -1291,7 +1290,7 @@ function fillLobby(next){ $("smap").hidden=true; $("fChat").hidden=true; toParen
   $("fN").textContent=n; $("dIn").textContent=n+" / 12"; $("fSub").textContent=next?(stay.length>=11?"EVERYONE STAYED":stay.length?`${stay.length} STAYED · FINDING ${11-stay.length} MORE`:"FINDING PILOTS"):"FINDING PILOTS";
   let q=0; fillIv=setInterval(()=>{ if(++q<(next?3:1)) return; const add=Math.random()<.35&&n<11?2:1; for(let j=0;j<add&&n<12;j++){ slots[n].className="in"; slots[n].textContent=ROSTER[n-1]; n++; }
     $("fN").textContent=n; $("dIn").textContent=n+" / 12"; sfx("tick",.5);
-    if(n>=12){ clearInterval(fillIv); $("fSub").textContent="LOBBY FULL"; sfx("lock"); buzz([20,40,20]); setTimeout(showDrop,900); } },300);
+    if(n>=12){ clearInterval(fillIv); $("fSub").textContent="LOBBY FULL"; sfx("lock"); buzz([20,40,20],"zone"); setTimeout(showDrop,900); } },300);
 }
 /* C4 drop clip: picked by the arena's shape and preloaded while the drop lobby counts down; skipped with reduced motion */
 function dropClip(k){ const v=$("dVid"); if(!v||reduce) return; const box=v.parentElement.getBoundingClientRect();
@@ -1301,7 +1300,7 @@ function dropClip(k){ const v=$("dVid"); if(!v||reduce) return; const box=v.pare
 function showDrop(){ $("smap").hidden=true; $("fChat").hidden=true; toParent({type:"disciple:music",on:false}); $("result").hidden=true; $("drop").hidden=false; prePane("pDrop"); $("dIn").textContent="12 / 12"; bed("amb_mission_control"); G=null; rollMaps(); lzSetup(); buildDrop(); dropT=15; $("dT").textContent=mmss(dropT); $("dBar").style.width="100%"; $("pDrop").classList.remove("hot"); dropClip("load");
   clearInterval(dropIv); let q=0; dropIv=setInterval(()=>{ lzTick(); if(++q%4) return; dropT--; $("dT").textContent=mmss(dropT); $("dBar").style.width=(dropT/15*100)+"%";
     // the last five seconds: the clock goes pink and pulses, a tick every second
-    if(dropT<=5&&dropT>0){ $("pDrop").classList.add("hot"); sfx("count",.7); buzz(12); if(dropT===5) lzSys("DOORS OPEN IN 5"); }
+    if(dropT<=5&&dropT>0){ $("pDrop").classList.add("hot"); sfx("count",.7); buzz(12,"count"); if(dropT===5) lzSys("DOORS OPEN IN 5"); }
     if(dropT<=0){ clearInterval(dropIv); go(); } },250); }
 $("dGo").addEventListener("click",()=>{ ensureAudio(); clearInterval(dropIv); go(); });
 function go(){
@@ -1313,7 +1312,7 @@ function go(){
   lx({op:"start",id:"royale-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,8),ms:240000,markets:ORDER.slice()}); lxGuns();
   const show=()=>{ c.innerHTML=`<div><small>DROPPING INTO ${G.me.mk}</small><small class="cmap">${mapLine}</small>${n}</div>`; };
   show(); dropClip("play"); sfx("count"); bed("amb_wind_high"); oneShotAmb("amb_mothership_pass",.7);
-  const iv=setInterval(()=>{ n--; if(n>0){ show(); sfx("count"); return; } clearInterval(iv); c.innerHTML="<div>GO</div>"; sfx("go"); sfx("drop",.8); buzz(30); G.started=true; toParent({type:"disciple:music",on:true}); setTimeout(()=>{ c.hidden=true; dropClip("off"); },450);
+  const iv=setInterval(()=>{ n--; if(n>0){ show(); sfx("count"); return; } clearInterval(iv); c.innerHTML="<div>GO</div>"; sfx("go"); sfx("drop",.8); buzz(30,"go"); if(!reduce) FX.shake=Math.max(FX.shake,7); G.started=true; toParent({type:"disciple:music",on:true}); setTimeout(()=>{ c.hidden=true; dropClip("off"); },450);
     feed("m","☁",`${inMk(G.me.mk).length} pilots in ${G.me.mk} · 12 in the game`);
     feed("m","☁",`Sky: <b>${MAP.n}</b> · the storm ends on <b>${finalMk()}</b>`); },800);
 }
@@ -1426,7 +1425,7 @@ function showPodium(){ if(!G||!$("podium").hidden) return;
   LASTR={place:mine,win:mine===1,pr:pnlFin(me),mk:me.mk,df:me.dfW,champ:champ.name};
   $("podium").hidden=false; row.scrollLeft=0; podStop(); podT0=performance.now()+400; podRaf=requestAnimationFrame(podDraw); podVid();
   toParent({type:"disciple:music",on:false}); bed(null);
-  if(!champ.me) sfx("champ",.55);
+  if(!champ.me) sfx("champ",.55); else buzz([20,40,20,40,60],"win");
   victoryMusic(true,2600);   // after the 3-4 s champion sting has hit
   nextStart();
 }
@@ -1536,7 +1535,7 @@ function hud(){ fchatTick();
   else bn.hidden=true;
   // jump row
   const m=G.M[me.mk], warn=me.alive&&!G.final&&!G.duel&&m.closeAt!=null&&G.t>=m.closeAt-G.P.warn, mapv=me.alive&&!G.final&&!G.duel&&G.mapOpen, jv=warn||mapv;
-  if(warn&&!G.warned){ G.warned=me.mk; sfx("stormWarn"); bed("amb_storm_wall"); buzz([40,60,40]); } if(!warn){ if(G.warned&&!G.final) bed("amb_wind_high"); G.warned=null; }
+  if(warn&&!G.warned){ G.warned=me.mk; sfx("stormWarn"); bed("amb_storm_wall"); buzz([40,60,40],"warn"); } if(!warn){ if(G.warned&&!G.final) bed("amb_wind_high"); G.warned=null; }
   if($("smap").hidden){ $("smap").hidden=false; buildJump(); }
   $("smap").classList.toggle("warn",!!warn);
   $("smT").textContent=G.final||G.duel?"FINAL CIRCLE":!me.alive?"SPECTATING":warn?`STORM ${mmss(m.closeAt-G.t)} · JUMP`:G.t<G.jumpCool?`COOLING ${Math.ceil(G.jumpCool-G.t)} S`:"TAP A STAR TO JUMP";
@@ -1651,10 +1650,13 @@ const FX={parts:[],pops:[],rings:[],sheets:[],shake:0,flash:0,flashC:"255,255,25
 const SHEET={nuke:10,"weapon-break":6,"pod-open":6,"boom-small":6,cashout:6};
 function sheet(k,x,y,size,dur){ const img=imgs["fx-"+k]; if(!img) return false; FX.sheets.push({img,n:SHEET[k],x,y,size,age:0,dur:dur||.8}); return true; }
 function resize(){ DPR=Math.min(2,devicePixelRatio||1); SW=sky.clientWidth; SH=sky.clientHeight; sky.width=Math.round(SW*DPR); sky.height=Math.round(SH*DPR);
-  stars=Array.from({length:70},()=>({x:Math.random()*SW,y:Math.random()*SH,z:rnd(.25,1)})); }
+  stars=Array.from({length:70},()=>({x:Math.random()*SW,y:Math.random()*SH,z:rnd(.25,1)})); layAt=-1e9; }
 addEventListener("resize",resize);
-let LAY={under:300,barTop:600,mid:450,rh:110};
-function layout(){
+let LAY={under:300,barTop:600,mid:450,rh:110}, layAt=-1e9;
+// measured at most every 250 ms, at the top of the frame before the HUD writes (60 fps pass, 2026-11-21): reading rects
+// every frame after hud() had changed the page forced a full re-layout each frame
+function layoutTick(now){ if(SW&&now-layAt>250) layout(); }
+function layout(){ layAt=performance.now();
   const c=sky.getBoundingClientRect(), ch=$("chart").getBoundingClientRect(), sm=$("smap").getBoundingClientRect(), bt=document.querySelector(".bottom").getBoundingClientRect();
   const under=Math.max(ch.bottom+104,sm.bottom+12)-c.top; let barTop=bt.top-c.top-18;
   const rh=Math.round(Math.max(60,Math.min(SW>=900?140:112,(barTop-under)*.36)));
@@ -1662,13 +1664,22 @@ function layout(){
 }
 function part(o){ if(FX.parts.length>280) return; const p=Object.assign({life:1,size:4,g:0,drag:1.5,add:true},o); p.max=p.life; FX.parts.push(p); }
 function popAt(pl,txt,c){ if(pl.y==null) return; FX.pops.push({txt,c,x:xOf(pl),y:pl.y-LAY.rh*.7,age:0,max:1.4,size:pl.me?30:22}); }
+/* combo (game feel pass 2026-11-21, same as the Duel): cash out in profit twice or more in a row and each one hits harder.
+ * A losing close or a NUKE resets it. */
+const COMBO_C=[["#5FF0A0","95,240,160"],["#F2C14E","242,193,78"],["#8FE3FF","143,227,255"],["#FF8FBD","255,143,189"]];
+function combo(pl,n){ if(pl.y==null) return; const [hex,rgb]=COMBO_C[Math.min(COMBO_C.length-1,n-2)], x=xOf(pl), y=pl.y;
+  FX.pops.push({txt:n+"\u00d7 COMBO",c:hex,x,y:Math.max(LAY.under+34,y-LAY.rh*1.15),age:0,max:1.5,size:Math.min(46,30+n*3)});
+  FX.rings.push({x,y,r:24,vr:520+n*60,life:.6,max:.6,w:6+Math.min(6,n),col:rgb});
+  if(!reduce){ for(let i=0,m=Math.min(64,16+n*8);i<m;i++){ const a=rnd(0,Math.PI*2), sp=rnd(160,440); part({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:rnd(.5,.9),size:rnd(2,4.2),col:rgb}); }
+    FX.shake=Math.max(FX.shake,Math.min(12,3+n*2)); FX.flash=Math.max(FX.flash,.1); FX.flashC=rgb; }
+  setTimeout(()=>sfx("win",.7,null,1+Math.min(.3,(n-2)*.06)),120); buzz([12,24,12,24,30],"combo"); }
 function fxTrade(pl,side,st){ if(pl.y==null) return;
   const k=Math.min(1,st/20), m=pl.me?1:.6, x=xOf(pl), y=pl.y+LAY.rh*.45, c1=side>0?"255,214,120":"255,143,189", c2=side>0?"255,160,70":"240,48,127";
   for(let i=0;i<Math.round((24+k*40)*m);i++){const a=Math.PI/2+rnd(-.6,.6), sp=rnd(220,600); part({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:rnd(.35,.85),size:rnd(2,4.8),col:Math.random()<.5?c1:c2});}
   for(let i=0;i<Math.round(8*m);i++) part({x:x+rnd(-10,10),y:y+rnd(0,20),vx:rnd(-90,90),vy:rnd(60,200),life:rnd(.8,1.5),size:rnd(14,26),col:"235,232,245",kind:"smoke",add:false});
   FX.rings.push({x,y:y+6,r:8,vr:380+k*300,life:.45,max:.45,w:6+k*4,col:c1});
   const gk="g:"+((pl.pos&&pl.pos.w&&pl.pos.w.k)||"PISTOL");
-  if(pl.me){ FX.flash=Math.max(FX.flash,.12+k*.15); FX.flashC=side>0?"255,206,100":"240,48,127"; sfx(gk); sfx(side>0?(st>=20?"boostBig":"boost"):"dump",.45); buzz(side>0?18:[10,20,10]); }
+  if(pl.me){ FX.flash=Math.max(FX.flash,.12+k*.15); FX.flashC=side>0?"255,206,100":"240,48,127"; sfx(gk); sfx(side>0?(st>=20?"boostBig":"boost"):"dump",.45); buzz(side>0?18:[10,20,10],side>0?"boost":"dump"); if(k>=1&&!reduce) FX.shake=Math.max(FX.shake,5); }
   else rivalSfx(SND[gk]?gk:"g:PISTOL",.55,(xOf(pl)/SW)*2-1);
 }
 function fxBomb(pl){ if(pl.y==null) return; const x=xOf(pl), y=pl.y; if(!pl.me) sfx("nuke",.4,(x/SW)*2-1); if(sheet("nuke",x,y-LAY.rh*.35,pl.me?LAY.rh*3.2:LAY.rh*2.2,1.5)){ FX.shake=Math.max(FX.shake,14); FX.pops.push({txt:"NUKE",c:"#F0307F",x,y:y-80,age:0,max:1.6,size:34}); return; }
@@ -1676,7 +1687,7 @@ function fxBomb(pl){ if(pl.y==null) return; const x=xOf(pl), y=pl.y; if(!pl.me) 
   for(let i=0;i<90;i++){const a=rnd(0,Math.PI*2), sp=rnd(140,700); part({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:rnd(.4,1),size:rnd(2.5,6),col:Math.random()<.4?"255,240,200":"255,120,60"});}
   FX.rings.push({x,y,r:16,vr:900,life:.55,max:.55,w:14,col:"255,240,220"});
   FX.pops.push({txt:"NUKE",c:"#F0307F",x,y:y-80,age:0,max:1.6,size:34});
-  if(pl.me){ FX.red=1; if(!reduce){FX.shake=26; FX.flash=.35; FX.flashC="255,245,235";} sfx("nuke"); buzz([60,40,120]); }
+  if(pl.me){ FX.red=1; if(!reduce){FX.shake=26; FX.flash=.35; FX.flashC="255,245,235";} sfx("nuke"); buzz([60,40,120],"hit"); G.combo=0; }
 }
 function rr(x,y,w,h,r){sx.beginPath(); sx.roundRect?sx.roundRect(x,y,w,h,r):sx.rect(x,y,w,h);}
 const xOf=pl=>pl.x!=null?pl.x:pl.lane*SW+pl.xo;
@@ -1805,10 +1816,10 @@ function drawCrate(dt,now){
 }
 // you got an item (crate or a dogfight win). Same gun = more ammo; a free slot = straight in; full = you choose in the popup
 function loot(item,from){ const me=G.me, rc=rarOf(item), same=me.inv.find(w=>w.k===item.k);
-  if(same){ if(same.ammo!==Infinity) same.ammo+=item.ammo; sfx("ammo"); buzz(20); paintHot();
+  if(same){ if(same.ammo!==Infinity) same.ammo+=item.ammo; sfx("ammo"); buzz(20,"select"); paintHot();
     feed("w","◆",`+${item.ammo===Infinity?"":item.ammo} ammo for your <b style="color:${rc.c}">${item.k}</b>${same.ammo===Infinity?"":" · "+same.ammo+" shots"}`); FX.pops.push({txt:"+"+item.ammo+" AMMO",c:rc.c,x:xOf(me),y:me.y-LAY.rh*.8,age:0,max:1.3,size:24}); return; }
   if(from==="crate") sheet("pod-open",xOf(me)+40,me.y-LAY.rh*.3,LAY.rh*1.4,.6);
-  if(me.inv.length<3){ me.inv.push(item); sfx(grabS(item)); buzz(25); paintHot(); FX.pops.push({txt:item.k,c:rc.c,x:xOf(me),y:me.y-LAY.rh*.8,age:0,max:1.5,size:26});
+  if(me.inv.length<3){ me.inv.push(item); sfx(grabS(item)); buzz(25,"fill"); paintHot(); FX.pops.push({txt:item.k,c:rc.c,x:xOf(me),y:me.y-LAY.rh*.8,age:0,max:1.5,size:26});
     feed("w","◆",`Picked up <b style="color:${rc.c}">${item.k}</b> · ${wLine(item)} · ${item.ammo} shots`); return; }
   openOffer(item,from); }
 function openOffer(item,from){ const rc=rarOf(item); G.offer={item,until:G.t+6,len:6};
@@ -1817,10 +1828,10 @@ function openOffer(item,from){ const rc=rarOf(item); G.offer={item,until:G.t+6,l
   const row=$("swR"); row.innerHTML="";
   G.me.inv.forEach((w,i)=>{ const b=document.createElement("button"); b.type="button"; b.style.setProperty("--wc",rarOf(w).c);
     b.innerHTML=`${gunImg(w.k)}<b>${w.k}</b><small>${wLine(w)}${w.ammo===Infinity?"":" · "+w.ammo}</small>`; tap(b,()=>takeOffer(i)); row.appendChild(b); });
-  $("swapC").hidden=false; sfx("lock"); buzz([15,30,15]); }
+  $("swapC").hidden=false; sfx("lock"); buzz([15,30,15],"select"); }
 const slugW=k=>k.toLowerCase().replace(/ /g,"-"), gunImg=k=>A["weapon-"+slugW(k)]?`<img class="gi" src="${A["weapon-"+slugW(k)]}" alt="">`:"";
 function takeOffer(i){ const o=G.offer; if(!o) return; const me=G.me, old=me.inv[i], rc=rarOf(o.item); me.inv[i]=o.item; me.sel=i; closeOffer();
-  sfx(grabS(o.item)); buzz(25); paintHot(); FX.pops.push({txt:o.item.k,c:rc.c,x:xOf(me),y:me.y-LAY.rh*.8,age:0,max:1.5,size:26});
+  sfx(grabS(o.item)); buzz(25,"fill"); paintHot(); FX.pops.push({txt:o.item.k,c:rc.c,x:xOf(me),y:me.y-LAY.rh*.8,age:0,max:1.5,size:26});
   feed("w","◆",`Swapped your ${old.k} for <b style="color:${rc.c}">${o.item.k}</b> · ${wLine(o.item)} · now in use`); }
 function leaveOffer(){ const o=G.offer; if(!o) return; closeOffer(); feed("m","→",`Left the ${o.item.k}`); }
 function closeOffer(){ G.offer=null; $("swapC").hidden=true; }
@@ -1831,7 +1842,7 @@ function drawFog(){
   g.addColorStop(0,"rgba(7,8,12,0)"); g.addColorStop(1,"rgba(7,8,12,.86)"); sx.fillStyle=g; sx.fillRect(0,0,SW,SH);
 }
 function drawSky(dt,now){
-  if(!SW) resize(); layout(); sx.setTransform(DPR,0,0,DPR,0,0);
+  if(!SW) resize(); if(layAt<0) layout(); sx.setTransform(DPR,0,0,DPR,0,0);
   const sh=FX.shake; FX.shake=Math.max(0,FX.shake-dt*60);
   sx.save(); if(sh) sx.translate(rnd(-sh,sh)*.5,rnd(-sh,sh)*.5);
   drawBackdrop(dt);
@@ -1895,7 +1906,7 @@ function drawSky(dt,now){
     sx.lineWidth=5; sx.strokeStyle="rgba(11,10,22,.85)"; sx.strokeText(p.txt,p.x,p.y-p.age*40); sx.fillStyle=p.c; sx.fillText(p.txt,p.x,p.y-p.age*40); sx.globalAlpha=1;}
   sx.restore();
   if(FX.flash>0){ sx.fillStyle=`rgba(${FX.flashC},${FX.flash*.35})`; sx.fillRect(0,0,SW,SH); FX.flash=Math.max(0,FX.flash-dt*2.2); }
-  let warn=0; if(G&&G.started&&!G.over&&G.me.pos){ const r=-pnlOf(G.me.pos,price(G.me))/(LIQ_OF(G.me)*G.me.pos.coll); if(r>.4) warn=Math.min(1,(r-.4)/.5); }
+  let warn=0; if(G&&G.started&&!G.over&&G.me.pos){ const r=-pnlOf(G.me.pos,price(G.me))/(LIQ*G.me.pos.coll); if(r>.4) warn=Math.min(1,(r-.4)/.5); }
   FX.warn=(FX.warn||0)+(warn-(FX.warn||0))*Math.min(1,dt*6);
   const red=Math.max(FX.warn*(.75+.25*Math.sin(now/(reduce?400:(260-140*FX.warn)))),FX.red||0); $("redv").style.opacity=red>.01?red.toFixed(2):"0";
   if(FX.red>0) FX.red=Math.max(0,FX.red-dt*.9);
@@ -1932,8 +1943,8 @@ $("preGear").addEventListener("click",()=>toParent({type:"disciple:settings"}));
 addEventListener("storage",onStore); addEventListener("disciple:audio",onLvl);
 function outBus(){ if(!bus&&ac){ bus=ac.createGain(); bus.gain.value=sfxLvl*1.3; bus.connect(ac.destination); } return bus; }
 // vol: 1 for you; a rival's boosts and blasts play quieter and panned to their side (pan -1 left … 1 right)
-function sfx(k,vol,pan){ if(!ac||muted||sfxLvl<=0||G&&G.ff) return; const list=SND[k]; if(!list) return; const n=list[Math.floor(Math.random()*list.length)], b=BUF[n]; if(!b){ loadS(n); return; }
-  try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; g.gain.value=(VOL[k]||1)*(vol==null?1:vol); src.connect(g);
+function sfx(k,vol,pan,rate){ if(!ac||muted||sfxLvl<=0||G&&G.ff) return; const list=SND[k]; if(!list) return; const n=list[Math.floor(Math.random()*list.length)], b=BUF[n]; if(!b){ loadS(n); return; }
+  try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; if(rate&&rate!==1) src.playbackRate.value=rate; g.gain.value=(VOL[k]||1)*(vol==null?1:vol); src.connect(g);
     if(pan&&ac.createStereoPanner){ const pn=ac.createStereoPanner(); pn.pan.value=Math.max(-1,Math.min(1,pan)); g.connect(pn); pn.connect(outBus()); } else g.connect(outBus()); src.start(); }catch(e){} }
 // rivals: at most one sound every 0.2 s, so a busy sky doesn't drown out your own
 function rivalSfx(k,vol,pan){ const t=performance.now(); if(t-lastRival<200) return; lastRival=t; sfx(k,vol,pan); }
@@ -1957,7 +1968,14 @@ function humTick(on,boost){ if(!ac) return;
   if(!hum){ try{ const src=ac.createBufferSource(), g=ac.createGain(); src.buffer=b; src.loop=true; g.gain.value=0; src.connect(g); g.connect(outBus()); src.start(); hum={s:src,g}; humV=humR=-1; }catch(e){ return; } }
   const v=Math.round((.16+.2*boost)*50)/50, r=Math.round((.92+.3*boost)*50)/50;
   if(v!==humV){ humV=v; hum.g.gain.setTargetAtTime(v,ac.currentTime,.15); } if(r!==humR){ humR=r; hum.s.playbackRate.setTargetAtTime(r,ac.currentTime,.2); } }
-function buzz(p){ if(!hapt) return; try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
+// haptics and the engine rumble go through the page that hosts this frame (lib/game/haptics gameBuzz, NativeRumble): the Taptic
+// Engine in the iPhone app, these ms patterns on Android. navigator.vibrate alone did nothing on any iPhone (game feel pass 2026-11-21).
+const TOPW=(()=>{ try{ return parent!==window&&parent.document?parent:window; }catch(e){ return window; } })();
+function buzz(p,k){ if(!hapt) return; try{ if(TOPW.DiscipleBuzz){ TOPW.DiscipleBuzz(k||"tap",p); return; } }catch(e){} try{ if(navigator.vibrate) navigator.vibrate(p); }catch(e){} }
+let thrAt=0, thrOn=false;
+function thrustTick(now,on){ try{ if(!on){ if(thrOn){ thrOn=false; TOPW.dispatchEvent(new TOPW.CustomEvent("disciple:thrust",{detail:{off:true}})); } return; }
+  if(now-thrAt<100) return; thrAt=now; thrOn=true; const me=G.me;
+  TOPW.dispatchEvent(new TOPW.CustomEvent("disciple:thrust",{detail:{v:Math.min(1,(me.flame||0)/2.2),climb:me.pos?(pnlOf(me.pos,price(me))>=0?.5:-.3):0,pending:me.pos?1:0}})); }catch(e){} }
 // victory music under the podium (maker 2026-11-16): a CC0 loop (public/audio/music) after the champion sting, on the Music
 // channel of the game settings (Music switch + slider), fading in over 1.5 s and out when you leave the podium
 const MUSIC_BASE=A.musicBase||"../../audio/music/"; let vic=null, vicTimer=0;
@@ -1978,7 +1996,8 @@ document.addEventListener("click",e=>{ const b=e.target&&e.target.closest&&e.tar
 
 /* ---------- main loop ---------- */
 function frame(now){
-  raf=requestAnimationFrame(frame); const dt=Math.min(.05,(now-(last||now))/1000); last=now;
+  raf=requestAnimationFrame(frame); const dt=Math.min(.05,(now-(last||now))/1000); last=now; layoutTick(now);
+  thrustTick(now,!!(G&&G.started&&!G.over&&G.me.alive));
   humTick(!!(G&&G.started&&!G.over&&G.me.alive), G&&G.me?Math.min(1,(G.me.flame||0)/2.2):0);
   if(G&&G.started&&(!G.over||G.watch)&&!(G.champ&&G.resShown&&!G.watch)){ G.acc+=dt; let n=0; while(G.acc>=TICK&&n++<5){ G.acc-=TICK; simTick(); if(G.champ) break; } }
   drawSky(dt,now);
