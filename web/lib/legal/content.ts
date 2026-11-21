@@ -1,5 +1,5 @@
 /**
- * /terms, /privacy, /risk. Copy lives in web/content/legal/*.md and is rendered at build time, the same way
+ * /terms, /privacy, /risk, /support. Copy lives in web/content/legal/*.md and is rendered at build time, the same way
  * /security is (lib/security/content.ts): neither fs nor `marked` ships to the browser. Raw HTML is escaped.
  * A leftover placeholder or draft note fails the build instead of reaching a visitor.
  */
@@ -11,7 +11,7 @@ import { withBase } from "@/lib/base-path";
 import type { DocMeta, DocPage, TocItem } from "@/lib/docs/content";
 
 const DIR = path.join(process.cwd(), "content/legal");
-const ORDER = ["terms", "privacy", "risk"] as const;
+const ORDER = ["terms", "privacy", "risk", "support"] as const;
 export type LegalId = (typeof ORDER)[number];
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

@@ -8,11 +8,13 @@ We collect what we need to sign you in, to run the game, and to slow down abuse.
 
 ## When you sign in
 
-Sign in with email, Google, X or wallet. Sign-in is handled by Privy. Privy publishes its own privacy policy, and that policy applies to the data Privy handles.
+On the website, sign in with email, Google, X or wallet. In the iPhone app, sign in with Apple, email or X. Sign-in is handled by Privy. Privy publishes its own privacy policy, and that policy applies to the data Privy handles.
 
 If you use email, Privy sends a sign-in code to that address, and we receive the address.
 
 If you use Google, we receive the email address on that Google account. We do not get your Google password.
+
+If you use Sign in with Apple, we receive the email address Apple shares, which can be a private relay address, and the name you allow Apple to share.
 
 If you use X, we can tell that the login was an X account. That is enough for the Easy buy check described below. We do not get your X password.
 
@@ -46,7 +48,7 @@ Messages you post in a rocket's chat can be read by anyone looking at that rocke
 
 Pictures you upload are checked for sexual content before we use them. Your browser runs a first check with a picture model that ships with the site. Our server then runs the check we rely on. That server check can be Google Cloud Vision, Amazon Rekognition, Sightengine, or a picture model running on the server. Which one runs depends on how the site is configured.
 
-We use your IP address to limit repeated requests.
+We use your IP address to limit repeated requests, and to tell which country you're in. Real-money Turbo is not offered in some countries, so we check the country before showing it.
 
 Usernames, a list of trades, chat messages, and pictures that passed the check are stored in Upstash, a hosted database. The app is built to be hosted on Vercel.
 
@@ -54,13 +56,21 @@ Usernames, a list of trades, chat messages, and pictures that passed the check a
 
 If you open a referral link, we store a cookie in your browser for 30 days so the person who referred you can be credited. The cookie holds that person's username or wallet address, and the time you arrived. We also copy that same note into this browser's storage.
 
+## Cash, Turbo and alerts
+
+Card and Apple Pay top-ups are processed by MoonPay in its own checkout. MoonPay collects your card details and identity checks under its own privacy policy. We do not see your card number.
+
+Real-money Turbo trades run on Lighter, a third-party exchange, in an account tied to your wallet. Cash moves to and from it through Relay. Lighter and Relay see your wallet address and those trades.
+
+If you turn on alerts, we store a push token for your browser or iPhone so we can send them. Turn alerts off in Settings to stop them.
+
 ## Analytics
 
-The app does not include a separate analytics tool.
+We use Vercel Web Analytics to count page views. It does not use cookies and does not follow you to other sites. We do not use advertising tools, and we do not sell your data.
 
 ## Your choices
 
-You can edit your profile, and you can sign out.
+You can edit your profile, and you can sign out. You can delete your account in Settings → Security → Delete account. Questions go to [hello@disciple.vip](mailto:hello@disciple.vip) (see [Support](/support)).
 
 ## Children
 
