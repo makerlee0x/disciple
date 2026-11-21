@@ -4,7 +4,7 @@ import "server-only";
  *  - Privy users: GET https://api.privy.io/v1/users (Basic appId:PRIVY_APP_SECRET), paged, cached 5 min in-process
  *  - launches: lib/events listLaunches + each launch block's timestamp (cached forever, blocks don't move)
  *  - trades: the KV trade index (tradesOf per coin, newest 5000 each)
- *  - usernames: search:users zset size; funnel counters (lib/funnel keys); duel rooms (duel:rooms zset)
+ *  - usernames: search:users zset size; funnel counters (lib/funnel keys, also split by source); duel rooms (duel:rooms zset)
  *  - Lighter: the integrator (fee) account's collateral, when LIGHTER_INTEGRATOR_INDEX is set
  * Each part fails on its own: a slow Privy or RPC leaves that card empty with a note, never the whole page.
  * Known test coins (lib/home/hiddenCoins) are left out, same as the home feed.
@@ -14,7 +14,7 @@ import { ACTIVE_CHAIN, isDeployed } from "@/lib/chains";
 import { anonLaunchers } from "@/lib/anon";
 import { listLaunches } from "@/lib/events";
 import { isHiddenCoin } from "@/lib/home/hiddenCoins";
-import { FUNNEL_STEPS, dayKey, funnelNet, lastDays, totalKey } from "@/lib/funnel";
+import { FUNNEL_SOURCES, FUNNEL_STEPS, INSTALL_FUNNEL, REF_FUNNEL, dayKey, funnelNet, lastDays, srcDayKey, srcTotalKey, totalKey, type FunnelSource, type FunnelStep } from "@/lib/funnel";
 import { launchStats, tradeStats, userStats, type StatFill, type StatLaunch, type StatUser } from "@/lib/adminStats";
 import { serverPc } from "./chat/identity";
 import { kv } from "./kv";
@@ -96,6 +96,27 @@ async function funnel(now: number) {
   }));
 }
 
+/** The install-to-trade and referral steps split by source (app | x | web): 7-day and all-time counts. */
+async function funnelBySource(now: number) {
+  const net = funnelNet(ACTIVE_CHAIN.id, process.env.VERCEL_ENV);
+  const days = lastDays(now, 7);
+  const steps: FunnelStep[] = [...INSTALL_FUNNEL, ...REF_FUNNEL];
+  const pairs = steps.flatMap((step) => FUNNEL_SOURCES.map((src) => [step, src] as const));
+  const s = kv();
+  const [tot, wk] = await Promise.all([
+    s.mget(pairs.map(([st, src]) => srcTotalKey(net, st, src))),
+    s.mget(days.flatMap((d) => pairs.map(([st, src]) => srcDayKey(net, st, src, d)))),
+  ]);
+  const n = (v: string | null | undefined) => Number(v) || 0;
+  const out = {} as Record<FunnelSource, { d7: Partial<Record<FunnelStep, number>>; total: Partial<Record<FunnelStep, number>> }>;
+  for (const src of FUNNEL_SOURCES) out[src] = { d7: {}, total: {} };
+  pairs.forEach(([step, src], j) => {
+    out[src].total[step] = n(tot[j]);
+    out[src].d7[step] = days.reduce((a, _, i) => a + n(wk[i * pairs.length + j]), 0);
+  });
+  return out;
+}
+
 async function duels(now: number) {
   const s = kv();
   const today = Date.parse(`${new Date(now).toISOString().slice(0, 10)}T00:00:00Z`);
@@ -121,11 +142,12 @@ let cache: { at: number; data: AdminStats } | null = null;
 export type AdminStats = Awaited<ReturnType<typeof build>>;
 
 async function build(now: number) {
-  const [users, coins, usernames, fun, duel, lighter] = await Promise.all([
+  const [users, coins, usernames, fun, funSrc, duel, lighter] = await Promise.all([
     settle(privyUsers(privyEnv(), now)),
     settle(launches()),
     settle(kv().zcard(USERS_Z)),
     settle(funnel(now)),
+    settle(funnelBySource(now)),
     settle(duels(now)),
     settle(lighterFees()),
   ]);
@@ -152,6 +174,7 @@ async function build(now: number) {
     trades,
     tradesError: tradeErr,
     funnel: fun.ok ? fun.v : null,
+    funnelBySource: funSrc.ok ? funSrc.v : null,
     duels: duel.ok ? duel.v : null,
     lighter: lighter.ok ? lighter.v : null,
     lighterError: lighter.ok ? undefined : lighter.error,

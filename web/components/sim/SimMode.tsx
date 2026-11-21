@@ -25,6 +25,7 @@ import RocketClear from "@/components/sim/RocketClear";
 import DailyPreflight, { CountOverlay, useCountdown } from "@/components/sim/DailyPreflight";
 import { FreePlayHub, FreePlayStrip, PracticeResult, savePracticeBest, type StripAlert } from "@/components/sim/FreePlay";
 import { scoreRun } from "@/lib/sim/daily";
+import { trackFunnel } from "@/lib/funnelClient";
 
 // tramp walls are flagged off: their card loads only when the flag is on
 const TrampWallPanel = dynamic(() => import("@/components/trampwalls/TrampWallPanel"), { ssr: false });
@@ -104,6 +105,7 @@ export default function SimMode({ initial }: { initial: { difficulty?: string; s
     if (o.minutes || o.daily) setMinutes(mins);
     setDailyRun(!!o.daily);
     const d = new SimDriver(c, diff, seed, mins); d.speed = o.daily ? DAILY.speed : speed; d.start(); drv.current = d;
+    trackFunnel("first_play"); // funnel counter: once per browser, fails silently
     ghostEvent({ op: "clear" }); ghostOn.current = null; ghostFor.current = null;
     setPracticeXp(null);
     setAlert(null);

@@ -9,6 +9,7 @@ import { privyAccessToken } from "@/lib/aa/sessionState";
 import { withBase } from "@/lib/base-path";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import { loginPrivy, NeedLogin } from "@/lib/invitesClient";
+import { FUNNEL_SOURCES, INSTALL_FUNNEL, REF_FUNNEL, funnelRows, type FunnelStep } from "@/lib/funnel";
 import type { AdminStats as Data } from "@/lib/server/adminStats";
 
 const nf = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString("en-US"));
@@ -20,7 +21,41 @@ const STEP: Record<string, string> = {
   land: "Visited", signin: "Signed in", fund: "Added cash", first_trade: "First trade", first_launch: "First launch", return_d1: "Came back next day",
   duel_start: "Duel started", duel_finish: "Duel finished", duel_share: "Duel shared", duel_join: "Joined a duel link", duel_rematch: "Rematch",
   duel_request: "Rematch request", royale_join: "Royale round",
+  first_play: "First game", first_share: "First share", ref_land: "Came on a ref link", ref_signin: "Referred, signed in", ref_trade: "Referred, traded",
 };
+const SRC: Record<string, string> = { app: "App", x: "X browser", web: "Web" };
+const pct = (v: number | null) => (v == null ? "—" : `${v >= 0.1 ? Math.round(v * 100) : (v * 100).toFixed(1)}%`);
+
+/** Install-to-trade funnel: each step, its share of the first step and of the step before, overall and per source. */
+function FunnelCard({ d }: { d: Data }) {
+  const [range, setRange] = useState<"d7" | "total">("d7");
+  const all: Partial<Record<FunnelStep, number>> = Object.fromEntries((d.funnel ?? []).map((r) => [r.step, r[range]]));
+  const by = d.funnelBySource;
+  const block = (steps: readonly FunnelStep[]) => {
+    const rows = funnelRows(steps, all);
+    const per = FUNNEL_SOURCES.map((src) => funnelRows(steps, by?.[src][range] ?? {}));
+    return rows.map((r, i) => (
+      <tr key={r.step}>
+        <td>{STEP[r.step] ?? r.step}</td>
+        <td><b>{nf(r.n)}</b></td>
+        <td><span className="as-bar" style={{ ["--w" as string]: `${Math.min(100, (r.ofTop ?? 0) * 100)}%` }}>{pct(r.ofTop)}</span></td>
+        <td className="muted">{pct(r.ofPrev)}</td>
+        {per.map((p, j) => <td key={FUNNEL_SOURCES[j]}>{by ? <>{nf(p[i].n)} <span className="muted">{pct(p[i].ofTop)}</span></> : "—"}</td>)}
+      </tr>
+    ));
+  };
+  return (
+    <section className="cl-card as-card">
+      <h3 className="cl-display xs">Install to trade <span className="muted as-note">once per browser · step counts, not cohorts</span>
+        <span className="as-seg">{(["d7", "total"] as const).map((k) => <button key={k} type="button" aria-pressed={range === k} onClick={() => setRange(k)}>{k === "d7" ? "7d" : "All"}</button>)}</span></h3>
+      <div className="as-scroll"><table className="as-table">
+        <thead><tr><th>Step</th><th>Count</th><th>Of first</th><th>Of prev</th>{FUNNEL_SOURCES.map((s2) => <th key={s2}>{SRC[s2]}</th>)}</tr></thead>
+        <tbody>{block(INSTALL_FUNNEL)}</tbody>
+        <tbody className="as-gap">{block(REF_FUNNEL)}</tbody>
+      </table></div>
+    </section>
+  );
+}
 
 async function load(fresh: boolean): Promise<Data> {
   const t = await privyAccessToken();
@@ -137,6 +172,8 @@ export default function AdminStats({ configured = false }: { configured?: boolea
                 <tbody>{(t?.topCoins ?? []).map((c) => <tr key={c.coin}><td><a href={withBase(`/coin/${c.coin}`)}>${d.coinNames[c.coin] ?? short(c.coin)}</a></td><td>{usd(c.volume)}</td><td>{nf(c.trades)}</td></tr>)}</tbody></table>
             </section>
           </div>
+
+          <FunnelCard d={d} />
 
           <div className="as-two">
             <section className="cl-card as-card">
