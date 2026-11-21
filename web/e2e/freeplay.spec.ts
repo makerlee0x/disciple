@@ -113,7 +113,7 @@ test("Daily flight: fly it, get scored by the server, and see the same result ne
   await expect.poll(async () => (await runState(page)).tokens, { timeout: 10_000 }).toBe(0);
   // the cash-out is the score: BANKED is a big tile on desktop, the phone bag card turns into CASHED OUT
   if (isPhone(page)) await expect(page.getByTestId("phone-bag")).toHaveAttribute("data-cashed", "1");
-  else await expect(page.getByTestId("pnl-banked")).toContainText(/[+-]\$\d/);
+  else await expect(page.getByTestId("pnl-banked")).toContainText(/[+\-−]\$\d/);
 
   // the daily is 80 s (its 2-minute market at 1.5×); the server won't score a faster one
   const res = page.getByTestId("daily-result");
@@ -126,13 +126,13 @@ test("Daily flight: fly it, get scored by the server, and see the same result ne
   await expect(res.getByTestId("daily-pnl")).toHaveText(/^[+−]\$[\d,]+$/);
   await expect(res.getByTestId("daily-result-board")).toBeVisible();
 
-  // one scored run per device a day: the hub now offers the result, not a second flight
+  // one scored run per device a day: the fly button goes and the hub board shows your run instead (components/sim/FreePlay)
   await res.getByTestId("daily-close").click();
-  await expect(page.getByTestId("sim-daily")).toHaveText("SEE YOUR RESULT");
+  await expect(page.getByTestId("sim-daily")).toHaveCount(0);
+  await expect(page.getByTestId("daily-hub-board")).toContainText(/Your rank/i);
   await page.reload();
-  await expect(page.getByTestId("sim-daily")).toHaveText("SEE YOUR RESULT");
-  await page.getByTestId("sim-daily").click();
-  await expect(page.getByTestId("daily-result").getByTestId("daily-rank-pending")).toHaveText(/Would place #\d+ of \d+ today/);
+  await expect(page.getByTestId("daily-hub-board")).toContainText(/Your rank/i);
+  await expect(page.getByTestId("sim-daily")).toHaveCount(0);
 });
 
 test("the daily board refuses a run that skipped the start ticket", async ({ request }) => {

@@ -14,7 +14,8 @@ test("a signed-in pilot with no cash is told before BOOST sends anything", async
   await page.goto(`/coin/${COIN}`);
   const bar = page.getByTestId("trade-bar").filter({ visible: true }).first();
   await expect(bar).toBeVisible();
-  if (!isPhone(page)) await expect(bar).toContainText("Cash $0.00");
+  // the cash now rides in the wallet pill beside the flight menu, not in the trade bar (8ed9591, 2026-11-20)
+  if (!isPhone(page)) await expect(page.getByTestId("cash-card").filter({ visible: true }).first()).toContainText("$0.00");
   await expect(page.getByText(/Not enough cash: \$10\.00 BOOST, you have \$0\.00/).filter({ visible: true }).first()).toBeVisible();
 });
 
@@ -22,8 +23,8 @@ test("the trade bar shows the pilot's cash, and the preset keys only select", as
   test.skip(isPhone(page), "keyboard presets are desktop; phones tap the chips");
   await pilot.signIn({ cash: 50 });
   await page.goto(`/coin/${COIN}`);
-  const bar = page.getByTestId("trade-bar");
-  await expect(bar).toContainText("Cash $50.00");
+  await expect(page.getByTestId("trade-bar")).toBeVisible();
+  await expect(page.getByTestId("cash-card").filter({ visible: true }).first()).toContainText("$50.00");
   await expect(page.getByTestId("buy-btn")).toHaveText(/BOOST \$10\.00/);
   await page.locator("body").click({ position: { x: 700, y: 300 } }); // focus the flight, not a field
   await page.keyboard.press("Digit3");
@@ -32,11 +33,16 @@ test("the trade bar shows the pilot's cash, and the preset keys only select", as
   await expect(page.getByTestId("sell-btn")).toHaveText(/DUMP HALF|DUMP 50%/);
 });
 
-test("signed out, the flight opens in paper mode with $250 of paper cash", async ({ page }) => {
+test("signed out, the flight opens in paper mode", async ({ page }) => {
   await page.goto(`/coin/${COIN}`);
   const bar = page.getByTestId("trade-bar").filter({ visible: true }).first();
   await expect(bar).toBeVisible();
-  if (!isPhone(page)) await expect(bar).toContainText(/PAPER\s*Cash \$250\.00/);
+  // the paper balance left the trade bar with the cash line (8ed9591); the PAPER tag and the BOOST size stay
+  if (!isPhone(page)) {
+    await expect(bar).toContainText(/PAPER/);
+    await expect(page.getByTestId("buy-btn")).toHaveText(/BOOST \$10\.00/);
+  }
+  await expect(page.getByTestId("cash-card").filter({ visible: true })).toHaveCount(0);
 });
 
 test("the flight menu has the way back to the lobby", async ({ page, pilot }) => {
