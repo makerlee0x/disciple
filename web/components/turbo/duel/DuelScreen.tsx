@@ -13,6 +13,7 @@ import { onPrivy, privyAccessToken, privyAuthenticated, privyLogin } from "@/lib
 import { duelApi, followRoom, setDuelGuest, type Follow, type RoomRes, type Res } from "@/lib/duel/client";
 import { DUEL_LEN_MS, parseCode, type LengthMs, type TierId, type TradeAction } from "@/lib/duel/rules";
 import { trackFunnel } from "@/lib/funnelClient";
+import { markPlayed } from "@/lib/streaksClient";
 import { isFunnelStep } from "@/lib/funnel";
 import { climbingNow, type HomeData } from "@/lib/home/trending";
 import { DUEL_RANKED_LIVE, LEAGUES } from "@/lib/duel/season";
@@ -285,7 +286,7 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
       first: (() => { const u = new URL(location.href); const on = u.searchParams.get("first") === "1"; if (on) { u.searchParams.delete("first"); history.replaceState(history.state, "", u.toString()); } return on; })(),
       join: async (code: string) => { if (!(await ensureGuest())) return; if (guest && !me) await refreshMe(); const r = await duelApi.join(code); if (r.ok) { trackFunnel("duel_join"); follow(r.room.id); } else api?.error(r.reason); },
       // Turbo funnel moments from the engine (lib/funnel TURBO_STEPS); anything else is ignored
-      track: (k: string) => { if (isFunnelStep(k)) trackFunnel(k); },
+      track: (k: string) => { if (k === "duel_finish") markPlayed("duel"); if (isFunnelStep(k)) trackFunnel(k); },
       ready: async () => { const r = await op({ op: "ready" }); if (r.error) api?.error(r.error); },
       leave: async () => { const id = roomId; unfollow(); if (id) await duelApi.op(id, { op: "leave" }); },
       rematch: async () => {

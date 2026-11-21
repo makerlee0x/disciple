@@ -100,16 +100,39 @@ export function streakOf(done: ReadonlySet<number>, now: number, o: { todayCount
   return { current: cur, best, week, shieldUsed: shields.has(weekIndex(t)), pausedDay: pausedDay !== null && pausedDay > t - 7 ? pausedDay : null, todayOk: o.todayOk, run };
 }
 
-export type StreakKey = "aboard" | "checkin";
+/**
+ * Flight streak (retention loop, maker 2026-11-21 "do all 10", item 4): a UTC day counts when you finished one match of
+ * anything: the daily flight, a Free play practice run, a Turbo duel (bot or online), a royale or a climb run. Same weekly
+ * shield and XP as the other two. Free play only: it never asks for a trade, and like the others it ends quietly.
+ */
+export type StreakKey = "aboard" | "checkin" | "flight";
+export type PlayMode = "daily" | "practice" | "duel" | "royale" | "climb";
+export const PLAY_MODES: readonly PlayMode[] = ["daily", "practice", "duel", "royale", "climb"];
+const STREAK_NAME: Record<StreakKey, string> = { aboard: "Aboard streak", checkin: "Check-in streak", flight: "Flight streak" };
+
+/**
+ * Daily drop (login reward): one tap a UTC day claims it, and the tap is that day's check-in. The reward climbs with the
+ * day of the check-in streak in a 7-day cycle: XP on days 1 to 6, a bound crate on day 7 (cosmetic, never trades, so a
+ * second wallet farming it prints nothing anyone can sell). Off-chain only. A missed day with no shield starts the cycle again.
+ */
+export const DAILY_DROP = { xp: [10, 15, 20, 25, 30, 40] as readonly number[], crateDay: 7, crate: "rare" } as const;
+export interface DropReward { day: number; xp: number; crate: boolean }
+/** the reward for the nth day of a check-in streak (n ≥ 1) */
+export function dropReward(n: number): DropReward {
+  const day = n <= 0 ? 1 : ((Math.floor(n) - 1) % DAILY_DROP.crateDay) + 1;
+  return day === DAILY_DROP.crateDay ? { day, xp: 0, crate: true } : { day, xp: DAILY_DROP.xp[day - 1], crate: false };
+}
+/** the 7 rewards of the cycle the nth streak day sits in, for the strip (day 1..7) */
+export const dropCycle = (): DropReward[] => Array.from({ length: DAILY_DROP.crateDay }, (_, i) => dropReward(i + 1));
 export interface StreakPay { src: string; xp: number; label: string; ts: number }
 
 /** The ledger rows a streak has earned (once each by src; nothing before STREAKS_FROM). */
 export function streakPays(key: StreakKey, s: Streak): StreakPay[] {
   const out: StreakPay[] = [], from = dayIndex(STREAKS_FROM);
-  const name = key === "aboard" ? "Aboard streak" : "Check-in streak";
+  const name = STREAK_NAME[key];
   for (const { day, n } of s.run) {
     if (day < from) continue;
-    const ts = day * DAY + (key === "aboard" ? DAY - 1 : 0);
+    const ts = day * DAY + (key === "aboard" ? DAY - 1 : 0);   // check-in and flight days pay as the day opens
     out.push({ src: `streak:${key}:${day}`, xp: STREAK_RULES.xpPerDay, label: `${name} day ${n}`, ts });
     if (n % STREAK_RULES.markEvery === 0) out.push({ src: `streak:${key}:mark:${day}`, xp: STREAK_RULES.markXp, label: `${name}: ${n} days`, ts });
   }

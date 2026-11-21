@@ -28,6 +28,7 @@ import { lighterStatus } from "@/lib/lighter/client";
 import { onTurboCash } from "@/lib/turbo/turboCash";
 import { LIGHTER_PRICE_HOST, streamLighterBook, streamLighterMids } from "@/lib/turbo/royalePrices";
 import { onWallet } from "@/lib/walletState";
+import { markPlayed } from "@/lib/streaksClient";
 
 type Tick = { ts: number; p: number };
 interface EngineApi { price(p: number, ts: number): void; error?(t: string): void; climbRefresh?(): void; climbFill?(entry: number, btc?: number): void; climbNote?(t: string): void; climbCash?(delta: number): void; destroy(): void }
@@ -229,6 +230,7 @@ export default function ClimbScreen() {
         // placed orders on Lighter can unlock a level (a run that fell back to play money unlocks nothing)
         state: () => ({ unlocked: readClimbLevel(stakeMode) }),
         finish: ({ level, pnl, test }: { level: number; pnl: number; test?: boolean }) => {
+          if (!test) markPlayed("climb");   // today counts for the flight streak
           const u = readClimbLevel(stakeMode);
           if (onLighter && !realRun) return { unlocked: u };
           const to = test ? unlockAfterTest(u, level, pnl, levels) : unlockAfter(u, level, pnl, levels);

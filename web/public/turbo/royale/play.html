@@ -1424,6 +1424,7 @@ function showPodium(){ if(!G||!$("podium").hidden) return;
   const mine=me.place||12, inTop=ps.includes(me); $("podMe").hidden=inTop;
   if(!inTop){ const pr=pnlFin(me); $("podMeT").innerHTML=`<b>YOU #${mine}</b>${whyLine(me)}`; $("podMeV").textContent=usd(pr,true); $("podMeV").style.color=pr>=0?"var(--green)":"var(--pinkl)"; }
   LASTR={place:mine,win:mine===1,pr:pnlFin(me),mk:me.mk,df:me.dfW,champ:champ.name};
+  toParent({type:"disciple:played",place:mine});
   $("podium").hidden=false; row.scrollLeft=0; podStop(); podT0=performance.now()+400; podRaf=requestAnimationFrame(podDraw); podVid();
   toParent({type:"disciple:music",on:false}); bed(null);
   if(!champ.me) sfx("champ",.55);

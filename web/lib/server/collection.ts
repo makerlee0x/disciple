@@ -72,8 +72,9 @@ const lc = (w: string) => w.toLowerCase();
 const FOREVER = 10 * 365 * 86400;
 /** the week a duel crate counts toward (Monday 00:00 UTC) */
 export const weekIndex = (now: number) => Math.floor((dayIndex(now) + 3) / 7);
-/** crate sources whose items never trade: the welcome crate (and level-up and shop crates, if any were made before the cut) */
-const boundSrc = (src: string) => src === "welcome" || src.startsWith("lvl:") || src.startsWith("shopcrate:");
+/** crate sources whose items never trade: the welcome crate, daily drops and season-track crates (lib/server/streaks), and
+ *  level-up and shop crates, if any were made before the cut */
+const boundSrc = (src: string) => src === "welcome" || src.startsWith("lvl:") || src.startsWith("shopcrate:") || src.startsWith("drop:") || src.startsWith("season:");
 const STARTERS = [STARTER_SKIN, STARTER_TRAIL, STARTER_TAG];
 
 /* ------------------------------------------------------------- provable rolls ------------------------------------------------------------- */

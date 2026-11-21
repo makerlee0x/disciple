@@ -17,6 +17,7 @@ import { isTurboEnabled } from "@/lib/turbo/flag";
 import { royaleOpenHere } from "@/lib/features";
 import { useTurboMusic } from "@/lib/game/turboMusic";
 import { trackFunnel } from "@/lib/funnelClient";
+import { markPlayed } from "@/lib/streaksClient";
 import LobbySettings from "@/components/turbo/LobbySettings";
 
 export default function RoyalePage() {
@@ -27,7 +28,11 @@ export default function RoyalePage() {
   useEffect(() => { setOn(isTurboEnabled() && royaleOpenHere()); }, []);   // held for launch: lib/features ROYALE_ENABLED
   // funnel: the first round a browser plays (the game turns its music on when a round starts), lib/funnel TURBO_STEPS
   useEffect(() => {
-    const f = (e: MessageEvent) => { if (e.origin === location.origin && e.data?.type === "disciple:music" && e.data.on === true) trackFunnel("royale_join"); };
+    const f = (e: MessageEvent) => {
+      if (e.origin !== location.origin) return;
+      if (e.data?.type === "disciple:music" && e.data.on === true) trackFunnel("royale_join");
+      if (e.data?.type === "disciple:played") markPlayed("royale");   // the podium: today counts for the flight streak
+    };
     window.addEventListener("message", f); return () => window.removeEventListener("message", f);
   }, []);
   useEffect(() => {

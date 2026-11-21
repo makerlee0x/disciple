@@ -4,7 +4,9 @@
  * Never imported in production code paths without the inline NODE_ENV guard.
  */
 import type { LogEntry, LogRecord, StoryEvent } from "@/lib/logbook";
-import { dayIndex, type Streak } from "@/lib/streaks";
+import { dayIndex, dropReward, type Streak } from "@/lib/streaks";
+import { trackOf } from "@/lib/season/track";
+import type { StreaksData } from "@/lib/streaksClient";
 import type { CrewPage } from "@/lib/crew";
 import type { HostView } from "@/lib/host";
 
@@ -45,12 +47,15 @@ export function sampleStory(): { entry: LogEntry; story: StoryEvent[]; index: nu
   };
 }
 
-export function sampleStreaks(): { aboard: Streak; checkin: Streak; paid: number } {
+export function sampleStreaks(): StreaksData {
   const t = dayIndex(now());
   const week = (states: Streak["week"][number]["state"][]) => states.map((state, i) => ({ day: t - 6 + i, state }));
   return {
     aboard: { current: 6, best: 14, week: week(["done", "done", "paused", "done", "done", "done", "today"]), shieldUsed: true, pausedDay: t - 4, todayOk: true, run: [] },
     checkin: { current: 11, best: 11, week: week(["done", "done", "done", "done", "done", "done", "done"]), shieldUsed: false, pausedDay: null, todayOk: true, run: [] },
+    flight: { current: 4, best: 9, week: week(["missed", "done", "done", "done", "done", "done", "open"]), shieldUsed: false, pausedDay: null, todayOk: false, run: [] },
+    drop: { ...dropReward(12), claimed: false },
+    track: { ...trackOf(5_300), season: 1, endsAt: now() + 40 * 86_400_000 },
     paid: 0,
   };
 }
