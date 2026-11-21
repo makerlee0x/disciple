@@ -21,7 +21,7 @@ import { bookedPortfolio, hangarValueUsd, loadPortfolio, type Portfolio } from "
 import { SIGN_IN_COPY, SIGN_IN_FAILED_EVENT, WALLET_CTA_CLICK_EVENT, WALLET_CTA_EVENT, WALLET_ID_EVENT, type WalletId } from "@/lib/walletCta";
 import { hasSavedSession, onPrivy, privyAuthenticated, privyLoaded } from "@/lib/aa/sessionState";
 import { lastPill, saveLastPill, type LastPill } from "@/lib/walletState";
-import AccountMenu from "@/components/account/AccountMenu";
+import dynamic from "next/dynamic";
 import WelcomeToast, { TOPBAR_POPOVER_EVENT, markSignInStarted } from "@/components/account/WelcomeToast";
 import SoldToast from "@/components/account/SoldToast";
 import { COIN_DECIMALS, knownDecimals, usdgDecimals } from "@/lib/usdg";
@@ -42,6 +42,11 @@ import { PROFILE_CHANGED_EVENT } from "@/lib/profile";
 import { DEPOSIT_HREF, SETTINGS_HREF, onDepositClick, onSettingsClick } from "@/lib/cashLink";
 import { CASH_ARRIVED_EVENT } from "@/lib/testCash";
 import { onTurboCash, setTurboWallet } from "@/lib/turbo/turboCash";
+
+// The account menu reads Rewards (the whole claims stack), so it loads for signed-in players only: fetched once the page is
+// idle after sign-in, shown on the first tap (speed pass 2026-11-21). Signed-out visitors never download it.
+const loadAccountMenu = () => import("@/components/account/AccountMenu");
+const AccountMenu = dynamic(loadAccountMenu, { ssr: false });
 
 /** $1,234.56 (cash / portfolio cards). */
 const usd2 = (n: number) => `$${(Math.round(n * 100) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -133,6 +138,12 @@ export default function WalletButton({ compact = false, hideCash = false }: { co
   const [acct, setAcct] = useState(false);
   const [pf, setPf] = useState<Portfolio | null>(null);
   useEffect(() => onWallet(setAddr), []);
+  useEffect(() => {
+    if (!addr) return;
+    const w = window as Window & { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => number };
+    const t = setTimeout(() => (w.requestIdleCallback ? w.requestIdleCallback(() => void loadAccountMenu(), { timeout: 4000 }) : void loadAccountMenu()), 2000);
+    return () => clearTimeout(t);
+  }, [addr]);
   useEffect(() => { restoreSmart().catch(() => {}); }, []);
   useEffect(() => onSessionChange(() => bump((n) => n + 1)), []);
   // TEMP (testnet): old LightAccount of the same owner still holding funds ⇒ offer a one-click sweep. Remove after migration.

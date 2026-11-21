@@ -1,6 +1,7 @@
 "use client";
 
 import { useXp } from "@/lib/xpClient";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PROFILE_CHANGED_EVENT, fetchUsernameStatus, localUsername } from "@/lib/profile";
@@ -13,8 +14,6 @@ import { withBase } from "@/lib/base-path";
 import { connectedAddress, lastWallet, onWallet } from "@/lib/walletState";
 import { hasSavedSession, onPrivy, privyAuthenticated, privyLoaded } from "@/lib/aa/sessionState";
 import { DEPOSIT_HREF, LEGACY_CASH_HASH, OPEN_SETTINGS_EVENT, SETTINGS_HASHES } from "@/lib/cashLink";
-import SettingsModal from "./SettingsModal";
-import EditProfileSheet from "./EditProfileSheet";
 import HolderTags from "@/components/nft/HolderTags";
 import IdentitySigil from "./IdentitySigil";
 import BioText from "./BioText";
@@ -25,7 +24,6 @@ import type { CashKind, CashRow } from "@/lib/cashHistory";
 import { ACTIVE_CHAIN } from "@/lib/chains";
 import PortfolioBlock from "./PortfolioBlock";
 import { agoLabel, usd2 } from "./money";
-import RewardsPanel from "@/components/claims/RewardsPanel";
 import { shareInvite } from "@/lib/invite";
 import { useRewards } from "@/components/claims/useRewards";
 import InvitesCard from "@/components/invites/InvitesCard";
@@ -33,7 +31,6 @@ import Icon, { type IconName } from "@/components/icons/Icon";
 import DsSelect from "@/components/ui/DsSelect";
 import type { ActivityItem } from "@/lib/stats";
 import type { LifetimeRow } from "@/lib/server/leaderboard";
-import PointsShare from "@/components/points/PointsShare";
 import HangarBay from "@/components/hangar/HangarBay";
 import { fetchXLink, X_CHANGED_EVENT } from "@/lib/xLinkClient";
 import HangarSignedOut from "@/components/hangar/HangarSignedOut";
@@ -42,6 +39,24 @@ import { useCollection } from "@/lib/collectionClient";
 import type { Progress } from "@/lib/unlocks";
 import { Fleet, ServiceRecord, TrophyCase } from "@/components/hangar/HangarSections";
 import { useHiddenLaunches, useHomeCoins, useLoadout, useTrophies } from "@/components/hangar/hangarData";
+
+/* Popups load on first open (speed pass 2026-11-21): Settings, Edit profile, Rewards and the points card were ~40 KB of
+   gzipped JS in every Hangar and public profile load, and a public profile never opens three of them. They stay mounted
+   after the first open, and their chunks are fetched once the page is idle so the first tap doesn't wait. */
+const loadSettings = () => import("./SettingsModal");
+const loadEdit = () => import("./EditProfileSheet");
+const loadRewards = () => import("@/components/claims/RewardsPanel");
+const loadPoints = () => import("@/components/points/PointsShare");
+const SettingsModal = dynamic(loadSettings, { ssr: false });
+const EditProfileSheet = dynamic(loadEdit, { ssr: false });
+const RewardsPanel = dynamic(loadRewards, { ssr: false });
+const PointsShare = dynamic(loadPoints, { ssr: false });
+/** true from the first time `open` is true */
+function useOpened(open: boolean) {
+  const [was, setWas] = useState(open);
+  if (open && !was) setWas(true);
+  return was || open;
+}
 
 const PAGE = { activity: 12 } as const;
 /** The app's Hangar jump row: section heading id → label. */
@@ -317,6 +332,18 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
     return () => { alive = false; };
   }, [wallet]);
 
+  const settingsSeen = useOpened(settingsOpen);
+  const editSeen = useOpened(!!edit);
+  const rewardsSeen = useOpened(rewardsOpen);
+  const pointsSeen = useOpened(pointsCard);
+  // warm the Hangar's popups once the page has settled (a public profile only ever opens the points card)
+  useEffect(() => {
+    if (!isPrivate) return;
+    const w = window as Window & { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => number };
+    const go = () => { void loadSettings(); void loadEdit(); void loadRewards(); void loadPoints(); };
+    const t = setTimeout(() => (w.requestIdleCallback ? w.requestIdleCallback(go, { timeout: 4000 }) : go()), 2500);
+    return () => clearTimeout(t);
+  }, [isPrivate]);
   // Still signing in from a saved session: show nothing yet instead of flashing the signed-out hangar (maker 2026-11-17).
   if (isPrivate && !wallet && restoring) return <div className="profile-page hg hg-restoring" aria-busy="true" data-testid="hangar-restoring"><span className="hg-spin" role="status" aria-label="Signing in" /></div>;
   // /profile signed out: no sample pilot pretending to be you (existing copy only).
@@ -324,7 +351,7 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
     return (
       <div className="profile-page hg hgo" data-testid="hangar-signedout">
         {/* Settings opens right away, before the wallet resolves; its sections show their own loading / signed-out state */}
-        <SettingsModal open={settingsOpen} onClose={closeSettings} />
+        {settingsSeen && <SettingsModal open={settingsOpen} onClose={closeSettings} />}
         <HangarSignedOut loadout={loadout} />
       </div>
     );
@@ -365,13 +392,13 @@ export default function ProfileDashboard({ mode = "private", username }: { mode?
 
   return (
     <div className="profile-page hg">
-      {isPrivate && <SettingsModal open={settingsOpen} onClose={closeSettings} />}
-      {isPrivate && <EditProfileSheet open={!!edit} focus={edit?.focus} wallet={wallet} meta={meta}
+      {isPrivate && settingsSeen && <SettingsModal open={settingsOpen} onClose={closeSettings} />}
+      {isPrivate && editSeen && <EditProfileSheet open={!!edit} focus={edit?.focus} wallet={wallet} meta={meta}
         handle={handle} level={xp?.level ? `Level ${xp.level.level} · ${xp.level.prestigeName}` : undefined}
         onClose={(saved) => { setEdit(null); if (saved) flash(typeof saved === "string" ? saved : C["edit.saved"]); }} />}
-      {isPrivate && <RewardsPanel open={rewardsOpen} onClose={closeRewards} r={rewards} />}
+      {isPrivate && rewardsSeen && <RewardsPanel open={rewardsOpen} onClose={closeRewards} r={rewards} />}
       {toast && <div className="pf-toast" role="status">{toast}</div>}
-      {points?.username && <PointsShare handle={points.username} pts={points.pts} rank={points.rank} open={pointsCard} onClose={() => setPointsCard(false)} />}
+      {points?.username && pointsSeen && <PointsShare handle={points.username} pts={points.pts} rank={points.rank} open={pointsCard} onClose={() => setPointsCard(false)} />}
 
       <HangarBay handle={title} at={at} x={xHandle} bio={bio} avatar={avatar} xp={xp} actions={actions} spend={false} stats={dash}
         nftAvatar={!!img && !!meta.nft} tags={wallet ? <HolderTags wallet={wallet} /> : null} />

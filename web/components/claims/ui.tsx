@@ -26,9 +26,11 @@ const NONE: Caps = { creatorFees: false, referrerFees: false, creatorTokenFees: 
 let probed: Caps | null = null;
 let probing: Promise<Caps> | null = null;
 
-export function useCaps(): { caps: Caps; ready: boolean; demo: boolean } {
+/** enabled=false (a public profile's rewards hook): no probe, nothing ready */
+export function useCaps(enabled = true): { caps: Caps; ready: boolean; demo: boolean } {
   const [st, setSt] = useState<{ caps: Caps; ready: boolean; demo: boolean }>(() => (probed ? { caps: probed, ready: true, demo: false } : { caps: NONE, ready: false, demo: false }));
   useEffect(() => {
+    if (!enabled) return;
     if (demoEnabled()) { setSt({ caps: DEMO_CAPS(demoRedeploy()), ready: true, demo: true }); return; }
     if (!isDeployed()) { setSt({ caps: NONE, ready: true, demo: false }); return; }
     if (probed) { const c = probed; setSt((x) => (x.ready && x.caps === c ? x : { caps: c, ready: true, demo: false })); return; }
@@ -38,7 +40,7 @@ export function useCaps(): { caps: Caps; ready: boolean; demo: boolean } {
     probing ??= probeCaps(pc()).then((c) => (probed = c)).finally(() => { probing = null; });
     probing.then((c) => { if (alive) setSt({ caps: c, ready: true, demo: false }); }).catch(() => { if (alive) setSt((x) => ({ ...x, ready: true })); });
     return () => { alive = false; };
-  }, []);
+  }, [enabled]);
   return st;
 }
 

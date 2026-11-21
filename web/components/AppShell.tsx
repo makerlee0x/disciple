@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { isCoinPath } from "@/lib/coinPath";
 import { NATIVE_UA_TAG } from "@/lib/native";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
+import { onWallet } from "@/lib/walletState";
 
 // The wallet pill (viem, @noble/curves, AA session; ~140 KB of JS) is position:fixed chrome, so it loads in its own chunk
 // after hydration instead of sitting in every page's first-load JS ahead of the LCP. Fixed positioning = no layout shift.
@@ -42,6 +43,17 @@ const FunnelBeacon = dynamic(() => import("./FunnelBeacon"), { ssr: false });
 // Referral deposit sheet (viem + the claims contracts): an overlay that only shows after a referral link, so it loads after
 // hydration in its own chunk (mobile plan speed fix 1), not in every page's first-load JS.
 const ReferralOnboarding = dynamic(() => import("./claims/ReferralOnboarding"), { ssr: false });
+/** The invite toast can only show for a signed-in wallet (its gate reads that wallet's pending referrer). Mounting it for
+ *  everyone pulled the claims chunk and fired the 7 on-chain capability reads on every signed-out page view (speed pass
+ *  2026-11-21), so it waits for a wallet. The dev sample (?demo=1) still mounts it. */
+function ReferralGate() {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    if (process.env.NODE_ENV === "development" && new URLSearchParams(location.search).get("demo") === "1") { setOn(true); return; }
+    return onWallet((a) => { if (a) setOn(true); });
+  }, []);
+  return on ? <ReferralOnboarding /> : null;
+}
 // The Cash popup (round 2 "Cash" board): opened by any cash link (lib/cashLink OPEN_CASH_EVENT). Its body loads on open.
 const CashHost = dynamic(() => import("./cash/CashHost"), { ssr: false });
 const SendHost = dynamic(() => import("./send/SendHost"), { ssr: false });
@@ -93,7 +105,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* brand v3: game routes keep the sidebar rail; every other route gets the lobby tab bar */}
       {isGame ? <Sidebar /> : <LobbyTopBar />}
       <RefCapture />
-      <ReferralOnboarding />
+      <ReferralGate />
       <HowItWorksHost />
       <CashHost />
       <SendHost />

@@ -1,4 +1,5 @@
 import "server-only";
+import { after } from "next/server";
 /**
  * App home data (trending hero + feed stats), server side. Sources, nothing else:
  *  - coins: lib/events listLaunches (Launched events + live curve / MarketLens mcap, graduated, moderated image)
@@ -30,6 +31,8 @@ import type { Fill } from "@/lib/trades";
 import type { PairLaunch } from "@/lib/home/pairBoard";
 
 const CACHE_MS = 15_000;
+/** past CACHE_MS, the last build still answers (while a new one runs) until it is this old */
+const STALE_MS = 60_000;
 const FILLS_CAP = 2000;
 const MAX_COINS = 120;
 const g = globalThis as unknown as { __dscHome?: { at: number; v: HomeData }; __dscHomeP?: Promise<HomeData> | null; __dscBoard?: { at: number; v: PilotBoard }; __dscPositions?: { at: number; v: PositionBoard }; __dscRocketSp?: { at: number; season: string; v: Record<string, number> }; __dscPairIn?: PairInputs };
@@ -173,10 +176,19 @@ export async function getPairInputs(budgetMs = 9_000): Promise<PairInputs> {
 /** Home data, cached CACHE_MS; never throws (empty state on failure). */
 export async function getHomeData(budgetMs = 9_000): Promise<HomeData> {
   const c = g.__dscHome;
-  if (c && Date.now() - c.at < CACHE_MS) return c.v;
+  const age = c ? Date.now() - c.at : Infinity;
+  if (c && age < CACHE_MS) return c.v;
   g.__dscHomeP ??= build()
     .then((v) => { g.__dscHome = { at: Date.now(), v }; return v; })
     .catch((e) => { console.warn("[home] build failed", (e as Error).message); return c?.v ?? { ...EMPTY_HOME, at: Date.now() }; })
     .finally(() => { g.__dscHomeP = null; });
+  // Stale-while-revalidate (speed pass 2026-11-21): a build waits on a trade catch-up of up to 4 s plus chain and KV reads,
+  // and every request in that window used to wait with it. Up to STALE_MS old, the last build answers at once and the new
+  // one finishes behind it (kept alive past the response with after(); outside a request it simply runs on).
+  if (c && age < STALE_MS) {
+    const p = g.__dscHomeP;
+    try { after(() => p.then(() => undefined)); } catch { /* not in a request scope */ }
+    return c.v;
+  }
   return timeout(g.__dscHomeP, budgetMs, c?.v ?? { ...EMPTY_HOME, at: Date.now() });
 }

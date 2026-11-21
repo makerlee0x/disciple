@@ -6,11 +6,9 @@ import { useSearchParams } from "next/navigation";
 import { Suspense, use, useEffect, useMemo, useState } from "react";
 import { erc20Abi, isAddress, type Address } from "viem";
 import FlightCanvas from "@/components/FlightCanvas";
-import CrewPanel from "@/components/CrewPanel";
 import { CREW_CARD_ENABLED } from "@/lib/features";
 import PnlHud from "@/components/PnlHud";
 import DiscipleFeed from "@/components/DiscipleFeed";
-import TrampWallPanel from "@/components/trampwalls/TrampWallPanel";
 import { TRAMP_WALLS_ENABLED } from "@/lib/features";
 import TradeBridge from "@/components/TradeBridge";
 import SnipeCountdown from "@/components/flight/SnipeCountdown";
@@ -28,6 +26,11 @@ import { PROTOCOL_META } from "@/lib/protocol";
 import { publicClient, readCurveState } from "@/lib/protocol-viem";
 import { basePair } from "@/lib/pairArt";
 import { withCoinHints } from "@/lib/coinHints";
+import dynamic from "next/dynamic";
+
+// Flagged-off cards (CREW card, tramp walls) load only when their flag is on, instead of riding in the flight screen's JS.
+const CrewPanel = dynamic(() => import("@/components/CrewPanel"), { ssr: false });
+const TrampWallPanel = dynamic(() => import("@/components/trampwalls/TrampWallPanel"), { ssr: false });
 
 function FlightInner({ address }: { address: string }) {
   const urlSp = useSearchParams();
