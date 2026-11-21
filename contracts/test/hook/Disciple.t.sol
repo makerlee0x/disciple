@@ -929,7 +929,11 @@ contract DiscipleTest is Test {
         uint256 got = coin.balanceOf(address(this)) - c0;
         uint256 routeAsk = Math.mulDiv(Q128 * 3 / 2, 1e12, 997_000 * 997_000);
         // the match boundary lets us sit 1bp inside the route's ask, no further (the flat curve reaches it)
-        assertLe(got, Math.mulDiv(Math.mulDiv(30e18, Q128, routeAsk), 10_000, 9_999) + 1, "not better than the two-hop ask - 1bp");
+        assertLe(
+            got,
+            Math.mulDiv(Math.mulDiv(30e18, Q128, routeAsk), 10_000, 9_999) + 1,
+            "not better than the two-hop ask - 1bp"
+        );
         // the TVL counts leg 1 converted to USD: 2 x 500 WETH x 3000
         assertApproxEqRel(hook.poolState(id).srcTvl, 3_000_000e18, 1e12);
     }
@@ -1147,7 +1151,8 @@ contract DiscipleTest is Test {
         Keeper k = new Keeper();
         vm.fee(5 gwei);
         _lzPush(id, address(k), 60, HOME_EID);
-        assertEq(hook.poolState(id).anchorX128, Q128 * 206 / 100);
+        // v0.3: the anchor steps toward a pushed price by at most minStep (1% here); the keeper is still paid
+        assertEq(hook.poolState(id).anchorX128, Q128 * 202 / 100);
         uint256 carried = _msgCost(home.lastMessage());
         assertGt(carried, home.FEE() + 50_000 * 5 gwei, "home gas is counted");
         assertLt(carried, home.FEE() + 250_000 * 5 gwei);
@@ -1242,7 +1247,7 @@ contract DiscipleTest is Test {
         pair.set(1_000_000e18, 2_100_000e18);
         Keeper k = new Keeper();
         _lzPush(id, address(k), 40, HYPE_EID);
-        assertEq(hook.poolState(id).anchorX128, Q128 * 21 / 10);
+        assertEq(hook.poolState(id).anchorX128, Q128 * 202 / 100, "one minStep toward the pushed price (v0.3)");
         assertEq(address(k).balance, 1 ether - home.FEE(), "HYPE cost is not refunded");
         assertEq(hook.owed(address(k), address(usd)), 0, "nor credited");
     }
@@ -1275,7 +1280,7 @@ contract DiscipleTest is Test {
         _lzPush(id, address(0xC0FFEE), 30, HOME_EID);
         DiscipleHook.PoolView memory v = hook.poolState(id);
         assertFalse(v.local, "recovered");
-        assertEq(v.anchorX128, Q128 * 21 / 10);
+        assertEq(v.anchorX128, Q128 * 202 / 100, "one minStep toward the pushed price (v0.3)");
         vm.prank(lp);
         hook.deposit(id, 10e18, 30e18);
     }
