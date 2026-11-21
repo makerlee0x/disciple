@@ -2,8 +2,9 @@
 /**
  * First launch: one screen that drops a new pilot straight into a free 1-minute bot duel, with sign-in after the result
  * (app audit, maker 2026-11-15). Since the Grok playbook picks (maker 2026-11-16) the website gets the same front door:
- * shown once, only on a first visit (never seen it, nothing of ours in storage yet), only signed out, and on the website
- * only on the lobby (a shared coin or duel link goes where it points). Every later visit opens the lobby as usual.
+ * shown once, only on a first visit (never seen it, nothing of ours in storage yet), only signed out, and only on the lobby:
+ * a shared coin or duel link goes where it points, in the app too (a friend's duel link that opens the app lands in that
+ * duel, not a bot match). Every later visit opens the lobby as usual.
  * SKIP goes to the lobby.
  */
 import { useEffect, useState } from "react";
@@ -33,8 +34,8 @@ export default function WelcomeIntro() {
 
   useEffect(() => {
     if (hasSavedSession()) return;
+    if (path !== "/") return;
     const app = isNativeApp();
-    if (!app && path !== "/") return;
     try {
       if (localStorage.getItem(WELCOME_KEY)) return;
       // a returning web visitor from before this screen existed: signs they've been here and played mean it isn't a first visit

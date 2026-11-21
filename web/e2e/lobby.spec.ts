@@ -132,4 +132,10 @@ test.describe("brand-new visitor", () => {
     await page.waitForLoadState("load");
     await expect(page.getByTestId("welcome-intro")).toHaveCount(0);
   });
+
+  test("a friend's duel link on a first visit skips the welcome screen and joins as a guest, no sign-in", async ({ page }) => {
+    await page.goto("/turbo/duel?c=ABCD");
+    await expect(page).toHaveURL(/\/duel\?c=ABCD/);
+    await expect(page.getByTestId("welcome-intro")).toHaveCount(0);
+  });
 });
