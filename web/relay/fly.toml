@@ -1,0 +1,30 @@
+# Always-on trade relay. Deploy from the repo root: fly deploy --config web/relay/fly.toml
+app = "disciple-relay"
+primary_region = "iad"   # same region as the Vercel functions (iad1) and close to the RPC / sequencer reads measured there
+
+[env]
+  RELAY_LEASES = "4"          # pool keys this one server holds and rotates (needs RELAYER_POOL_SIZE >= 4 on the relay)
+  RELAY_LEASE_TTL_SEC = "300" # fewer Upstash renewals than Vercel's 60 s leases
+  RELAY_ALLOWED_ORIGINS = "https://www.disciple.vip,https://disciple.vip"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"   # always on: never stopped, never cold
+  auto_start_machines = true
+  min_machines_running = 1
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 400
+
+[[http_service.checks]]
+  grace_period = "10s"
+  interval = "15s"
+  method = "GET"
+  path = "/health"
+  timeout = "2s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

@@ -1,0 +1,13 @@
+**/node_modules
+**/.next
+**/.vercel
+web/relay/dist
+contracts
+mobile
+indexer
+tools
+docs
+web/public
+web/e2e
+web/tests
+**/.env*
