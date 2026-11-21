@@ -200,6 +200,11 @@ export function nativeKeepAwake(on: boolean): boolean {
 
 // ---------------------------------------------------------------- shell wiring
 
+const LAST_LINK_KEY = "disciple.lastLink.v1";
+/** The last link this app session opened (sessionStorage survives a reload), so the launch link isn't opened twice. */
+function lastLink(): string | null { try { return sessionStorage.getItem(LAST_LINK_KEY); } catch { return null; } }
+function markLink(url: string) { try { sessionStorage.setItem(LAST_LINK_KEY, url); } catch { /* ignore */ } }
+
 let installed = false;
 
 /**
@@ -221,17 +226,32 @@ export function installNativeShell(navigate: (path: string) => void): () => void
   void bar?.setStyle({ style: "DARK" }).catch(() => {});
 
   const app = nativePlugin("App");
-  keep(app?.addListener?.("appUrlOpen", ((d: { url: string }) => {
+  const t0 = Date.now();
+  const openLink = (url: string, from: "launch" | "event") => {
+    // the shell can hand over the launch link twice (getLaunchUrl and a replayed appUrlOpen), and getLaunchUrl keeps
+    // answering with the last link after a reload: open each one once
+    if (url === lastLink() && (from === "launch" || Date.now() - t0 < 10_000)) return;
+    markLink(url);
     // sign-in coming back on disciple://oauth?privy_oauth_… outside the system sheet: finish it on the current page
-    if (/^disciple:\/\/oauth\b/i.test(d.url)) {
-      try { const q = new URL(d.url).searchParams, u = new URL(location.href); q.forEach((v, k) => u.searchParams.set(k, v)); location.replace(u.toString()); } catch { /* ignore */ }
+    if (/^disciple:\/\/oauth\b/i.test(url)) {
+      if (from === "launch") return;
+      try { const q = new URL(url).searchParams, u = new URL(location.href); q.forEach((v, k) => u.searchParams.set(k, v)); location.replace(u.toString()); } catch { /* ignore */ }
       return;
     }
-    const p = deepLinkPath(d.url);
+    const p = deepLinkPath(url);
     // Xcode debug builds: a link with liveDemo=1 shows the sample Live Activity on the next flight (components/flight/LiveFlight)
     if (p && nativeDebugBuild() && /[?&]liveDemo=1\b/.test(p)) { try { sessionStorage.setItem("disciple.liveDemo", "1"); } catch { /* ignore */ } }
     if (p) navigate(p);
-  }) as never));
+  };
+  keep(app?.addListener?.("appUrlOpen", ((d: { url: string }) => openLink(d.url, "event")) as never));
+  // Cold start from a link (a challenge tapped in Messages while the app was closed): the app boots on the home page, so
+  // ask for the link that launched it and open that page
+  void (async () => {
+    try {
+      const r = await (app?.getLaunchUrl as (() => Promise<{ url?: string } | undefined>) | undefined)?.();
+      if (r?.url) openLink(r.url, "launch");
+    } catch { /* appUrlOpen still covers links that arrive while the app is open */ }
+  })();
 
   const push = nativePlugin("PushNotifications");
   keep(push?.addListener?.("pushNotificationActionPerformed", ((d: { notification?: { data?: { url?: string } } }) => {

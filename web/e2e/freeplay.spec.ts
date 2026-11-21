@@ -126,6 +126,20 @@ test("Daily flight: fly it, get scored by the server, and see the same result ne
   await expect(res.getByTestId("daily-pnl")).toHaveText(/^[+−]\$[\d,]+$/);
   await expect(res.getByTestId("daily-result-board")).toBeVisible();
 
+  // SHARE hands the phone's share sheet the result card as a photo, with the challenge link in the post
+  await page.evaluate(() => {
+    const w = window as unknown as { __shared: unknown[] };
+    w.__shared = [];
+    Object.assign(navigator, { canShare: () => true, share: async (d: ShareData) => { w.__shared.push({ text: d.text, url: d.url, files: (d.files ?? []).map((f) => f.type) }); } });
+  });
+  await expect.poll(async () => {
+    await res.getByTestId("daily-share").click();
+    const last = await page.evaluate(() => { const a = (window as unknown as { __shared: { files: string[] }[] }).__shared; return a[a.length - 1]; });
+    return last?.files?.[0] ?? null;
+  }, { timeout: 20_000 }).toBe("image/png");
+  const shared = await page.evaluate(() => { const a = (window as unknown as { __shared: { text: string }[] }).__shared; return a[a.length - 1]; });
+  expect(shared.text).toMatch(/\/d\/\d+\?c=[0-9a-f]{16}/);
+
   // one scored run per device a day: the fly button goes and the hub board shows your run instead (components/sim/FreePlay)
   await res.getByTestId("daily-close").click();
   await expect(page.getByTestId("sim-daily")).toHaveCount(0);
