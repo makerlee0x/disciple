@@ -14,6 +14,7 @@
     "test:money": "vitest run tests/money-*.test.ts tests/gasless-withdraw*.test.ts tests/gasless-claims-edits-launch.test.ts tests/gasless-launch-tab.test.ts tests/gasless-anon-*.test.ts tests/privy-fund-card.test.ts tests/climb-record.test.ts && pnpm -s test:lighter && pnpm -s test:legal-pages && pnpm -s test:rewards && pnpm -s test:quick-launch && pnpm -s test:funding && pnpm -s test:climb",
     "lint": "next lint",
     "build:static-preview": "node scripts/build-static-preview.mjs",
+    "perf:mobile": "node scripts/perf-mobile.mjs",
     "test:heading": "node scripts/test-heading.mjs",
     "test:camera": "node scripts/test-camera.mjs",
     "test:pnl": "node scripts/test-pnl.mjs",

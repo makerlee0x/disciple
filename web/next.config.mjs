@@ -3,10 +3,13 @@ import { securityHeaders } from "./securityHeaders.mjs";
 
 /* Minified flight engine (scripts/minify-engine.mjs, run by `pnpm build`): pages load public/flight/engine.min.js only when it
    exists and is newer than engine.js, so dev and any build path that skipped the step keep loading the readable source. */
-const engineMin = (() => {
+const minFresh = (p) => {
   if (process.env.NODE_ENV !== "production") return false;
-  try { return statSync(new URL("./public/flight/engine.min.js", import.meta.url)).mtimeMs >= statSync(new URL("./public/flight/engine.js", import.meta.url)).mtimeMs; } catch { return false; }
-})();
+  try { return statSync(new URL(`./public/${p}.min.js`, import.meta.url)).mtimeMs >= statSync(new URL(`./public/${p}.js`, import.meta.url)).mtimeMs; } catch { return false; }
+};
+const engineMin = minFresh("flight/engine");
+// same for the Turbo Duel / Climb engine (perf pass 2026-11-21: 72 → 52 KB gzipped on every game start)
+const duelEngineMin = minFresh("turbo/duel/engine");
 
 /* Mainnet production must sign in through Privy only (maker 2026-11-16). Without a Privy app id the site falls back to the
    local signer (a private key in browser storage, lib/aa/env.ts), and DEV_WALLETS shows the plain-wallet dev buttons.
@@ -52,7 +55,14 @@ const nextConfig = {
   // card (maker 2026-11-16). The full CSP ships Report-Only first.
   ...(isStatic ? {} : {
     async headers() {
-      return securityHeaders();
+      return [
+        ...securityHeaders(),
+        // perf pass 2026-11-21: art, clips, sounds and fonts in public/ came with Vercel's default max-age=0, so every app
+        // launch re-asked for each one (a round trip apiece on a phone network). An hour fresh, then a day served from cache
+        // while it re-checks; file names aren't hashed, so a changed plate shows within the hour. JS stays as it was.
+        { source: "/:asset((?!api/|_next/|nft/d/).*\\.(?:webp|png|jpg|jpeg|gif|svg|avif|mp4|webm|mp3|ogg|m4a|wav|woff2|ttf))",
+          headers: [{ key: "Cache-Control", value: "public, max-age=3600, stale-while-revalidate=86400" }] },
+      ];
     },
     // public coin link (maker 2026-11-20): /rocket/robinhood/<0x…> shows the /coin/<0x…> page and keeps the short URL
     async rewrites() {
@@ -76,6 +86,7 @@ const nextConfig = {
     // lets the client pick NEXT_PUBLIC_PRIVY_APP_ID_PREVIEW on Vercel preview deployments
     NEXT_PUBLIC_VERCEL_ENV: process.env.VERCEL_ENV || "",
     NEXT_PUBLIC_FLIGHT_ENGINE: engineMin ? "/flight/engine.min.js" : "/flight/engine.js",
+    NEXT_PUBLIC_DUEL_ENGINE: duelEngineMin ? "/turbo/duel/engine.min.js" : "/turbo/duel/engine.js",
     ...(isStatic ? { NEXT_PUBLIC_STATIC_PREVIEW: "1", NEXT_PUBLIC_BASE_PATH: basePath } : {}),
   },
 };

@@ -12,7 +12,7 @@
 import { useEffect, useState } from "react";
 import Icon from "@/components/icons/Icon";
 import SoundRow from "@/components/profile/SoundRow";
-import { SETTINGS_COPY } from "@/components/profile/SettingsModal";
+import { SETTINGS_TEXT as SETTINGS_COPY } from "@/components/profile/settingsCopy";
 import { TURBO_SIZES, setGameSettings, useGameSettings, type TurboSize } from "@/lib/game/settings";
 import { stationList } from "@/lib/game/stations";
 

@@ -11,45 +11,11 @@ import { privyAccessToken } from "@/lib/aa/sessionState";
 import Icon from "@/components/icons/Icon";
 import { setGameSettings, useGameSettings } from "@/lib/game/settings";
 import SoundRow from "./SoundRow";
+import { SETTINGS_TEXT } from "./settingsCopy";
 import { isNativeApp } from "@/lib/native";
 
-/** Settings copy (profile r3 README copy list). */
-export const SETTINGS_COPY = {
-  title: "Settings",
-  account: "Account",
-  trading: "Flying",
-  signedIn: (m: string) => `Signed in with ${m}`,
-  wallet: "Wallet",
-  oneTap: "One-tap boosts",
-  haptics: "Vibration",
-  sound: "Sound",
-  music: "Music",
-  sfx: "Sound effects",
-  menuMusic: "Menu music",
-  on: "ON",
-  maxMove: "Price protection",
-  maxMoveHelp: "Cancels a trade if the price moves more than this.",
-  choice: (bps: number) => slippageLabel(bps),
-  security: "Security",
-  exportKey: "Export key",
-  exportBtn: "Export",
-  twoFa: "Two-factor",
-  twoFaHow: "Authenticator or passkey",
-  twoFaOff: "Off",
-  totp: "Authenticator app",
-  passkey: "Passkey",
-  privyOnly: "Available when you sign in with email, Google or X.",
-  logout: "Sign out",
-  deleteAcct: "Delete account",
-  deleteTitle: "Delete your account?",
-  deleteLead: "This removes your username, profile, X link and alerts, and closes your sign-in. It can't be undone.",
-  deleteWallet: "Your wallet lives on the blockchain, so anything in it stays there. Withdraw your cash or export your key first, or you lose access to it.",
-  deleteType: "Type DELETE to confirm",
-  deleteGo: "Delete my account",
-  deleteBusy: "Deleting…",
-  copy: "Copy", copied: "Copied",
-  signedOut: "Sign in to see your account settings.",
-} as const;
+/** Settings copy (profile r3 README copy list): components/profile/settingsCopy, plus the slippage label. */
+export const SETTINGS_COPY = { ...SETTINGS_TEXT, choice: (bps: number) => slippageLabel(bps) } as const;
 
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
