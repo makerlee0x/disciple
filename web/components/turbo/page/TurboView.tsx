@@ -14,7 +14,8 @@ import { PNL_PERIODS, type TurboFill, type TurboMatch, type TurboProfile } from 
 import Icon from "@/components/icons/Icon";
 import s from "./turbo-page.module.css";
 
-export type TurboModeCard = { id: string; title: string; tag: string; art: string; href: string; tone: string };
+/** go: the card's button word (default "Play") */
+export type TurboModeCard = { id: string; title: string; tag: string; art: string; href: string; tone: string; go?: string };
 export type TurboData = {
   /** signed out: the play cards only */
   anon?: boolean;
@@ -139,7 +140,7 @@ function Play({ modes, big }: { modes: readonly TurboModeCard[]; big: boolean })
             <span className={s.modeTag}>{m.tag}</span>
             <span className={s.modeT}>{m.title}</span>
           </span>
-          <span className={s.modeGo}>Play<Icon name="chevron-right" size={16} /></span>
+          <span className={s.modeGo}>{m.go ?? "Play"}<Icon name="chevron-right" size={16} /></span>
         </Link>
       ))}
     </section>

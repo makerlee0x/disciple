@@ -31,6 +31,8 @@ export const duelApi = {
   join: (code: string) => call<{ room: DuelRoom }>("POST", "/api/duel/join", { code }),
   /** ping a pilot to join your open friend room (lib/server/duel/challenge, the /vs/<pilot> rematch request) */
   request: (to: string, code: string) => call<{ sent: string }>("POST", "/api/duel/request", { to, code }),
+  /** the online duels on right now (the Watch screen) */
+  live: () => call<{ duels: import("@/lib/server/duel/store").LiveDuel[]; price: number | null; now: number }>("GET", "/api/duel/live", undefined, false),
   room: (id: string, after = 0) => call<RoomRes>("GET", `/api/duel/room/${id}?after=${after}`, undefined, false),
   op: (id: string, body: { op: "ready" | "leave" | "rematch" | "report" } | { op: "trade"; action: TradeAction; usd: number } | { op: "chat"; text: string } | { op: "trick"; kind: "spin" | "flip" }, after = 0) =>
     call<RoomRes>("POST", `/api/duel/room/${id}`, { ...body, after }),

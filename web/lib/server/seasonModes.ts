@@ -11,6 +11,7 @@ import "server-only";
 import { rankSeasonAt, seasonAt } from "@/lib/duel/season";
 import { climbSp, royaleSp, type RankMode } from "@/lib/season/points";
 import { kv, type Kv } from "./kv";
+import { addWeek } from "./weekly";
 
 const TTL = 200 * 86400; // a 12-week season plus room to seal it into lifetime points (lib/server/lifetime); then they expire
 export const SK = {
@@ -28,6 +29,7 @@ async function addSp(mode: RankMode, wallet: string, d: number, s: Kv, now: numb
   const pts = await s.incrByEx(SK.sp(season, mode, w), Math.round(d), TTL);
   await s.zrem(SK.board(season, mode), w);
   await s.zadd(SK.board(season, mode), [{ score: pts, member: w }]);
+  if (mode !== "rockets") await addWeek(mode, w, d, s, now).catch((e) => console.error("[week]", e));   // the weekly board (lib/server/weekly)
   return pts;
 }
 

@@ -20,6 +20,7 @@ import {
 } from "@/lib/duel/rules";
 import { duelCandles, priceAt, type Candle } from "./price";
 import { onDuelSettled } from "@/lib/server/collection";
+import { weekDuel } from "@/lib/server/weekly";
 import type { DuelEvent, DuelMode, DuelPlayer, DuelResult, DuelRoom, NewDuelEvent } from "@/lib/duel/types";
 
 const K = {
@@ -422,6 +423,8 @@ async function settle(r: DuelRoom, price: number, s: Kv): Promise<NewDuelEvent> 
     let out: Awaited<ReturnType<typeof rateDuel>>;
     try { out = DUEL_RANKED_LIVE && r.mode === "ranked" ? await rateDuel(r, tie ? 0.5 : d > 0 ? 1 : 0, s) : await recordDuel(r, tie ? 0.5 : d > 0 ? 1 : 0, s); } catch (e) { await s.del(K.rated(r.id)); throw e; } // retry next tick
     delta[a.pid] = out.da; delta[b.pid] = out.db; rating[a.pid] = out.a.r; rating[b.pid] = out.b.r;
+    // the weekly board (lib/server/weekly): once per room, under the same rated gate; never let it break settling
+    await weekDuel(a.pid, b.pid, tie ? 0.5 : d > 0 ? 1 : 0, s).catch((e) => console.error("[duel] week", e));
     season = Object.keys(out.sp).length ? out.sp : undefined;
     streak = { [a.pid]: out.a.streak, [b.pid]: out.b.streak };
   }
@@ -553,6 +556,36 @@ export async function rematch(id: string, pid: string, s: Kv = kv()) {
   }, s);
   return { ...out, next: make as DuelRoom | null };
 }
+/* ---------- spectate (2026-11-21): live duels anyone can watch ---------- */
+/** One live duel on the Watch list. Friend rooms stay off the list (anyone with the link can still watch one). */
+export interface LiveDuel {
+  id: string; mode: DuelMode; tier: TierId; fuel: number; startAt: number; endAt: number; ot: boolean;
+  players: { pid: string; name: string; rating: number; profit: number; side: 1 | -1 | 0 }[];
+}
+const LIVE_SCAN = 60;
+/** Newest live online duels first (at most `limit`), each pilot's profit at `price` (null ⇒ cash only). */
+export async function liveDuels(price: number | null, limit = 20, s: Kv = kv(), now = Date.now()): Promise<LiveDuel[]> {
+  const ids = await s.zrange(K.rooms(), LIVE_SCAN, true);
+  if (!ids.length) return [];
+  const rooms = (await s.mget(ids.map(K.room))).map((v) => parse<DuelRoom>(v));
+  const out: LiveDuel[] = [];
+  for (const r of rooms) {
+    if (!r || r.status !== "live" || r.mode === "friend" || r.players.length !== 2 || !r.startAt || !r.endAt) continue;
+    if (now > r.endAt + 60_000) continue;   // the referee hasn't settled it yet; it isn't worth a seat
+    const f0 = fuelOf(r);
+    out.push({
+      id: r.id, mode: r.mode, tier: r.tier, fuel: f0, startAt: r.startAt, endAt: r.endAt, ot: !!r.ot,
+      players: r.players.map((p) => {
+        const b = r.books[p.pid];
+        const pr = !b ? 0 : price ? profitOf(b, price, f0) : b.fuel + (b.pos?.coll ?? 0) - f0;
+        return { pid: p.pid, name: p.name, rating: p.rating, profit: Math.round(pr * 100) / 100, side: (b?.pos?.side ?? 0) as 1 | -1 | 0 };
+      }),
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 /** Is this pilot already in a lobby or live duel? (one duel at a time) */
 export async function activeRoomOf(pid: string, s: Kv = kv()): Promise<DuelRoom | null> {
   const id = await s.get(K.active(pid)); if (!id) return null;
