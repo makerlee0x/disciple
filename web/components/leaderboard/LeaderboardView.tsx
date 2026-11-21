@@ -19,7 +19,8 @@ import { profileUrl } from "@/lib/profile";
 import { altShort, lightOf } from "@/components/home/rocketBits";
 import { isStoreSrc } from "@/lib/coinImages";
 import { BOARD_WINDOWS, type BoardPilot, type BoardWindow } from "@/lib/home/topPilots";
-import type { BoardCoin, BoardResponse, CrewBoardResponse, LifetimeResponse, LifetimeRow, ModeResponse, ModeRow, Named, OverallResponse, OverallRow, PositionsResponse } from "@/lib/server/leaderboard";
+import type { BoardCoin, BoardResponse, CrewBoardResponse, LifetimeResponse, LifetimeRow, ModeResponse, ModeRow, Named, OverallResponse, OverallRow, PositionsResponse, WeeklyResponse, WeeklyRow } from "@/lib/server/leaderboard";
+import { resetIn } from "@/lib/season/weekly";
 import PointsShare from "@/components/points/PointsShare";
 import { BOT_DUEL_HREF, CREW_ENABLED, ROYALE_ENABLED } from "@/lib/features";
 import { DUEL_RANKED_LIVE, seasonAt } from "@/lib/duel/season";
@@ -43,9 +44,10 @@ const MODES: { k: Mode; label: string }[] = [
 /** Rockets sub-tabs */
 type Sub = "traders" | "positions";
 const SUBS: { k: Sub; label: string }[] = [{ k: "traders", label: "Traders" }, { k: "positions", label: "Positions" }];
-/** Overall sub-tabs (maker 2026-11-18): this season's SP ladder, or lifetime points (never reset; the airdrop ranking) */
-type View = "season" | "lifetime";
-const VIEWS: { k: View; label: string }[] = [{ k: "season", label: "Season" }, { k: "lifetime", label: "Lifetime" }];
+/** Overall sub-tabs (maker 2026-11-18): this season's SP ladder, or lifetime points (never reset; the airdrop ranking).
+ *  Week (2026-11-21): the same points over this UTC week (lib/season/weekly), a fresh board every Monday; the page opens on it. */
+type View = "week" | "season" | "lifetime";
+const VIEWS: { k: View; label: string }[] = [{ k: "week", label: "Week" }, { k: "season", label: "Season" }, { k: "lifetime", label: "Lifetime" }];
 const PLAY: Record<"duel" | "royale" | "climb", { href: string; label: string }> = {
   duel: { href: "/turbo/duel", label: "Play a duel" },
   royale: { href: "/turbo/royale", label: "Play Royale" },
@@ -70,6 +72,9 @@ export const LEADERBOARD_COPY = {
   starts: "Starts in",
   head: { pnl: "PnL", pts: "Points", level: "Level" },
   play: "Play now",
+  resets: "Resets in",
+  lastWeek: "Last week",
+  watch: "Watch live",
   duel: "Play a duel",
   pairs: { coin: "Coin", cut: "Elimination zone", by: { score: "Score", volume: "Volume", burned: "Burned", rockets: "Rockets", traders: "Traders" } as Record<PairSort, string> },
 } as const;
@@ -319,6 +324,47 @@ function Lifetime({ d, me }: { d: LifetimeResponse; me: string | null }) {
   );
 }
 
+/** This week: a reset clock, last week's podium, then the week's board. */
+function Weekly({ d, me }: { d: WeeklyResponse; me: string | null }) {
+  const meLc = me?.toLowerCase();
+  const m = d.me;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { setNow(Date.now()); const id = setInterval(() => setNow(Date.now()), 60_000); return () => clearInterval(id); }, []);
+  return (
+    <>
+      <div className="tp-wk" data-testid="lb-week-head">
+        <span className="tp-wkreset" suppressHydrationWarning>{LEADERBOARD_COPY.resets} <b>{resetIn(d.week.endsAt, now)}</b></span>
+        {d.last.length > 0 && (
+          <div className="tp-wkpod" aria-label={LEADERBOARD_COPY.lastWeek} data-testid="lb-last-week">
+            <i>{LEADERBOARD_COPY.lastWeek}</i>
+            {d.last.map((r: WeeklyRow) => (
+              <Link key={r.wallet} href={hrefOf(r)} prefetch={false} className={`tp-wkp m${r.rank}`}><Rank n={r.rank} /><Face p={r} /><b>{nameOf(r)}</b></Link>
+            ))}
+          </div>
+        )}
+      </div>
+      {d.rows.length || m ? (
+        <section className="tp-card tp-traders" aria-label="This week" data-testid="lb-weekly">
+          {me && <YourRank face={m ?? { wallet: meLc! }} rank={m?.rank ?? null} label={LEADERBOARD_COPY.pts} value={pts(m?.pts ?? 0)} />}
+          <THead v={LEADERBOARD_COPY.head.pts} />
+          <div className="tp-trows">
+            {d.rows.map((r: WeeklyRow) => <PointRow key={r.wallet} p={r} value={pts(r.pts)} self={r.wallet === meLc} />)}
+          </div>
+        </section>
+      ) : (
+        <section className="tp-card tp-empty" data-testid="lb-empty">
+          <AnimClip id="A5-podium-empty" ratio="none" loop poster whenVisible className="tp-emptyvid" />
+          <b className="r2-g">{LEADERBOARD_COPY.emptyTitle}</b>
+          <div className="tp-acts">
+            <Link href={BOT_DUEL_HREF} prefetch={false} className="r2-gold tp-play" data-testid="lb-empty-duel">{LEADERBOARD_COPY.duel}</Link>
+            <Link href="/turbo/watch" prefetch={false} className="r2-gold tp-play tp-play2">{LEADERBOARD_COPY.watch}</Link>
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
 function ModeBoard({ d, me }: { d: ModeResponse; me: string | null }) {
   const meLc = me?.toLowerCase();
   return (
@@ -490,9 +536,15 @@ export default function LeaderboardView() {
   const [win, setWin] = useState<BoardWindow>("day");
   const [mode, setMode] = useState<Mode>("overall");
   // ?tab=duel|climb|rockets (the stats page's rank tiles link here)
-  useEffect(() => { const t = new URLSearchParams(window.location.search).get("tab"); const m = MODES.find((x) => x.k === t); if (m) setMode(m.k); }, []);
+  // ?tab=weekly|season|lifetime opens Overall on that view
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "weekly" || t === "season" || t === "lifetime") { setMode("overall"); setView(t === "weekly" ? "week" : t); return; }
+    const m = MODES.find((x) => x.k === t); if (m) setMode(m.k);
+  }, []);
   const [sub, setSub] = useState<Sub>("traders");
-  const [view, setView] = useState<View>("season");
+  const [view, setView] = useState<View>("week");
+  const [week, setWeek] = useState<WeeklyResponse | null>(null);
   const [life, setLife] = useState<LifetimeResponse | null>(null);
   const [me, setMe] = useState<string | null>(null);
   const [traders, setTraders] = useState<BoardResponse | null>(null);
@@ -529,22 +581,24 @@ export default function LeaderboardView() {
   useEffect(() => {
     if (mode === "duel" || mode === "pairs") return;
     let alive = true;
-    const sort = mode === "rockets" ? (sub === "traders" ? "pnl" : "positions") : mode === "overall" && view === "lifetime" ? "lifetime" : mode;
+    const sort = mode === "rockets" ? (sub === "traders" ? "pnl" : "positions") : mode === "overall" && view === "lifetime" ? "lifetime" : mode === "overall" && view === "week" ? "weekly" : mode;
     const q = new URLSearchParams({ window: win, sort });
     if (me && sort !== "positions") q.set("me", me);
-    type Res = BoardResponse | CrewBoardResponse | PositionsResponse | OverallResponse | LifetimeResponse | ModeResponse;
+    type Res = BoardResponse | CrewBoardResponse | PositionsResponse | OverallResponse | LifetimeResponse | WeeklyResponse | ModeResponse;
     const take = (d: Res | null) => {
       if (!alive) return;
       if (!d) d = sort === "positions" ? { window: win, sort: "positions", rows: [], coins: {} }
         : sort === "pnl" ? { window: win, sort: "pnl", rows: [], coins: {}, counts: { day: 0, week: 0, month: 0, all: 0 }, me: null, bestCall: null }
         : sort === "overall" ? { sort: "overall", season: { n: 1, endsAt: Date.now() }, rows: [], total: 0, me: null, tiers: {} }
         : sort === "lifetime" ? { sort: "lifetime", season: { n: 1, endsAt: Date.now() }, rows: [], total: 0, me: null }
+        : sort === "weekly" ? { sort: "weekly", week: { id: "", startsAt: Date.now(), endsAt: Date.now() }, rows: [], total: 0, me: null, last: [] }
         : sort === "royale" || sort === "climb" ? { sort, season: { n: 1, endsAt: Date.now() }, rows: [] } : null;
       if (!d) return;
       if (d.sort === "crews") setCrews(d);
       else if (d.sort === "positions") setPositions(d);
       else if (d.sort === "overall") setOverall(d);
       else if (d.sort === "lifetime") setLife(d);
+      else if (d.sort === "weekly") setWeek(d);
       else if (d.sort === "royale" || d.sort === "climb") { const m = d; setBoards((b) => ({ ...b, [m.sort]: m })); }
       else {
         const b = d as BoardResponse;
@@ -565,7 +619,7 @@ export default function LeaderboardView() {
   const loading = mode === "pairs" ? !pairsBy
     : mode === "duel" ? DUEL_RANKED_LIVE && !duel
     : mode === "crews" ? !crews || crews.window !== win
-    : mode === "overall" ? (view === "lifetime" ? !life : !overall)
+    : mode === "overall" ? (view === "lifetime" ? !life : view === "week" ? !week : !overall)
     : mode === "royale" || mode === "climb" ? !boards[mode]
     : sub === "positions" ? !positions || positions.window !== win
     : !traders || traders.window !== win;
@@ -587,6 +641,7 @@ export default function LeaderboardView() {
   else if (mode === "pairs") body = <PairsTable d={pairsBy!} by={pairBy} setBy={setPairBy} />;
   else if (mode === "duel") body = DUEL_RANKED_LIVE && duel && duel.rows.length ? <>{season && <SeasonLadder d={season} />}<DuelTable d={duel} meLc={me?.toLowerCase()} /></> : <RealOnly mode="duel" />;
   else if (mode === "royale" || mode === "climb") body = boards[mode]?.rows.length ? <ModeBoard d={boards[mode]!} me={me} /> : <RealOnly mode={mode} />;
+  else if (mode === "overall" && view === "week") body = <Weekly d={week!} me={me} />;
   else if (mode === "overall" && view === "lifetime") body = life && (life.rows.length || life.me) ? <Lifetime d={life} me={me} /> : emptyBoard;
   else if (mode === "overall") body = overall && (overall.rows.length || overall.me) ? <Overall d={overall} me={me} seasonN={overall.season.n} /> : emptyBoard;
   else if (mode === "crews") body = crews && crews.crews.length ? <CrewTable d={crews} /> : (
@@ -623,7 +678,7 @@ export default function LeaderboardView() {
             ))}
           </div>
         </div>
-      ) : seasonInfo && mode !== "duel" ? (
+      ) : (seasonInfo || mode === "overall") && mode !== "duel" ? (
         <div className="tp-bar">{mode === "overall" ? <div className="tp-tabs" role="tablist" aria-label="Points">
           {VIEWS.map((v) => <button key={v.k} type="button" role="tab" aria-selected={view === v.k} className={view === v.k ? "on" : ""} onClick={() => setView(v.k)} data-testid={`lb-view-${v.k}`}>{v.label}</button>)}
         </div> : <span />}</div>

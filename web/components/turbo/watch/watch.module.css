@@ -1,0 +1,71 @@
+/* /turbo/watch: spectate live duels (2026-11-21). Same tokens as the Turbo page (components/turbo/page/turbo-page.module.css). */
+.page { max-width: 1100px; margin: 0 auto; padding: 32px 40px 72px; box-sizing: border-box; color: #E8EAEE; font-family: var(--dsc-font-ui, Inter, system-ui, sans-serif); }
+.watching { max-width: 560px; }
+.up { color: #5FF0A0; }
+.down { color: #FF6B8A; }
+.hd { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+.h1 { margin: 0; font: 800 40px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+.count, .live { display: inline-flex; align-items: center; gap: 7px; font: 700 15px / 1 var(--dsc-font-game); letter-spacing: .05em; text-transform: uppercase; }
+.count { color: #BCC0CA; }
+.live { color: #FF6B5A; }
+.count i, .live i { width: 8px; height: 8px; border-radius: 50%; background: #FF3B3B; box-shadow: 0 0 0 3px rgba(255, 59, 59, .2); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .count i, .live i { animation: none; } }
+.chip { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 7px; background: rgba(232, 234, 238, .08); color: #E8EAEE; font: 700 13px / 1 var(--dsc-font-game); letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; }
+.ot { color: #F2C14E; background: rgba(242, 193, 78, .14); }
+.err { margin: 0 0 14px; color: #FF6B8A; font-size: 14px; }
+.spin { width: 36px; height: 36px; margin: 64px auto; border-radius: 50%; border: 3px solid rgba(232, 234, 238, .12); border-top-color: #F3DFA8; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 200px; padding: 24px; border: 1px dashed #2A2D36; border-radius: 18px; text-align: center; }
+.empty b { font: 800 24px / 1 var(--dsc-font-game); text-transform: uppercase; color: #FFFFFF; }
+.btnGold, .btnGhost { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; padding: 0 22px; border-radius: 13px; font: 800 18px / 1 var(--dsc-font-game); letter-spacing: .04em; text-transform: uppercase; text-decoration: none; cursor: pointer; box-sizing: border-box; }
+.btnGold { border: 0; background: linear-gradient(180deg, #F3DFA8, #F2C14E); color: #121327; }
+.btnGhost { border: 1px solid rgba(232, 234, 238, .2); background: rgba(10, 12, 18, .5); color: #FFFFFF; }
+
+/* list */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.card { display: flex; flex-direction: column; gap: 14px; padding: 16px 18px; border-radius: 18px; border: 1px solid rgba(232, 234, 238, .10); background: #0E0F16; color: inherit; text-decoration: none; min-width: 0; }
+.card:hover, .card:focus-visible { border-color: rgba(255, 156, 196, .5); outline: none; }
+.cardTop { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cardClock { margin-left: auto; font: 800 22px / 1 var(--dsc-font-game); color: #FFFFFF; font-variant-numeric: tabular-nums; }
+.vs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.side { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.right { align-items: flex-end; text-align: right; }
+.pname { font: 800 17px / 1.1 var(--dsc-font-game); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.pnl { font: 800 26px / 1 var(--dsc-font-game); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pos { font: 700 13px / 1 var(--dsc-font-game); letter-spacing: .05em; color: #9095A0; min-height: 13px; }
+.tug { position: relative; height: 8px; border-radius: 99px; background: #8FE3FF; overflow: hidden; }
+.tug i { position: absolute; inset: 0 auto 0 0; background: #FF9CC4; border-right: 2px solid #0E0F16; transition: width .4s ease; }
+
+/* one duel */
+.bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.back { all: unset; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin-left: -10px; font: 400 34px / 1 var(--dsc-font-ui); color: #E8EAEE; }
+.shareBtn { all: unset; cursor: pointer; margin-left: auto; min-height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid rgba(232, 234, 238, .22); font: 700 14px / 36px var(--dsc-font-game); letter-spacing: .04em; text-transform: uppercase; color: #E8EAEE; }
+.clockBig { min-height: 64px; text-align: center; font: 800 64px / 1 var(--dsc-font-game); color: #FFFFFF; font-variant-numeric: tabular-nums; }
+.vsBig { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin: 14px 0 12px; }
+.pilot { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 14px; border-radius: 16px; background: #0E0F16; border: 1px solid rgba(232, 234, 238, .10); }
+.pilot.right { align-items: flex-end; text-align: right; }
+.won { border-color: rgba(242, 193, 78, .6); box-shadow: 0 0 24px rgba(242, 193, 78, .18); }
+.pnlBig { font: 800 34px / 1 var(--dsc-font-game); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart { display: block; width: 100%; height: 140px; margin: 16px 0; border-radius: 14px; background: rgba(10, 12, 18, .6); border: 1px solid rgba(232, 234, 238, .06); }
+.feed { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow-y: auto; }
+.feed li { padding: 8px 12px; border-left: 3px solid #2A2D36; border-radius: 4px 10px 10px 4px; background: rgba(22, 24, 28, .6); font-size: 14px; overflow-wrap: anywhere; }
+.feed li.bomb { color: #FF6B8A; font-weight: 700; }
+.feed li.sys { color: #F2C14E; font-weight: 700; }
+.feed li.chat { color: #BCC0CA; }
+.result { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 8px 0; }
+.resultT { font: 800 34px / 1 var(--dsc-font-game); text-transform: uppercase; color: #F3DFA8; text-align: center; overflow-wrap: anywhere; }
+.acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; width: 100%; }
+.acts > * { flex: 1 1 160px; }
+
+/* /turbo/* is a game route: on phones the menu button floats top left (components/Sidebar), so the page starts below it */
+@media (max-width: 760px) { .page { padding-top: 72px; } }
+@media (max-width: 640px) {
+  .page { padding: 72px 16px 96px; }
+  .h1 { font-size: 32px; }
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .pnl { font-size: 22px; }
+  .pnlBig { font-size: 26px; }
+  .clockBig { font-size: 52px; min-height: 52px; }
+  .pilot { padding: 12px; }
+}

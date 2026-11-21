@@ -7,7 +7,9 @@ import "server-only";
 import { levelInfo } from "@/lib/xp";
 import { BOARD_WINDOWS, crewBoard, gapToNext, rankBoard, type BestCall, type BoardPilot, type BoardPosition, type BoardSort, type BoardWindow, type CrewRow } from "@/lib/home/topPilots";
 import { pfpUrl } from "@/lib/profileMeta";
-import { getHomeData, getPilotBoard, getPositionBoard, getRocketSeasonSp } from "./home";
+import { getHomeData, getPilotBoard, getPositionBoard, getRocketSeasonSp, getRocketWeekSp } from "./home";
+import { weekModeSp } from "./weekly";
+import { lastWeekAt, weekAt, type Week } from "@/lib/season/weekly";
 import { metaOf } from "./profileMeta";
 import { climbBoard, modeSp } from "./seasonModes";
 import { LEAGUES, leagueOf, rankSeasonAt, seasonAt } from "@/lib/duel/season";
@@ -224,4 +226,63 @@ export async function lifetimeOf(wallet: string): Promise<LifetimeRow | null> {
   if (i < 0) return null;
   if (i < BOARD_TOP) return c.named[i];
   return { ...(await name([c.ranked[i]]))[0], rank: i + 1, league: leagueOf(c.ranked[i].season).id };
+}
+
+/* ── Weekly (spectate + weekly board thread, 2026-11-21): this UTC week's points from every mode, lib/season/weekly ──────── */
+
+export type WeeklyRow = Face & { rank: number; pts: number; by: ModeSp };
+/** last: last week's top three (the podium kept up top through the week). */
+export type WeeklyResponse = { sort: "weekly"; week: Week; rows: WeeklyRow[]; total: number; me: WeeklyRow | null; last: WeeklyRow[] };
+type WeekRanked = { wallet: string; pts: number; by: ModeSp }[];
+type WeekCache = { at: number; ranked: WeekRanked; named: WeeklyRow[] };
+const gw = globalThis as unknown as { __dscWeek?: Map<string, WeekCache> };
+
+async function weekRanked(week: string): Promise<WeekRanked> {
+  const [rockets, duel, royale, climb] = await Promise.all([getRocketWeekSp(week), weekModeSp(week, "duel").catch(() => ({})), weekModeSp(week, "royale").catch(() => ({})), weekModeSp(week, "climb").catch(() => ({}))]);
+  const per = { rockets, duel, royale, climb } as Record<(typeof RANK_MODES)[number], Record<string, number>>;
+  const m = new Map<string, ModeSp>();
+  for (const k of RANK_MODES) for (const [w, v] of Object.entries(per[k])) if (v > 0) { const r = m.get(w) ?? {}; r[k] = v; m.set(w, r); }
+  return [...m.entries()].map(([wallet, by]) => ({ wallet, by, pts: totalSp(by) })).sort((a, b) => b.pts - a.pts || a.wallet.localeCompare(b.wallet));
+}
+async function weekCache(week: string, top: number): Promise<WeekCache> {
+  const cache: Map<string, WeekCache> = (gw.__dscWeek ??= new Map<string, WeekCache>());
+  const hit = cache.get(week);
+  if (hit && Date.now() - hit.at <= CACHE_MS) return hit;
+  const ranked = await weekRanked(week);
+  const named = (await name(ranked.slice(0, top))).map((r, i) => ({ ...r, rank: i + 1 }));
+  const c: WeekCache = { at: Date.now(), ranked, named };
+  cache.set(week, c);
+  if (cache.size > 4) cache.delete(cache.keys().next().value!);
+  return c;
+}
+
+/** How many of a finished week's pilots are sealed (the podium shows 3; the prize proposal pays up to 10). */
+export const WEEK_FINAL_TOP = 10;
+/** Settle window after a week ends before it's sealed: the last duels and the trade indexer catch up. */
+const SEAL_AFTER_MS = 10 * 60_000;
+const WEEK_FINAL = (id: string) => `week:final:${id}`;
+/** A finished week's final top rows, sealed once (SET NX) so the podium and any prize read the same standings even as
+ *  old fills fall out of the home build. null while the week is still settling. */
+export async function weekFinal(prev: Week, now = Date.now()): Promise<WeeklyRow[] | null> {
+  const s = kv();
+  const got = await s.get(WEEK_FINAL(prev.id)).catch(() => null);
+  if (got) { try { return JSON.parse(got) as WeeklyRow[]; } catch { /* rewrite below */ } }
+  if (now < prev.endsAt + SEAL_AFTER_MS) return null;
+  const rows = (await weekCache(prev.id, WEEK_FINAL_TOP)).named.slice(0, WEEK_FINAL_TOP);
+  if (await s.setNX(WEEK_FINAL(prev.id), JSON.stringify(rows), 120 * 86400).catch(() => false)) return rows;
+  const again = await s.get(WEEK_FINAL(prev.id)).catch(() => null);
+  return again ? (JSON.parse(again) as WeeklyRow[]) : rows;
+}
+
+export async function getWeekly(me: string | null, now = Date.now()): Promise<WeeklyResponse> {
+  const week = weekAt(now), prev = lastWeekAt(now);
+  const [c, sealed] = await Promise.all([weekCache(week.id, BOARD_TOP), weekFinal(prev, now)]);
+  const l = { named: sealed ?? (await weekCache(prev.id, 3)).named };
+  let mine: WeeklyRow | null = null;
+  const lc = me?.toLowerCase();
+  if (lc) {
+    const i = c.ranked.findIndex((r) => r.wallet === lc);
+    if (i >= 0) mine = i < BOARD_TOP ? c.named[i] : { ...(await name([c.ranked[i]]))[0], rank: i + 1 };
+  }
+  return { sort: "weekly", week, rows: c.named, total: c.ranked.length, me: mine, last: l.named.slice(0, 3) };
 }

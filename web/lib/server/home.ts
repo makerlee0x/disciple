@@ -24,6 +24,7 @@ import { chipOf, lobbyAgeTokens, pickHero, statsFromFills, type HomeCoin, type H
 import { bestCalls, pilotBoard, positionBoard, rocketSeasonSp, type PositionBoard, topPilots, tickerOf, type BestCalls, type BoardOpts, type PilotBoard, type TickerItem, type TopPilots } from "@/lib/home/topPilots";
 import { levelInfo } from "@/lib/xp";
 import { rankSeasonAt } from "@/lib/duel/season";
+import { lastWeekAt, weekAt } from "@/lib/season/weekly";
 import { resolveKeys } from "./imageStore";
 import { usernameOf } from "./usernames";
 import { ledgerOf, totals } from "./xp";
@@ -36,7 +37,7 @@ const CACHE_MS = 15_000;
 const STALE_MS = 60_000;
 const FILLS_CAP = 2000;
 const MAX_COINS = 120;
-const g = globalThis as unknown as { __dscHome?: { at: number; v: HomeData }; __dscHomeP?: Promise<HomeData> | null; __dscBoard?: { at: number; v: PilotBoard }; __dscPositions?: { at: number; v: PositionBoard }; __dscRocketSp?: { at: number; season: string; v: Record<string, number> }; __dscPairIn?: PairInputs };
+const g = globalThis as unknown as { __dscHome?: { at: number; v: HomeData }; __dscHomeP?: Promise<HomeData> | null; __dscBoard?: { at: number; v: PilotBoard }; __dscPositions?: { at: number; v: PositionBoard }; __dscRocketSp?: { at: number; season: string; v: Record<string, number> }; __dscRocketWeek?: { at: number; week: string; v: Record<string, number>; last: { week: string; v: Record<string, number> } }; __dscPairIn?: PairInputs };
 
 /** What the pair coin board (lib/server/pairBoard) ranks from: every shown launch, and the fills of the coins the home read. */
 export type PairInputs = { launches: PairLaunch[]; fills: Fill[] };
@@ -130,6 +131,9 @@ async function build(): Promise<HomeData> {
   g.__dscPositions = { at: now, v: positionBoard(boardFills, now, opts) };
   const season = rankSeasonAt(now);
   g.__dscRocketSp = { at: now, season: season.id, v: rocketSeasonSp(boardFills, now, season.startsAt, season.endsAt, opts) };
+  // the weekly board (lib/season/weekly): the same Rockets rule over this week and last
+  const wk = weekAt(now), lw = lastWeekAt(now);
+  g.__dscRocketWeek = { at: now, week: wk.id, v: rocketSeasonSp(boardFills, now, wk.startsAt, wk.endsAt, opts), last: { week: lw.id, v: rocketSeasonSp(boardFills, now, lw.startsAt, lw.endsAt, opts) } };
   g.__dscPairIn = { launches: shown.filter((x) => !pumped.has(x.token.toLowerCase())).map((x) => ({ token: x.token.toLowerCase(), quote: String(x.quote).toLowerCase(), block: Number(x.block) })), fills: boardFills.flat() };
   const ticker = tickerOf(fillsBy, new Map(coins.map((c) => [c.token, c.name])));
   await timeout(namePilots(pilots, ticker, calls), 2_500, undefined);
@@ -171,6 +175,14 @@ export async function getRocketSeasonSp(budgetMs = 9_000): Promise<Record<string
   await getHomeData(budgetMs);
   const c = g.__dscRocketSp;
   return c && c.season === rankSeasonAt(Date.now()).id ? c.v : {};
+}
+
+/** Rockets weekly points per wallet for a week id (this week or last), from the last home build; {} otherwise. */
+export async function getRocketWeekSp(week: string, budgetMs = 9_000): Promise<Record<string, number>> {
+  await getHomeData(budgetMs);
+  const c = g.__dscRocketWeek;
+  if (!c) return {};
+  return c.week === week ? c.v : c.last.week === week ? c.last.v : {};
 }
 
 /** Pair coin board inputs from the last home build; empty before the first. */

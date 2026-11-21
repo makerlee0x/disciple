@@ -1291,3 +1291,18 @@ html:not([data-you]) .lb-tabs a.lb-you-only, html[data-you] .lb-tabs a.lb-out-on
 .duel-root .cl-advbox .r2-chips.tc-filters button { font: 700 15px/34px var(--dsc-font-game); }
 .duel-root .cl-advbox .tc-tx, .duel-root .cl-fills .tc-tx { font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .duel-root .cl-advbox .tc-retry, .duel-root .cl-fills .tc-retry { font-weight: 700; }
+
+/* Weekly board (2026-11-21): reset clock + last week's podium over the Week view */
+.tp-wk { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin: -6px 0 14px; }
+.tp-wkreset { font: 700 15px/1.2 var(--dsc-font-game); text-transform: uppercase; letter-spacing: .03em; color: #9095A0; }
+.tp-wkreset b { color: #FFFFFF; font-weight: 800; margin-left: 4px; }
+.tp-wkpod { display: flex; align-items: center; gap: 8px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tp-wkpod::-webkit-scrollbar { display: none; }
+.tp-wkpod > i { font: 700 13px/1 var(--dsc-font-game); font-style: normal; text-transform: uppercase; letter-spacing: .03em; color: #9095A0; white-space: nowrap; }
+.tp-wkp { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 10px 0 6px; border-radius: 999px; background: rgba(22,24,28,.6); border: 1px solid #2A2D36;
+  color: #E8EAEE; text-decoration: none; font: 700 14px/1 var(--dsc-font-ui); white-space: nowrap; flex: none; }
+.tp-wkp b { max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.tp-wkp .tp-av.sm { width: 24px; height: 24px; font-size: 12px; }
+.tp-wkp .tp-rm, .tp-wkp .tp-rk { transform: scale(.8); }
+.tp-wkp.m1 { border-color: rgba(242,193,78,.5); }
+@media (max-width: 640px) { .tp-wk { margin-top: -4px; } .tp-wkpod { width: 100%; } }

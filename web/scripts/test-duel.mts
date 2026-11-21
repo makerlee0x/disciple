@@ -354,3 +354,66 @@ test("server: unranked (casual) queue pairs separately and never moves rating or
   assert.equal(end!.room.result!.season, undefined);
   assert.equal(end!.room.result!.delta[a.pid], 0);
 });
+
+test("spectate: the Watch list shows live online duels (profit at the price, no friend rooms, no codes)", async () => {
+  const { kv } = await import("../lib/server/kv");
+  const a = { pid: "0x" + "d5".repeat(20), name: "@five" }, b = { pid: "0x" + "5c".repeat(20), name: "@fivec" };
+  await S.pollQueue(a, "rookie", 60_000, undefined, true);
+  const m = await S.pollQueue(b, "rookie", 60_000, undefined, true) as { room: { id: string } };
+  await S.setReady(m.room.id, a.pid); await S.setReady(m.room.id, b.pid);
+  const r = JSON.parse(JSON.stringify(await S.getRoom(m.room.id))); r.startAt = Date.now() - 1000; r.endAt = Date.now() + 50_000; await kv().set(S._keys.room(m.room.id), JSON.stringify(r));
+  await S.trade(m.room.id, a.pid, "boost", 5, 68000);
+  // a friend room going on at the same time stays off the list
+  const f1 = { pid: "0x" + "e6".repeat(20), name: "@esix" }, f2 = { pid: "0x" + "e7".repeat(20), name: "@eseven" };
+  const fr = await S.createInvite(f1, "rookie", 60_000); await S.joinInvite(f2, fr.code!);
+  await S.setReady(fr.id, f1.pid); await S.setReady(fr.id, f2.pid);
+  const live = await S.liveDuels(68100);
+  const mine = live.find((d) => d.id === m.room.id);
+  assert.ok(mine, "the casual duel is listed");
+  assert.ok(!live.some((d) => d.id === fr.id), "friend rooms aren't listed");
+  assert.ok(!("code" in mine!));
+  const pa = mine!.players.find((p) => p.pid === a.pid)!, pb = mine!.players.find((p) => p.pid === b.pid)!;
+  assert.equal(pa.side, 1); assert.equal(pb.side, 0);
+  assert.ok(pa.profit > 0, "long and the price rose"); assert.equal(pb.profit, 0);
+  // settled: off the list
+  const r2 = JSON.parse(JSON.stringify(await S.getRoom(m.room.id))); r2.endAt = Date.now() - 5; r2.mark = { p: 68100, at: Date.now() - 50 }; await kv().set(S._keys.room(m.room.id), JSON.stringify(r2));
+  await S.tick(m.room.id, 68100);
+  assert.ok(!(await S.liveDuels(68100)).some((d) => d.id === m.room.id));
+});
+
+test("weekly board: Monday UTC weeks; online duels pay win 30 / draw 10 / loss 0, three a pair a week; guests never", async () => {
+  const W = await import("../lib/season/weekly");
+  const WK = await import("../lib/server/weekly");
+  const { kv } = await import("../lib/server/kv");
+  const mon = Date.parse("2026-11-16T00:00:00Z");
+  assert.equal(W.weekAt(mon).startsAt, mon); assert.equal(W.weekAt(mon + 6.9 * 86_400_000).startsAt, mon);
+  assert.equal(W.weekAt(mon - 1).startsAt, mon - 7 * 86_400_000); assert.equal(W.weekAt(mon).id, "w2026-11-16");
+  assert.equal(W.lastWeekAt(mon + 1000).id, "w2026-11-09");
+  assert.equal(W.resetIn(mon + 7 * 86_400_000, mon + 3 * 3_600_000), "6d 21h");
+  const s = kv(), at = mon + 3600_000, wk = W.weekAt(at).id;
+  const a = "0x" + "8".repeat(40), b = "0x" + "9".repeat(40), c = "0x" + "8c".repeat(20);
+  await WK.weekDuel(a, b, 1, s, at); await WK.weekDuel(a, b, 0.5, s, at); await WK.weekDuel(a, b, 0, s, at);
+  await WK.weekDuel(a, b, 1, s, at);   // fourth duel of the pair this week: no points
+  await WK.weekDuel(a, c, 1, s, at);   // a new opponent still pays
+  await WK.weekDuel("guest-abc", a, 0, s, at);
+  const pts = await WK.weekModeSp(wk, "duel", 100, s);
+  assert.equal(pts[a], 30 + 10 + 0 + 30); assert.equal(pts[b], 10 + 30); assert.equal(pts[c] ?? 0, 0);
+  // next week starts clean
+  assert.deepEqual(await WK.weekModeSp(W.weekAt(at + 7 * 86_400_000).id, "duel", 100, s), {});
+});
+
+test("weekly board: a settled online duel lands on it once", async () => {
+  const W = await import("../lib/season/weekly");
+  const WK = await import("../lib/server/weekly");
+  const { kv } = await import("../lib/server/kv");
+  const a = { pid: "0x" + "a1".repeat(20), name: "@aone" }, b = { pid: "0x" + "b1".repeat(20), name: "@bone" };
+  await S.pollQueue(a, "pro", 60_000, undefined, true);
+  const m = await S.pollQueue(b, "pro", 60_000, undefined, true) as { room: { id: string } };
+  await S.setReady(m.room.id, a.pid); await S.setReady(m.room.id, b.pid);
+  const r = JSON.parse(JSON.stringify(await S.getRoom(m.room.id))); r.startAt = Date.now() - 1000; r.endAt = Date.now() + 50_000; await kv().set(S._keys.room(m.room.id), JSON.stringify(r));
+  await S.trade(m.room.id, a.pid, "boost", 5, 68000);
+  const r2 = JSON.parse(JSON.stringify(await S.getRoom(m.room.id))); r2.endAt = Date.now() - 5; r2.ot = true; r2.mark = { p: 68300, at: Date.now() - 50 }; await kv().set(S._keys.room(m.room.id), JSON.stringify(r2));
+  await S.tick(m.room.id, 68300); await S.tick(m.room.id, 68300);
+  const pts = await WK.weekModeSp(W.weekAt(Date.now()).id, "duel", 100);
+  assert.equal(pts[a.pid], 30); assert.equal(pts[b.pid] ?? 0, 0);
+});
