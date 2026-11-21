@@ -74,3 +74,20 @@ export function relayerNetWei(rc: { status: string; gasUsed: string; effectiveGa
     reimb += BigInt(`0x${l.data.slice(2 + 64 * 2, 2 + 64 * 3)}`);   // data: nonce, success, actualGasCost, actualGasUsed
   return reimb - cost;
 }
+
+/** Included reverts one sender may cause in a breaker window before they take a strike (audit 2026-11-21). */
+export const SENDER_REVERT_STRIKE = 3;
+const senderKey = (who: string) => `relay:breaker:by:${who.toLowerCase()}`;
+
+/**
+ * An included relayed tx reverted. Audit 2026-11-21 (H-1): two racing sends from ONE wallet (e.g. two full-balance
+ * cash-outs at once) used to count as the breaker's two reverts and pause every player's relays for 15 minutes. Now a
+ * sender's reverts count toward the revert trip once per window, and the gas loss always counts. A sender with
+ * SENDER_REVERT_STRIKE included reverts in a window (any reason, market moves included) gets `tooMany`, so the caller
+ * strikes them: they can't keep burning the relayer's gas with timed reverts.
+ */
+export async function recordSenderRevert(o: { who: string; reverted: boolean; lossWei: bigint }, b: RelayBreaker = relayBreaker, store: () => Kv = defaultKv): Promise<{ tooMany: boolean }> {
+  const n = await store().incrEx(senderKey(o.who), breakerConfig().windowSec).catch(() => 1);
+  await b.record({ reverted: o.reverted && n <= 1, lossWei: o.lossWei }).catch(() => false);
+  return { tooMany: n >= SENDER_REVERT_STRIKE };
+}
