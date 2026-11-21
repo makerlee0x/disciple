@@ -9,7 +9,7 @@ import InviteBanner from "./invites/InviteBanner";
 import SiteFooter from "./footer/SiteFooter";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { isCoinPath } from "@/lib/coinPath";
 import { NATIVE_UA_TAG } from "@/lib/native";
 import { IS_STATIC_PREVIEW } from "@/lib/base-path";
@@ -55,7 +55,13 @@ const FirstRunHost = dynamic(() => import("./mobile/FirstRunHost"), { ssr: false
 const WelcomeIntro = dynamic(() => import("./mobile/WelcomeIntro"), { ssr: false });
 const InstallPrompt = dynamic(() => import("./mobile/InstallPrompt"), { ssr: false });
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+export default function AppShell({ children: route }: { children: React.ReactNode }) {
+  // The page sits in its own Suspense boundary. Its first element is a client reference (Next's layout router) whose chunk
+  // can still be settling when hydration reaches it on a busy page load. With no boundary between it and the root, that
+  // brief suspend left this wrapper with none of its server-rendered children and React threw #418 and re-rendered the
+  // whole page from scratch (e2e, about 1 load in 150). A boundary lets React wait and hydrate the page on its own instead.
+  // No change to streaming: app/loading.tsx already puts every page under a Suspense boundary on the server.
+  const children = <Suspense fallback={null}>{route}</Suspense>;
   const pathname = usePathname();
   const isGame = isCollapsibleRoute(pathname);
   // desktop flight screen: the wallet pill (pfp + balance) sits in the flight top bar, next to the menu (maker 2026-11-20)

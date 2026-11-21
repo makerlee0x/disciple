@@ -12,10 +12,22 @@ export const SETTINGS_HASHES = ["#settings"] as const;
 /** Legacy hash (old Deposit links): /profile#cash forwards to DEPOSIT_HREF. */
 export const LEGACY_CASH_HASH = "#cash";
 
+/** The last open request, for a Cash popup host that loads after the tap (its chunk is lazy, components/AppShell). */
+let pending: { tab: CashTab; at: number } | null = null;
+const PENDING_MS = 8_000;
+
 /** Open the Cash popup on a tab (no navigation). */
 export function openCash(tab: CashTab = "add") {
   if (typeof window === "undefined") return;
+  pending = { tab, at: Date.now() };
   window.dispatchEvent(new CustomEvent(OPEN_CASH_EVENT, { detail: { tab } }));
+}
+
+/** A tap on a cash link right after page load can land before the popup host listens: the host takes it on mount. */
+export function takePendingCash(): CashTab | null {
+  const p = pending;
+  pending = null;
+  return p && Date.now() - p.at < PENDING_MS ? p.tab : null;
 }
 
 /** onClick for any cash link: opens the Cash popup in place (modifier clicks still open /wallet in a new tab). */
