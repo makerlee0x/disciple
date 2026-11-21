@@ -498,17 +498,19 @@ describe("play-test fixes (maker 2026-11-14: buys stuck on \"didn't go through\"
   });
 });
 
-describe("loss breaker (runs last: it stays open for this module)", () => {
-  it("included revert ⇒ loss breaker record; 2 reverts open the breaker ⇒ next request refused notSent", async () => {
+describe("loss breaker: never pauses every player (maker 2026-11-21)", () => {
+  it("reverts from two senders past the threshold ⇒ no all-player pause; the next player's trade still goes", async () => {
     h.send.mockResolvedValue(okRc("0x0"));
     const r = await relayGaslessTrade(await wire()); expect(r.success).toBe(false);
-    h.incr.mockImplementation(async (k: string) => (k.startsWith("relay:breaker:by:") ? 1 : 2));   // window revert count; first revert for this sender
-    TOKEN = session([other.address]).token;   // a different Privy user — the first signer (and their did) is struck
+    h.incr.mockImplementation(async (k: string) => (k.startsWith("relay:breaker:by:") ? 1 : 99));
+    TOKEN = session([other.address]).token;
     await relayGaslessTrade(await wire({ signer: other, isBuy: false, amountIn: 5n })).catch(() => undefined);
-    expect(h.setNX).toHaveBeenCalledWith("relay:breaker:open", expect.any(String), expect.any(Number));
-    expect(relayBreaker.isOpen()).toBe(true);
+    expect(h.setNX).not.toHaveBeenCalledWith("relay:breaker:open", expect.any(String), expect.any(Number));
+    expect(relayBreaker.isOpen()).toBe(false);
     const third = privateKeyToAccount(generatePrivateKey());
-    await expect(relayGaslessTrade(await wire({ signer: third }))).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("relay paused") });
+    TOKEN = session([third.address]).token;
+    h.send.mockResolvedValue(okRc());
+    await expect(relayGaslessTrade(await wire({ signer: third }))).resolves.toMatchObject({ success: true });
   });
 });
 
@@ -524,6 +526,6 @@ describe("audit 2026-11-21 H-1: one sender can't trip the breaker alone", () => 
     expect(b.isOpen()).toBe(false);   // two reverts, one sender: still closed
     expect((await recordSenderRevert({ who, reverted: true, lossWei: 0n }, b, () => store as never)).tooMany).toBe(true);
     await recordSenderRevert({ who: "0x00000000000000000000000000000000000000b2", reverted: true, lossWei: 0n }, b, () => store as never);
-    expect(b.isOpen()).toBe(true);    // a second sender's revert trips it
+    expect(b.isOpen()).toBe(false);   // no all-player pause, ever (maker 2026-11-21)
   });
 });
