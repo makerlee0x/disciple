@@ -1294,7 +1294,12 @@ function mount(root,host){
     c.done=c.rec.finish(c.cv,paint).then(b=>{ c.blob=b; try{ window.__duelClipStats=Object.assign(c.rec.stats(),{composeMs:+c.cost.toFixed(2),bytes:b?b.size:0}); }catch(e){} return b; }).catch(()=>null);
   }
   async function clipBlob(r){ const c=CLIP; if(!c||!c.done) return null; return await Promise.race([c.done,new Promise(res=>setTimeout(()=>res(null),6000))]); }
-  function saveFile(f){ try{ const u=URL.createObjectURL(f), a=document.createElement("a"); a.href=u; a.download=f.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),4000); }catch(e){} }
+  // the iPhone app's web view has no downloads (a download link does nothing there), so SAVE opens the share sheet, which
+  // has Save Video / Save Image (lib/share/sheet saveShareFile does the same for the React screens)
+  function inApp(){ try{ return !!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform())||/DiscipleApp\//.test(navigator.userAgent); }catch(e){ return false; } }
+  function saveFile(f){
+    if(inApp()&&navigator.share&&navigator.canShare&&navigator.canShare({files:[f]})){ navigator.share({files:[f]}).catch(()=>{}); return "sheet"; }
+    try{ const u=URL.createObjectURL(f), a=document.createElement("a"); a.href=u; a.download=f.name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),4000); }catch(e){} }
 
   /* ---------- share the result (maker 2026-11-15: share card + rematch link; bragging rights only, never rewards) ---------- */
   let LAST=null;
@@ -1364,7 +1369,7 @@ function mount(root,host){
     });
   }
   async function saveResult(){ if(!LAST) return; const r=LAST; track("duel_share");
-    await busy("rDl",async()=>{ const f=await shareFile(r); if(f){ saveFile(f); toast("Saved"); } else toast("Couldn't save. Try SHARE."); });
+    await busy("rDl",async()=>{ const f=await shareFile(r); if(f){ if(saveFile(f)!=="sheet") toast("Saved"); } else toast("Couldn't save. Try SHARE."); });
   }
   async function copyLink(){ if(!LAST) return; const r=LAST; track("duel_share");
     // Safari drops the copy if the tap's permission runs out while the link is being made, so hand it the pending link

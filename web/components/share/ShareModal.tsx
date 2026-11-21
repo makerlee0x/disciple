@@ -12,6 +12,7 @@ import type { PositionPnl } from "@/lib/sharePnl";
 import type { SceneData } from "@/lib/share/scene";
 import type { Fill } from "@/lib/trades";
 import Icon from "@/components/icons/Icon";
+import { openShareSheet, saveShareFile } from "@/lib/share/sheet";
 
 export interface ShareTarget { coin: string; ticker: string; wallet: string | null; username: string | null; sample?: boolean; /** "last": the flight's Share, only the latest trade (entry → exit, or → now) */ trade?: "all" | "last" }
 type Pnl = PositionPnl & { sample?: boolean; log?: SceneData["log"]; badge?: SceneData["badge"] };
@@ -74,20 +75,14 @@ export default function ShareModal({ target, onClose }: { target: ShareTarget; o
   }
 
   async function webShare() {
-    try {
-      const blob = await media.blob();
-      const file = new File([blob], media.filename, { type: media.mime });
-      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
-      if (nav.share && nav.canShare?.({ files: [file] })) await nav.share({ files: [file], text, url: link });
-      else if (nav.share) await nav.share({ text, url: link });
-      else { await download(); flash("Sharing isn't supported here, so it downloaded instead"); }
-    } catch (e) { if ((e as Error).name !== "AbortError") flash("Share failed"); }
+    const blob = await media.blob();
+    const r = await openShareSheet({ text, url: link, file: new File([blob], media.filename, { type: media.mime }) });
+    if (r === "copied") flash("Post copied"); else if (r === "failed") flash("Share failed");
   }
+  // the iPhone app has no downloads, so there saveShareFile opens the share sheet (Save Image / Save Video)
   async function download(m: ShareMedia = media) {
     const blob = await m.blob();
-    const u = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = u; a.download = m.filename; a.click();
-    setTimeout(() => URL.revokeObjectURL(u), 2000);
+    await saveShareFile(new File([blob], m.filename, { type: m.mime }));
   }
   async function copyLink() { try { await navigator.clipboard.writeText(link); flash("Ref link copied"); } catch { flash(link); } }
   function postX() { window.open(`https://x.com/intent/tweet?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer"); }

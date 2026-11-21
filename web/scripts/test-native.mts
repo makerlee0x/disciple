@@ -16,6 +16,7 @@ const P = await import("../lib/server/push");
 const { deleteAccount } = await import("../lib/server/deleteAccount");
 const { kv } = await import("../lib/server/kv");
 const { inAppKind } = await import("../lib/inAppBrowser");
+const SH = await import("../lib/share/sheet");
 import { readFileSync } from "node:fs";
 
 const APP_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 DiscipleApp/1";
@@ -51,6 +52,30 @@ test("deep links: universal links and disciple:// open inside the site; other ho
   assert.equal(N.safeInSitePath("/\\evil.example"), "/evil.example");
   assert.equal(N.safeInSitePath("https://evil.example"), null);
   assert.equal(N.safeInSitePath(42), null);
+});
+
+test("phone shares: every DISCIPLE link carries the sharer's ref; the card rides as a file with the link in the text", () => {
+  const W = "0x" + "ab".repeat(20);
+  assert.equal(SH.withSharerRef("https://www.disciple.vip/turbo", "Maker", W), "https://www.disciple.vip/turbo?r=maker", "username first");
+  assert.equal(SH.withSharerRef("https://disciple.vip/d/12?c=0123456789abcdef", null, W.toUpperCase().replace("0X", "0x")), `https://disciple.vip/d/12?c=0123456789abcdef&r=${W}`, "wallet until a username exists");
+  assert.equal(SH.withSharerRef("https://disciple.vip/vs/maker?ref=0x1", "someone", W), "https://disciple.vip/vs/maker?ref=0x1", "a link that already names a referrer keeps it");
+  assert.equal(SH.withSharerRef("https://evil.example/x", "maker", W), "https://evil.example/x", "never another site");
+  assert.equal(SH.withSharerRef("https://disciple.vip/turbo", null, null), "https://disciple.vip/turbo", "signed out: unchanged");
+  assert.equal(SH.withSharerRef("https://disciple.vip/turbo", "bad name!", null), "https://disciple.vip/turbo");
+  const file = new File([new Uint8Array([1])], "card.jpg", { type: "image/jpeg" });
+  assert.deepEqual(SH.sharePayload({ text: "Cashed out 3x.", url: "https://disciple.vip/turbo?r=maker", file }, true),
+    { files: [file], text: "Cashed out 3x. https://disciple.vip/turbo?r=maker" });
+  assert.deepEqual(SH.sharePayload({ text: "Cashed out 3x.", url: "https://disciple.vip/turbo?r=maker", file }, false),
+    { text: "Cashed out 3x.", url: "https://disciple.vip/turbo?r=maker" }, "a phone that can't take the file still gets the link");
+  assert.equal((SH.sharePayload({ text: "Board my rocket: https://disciple.vip/x", url: "https://disciple.vip/x", file }, true) as { text: string }).text,
+    "Board my rocket: https://disciple.vip/x", "a post that already has the link doesn't get it twice");
+  assert.equal(SH.canShareFile(file), false, "node: no share sheet");
+});
+
+test("cold start from a link: the shell asks for the launch link and opens each link once", () => {
+  const src = readFileSync(new URL("../lib/native.ts", import.meta.url), "utf8");
+  assert.match(src, /getLaunchUrl/);
+  assert.match(src, /openLink\(r\.url, "launch"\)/);
 });
 
 test("apple-app-site-association: lists the app only with a team id, never the API", () => {

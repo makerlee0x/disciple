@@ -19,6 +19,8 @@ import { dailyEndsAt, dailyRecap, fmtDailyPnl, fmtMultiple as mult, DAILY, type 
 import { claimFreePlayXp, deviceId, refreshRank, type DailyVerdict, type FreePlayXpResult } from "@/lib/sim/dailyClient";
 import { fmt, type PlayerInput } from "@/lib/sim/run";
 import { fetchDailyBoard, type Board } from "./FreePlay";
+import { openShareSheet, withSharerRef } from "@/lib/share/sheet";
+import { localUsername } from "@/lib/profile";
 
 const game: React.CSSProperties = { fontFamily: "var(--dsc-font-game)" };
 const GOLD = "#F2C14E";
@@ -97,14 +99,25 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
   const peakX = s.boardedMcap ? s.peakMcap / s.boardedMcap : null;
 
   const login = () => { try { if (privyReady()) privyLogin(); else setNote("Sign-in loading. Try again."); } catch (e) { setNote((e as Error).message); } };
-  // both links carry the sharer as ?ref= (maker 2026-11-17: shares carry the sharer's ref link)
-  const ref = pilot ? `ref=${pilot.toLowerCase()}` : "";
+  // both links carry the sharer as ?r= (maker 2026-11-17: shares carry the sharer's ref link)
+  const link = (q: string) => withSharerRef(`${location.origin}/d/${id}${q}`, localUsername() || null, pilot);
+  // the result card (server-drawn from the verified run, the same image as the link preview) rides along as a photo, so a
+  // post to Stories, iMessage or X shows the win even where the link preview doesn't load. Fetched once the run is
+  // verified so the tap hands the share sheet a ready file (iOS drops a share that waits on a download after the tap).
+  const [card, setCard] = useState<File | null>(null);
+  useEffect(() => {
+    if (!verdict || s.invested <= 0) return;
+    let alive = true;
+    fetch(`/api/daily/card?id=${id}&run=${verdict.runId}`).then((r) => (r.ok ? r.blob() : null))
+      .then((b) => { if (alive && b && b.type.startsWith("image/")) setCard(new File([b], `disciple-daily-${id}.${b.type === "image/png" ? "png" : "jpg"}`, { type: b.type })); }).catch(() => {});
+    return () => { alive = false; };
+  }, [id, verdict?.runId, s.invested]);   // eslint-disable-line react-hooks/exhaustive-deps
   const send = async (url: string, text: string) => {
-    try { if (navigator.share) { await navigator.share({ title: "DISCIPLE Daily flight", text, url }); return; } } catch { return; }
-    try { await navigator.clipboard.writeText(`${text} ${url}`); setNote("Link copied"); } catch { setNote(url); }
+    const r = await openShareSheet({ title: "DISCIPLE Daily flight", text, url, file: card });
+    if (r === "copied") setNote("Link copied"); else if (r === "failed") setNote(url);
   };
-  const challenge = () => { if (verdict) send(`${location.origin}/d/${id}?c=${verdict.runId}${ref && `&${ref}`}`, `${money(s.pnl)} on Daily mission #${id}. Beat it.`); };
-  const share = () => send(`${location.origin}/d/${id}${verdict ? `?c=${verdict.runId}${ref && `&${ref}`}` : ref && `?${ref}`}`,
+  const challenge = () => { if (verdict) send(link(`?c=${verdict.runId}`), `${money(s.pnl)} on Daily mission #${id}. Beat it.`); };
+  const share = () => send(link(verdict ? `?c=${verdict.runId}` : ""),
     s.invested <= 0 ? `Daily mission #${id} on DISCIPLE` : `${money(s.pnl)} on Daily mission #${id}${rank?.boarded ? `, #${rank.rank} today` : ""}.`);
   const rankText = (r: NonNullable<typeof rank>) => r.count <= 1 ? `#${r.rank} today` : `#${r.rank.toLocaleString("en-US")} of ${r.count.toLocaleString("en-US")} today${r.count >= 10 ? ` · top ${r.topPct}%` : ""}`;
 
