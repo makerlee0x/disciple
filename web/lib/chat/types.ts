@@ -12,7 +12,7 @@ export type ChatMsg = {
   meta?: { event?: "buy" | "sell" | "nuke" | "graduate" | string; usd?: number; tx?: string; impactBps?: number; logIndex?: number; block?: number };
 };
 export type ChatState = "connecting" | "live" | "reconnecting" | "closed";
-export type SendError = "rate_limited" | "filtered" | "too_long" | "no_identity";
+export type SendError = "rate_limited" | "filtered" | "too_long" | "no_identity" | "muted";
 export type SendResult = { ok: true; msg: ChatMsg } | { ok: false; error: SendError; retryAfterMs?: number };
 
 export const CHAT_LIMITS = {

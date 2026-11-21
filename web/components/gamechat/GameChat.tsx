@@ -1,7 +1,7 @@
 "use client";
 
 import type React from "react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EMOTE_CODES, EMOTE_EMOJI, MAX_LEN, resolveChat, stressRate, synthMsg, type ChatApi, type ChatMsg, type ChatState } from "@/lib/gamechat/adapter";
 import Icon, { BombTierIcons } from "@/components/ui/Icon";
 import { appendRows, bombTier, fmtUsd, nameColor, parseEmotes, shortAddr, type Row } from "@/lib/gamechat/format";
@@ -11,6 +11,12 @@ import { useDomCard } from "@/lib/game/cardLayoutStore";
 import { useHudMode } from "@/lib/game/hudMode";
 import { HUD } from "@/lib/game/hudStyle";
 import { useIsPhoneHud } from "@/components/flight/PhoneHud";
+import { blockedList, blockUser, onBlockedChange } from "@/lib/chat/block";
+import { usePilotWallet } from "@/lib/xpClient";
+
+/** Report / Block on a tapped chat message (App Review 1.2; lib/server/chat/moderation, lib/chat/block). */
+type ChatMod = { sel: string | null; pick(id: string | null): void; report(m: ChatMsg): void; block(m: ChatMsg): void; me: string | null; canReport: boolean };
+
 
 /**
  * CREW FEED: the flight screen's one community card (right column). Trades, chat and holders in one place, with tabs
@@ -91,6 +97,12 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
   const hud = useHudMode();
   const phone = useIsPhoneHud();
   const [phoneFull, setPhoneFull] = useState(false);   // phone: the chat button opens the full crew feed
+  const [blocked, setBlocked] = useState<Set<string>>(() => new Set());
+  useEffect(() => { const rd = () => setBlocked(new Set(blockedList())); rd(); return onBlockedChange(rd); }, []);
+  const [sel, setSel] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => { if (!note) return; const t = window.setTimeout(() => setNote(null), 3500); return () => clearTimeout(t); }, [note]);
+  const me = usePilotWallet();
   const tabRef = useRef<Tab>(tradesOnly ? "trades" : "all");
   const setTab = useCallback((t: Tab) => { tabRef.current = t; setTabS(t); if (t === "chat" || t === "all") setTabUnread(0); try { localStorage.setItem("disciple.gamechat.tab", t); } catch { /* */ } }, []);
   const buf = useRef<ChatMsg[]>([]);
@@ -184,6 +196,7 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
       if (r.ok) { setText(""); setErr(null); buf.current.push(r.msg); jump(); }
       else if (r.error === "rate_limited") setErr({ kind: "rate", msg: "slow down", until: Date.now() + (r.retryAfterMs || 2000) });
       else if (r.error === "filtered") setErr({ kind: "filtered", msg: "message blocked by the filter" });
+      else if (r.error === "muted") setErr({ kind: "muted", msg: "you can't post in chat right now" });
       else if (r.error === "too_long") setErr({ kind: "long", msg: `max ${MAX_LEN} characters` });
       else setErr({ kind: "identity", msg: "sign in to chat" });
     } catch { setErr({ kind: "net", msg: "send failed, try again" }); }
@@ -199,6 +212,13 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
     addEventListener("pointermove", mv); addEventListener("pointerup", up);
   };
 
+  const mod: ChatMod = useMemo(() => ({
+    sel, me: me ? me.toLowerCase() : null, canReport: !!api?.api.report,
+    pick: (id) => setSel((cur) => (cur === id ? null : id)),
+    report: (m) => { setSel(null); const r = api?.api.report; if (!r) return;
+      void r(c, m.id, "other").then((x) => setNote(x.ok ? "Reported. The Team will review it." : x.error || "Couldn't send. Try again.")); },
+    block: (m) => { setSel(null); if (!m.from) return; blockUser(m.from.addr); setNote(`Blocked ${m.from.name || shortAddr(m.from.addr)}. Their messages are hidden for you.`); },
+  }), [sel, me, api, c]);
   if (!open) return null;
   const st = STATE[conn];
   const known = (code: string) => code in (api?.api.EMOTES ?? {}) || EMOTE_CODES.includes(code);
@@ -206,13 +226,15 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
   const isTrade = (r: Row) => r.msg.kind === "event" && /^(buy|sell|nuke)$/.test(String(r.msg.meta?.event || ""));   // trades come from the engine feed
   type Item = { t: number; k: string; chat?: Row; trade?: FeedRow };
   const items: Item[] = [];
-  if (tab !== "trades") for (const r of rows) if (!isTrade(r)) items.push({ t: r.msg.ts, k: "c" + r.key, chat: r });
-  if (tab === "trades") for (const r of rows) if (r.msg.kind === "event" && r.msg.meta?.event === "graduate") items.push({ t: r.msg.ts, k: "c" + r.key, chat: r });
+  const shown = blocked.size ? rows.filter((r) => !(r.msg.kind === "user" && r.msg.from && blocked.has(r.msg.from.addr.toLowerCase()))) : rows;
+  if (tab !== "trades") for (const r of shown) if (!isTrade(r)) items.push({ t: r.msg.ts, k: "c" + r.key, chat: r });
+  if (tab === "trades") for (const r of shown) if (r.msg.kind === "event" && r.msg.meta?.event === "graduate") items.push({ t: r.msg.ts, k: "c" + r.key, chat: r });
   if (tab !== "chat") for (const r of feed) items.push({ t: r.seen ?? r.at, k: "f" + r.id, trade: r });
   items.sort((a, b) => a.t - b.t);
   const mo = hud === "pro" ? momentum(feed) : null;
   const typing = !tradesOnly && (tab === "all" || tab === "chat");
   const onBoard = holders?.items ? holders.items.filter((r) => !r.label).length : holders?.rows.length ?? 0;
+  const noteBox = note && <div data-testid="chat-note" role="status" style={{ margin: "0 8px 4px", padding: "5px 8px", borderRadius: 8, fontSize: 12, background: "rgba(95,240,160,.12)", border: "1px solid rgba(95,240,160,.4)", color: "#C9F8DE" }}>{note}</div>;
   const errBox = err && <div data-testid="chat-error" style={{ margin: "0 8px 4px", padding: "5px 8px", borderRadius: 8, fontSize: 12, background: "rgba(240,48,127,.14)", border: "1px solid rgba(240,48,127,.45)", color: "#FFC2DA", display: "flex", gap: 8, alignItems: "center" }}>
         <span><Icon name={err.kind === "rate" ? "pending" : err.kind === "filtered" ? "blocked" : err.kind === "identity" ? "key" : "warning"} size={12} /> {err.kind === "rate" ? `${err.msg} · retry in ${rl}s` : err.msg}</span>
         {err.kind === "identity" && <button data-testid="chat-login" onClick={doLogin} style={{ marginLeft: "auto", cursor: "pointer", font: `700 13px ${HUD.game}`, borderRadius: 6, border: `1px solid ${HUD.champagne}`, background: "transparent", color: HUD.champagne, padding: "2px 8px" }}>Sign in</button>}
@@ -236,7 +258,7 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
     // PHONE (approved board "Phone v2 · 1 Flying", maker 2026-11-13): on the sky under the header card, the newest trade as a toast
     // (a few seconds) and the latest two chat lines; the chat button (right) opens the full crew feed with the message box.
     const fresh = feed.find((r) => r.side && now - (r.seen ?? r.at) < PHONE_TOAST_MS);
-    const lines = rows.filter((r) => r.msg.kind !== "system" && r.msg.kind !== "event").slice(-2);
+    const lines = shown.filter((r) => r.msg.kind !== "system" && r.msg.kind !== "event").slice(-2);
     const list = items.filter((it) => !it.chat || it.chat.msg.kind !== "system").slice(-60).reverse();
     const sqBtn: React.CSSProperties = { all: "unset", boxSizing: "border-box", cursor: "pointer", width: 44, height: 44, borderRadius: 12, background: "rgba(18,19,39,.78)", border: `1px solid ${HUD.border}`, display: "grid", placeItems: "center", pointerEvents: "auto" };
     const bubble = <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F2F3F7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M4 5h16v11H9l-5 4z" /></svg>;
@@ -245,7 +267,7 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
         style={{ position: "fixed", left: 12, right: 12, top: "var(--ph-feed-top, 262px)", zIndex: 32, pointerEvents: "none", font: `13px/1.4 ${HUD.ui}`, color: HUD.text, outline: "none" }}>
         <div data-testid="chat-list" role="log" aria-live="polite" style={{ width: "min(260px, calc(100vw - 92px))", display: "flex", flexDirection: "column", gap: 8 }}>
           {fresh && <PhoneToast r={fresh} />}
-          {lines.length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>{lines.map((r) => <ChatRow key={r.key} row={r} svg={api?.svg ?? false} known={known} emotes={api?.api.EMOTES ?? {}} />)}</div>}
+          {lines.length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>{lines.map((r) => <ChatRow key={r.key} row={r} svg={api?.svg ?? false} known={known} emotes={api?.api.EMOTES ?? {}} mod={mod} />)}</div>}
         </div>
         <button type="button" data-testid="chat-open" aria-label={tradesOnly ? "Open crew feed" : "Open crew chat"} onClick={() => setPhoneFull(true)} style={{ ...sqBtn, position: "absolute", right: 0, top: 0 }}>
           {bubble}{tabUnread > 0 || unread > 0 ? <span aria-hidden style={{ position: "absolute", top: 6, right: 6, width: 8, height: 8, borderRadius: "50%", background: HUD.down }} /> : null}</button>
@@ -266,11 +288,11 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
           {!api && !tradesOnly && <p role="status" style={{ opacity: 0.6, margin: "4px 6px" }}>Chat is connecting…</p>}
           {pending.map((p) => <PilotTrade key={"p" + p.id} buy={p.side === "buy"} who="You" own amt={p.amt} op={1} sent />)}
           {!list.length && !pending.length && (api || tradesOnly) && <p style={{ opacity: 0.6, margin: "4px 6px" }}>Quiet up here. Be the first boost.</p>}
-          {list.map((it) => { if (it.chat) return <div key={it.k}><ChatRow row={it.chat} svg={api?.svg ?? false} known={known} emotes={api?.api.EMOTES ?? {}} /></div>;
+          {list.map((it) => { if (it.chat) return <div key={it.k}><ChatRow row={it.chat} svg={api?.svg ?? false} known={known} emotes={api?.api.EMOTES ?? {}} mod={mod} /></div>;
             const r = it.trade!; if (!r.side) return <div key={it.k}><TradeRow r={r} /></div>;
             return <PilotTrade key={it.k} buy={r.side === "buy"} who={r.own ? "You" : r.who || "?"} own={!!r.own} amt={r.amt || ""} ic={r.ic} op={1} />; })}
         </div>
-        {errBox}{pickerBox}
+        {noteBox}{errBox}{pickerBox}
         {!tradesOnly && inputBox(true)}
       </aside>);
   }
@@ -311,11 +333,11 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
             {pending.map((p) => <PilotTrade key={"p" + p.id} buy={p.side === "buy"} who="You" own amt={p.amt} op={1} sent />)}
             {!list.length && !pending.length && (api || tradesOnly) && <p style={{ opacity: 0.6, margin: "4px 6px" }}>Quiet up here. Be the first boost.</p>}
             {list.map((it, i) => { const op = Math.max(0.55, 1 - i * 0.06);
-              if (it.chat) return <div key={it.k} style={{ opacity: op }}><ChatRow row={it.chat} svg={api?.svg ?? false} known={known} emotes={api?.api.EMOTES ?? {}} /></div>;
+              if (it.chat) return <div key={it.k} style={{ opacity: op }}><ChatRow row={it.chat} svg={api?.svg ?? false} known={known} emotes={api?.api.EMOTES ?? {}} mod={mod} /></div>;
               const r = it.trade!; if (!r.side) return <div key={it.k} style={{ opacity: op }}><TradeRow r={r} /></div>;
               return <PilotTrade key={it.k} buy={r.side === "buy"} who={r.own ? "You" : r.who || "?"} own={!!r.own} amt={r.amt || ""} ic={r.ic} op={op} />; })}
           </div>}
-        {errBox}{pickerBox}
+        {noteBox}{errBox}{pickerBox}
         {!tradesOnly && !showHolders && inputBox(true)}
       </aside>
     );
@@ -349,12 +371,12 @@ export default function GameChat({ coin, tradesOnly = false }: { coin: string; t
         style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column-reverse", padding: "2px 6px", overscrollBehavior: "contain", scrollbarWidth: "thin" }}>
         <div>{!api && tab !== "trades" && <p role="status" style={{ opacity: 0.6, margin: "4px 6px" }}>Chat is connecting…</p>}
           {!items.length && (api || tradesOnly) && <p style={{ opacity: 0.6, margin: "4px 6px" }}>{tab === "trades" ? "No trades yet. Be the first boost." : "Quiet up here. Say hi to the crew."}</p>}
-          {items.map((it) => it.chat ? <ChatRow key={it.k} row={it.chat} svg={api?.svg ?? false} known={known} emotes={api?.api.EMOTES ?? {}} /> : <TradeRow key={it.k} r={it.trade!} age={feedAge(now - (it.trade!.seen ?? it.trade!.at))} />)}
+          {items.map((it) => it.chat ? <ChatRow key={it.k} row={it.chat} svg={api?.svg ?? false} known={known} emotes={api?.api.EMOTES ?? {}} mod={mod} /> : <TradeRow key={it.k} r={it.trade!} age={feedAge(now - (it.trade!.seen ?? it.trade!.at))} />)}
           {tab !== "chat" && pending.map((p) => <TradeRow key={"p" + p.id} r={{ id: 0, at: now, side: p.side, amt: p.amt, own: true }} sent />)}</div>
       </div>
       {unread > 0 && <button data-testid="chat-new" onClick={jump} style={{ position: "absolute", left: "50%", bottom: 64, transform: "translateX(-50%)", cursor: "pointer", font: `700 13px ${HUD.game}`,
         padding: "4px 12px", borderRadius: 12, border: "none", background: HUD.champagne, color: HUD.ink, boxShadow: "0 4px 14px rgba(0,0,0,.4)" }}>↓ {unread > 99 ? "99+" : unread} new messages</button>}
-      {errBox}{pickerBox}
+      {noteBox}{errBox}{pickerBox}
       {typing && inputBox(false)}
       </div>
     </aside>
@@ -406,7 +428,8 @@ function Emote({ code, svg, src }: { code: string; svg: boolean; src?: string })
   return <span title={`:${code}:`} style={{ fontSize: 15 }}>{EMOTE_EMOJI[code] || `:${code}:`}</span>;
 }
 
-const ChatRow = memo(function ChatRow({ row, svg, known, emotes }: { row: Row; svg: boolean; known: (c: string) => boolean; emotes: Record<string, string> }) {
+const modBtn: React.CSSProperties = { all: "unset", cursor: "pointer", padding: "6px 12px", borderRadius: 8, font: `700 13px/1 ${HUD.game}`, letterSpacing: ".04em", textTransform: "uppercase" };
+const ChatRow = memo(function ChatRow({ row, svg, known, emotes, mod }: { row: Row; svg: boolean; known: (c: string) => boolean; emotes: Record<string, string>; mod?: ChatMod }) {
   const m = row.msg, rowStyle: React.CSSProperties = { padding: "4px 6px", wordBreak: "break-word", contentVisibility: "auto", containIntrinsicSize: "auto 22px", textShadow: "0 1px 2px rgba(0,0,0,.6)", font: `13px/1.4 ${HUD.ui}` };
   const body = (t: string) => parseEmotes(t, known).map((p, i) => p.t === "text" ? <span key={i}>{p.v}</span> : <Emote key={i} code={p.code} svg={svg} src={emotes[p.code]} />);
   if (m.kind === "system") return <div style={{ ...rowStyle, color: "rgba(220,228,255,.55)", fontStyle: "italic" }}>{body(m.text)}</div>;
@@ -422,11 +445,19 @@ const ChatRow = memo(function ChatRow({ row, svg, known, emotes }: { row: Row; s
     return <div data-kind={ev} style={{ ...rowStyle, fontSize: 11, color: col, borderLeft: `2px solid ${col}55`, paddingLeft: 6 }}><Icon name={buy ? "rocket" : "dump"} size={12} /> {who} {buy ? "bought" : "sold"} {fmtUsd(m.meta?.usd || 0)}{bps ? <span style={{ opacity: 0.7 }}> ({buy ? "+" : "−"}{(Math.abs(bps) / 100).toFixed(1)}%)</span> : null}</div>;
   }
   const f = m.from, b = f?.badge ? BADGE[f.badge] : null;
-  return <div style={rowStyle}>
+  const mine = !!f && !!mod?.me && f.addr.toLowerCase() === mod.me;
+  const open = !!mod && !mine && mod.sel === m.id;
+  const tap = mod && !mine && f ? { role: "button" as const, tabIndex: 0, "aria-expanded": open, "aria-label": `Message from ${f.name || shortAddr(f.addr)}. Report or block`,
+    onClick: () => mod.pick(m.id), onKeyDown: (e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); mod.pick(m.id); } } } : {};
+  return <div data-testid="chat-msg" style={{ ...rowStyle, cursor: tap.role ? "pointer" : undefined, borderRadius: 6, background: open ? "rgba(255,255,255,.06)" : undefined, pointerEvents: "auto" }} {...tap}>
     {b && <span title={b.t} style={{ display: "inline-flex", alignItems: "center", gap: 3, marginRight: 5, padding: "0 5px", borderRadius: 5, border: `1px solid ${b.c}`, color: b.c, font: `700 11px/16px ${HUD.game}`, letterSpacing: ".04em", verticalAlign: "1px" }}>{b.i}{b.t.toUpperCase()}</span>}
     {f?.prestige ? <span title={`Prestige ${f.prestige}`} style={{ color: "#ffd24a", fontSize: 10, marginRight: 3, fontWeight: 800 }}>✦{f.prestige}</span> : null}
     <b style={{ color: f ? nameColor(f.addr) : "#ccc", fontWeight: 600 }}>{f ? f.name || shortAddr(f.addr) : "?"}</b>{" "}
-    <span>{body(m.text)}</span></div>;
+    <span>{body(m.text)}</span>
+    {open && f && <span data-testid="chat-mod" style={{ display: "flex", gap: 6, marginTop: 6 }} onClick={(e) => e.stopPropagation()}>
+      {mod!.canReport && <button type="button" data-testid="chat-report" onClick={() => mod!.report(m)} style={{ ...modBtn, background: "rgba(240,48,127,.16)", color: "#FFC2DA", border: "1px solid rgba(240,48,127,.5)" }}><Icon name="warning" size={12} /> Report</button>}
+      <button type="button" data-testid="chat-block" onClick={() => mod!.block(m)} style={{ ...modBtn, background: "rgba(255,255,255,.06)", color: HUD.text, border: `1px solid ${HUD.border}` }}><Icon name="blocked" size={12} /> Block {f.name || shortAddr(f.addr)}</button>
+    </span>}</div>;
 });
 
 function HoldersView({ h }: { h: Holders | null }) {
