@@ -16,7 +16,7 @@ export type ChatMsg = {
   meta?: { event?: string; usd?: number; tx?: string; impactBps?: number; impactPct?: number; prePrice?: number; postPrice?: number };
 };
 export type ChatState = "connecting" | "live" | "reconnecting" | "closed";
-export type SendError = "rate_limited" | "filtered" | "too_long" | "no_identity";
+export type SendError = "rate_limited" | "filtered" | "too_long" | "no_identity" | "muted";
 export type SendResult = { ok: true; msg: ChatMsg } | { ok: false; error: SendError; retryAfterMs?: number };
 export interface ChatApi {
   history(coin: string, o?: { limit?: number; before?: string }): Promise<ChatMsg[]>;
@@ -24,6 +24,8 @@ export interface ChatApi {
   send(coin: string, text: string): Promise<SendResult>;
   login(): Promise<unknown>;
   logout(): void;
+  /** report one chat message to the Team (App Review 1.2). Optional: mocks leave it out. */
+  report?(coin: string, id: string, reason?: string): Promise<{ ok: boolean; error?: string }>;
   EMOTES: Record<string, string>;
 }
 export const MAX_LEN = 200;

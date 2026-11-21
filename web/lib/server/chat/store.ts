@@ -9,6 +9,7 @@ import "server-only";
 import { CHAT_LIMITS, type ChatMsg } from "@/lib/chat/types";
 import { take, type Bucket } from "@/lib/chat/ratelimit";
 import { requiresSharedKv } from "@/lib/server/kv";
+import { dropHidden } from "@/lib/server/chat/hidden";
 
 export interface ChatStore {
   kind: "upstash" | "memory";
@@ -94,12 +95,12 @@ export const isTradeLine = (m: ChatMsg) => m.kind === "event" && m.meta?.event !
 
 /** History window: oldest→newest, ≤limit, strictly before `before` id if given. */
 export async function historyOf(coin: string, limit: number, before?: string): Promise<ChatMsg[]> {
-  const all = (await chatStore().recent(coin, CHAT_LIMITS.keepPerCoin)).filter((m) => !isTradeLine(m));
+  const all = await dropHidden(coin, (await chatStore().recent(coin, CHAT_LIMITS.keepPerCoin)).filter((m) => !isTradeLine(m)));
   const f = before ? all.filter((m) => m.id < before) : all;
   return f.slice(0, Math.max(1, Math.min(limit, CHAT_LIMITS.historyMax))).reverse();
 }
 /** Messages newer than `after` id, oldest→newest. */
 export async function messagesAfter(coin: string, after: string): Promise<ChatMsg[]> {
   const all = await chatStore().recent(coin, 100);
-  return all.filter((m) => m.id > after && !isTradeLine(m)).reverse();
+  return (await dropHidden(coin, all.filter((m) => m.id > after && !isTradeLine(m)))).reverse();
 }

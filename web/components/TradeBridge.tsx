@@ -17,7 +17,7 @@ import { beginFlowTiming, flowClick, flowFill, takeFlowClick, flowTimingReady, f
 import { freshSellBalance, sellAmount, sellAmountFor, tapSellBalance } from "@/lib/flight/liveSell";
 import { OWN, RECONCILE_MIN_MS, ownRead } from "@/lib/flight/ownLedger";
 import { DEFAULT_SUPPLY } from "@/lib/pnl";
-import { activeAddress, isSmartMode, onWallet, warmGaslessSell } from "@/lib/wallet";
+import { activeAddress, gaslessSigner, isSmartMode, onWallet, warmGaslessBuy, warmGaslessRelay, warmGaslessSell } from "@/lib/wallet";
 import { aaWarm, sessionMaxSlippageBps } from "@/lib/aa/session";
 import { plainText } from "@/lib/aa/relayOp";
 import { isSentUnknown } from "@/lib/trade/pendingWatch";
@@ -510,13 +510,19 @@ export default function TradeBridge({ token, storagePrefix = SWAP_PREFIX, buyPct
   // signs and sends with no chain reads. Optimistic UI: "sent" the moment the op is submitted (disciple:op).
   useEffect(() => {
     if (!live) return;
-    let alive = true, probeN = 0, warming: Promise<void> | undefined, sellPermitWarm: Promise<void> | undefined; const pc = publicClient();
+    let alive = true, probeN = 0, warming: Promise<void> | undefined, sellPermitWarm: Promise<void> | undefined, buyWarm: Promise<void> | undefined, relayWarmAt = 0; const pc = publicClient();
     const tick = (): Promise<void> => {
       if (!alive || document.hidden) return Promise.resolve();
       if (warming) return warming; // one bounded set of reads; no interval overlap
       warming = (async () => {
         const usd = customRef.current || (ammo.usd[mode] ?? MODES[mode].usd);
         const probe = ++probeN % 3 === 0;
+        // Gasless: first-buy reads once per flight; relay warm ping at most every 45 s (a cold server read took ~1 s).
+        const gs = gaslessSigner();
+        if (gs) {
+          if (!buyWarm) { buyWarm = warmGaslessBuy().catch(() => { buyWarm = undefined; }); relayWarmAt = Date.now(); }
+          else if (Date.now() - relayWarmAt > 45_000) { relayWarmAt = Date.now(); void warmGaslessRelay(gs.address); }
+        }
         // Buy quotes must not wait for the independent account/balance hint.
         const buy = shotAmountIn(pc, token as Address, "buy", usd).then((a) => Promise.allSettled([
           warmRoute(pc, token as Address, "buy", a),
