@@ -166,6 +166,10 @@ library DiscipleBooks {
         uint256 srcAsk = Math.mulDiv(spot, 1e6, 1e6 - srcFee, Math.Rounding.Ceil);
         uint256 srcBid = Math.mulDiv(spot, 1e6 - srcFee, 1e6);
         (pb, ps) = SM.matchBounds(srcAsk, srcBid, 1);
+        // v0.3 (ported from Carry round-6 N-2): never inside the leader's own bid / ask, so no leader fee (even a
+        // 0-fee leader, where the 1bp edge would cross its mid) lets a trade buy here and sell there at a profit
+        if (pb < srcBid) pb = srcBid;
+        if (ps > srcAsk) ps = srcAsk;
     }
 
     /// @notice What the next same-chain settle (`observe(t, cur, fresh)` then `settle(bk, t, markX128, true,
@@ -315,9 +319,15 @@ library DiscipleBooks {
             (spot,) = _concentrated(sqrtP, 0, baseIs0);
             fee = IV3S(target).fee();
         } else {
-            (uint160 sqrtP,,, uint24 lpFee) = StateLibrary.getSlot0(pm, PoolId.wrap(v4Id));
+            (uint160 sqrtP,, uint24 pf, uint24 lpFee) = StateLibrary.getSlot0(pm, PoolId.wrap(v4Id));
             (spot,) = _concentrated(sqrtP, 0, baseIs0);
-            fee = lpFee;
+            // v0.3 (ported from Carry round 7): a swap pays the Uniswap protocol fee too (12 bits per direction).
+            // Take the smaller direction, compounded with the LP fee, so the modelled bid and ask sit inside the
+            // leader's real quotes both ways. A hooked leader's own hook fee is still not seen (it only makes the
+            // modelled quotes more conservative).
+            uint256 a = pf & 0xfff;
+            if (pf >> 12 < a) a = pf >> 12;
+            fee = uint24(a + lpFee - a * lpFee / 1e6);
         }
         if (fee >= 1e6) fee = 999_999;
     }

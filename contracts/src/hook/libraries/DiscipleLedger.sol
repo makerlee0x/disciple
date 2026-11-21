@@ -128,6 +128,20 @@ library DiscipleLedger {
         bk.dy = SafeCast.toInt128(int256(bk.dy) + dy);
     }
 
+    /// @notice Same-chain fill (v0.3, ported from Carry round-6 N-1): the fill's earnings are valued now, at this
+    ///         swap's own mark (coin in rounded down, coin out rounded up, as settle rounds), and added to `dy`; `dx`
+    ///         stays 0. The settle then pays what each swap earned at its own mark, and its own mark only sizes the
+    ///         payout. Cross-chain pools keep `swap(bk, dx, dy)` (net flow marked at the next pushed price).
+    function swap(Book storage bk, int256 dx, int256 dy, uint256 markX128) internal {
+        bk.x = _addSigned(bk.x, dx);
+        bk.y = _addSigned(bk.y, dy);
+        int256 e = dy
+            + (dx >= 0
+                    ? int256(Math.mulDiv(uint256(dx), markX128, Q128))
+                    : -int256(Math.mulDiv(uint256(-dx), markX128, Q128, Math.Rounding.Ceil)));
+        bk.dy = SafeCast.toInt128(int256(bk.dy) + e);
+    }
+
     /// @notice The (coin, quote) amounts that `settle(.., onTvl, offTvl, gradTvl, true, skimRoom)` would move out of
     ///         the tradable reserves now: the jar skim, and on a graduated pool the LP escrow and (if the creator does
     ///         not compound) the creator claim. View; same arithmetic as settle and _distribute.

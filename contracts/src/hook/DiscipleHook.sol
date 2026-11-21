@@ -29,13 +29,16 @@ import {DiscipleBooks as BK} from "./DiscipleBooks.sol";
 ///         without a trade; it does not settle the books or read source TVL. Each latch moves the anchor toward
 ///         the sample by at most one step (`minStep`), so a faked one-block sample shifts
 ///         the centre by no more than the fee. There is no lag premium. Every fill respects the live source
-///         boundary (ask >= source ask * 0.9999, bid <= source bid * 1.0001), read in the same call.
+///         boundary (ask >= source ask * 0.9999, bid <= source bid * 1.0001, and never inside the source's own
+///         bid / ask), read in the same call. Each swap books its earnings at the less favourable of the anchor and
+///         the live source, so the anchor's lag is never paid out as fees.
 ///         Tip jar: 12% of each interval's earnings goes to the pool's own jar (both tokens, pro rata) until it
 ///         holds about JAR_TIPS tips. sample() pays its caller gas + 20% from the jar, but only while the centre
 ///         is at least 1% from the leader, so the pool catches up after a move even with no trades.
 ///
 ///         Cross chain (new chain, anchor pushed from the home chain over LayerZero by a DisciplePushSender there
-///         and authenticated by the DisciplePushReceiver here): the anchor is the last accepted push. Keepers push on
+///         and authenticated by the DisciplePushReceiver here): the anchor steps toward each accepted push by at most
+///         `minStep` (the first price sets it outright). Keepers push on
 ///         a 1% home move or a 59.5-min heartbeat and are paid their cost plus 20% from the pool's tip jar (a
 ///         heartbeat only if the pool traded since the last price). lzRead and the rollup-bridge route were cut
 ///         from v0 (maker, 2026-11-04). The spread widens after 60 min; after 2 h the pool enters local mode (re-centres, drops the band,
@@ -462,7 +465,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         if (!p.live) revert NotLive();
         if (params.amountSpecified == 0) revert BadParams();
 
-        (uint256 kb, uint256 ks, uint256 pb, uint256 ps) = _prepare(p, id);
+        (uint256 kb, uint256 ks, uint256 pb, uint256 ps, uint256 spot) = _prepare(p, id);
 
         bool exactIn = params.amountSpecified < 0;
         uint256 spec = exactIn ? uint256(-params.amountSpecified) : uint256(params.amountSpecified);
@@ -470,8 +473,25 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         bool sell = params.zeroForOne == p.coinIs0;
         (uint256 coinAmt, uint256 quoteAmt) =
             _fill(p.book.x, p.book.y, p.tX128, sell ? ks : kb, sell ? ps : pb, sell, exactIn, spec);
-        if (sell) p.book.swap(int256(coinAmt), -int256(quoteAmt));
-        else p.book.swap(-int256(coinAmt), int256(quoteAmt));
+        (int256 dx, int256 dy) = sell ? (int256(coinAmt), -int256(quoteAmt)) : (-int256(coinAmt), int256(quoteAmt));
+        if (spot == 0) {
+            // cross chain: net flow, marked at the next pushed price
+            p.book.swap(dx, dy);
+        } else {
+            // v0.3 (Carry round-6 N-1): same-chain fills follow the live leader, so each swap books its earnings at
+            // the less favourable of the anchor and the leader. The anchor's lag behind the leader is then never
+            // booked as fees and paid out of principal. The leader counts only as far as both this block's sample
+            // and the live spot agree, so a leader pushed for the sample alone and put back books nothing made up.
+            uint256 a = p.anchorX128;
+            uint256 sm = p.sampleX128;
+            if (sell) {
+                if (spot > sm) sm = spot;
+                p.book.swap(dx, dy, sm < a ? sm : a); // the pool buys coin: value it low
+            } else {
+                if (spot < sm) sm = spot;
+                p.book.swap(dx, dy, sm > a ? sm : a); // the pool sells coin: value it high
+            }
+        }
 
         Currency coinC = Currency.wrap(p.coin);
         Currency quoteC = Currency.wrap(p.quote);
@@ -548,7 +568,7 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     function quote(PoolId id, bool zeroForOne, int256 amountSpecified) external lock {
         Pool storage p = _live(id);
         if (amountSpecified == 0 || amountSpecified == type(int256).min) revert BadParams();
-        (uint256 kb, uint256 ks, uint256 pb, uint256 ps) = _prepare(p, id);
+        (uint256 kb, uint256 ks, uint256 pb, uint256 ps,) = _prepare(p, id);
         bool exactIn = amountSpecified < 0;
         bool sell = zeroForOne == p.coinIs0;
         (uint256 c, uint256 q) = _fill(
@@ -700,15 +720,19 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         return SM.stepToward(p.anchorX128, p.sampleX128, minStep);
     }
 
-    /// @dev Settle the books if due, update the anchor state, and return the curve slopes and boundaries.
-    function _prepare(Pool storage p, PoolId id) internal returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps) {
-        if (p.src.remoteEid == 0) return _prepareSame(p);
-        return _prepareCross(p, id);
-    }
-
-    function _prepareSame(Pool storage p) internal returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps) {
-        (uint256 spot, uint24 srcFee) = _latchSame(p, true);
-        return BK.sameQuote(p.anchorX128, p.tX128, p.fee, spot, srcFee);
+    /// @dev Settle the books if due, update the anchor state, and return the curve slopes and boundaries, plus the
+    ///      live leader spot on the same chain (0 cross chain).
+    function _prepare(Pool storage p, PoolId id)
+        internal
+        returns (uint256 kb, uint256 ks, uint256 pb, uint256 ps, uint256 spot)
+    {
+        if (p.src.remoteEid != 0) {
+            (kb, ks, pb, ps) = _prepareCross(p, id);
+            return (kb, ks, pb, ps, 0);
+        }
+        uint24 srcFee;
+        (spot, srcFee) = _latchSame(p, true);
+        (kb, ks, pb, ps) = BK.sameQuote(p.anchorX128, p.tX128, p.fee, spot, srcFee);
     }
 
     /// @dev Same chain, first price touch of a block: step the anchor toward the newest source sample taken in an
@@ -824,6 +848,13 @@ contract DiscipleHook is IHooks, IUnlockCallback {
             return;
         }
         bool wasLocal = p.local;
+        // v0.3 (disciple #356 review, Critical): a push is permissionless and reads the home pool's spot in the same
+        // transaction, so it can carry a flash-moved price. The anchor now moves toward it by at most one step
+        // (minStep, as the same-chain latch), so one push can shift the centre and the settle mark by no more than
+        // that. A bigger honest move is caught up over the next pushes (the keeper pushes again while the anchor is
+        // still 1% or more from the home price). The first price above has no anchor to step from.
+        uint256 old = p.anchorX128;
+        uint256 a = SM.stepToward(old, price, minStep);
         bool ok = wasLocal
             ? PR.recoveryOkWithin(observedAt, p.obsAt, block.timestamp, maxRecoveryAge)
             : PR.updateOk(observedAt, p.obsAt, block.timestamp);
@@ -836,9 +867,8 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         // close the interval at the fresh mark (deferred mark); local-mode results stay pro rata
         BK.observe(p.tvl, tvl, true);
         if (cost > 0) p.pushCost = cost;
-        uint256 old = p.anchorX128;
-        p.anchorX128 = price; // the jar is valued at the fresh price
-        _settleSame(p, price, !wasLocal);
+        p.anchorX128 = a; // the jar is valued at the new anchor
+        _settleSame(p, a, !wasLocal);
         p.obsAt = observedAt;
         if (wasLocal) {
             p.local = false;
@@ -847,16 +877,17 @@ contract DiscipleHook is IHooks, IUnlockCallback {
         }
         uint256 refund;
         if (keeper != address(0)) {
-            // cost + 20% if due, from the jar in the pool's tokens, credited to the keeper
-            refund = _weiToQuote(p, PR.refund(old, price, ageAtRequest, cost), p.anchorX128);
-            (uint256 cx, uint256 cy) = BK.tip(p.jarX, p.jarY, price, refund, TIP_DIV);
+            // cost + 20% if due, from the jar in the pool's tokens, credited to the keeper. "Due" compares the
+            // delivered price (not the stepped anchor) with the old anchor, so catch-up pushes are still paid.
+            refund = _weiToQuote(p, PR.refund(old, price, ageAtRequest, cost), a);
+            (uint256 cx, uint256 cy) = BK.tip(p.jarX, p.jarY, a, refund, TIP_DIV);
             p.jarX -= cx;
             p.jarY -= cy;
             owed[keeper][p.coin] += cx;
             owed[keeper][p.quote] += cy;
-            refund = cy + Math.mulDiv(cx, price, Q128);
+            refund = cy + Math.mulDiv(cx, a, Q128);
         }
-        emit PriceAccepted(id, price, observedAt, refund, wasLocal);
+        emit PriceAccepted(id, a, observedAt, refund, wasLocal);
     }
 
     /// @dev v * 10^sh; |sh| <= MAX_SHIFT (checked at creation). An overflowing product reads as 0 (refused).
@@ -938,9 +969,11 @@ contract DiscipleHook is IHooks, IUnlockCallback {
     function _settleForCapital(Pool storage p) internal {
         if (p.src.remoteEid == 0) {
             _latchSame(p, true);
-            // trades earlier in this block: close them now, at the mark the next block would use (one step toward
-            // this block's sample), so capital joining or leaving never shares in fees earned before it (review D-01)
-            if (p.book.dx != 0 || p.book.dy != 0) _settleSame(p, _stepped(p), true);
+            // trades earlier in this block: close them now, so capital joining or leaving never shares in fees earned
+            // before it (review D-01). Each swap already booked its earnings at its own mark, so this mark only sizes
+            // the payout. It is the stored anchor, which a price pushed in this transaction cannot move (v0.3, Carry
+            // round-6 M-01: `_stepped` stepped toward this block's sample, which the caller can flash-push).
+            if (p.book.dy != 0) _settleSame(p, p.anchorX128, true);
         } else if (p.book.dx != 0 || p.book.dy != 0 || p.local) {
             // cross chain: open trades are marked at the next fresh price; join after it lands
             revert PendingTrades();
