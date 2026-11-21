@@ -9,6 +9,7 @@ import { bigintToDecimal, GASLESS_MAX_DEADLINE_SEC, jsonSafe, PERMIT2, type Perm
 import { permitFor, permit2NonceBook, GaslessError, type GaslessSendResult } from "./gaslessClient";
 import { transferTypedData, type AnyWithdrawRequest, type ForwarderWithdrawRequest } from "./gaslessWithdraw";
 import { MULTICALL3_ADDR, withdrawTypedData } from "./permitForwarder";
+import { privyIdentityToken } from "../aa/session";
 
 export type WithdrawQuote = {
   fee: bigint;
@@ -37,7 +38,10 @@ export function parseWithdrawQuote(x: unknown): WithdrawQuote {
 /** POST disciple_gaslessWithdrawQuote — no signature, no identity token. */
 export async function quoteGaslessWithdraw(input: { amount?: bigint; signer?: Address } = {}, url = "/api/gasless", fetchFn: typeof fetch = fetch): Promise<WithdrawQuote> {
   const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "disciple_gaslessWithdrawQuote", params: [JSON.parse(JSON.stringify(input, bigintToDecimal))] });
-  const r = await fetchFn(url, { method: "POST", headers: { "content-type": "application/json" }, body });
+  // signed in as the signer: the quote includes this account's anon launch tab (lib/server/launchTab), never shown publicly
+  const idToken = input.signer ? await privyIdentityToken().catch(() => null) : null;
+  const headers: Record<string, string> = { "content-type": "application/json", ...(idToken ? { "privy-id-token": idToken } : {}) };
+  const r = await fetchFn(url, { method: "POST", headers, body });
   const j = await r.json().catch(() => ({})) as { result?: unknown; error?: { message?: string; data?: GaslessError["data"] } };
   if (!j.result) throw new GaslessError(j.error?.message ?? `withdraw quote HTTP ${r.status}`, j.error?.data ?? {}, r.status);
   return parseWithdrawQuote(j.result);

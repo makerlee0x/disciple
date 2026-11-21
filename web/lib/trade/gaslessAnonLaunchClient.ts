@@ -76,9 +76,9 @@ export { PERMIT2 };
 /**
  * Anon launch (maker 2026-11-19: "if your wallet is connected thats not anon"). No Ticket buy and creator fees burned or
  * locked in the pool, so nothing is ever claimed. The relayer calls CreatorFeeHarvest.launchAnon(WithMode) itself, so the
- * launch tx holds the relayer, the harvest, AnonLauncher and the stealth owner only. The player pays the launch's gas in
- * USDG (maker 2026-11-19): one silent signed cash-out to the relayer, which the relay sends as its own tx just before the
- * launch. `wallet` is also sent for the relay's sign-in check (Privy session).
+ * launch tx holds the relayer, the harvest, AnonLauncher and the stealth owner only. Nothing is paid at launch (maker
+ * 2026-11-20): the relay puts the launch's gas on the account's tab, paid a little at a time on later cash-outs
+ * (lib/server/launchTab). `wallet` is sent for the relay's sign-in check (Privy session) only.
  */
 export type { FreeAnonLaunch };
 
@@ -99,18 +99,14 @@ export async function sendFreeAnonLaunch(
   url = "/api/gasless",
   fetchFn: typeof fetch = fetch,
 ): Promise<GaslessSendResult> {
+  void pc;
   const tooLong = anonLaunchTooLong(launch);
   if (tooLong) throw new GaslessError(tooLong, { notSent: true });
   const wallet = owner.address;
   const tokenP = privyIdentityToken().catch(() => null);
-  const { quoteGaslessWithdraw, signGaslessWithdraw } = await import("./gaslessWithdrawClient");
-  const [fee, wq] = await Promise.all([quoteAnonFreeLaunch(wallet, launch, url, fetchFn), quoteGaslessWithdraw({ signer: wallet }, url, fetchFn)]);
-  if (fee.feeTo.toLowerCase() !== wq.feeTo.toLowerCase()) throw new GaslessError("The network fee didn't read right. Try again.", { notSent: true });
-  const amount = fee.launchGasFee + wq.fee;
-  const payment = await signGaslessWithdraw(pc, owner, { amount, destination: fee.feeTo, quote: wq });
   const idToken = await tokenP;
   const headers: Record<string, string> = { "content-type": "application/json", ...(idToken ? { "privy-id-token": idToken } : {}) };
-  const r = await fetchFn(url, { method: "POST", headers, body: `{"jsonrpc":"2.0","id":1,"method":"disciple_anonFreeLaunch","params":[${JSON.stringify({ wallet, launch, payment }, bigintToDecimal)}]}` });
+  const r = await fetchFn(url, { method: "POST", headers, body: `{"jsonrpc":"2.0","id":1,"method":"disciple_anonFreeLaunch","params":[${JSON.stringify({ wallet, launch }, bigintToDecimal)}]}` });
   const j = await r.json().catch(() => ({})) as { result?: { txHash: Hex; success: boolean; receipt: { logs: GaslessSendResult["logs"] }; gasUsed: number; server?: unknown }; error?: { message?: string; data?: GaslessError["data"] } };
   if (!j.result) throw new GaslessError(j.error?.message ?? `anon launch HTTP ${r.status}`, j.error?.data ?? {}, r.status);
   if (!j.result.success) throw new GaslessError("The launch didn't go through.", { notSent: false, txHash: j.result.txHash }, r.status);
