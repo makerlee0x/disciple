@@ -103,6 +103,11 @@ describe("admission + exact simulation", () => {
     h.send.mockImplementation(async () => { order.push("send"); return okRc(); });
     const r = await relayGaslessTrade(await wire());
     expect(r).toMatchObject({ kind: "confirmed", success: true, gasUsed: 200_000 });
+    // first trade on this coin + side: the 900k and the 3M simulations run together (speed, 2026-11-20); budget after both
+    expect(order).toEqual(["sim", "sim", "budget", "send"]);
+    // the next one on the same coin + side passed at 900k, so it simulates once
+    order.length = 0;
+    await relayGaslessTrade(await wire());
     expect(order).toEqual(["sim", "budget", "send"]);
     const simArgs = h.call.mock.calls[0][0] as { to: string; data: Hex };
     expect(simArgs.to.toLowerCase()).toBe(router.toLowerCase());
