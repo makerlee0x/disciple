@@ -116,7 +116,18 @@ export async function send(coin: string, text: string): Promise<SendResult> {
   return j && "ok" in j ? j : { ok: false, error: "filtered" };
 }
 
-export const DiscipleChat = { history, subscribe, send, login, logout, EMOTES };
+/** Report one message to the Team (lib/server/chat/moderation). */
+export async function report(coin: string, id: string, reason = "other"): Promise<{ ok: boolean; error?: string }> {
+  const t = await login().catch(() => null);
+  if (!t) return { ok: false, error: "Sign in to report." };
+  const r = await fetch(api("report"), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${t.token}` }, body: JSON.stringify({ coin: lc(coin), id, reason }) }).catch(() => null);
+  if (!r) return { ok: false, error: "Couldn't send. Try again." };
+  if (r.status === 401) logout();
+  const j = (await r.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+  return j?.ok ? { ok: true } : { ok: false, error: j?.error || "Couldn't send. Try again." };
+}
+
+export const DiscipleChat = { history, subscribe, send, login, logout, report, EMOTES };
 export type DiscipleChatApi = typeof DiscipleChat;
 export function installGlobal(impl: DiscipleChatApi = DiscipleChat) {
   if (typeof window !== "undefined") (window as unknown as { DiscipleChat: DiscipleChatApi }).DiscipleChat = impl;
