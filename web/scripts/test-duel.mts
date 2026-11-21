@@ -61,6 +61,16 @@ test("rules: ALL uses everything, NUKE at 39% of the fuel in it (50x)", () => {
   const bomb = R.bombAt(b, lp - 0.1)!; assert.equal(bomb.book.pos, null); assert.equal(bomb.book.bombs, 1);
   b = R.settleBook(b, 68000); assert.equal(b.pos, null);
 });
+test("first 60 seconds: a friend's duel link opened signed out joins as a guest on /duel; signed in or no code stays", async () => {
+  const { guestJoinPath } = await import("../lib/duel/guestJoin");
+  assert.equal(guestJoinPath("?c=8FD6&ref=0xabc", false), "/duel?c=8FD6&ref=0xabc");
+  assert.equal(guestJoinPath("c=DUEL-8FD6", false), "/duel?c=DUEL-8FD6");
+  assert.equal(guestJoinPath("?c=8FD6", true), null);
+  assert.equal(guestJoinPath("?first=1", false), null);
+  assert.equal(guestJoinPath("?c=nope!", false), null);
+  assert.equal(guestJoinPath("", false), null);
+});
+
 test("rules: overtime only when close and only once; Elo moves both ways; codes parse", () => {
   assert.equal(R.needsOvertime(0.1, 20, false), true); assert.equal(R.needsOvertime(0.1, 20, true), false); assert.equal(R.needsOvertime(1, 20, false), false);
   assert.equal(R.needsOvertime(0.6, 50, false), true);
