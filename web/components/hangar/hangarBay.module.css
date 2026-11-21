@@ -58,8 +58,13 @@
   .lbar { max-width: none; }
   .actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   .actions > * { min-width: 0; padding-left: 8px; padding-right: 8px; font-size: 14px; justify-content: center; }
+  /* signed out has two buttons (Sign in, Watch a flight first): two columns, so the second one isn't squeezed into a third */
+  .actions:has(> :nth-child(2):last-child) { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+  .actions > * { white-space: nowrap; }
   .dash { position: static; padding: 0 18px 20px; justify-content: flex-start; gap: 22px; }
   .dash div { align-items: flex-start; }
   .dash dd { font-size: 26px; }
   .spend { right: 18px; top: 18px; }
 }
+/* 320-359 px phones: "Edit profile" broke onto two lines */
+@media (max-width: 359px) { .actions { gap: 6px; } .actions > * { font-size: 13px; padding-left: 6px; padding-right: 6px; } }

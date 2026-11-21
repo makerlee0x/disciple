@@ -186,3 +186,5 @@
 .sec { height: 48px; border-radius: 12px; border: 1px solid #2E323A; background: rgba(11,12,14,.6); color: #F2F3F7; font: 700 18px var(--dsc-font-game); letter-spacing: .5px; cursor: pointer; }
 .sec:hover { border-color: #F3DFA8; }
 @media (max-width: 760px) { .result { left: 0; } .big { font-size: 60px; } }
+/* 320-359 px phones: the FREE PLAY / SIMULATOR tags ran under the NEW IN chip; keep them clear of it so they wrap */
+@media (max-width: 359px) { .tags { max-width: calc(100% - 132px); } .tag { font-size: 12px; padding: 3px 8px; } }

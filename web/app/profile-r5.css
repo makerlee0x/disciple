@@ -260,10 +260,17 @@
 .p5-settings .p5-sfoot .p5-logout { width: auto; height: 36px; padding: 0 14px; border-radius: 10px; font-size: 13px; font-weight: 600; color: #FF9FB8; border-color: rgba(240,48,127,.4); background: rgba(22,24,28,.9); }
 @media (max-width: 720px) {
   .p5-settings.p5-modal { border: 0; padding: calc(14px + var(--ap-safe-top, 0px)) 18px calc(24px + env(safe-area-inset-bottom)); }
-  .p5-s2 { grid-template-columns: 1fr; }
+  .p5-s2 { grid-template-columns: minmax(0, 1fr); }   /* plain 1fr grew to the rows' min width and ran 12 px off a 320 px screen */
   .p5-settings .p5-mhead h2 { font-size: 30px; }
   .p5-sfoot { flex-direction: column-reverse; align-items: stretch; text-align: center; }
   .p5-settings .p5-sfoot .p5-logout { width: 100%; height: 48px; font-size: 15px; justify-content: center; }
+}
+
+/* 320-359 px phones: the 5-step price protection and the Ask/Keep/Move pickers sat 48 px in and ran off the right */
+@media (max-width: 359px) {
+  .p5-settings.p5-modal { padding-left: 14px; padding-right: 14px; }
+  .p5-settings .p5-srow.wrap .p5-seg { margin-left: 0; }
+  .p5-settings .p5-seg button { padding: 0 8px; font-size: 14px; }
 }
 
 /* Edit profile v2: cockpit strip header with the live name preview */
