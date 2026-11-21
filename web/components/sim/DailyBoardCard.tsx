@@ -67,7 +67,7 @@ export default function DailyBoardCard({ rows, count, me, meId, max = 10, testId
         </div>
       )}
       {rows == null ? <span className="dbc-skel" role="status" aria-label="Loading the board" />
-        : rows.length === 0 ? <div className="dbc-empty">No runs yet</div>
+        : rows.length === 0 ? (me ? null : <div className="dbc-empty">No runs yet</div>) /* your pinned rank already fills it: "No runs yet" under "#1" read wrong */
         : <div className="tp-trows">{rows.slice(0, max).map((r, i) => { const self = !!meId && r.runId === meId;
           return <div key={r.runId} className={`tp-trow${self ? " self" : ""}`} data-testid={self ? "daily-board-me" : "daily-board-row"}>
             <Rank n={i + 1} /><Face id={r.runId} name={r.name} pfp={r.pfp || (self ? myPfp : null)} big />

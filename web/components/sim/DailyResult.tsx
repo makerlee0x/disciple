@@ -76,6 +76,8 @@ export default function DailyResult({ id, seed, inputs, verdict, error, ghost, o
   const save = async () => {
     if (!verdict || !pilot) return; claimed.current = pilot; setXp(null);
     const r = await claimFreePlayXp(pilot, { daily: { id, device: deviceId() } });
+    // no sign-in token yet (null) left the card on "POST YOUR SCORE" with no button: give it RETRY instead
+    if (!r) { setXp({ ok: false, reason: "Couldn't save XP." }); return; }
     if (r) { setXp(r); if (r.ok) { dispatchEvent(new CustomEvent(XP_CHANGED_EVENT)); refreshRank(id, verdict.runId).then((k) => { if (k) setRank(k); }); } }
   };
   useEffect(() => { if (verdict && pilot && claimed.current !== pilot) save(); }, [verdict, pilot]);   // eslint-disable-line react-hooks/exhaustive-deps
