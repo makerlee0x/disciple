@@ -58,6 +58,12 @@ export const NATIVE_HAPTICS: Record<string, NativeBuzz> = {
   orbit: { seq: ["MEDIUM", "HEAVY", "HEAVY"], gap: 70 },
   celebrate: { note: "SUCCESS" },
   trick: { seq: ["LIGHT", "MEDIUM"], gap: 60 },
+  go: { impact: "HEAVY" },
+  win: { note: "SUCCESS" },
+  lose: { note: "ERROR" },
+  combo: { seq: ["MEDIUM", "HEAVY"], gap: 70 },
+  warn: { note: "WARNING" },
+  count: { impact: "LIGHT" },
 };
 
 type HapticsPlugin = {

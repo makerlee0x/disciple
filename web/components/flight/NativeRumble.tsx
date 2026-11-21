@@ -5,6 +5,7 @@
  *    sharper on a hard climb or a boost in flight, a low soft hum while coasting, near silent while sinking
  *  - one-shot patterns over it for the big moments (engine sound cues): a heavy thud + shudder on a bomb, a rising three-step
  *    tick crossing a zone, a build and two cracks at orbit, a whip on a trick, a snap on a fill
+ *  - Turbo Duel and Royale mount it too: their engines send disciple:thrust while you race and {off: true} when the race stops
  * Everything else (browser, Android, haptics off) keeps the existing lib/game/haptics path. Stops when the tab hides.
  */
 import { useEffect } from "react";
@@ -29,7 +30,9 @@ export default function NativeRumble() {
     let live = true, on = false, last = { intensity: -1, sharpness: -1 };
     const onThrust = (e: Event) => {
       if (!on) return;
-      const l = rumbleLevel((e as CustomEvent).detail || {});
+      const d = (e as CustomEvent).detail || {};
+      if (d.off) { if (last.intensity !== 0) nativeRumble(0, 0); last = { intensity: 0, sharpness: 0 }; return; }
+      const l = rumbleLevel(d);
       if (Math.abs(l.intensity - last.intensity) < 0.02 && Math.abs(l.sharpness - last.sharpness) < 0.03) return;
       last = l; nativeRumble(l.intensity, l.sharpness);
     };

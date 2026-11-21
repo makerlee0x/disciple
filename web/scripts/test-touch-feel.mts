@@ -36,6 +36,29 @@ test("haptics: patterns, sfx mapping, dedupe, settings toggle", async () => {
   assert.equal(h.haptic("orbit"), false, "Vibration off = silent");
 });
 
+test("Duel / Royale engine buzzes reach the page (game feel pass 2026-11-21)", async () => {
+  const h = await import("../lib/game/haptics.ts");
+  const s = await import("../lib/game/settings.ts");
+  s.setGameSettings((x) => ({ ...x, haptics: true }));
+  await new Promise((r) => setTimeout(r, 150));
+  assert.ok(h.gameBuzz("combo", [1, 2, 3]));
+  assert.deepEqual(calls.at(-1), [1, 2, 3], "the engine's own Android pattern");
+  assert.equal(h.gameBuzz("combo", [1, 2, 3]), false, "dedupe");
+  assert.ok(h.gameBuzz("go"));
+  assert.deepEqual(calls.at(-1), 30, "no pattern: the kind's pattern");
+  assert.ok(h.gameBuzz("nope", 5), "unknown kind = tap");
+  for (const f of ["public/turbo/duel/engine.js", "../tools/royale/royale.tpl.html", "public/turbo/royale/play.html"]) {
+    const src = rd(f);
+    assert.match(src, /DiscipleBuzz\((k\|\|"tap"),p\)/, `${f}: buzz goes through the page`);
+    assert.doesNotMatch(src, /buzz\(\[?[\d,]+\]?\)/, `${f}: every buzz names its kind`);
+    assert.match(src, /disciple:thrust/, `${f}: engine rumble`);
+    assert.match(src, /function combo\(pl,n\)/, `${f}: combo`);
+    assert.match(src, /function layoutTick\(now\)\{ if\(SW&&now-layAt>250\) layout\(\); \}/, `${f}: layout read at most every 250 ms`);
+  }
+  assert.match(rd("components/turbo/duel/DuelScreen.tsx"), /<NativeRumble \/>/);
+  assert.match(rd("app/turbo/royale/page.tsx"), /<NativeRumble \/>/);
+});
+
 test("hover styles only on hover devices (PostCSS)", async () => {
   const postcss = require("postcss");
   const plugin = require("../lib/postcss/hover-media.cjs");

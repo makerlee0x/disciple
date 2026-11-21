@@ -18,6 +18,7 @@ import { royaleOpenHere } from "@/lib/features";
 import { useTurboMusic } from "@/lib/game/turboMusic";
 import { trackFunnel } from "@/lib/funnelClient";
 import LobbySettings from "@/components/turbo/LobbySettings";
+import NativeRumble from "@/components/flight/NativeRumble";
 
 export default function RoyalePage() {
   const [on, setOn] = useState<boolean | null>(null);
@@ -55,11 +56,13 @@ export default function RoyalePage() {
     <iframe
       ref={frame}
       title="Turbo Royale"
-      src={withBase("/turbo/royale/play.html?v=19")}
+      src={withBase("/turbo/royale/play.html?v=20")}
       style={{ position: "fixed", inset: 0, width: "100%", height: "100%", border: 0, zIndex: 60, background: "#07080c" }}
       allow="autoplay; web-share; clipboard-write"
     />
     <LobbySettings mode="royale" open={gear} onClose={() => setGear(false)} />
+    {/* the iPhone app's engine rumble while you race; the game frame sends disciple:thrust to this window */}
+    <NativeRumble />
     </>
   );
 }

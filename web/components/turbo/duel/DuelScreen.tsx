@@ -25,6 +25,7 @@ import { withBase } from "@/lib/base-path";
 import { DUEL_SKIES, EXTRA_SKIES, loadDuelEngine } from "./engineLoader";
 import { LighterMatch, cashNote, lighterCash, lighterFetcher, lighterWanted } from "@/lib/lighter/duel";
 import GeoBanner from "@/components/turbo/GeoBanner";
+import NativeRumble from "@/components/flight/NativeRumble";
 import { mountRealSwitch } from "@/lib/turbo/realSwitch";
 import { FEE, LEV, PCTS, pctUsd, fuelOf, TIERS } from "@/lib/duel/rules";
 
@@ -344,5 +345,6 @@ export default function DuelScreen({ guest = false, embed = false }: { guest?: b
 
     return () => { dead = true; offSwitch(); offPill(); setDuelGuest(false); stopQueue(); unfollow(); stopPrice(); offPrivy(); api?.destroy(); };
   }, [run]);
-  return <><GeoBanner /><div ref={ref} /><LobbySettings mode="duel" open={gear} onClose={() => setGear(false)} /></>;
+  // NativeRumble: the iPhone app's engine rumble while you race (the engine sends disciple:thrust)
+  return <><GeoBanner /><NativeRumble /><div ref={ref} /><LobbySettings mode="duel" open={gear} onClose={() => setGear(false)} /></>;
 }
