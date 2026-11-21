@@ -2,6 +2,7 @@
 # One-time setup on a fresh Amazon Linux 2023 instance (arm64 or x86_64). Run as root:
 #   curl -fsSL https://raw.githubusercontent.com/makerlee0x/disciple/follower/keeper/deploy/aws/setup.sh | sudo bash
 # Installs Node 22 (checksum-verified), the keeper from the disciple `follower` branch, and the systemd service.
+# Another branch (before a keeper PR is merged):  curl -fsSL <that branch's setup.sh URL> | sudo BRANCH=<branch> bash
 # It does NOT start the keeper: stop the one on the Mac first (same wallet), then `sudo systemctl enable --now carry-keeper`.
 set -euo pipefail
 BRANCH="${BRANCH:-follower}"
@@ -57,7 +58,14 @@ git -C /opt/carry-keeper log --oneline -1
 UPD
 chmod +x /usr/local/bin/carry-keeper-update
 
+# a health command: reads the health file the keeper writes each round (no keys, no RPC); exits 1 when unhealthy
+cat > /usr/local/bin/carry-keeper-health <<'HLT'
+#!/usr/bin/env bash
+cd /opt/carry-keeper/keeper && exec sudo -u keeper /opt/node/bin/node src/main.ts --health --config /etc/carry-keeper/carry-keeper.json
+HLT
+chmod +x /usr/local/bin/carry-keeper-health
+
 echo
 echo "Installed. Check the secrets can be read:  sudo -u keeper aws ssm get-parameter --region $REGION --name /carry-keeper/rpc --with-decryption --query Parameter.Name"
 echo "Then stop the Mac keeper and start this one:  sudo systemctl enable --now carry-keeper"
-echo "Logs:  journalctl -u carry-keeper -f"
+echo "Logs:  journalctl -u carry-keeper -f      Health:  carry-keeper-health"

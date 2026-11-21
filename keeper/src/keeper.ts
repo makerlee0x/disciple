@@ -12,11 +12,13 @@ import {
   pad,
   type Account,
   type Chain,
+  type TransactionReceipt,
   type Hex,
   type PublicClient,
   type WalletClient,
 } from "viem";
 import { alert, heartbeat } from "./alert.ts";
+import { Health, type TxKind } from "./health.ts";
 import { carryHookAbi, carryQueueAbi, carryVaultV2Abi, endpointAbi, erc20Abi, hookAbi, receiverAbi, senderAbi, ulnAbi } from "./abi.ts";
 import type { ChainCfg, Config, RouteCfg, SameChainCfg } from "./config.ts";
 import { jarValue, readDyn, readEpoch, readLeaderSpot, readSource, type PoolDyn, type PoolSource } from "./hook.ts";
@@ -64,6 +66,23 @@ export const MATCH_SAMPLE_BPS = 10;
 const MATCH_GAS_FLOOR = 5_000_000n;
 
 const now = () => Math.floor(Date.now() / 1000);
+
+/** Runs `tasks` with at most `n` going at once; resolves when all are done. A task that throws is logged by `onErr`
+ *  and does not stop the others. */
+export async function limit(n: number, tasks: (() => Promise<unknown>)[], onErr: (e: unknown) => void): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (next < tasks.length) {
+      const t = tasks[next++];
+      try {
+        await t();
+      } catch (e) {
+        onErr(e);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(n, tasks.length) }, worker));
+}
 const srcKey = (s: PoolSource) => `${s.kind}:${s.target.toLowerCase()}:${s.v4Id.toLowerCase()}`;
 
 /** Decide what one pool needs. Pure, so tests can run it on any state. */
@@ -168,7 +187,8 @@ export class Keeper {
   private hooks = new Map<string, Hex>();
   private libs = new Map<string, Hex>();
   private badPools = new Set<string>();
-  /** per chain: the last send, so sends from the two loops never race for a nonce */
+  /** per chain: the last broadcast, so nonces are handed out one at a time (the two loops and parallel sends never
+   *  race for one); waiting for receipts happens outside it */
   private sendLock = new Map<string, Promise<unknown>>();
   /** per chain: the next nonce to send with (see serial), and the lowest one the chain could still accept */
   private nonces = new Map<string, number>();
@@ -194,6 +214,12 @@ export class Keeper {
   /** Failed same-chain rounds in a row, per entry; last balance read per chain. */
   private failures = new Map<string, number>();
   private lastBalanceCheck = new Map<string, number>();
+  /** Health: what the keeper knows about itself (written to cfg.healthFile each round), and when it last looked at
+   *  each chain's head, each entry's leader gaps, and sent the summary. */
+  readonly health = new Health();
+  private lastHeadCheck = new Map<string, number>();
+  private lastGapCheck = new Map<string, number>();
+  private lastSummary = now();
 
   private cfg: Config;
   private state: State;
@@ -205,20 +231,25 @@ export class Keeper {
     this.state = state;
     this.account = account;
     this.log = log;
-    for (const c of Object.values(cfg.chains)) this.clients.set(c.name, this.makeClients(c));
+    this.health.wallet = account.address;
+    for (const c of Object.values(cfg.chains)) this.clients.set(c.name, this.makeClients(c, false));
   }
 
-  private makeClients(c: ChainCfg): Clients {
+  /** With `multicall`, view calls made together (a Promise.all of readContract) go out as one Multicall3 aggregate3
+   *  eth_call. Each call still fails on its own (allowFailure), so a `.catch()` on one read keeps working. Calls with
+   *  an account (dry runs, gas estimates) and storage reads are never batched. */
+  private makeClients(c: ChainCfg, multicall: boolean): Clients {
     const chain = defineChain({
       id: c.chainId,
       name: c.name,
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
       rpcUrls: { default: { http: [c.rpc] } },
+      contracts: multicall && c.multicall3 ? { multicall3: { address: c.multicall3 } } : undefined,
     });
     const transport = http(c.rpc, { retryCount: 3, timeout: 30_000 });
     return {
       chain,
-      pub: createPublicClient({ chain, transport }) as PublicClient,
+      pub: createPublicClient({ chain, transport, batch: multicall ? { multicall: { batchSize: 8192, wait: 0 } } : undefined }) as PublicClient,
       wal: createWalletClient({ chain, transport, account: this.account }),
     };
   }
@@ -227,13 +258,15 @@ export class Keeper {
     return this.clients.get(chain.name)!;
   }
 
-  /** Run `fn` (send a tx and wait for it) after any earlier send on the same chain has finished. `fn` gets the
-   *  nonce to send with: tracked here, not re-read from the RPC, because a node behind a load balancer can still
-   *  report the old pending count just after our last receipt ("nonce too low"). Any failure drops the cached
-   *  nonce, so the next send reads it fresh. */
-  private serial<T>(chain: ChainCfg, fn: (nonce: number) => Promise<T>): Promise<T> {
+  /** Send a transaction on `chain` and wait for its receipt. `fn` broadcasts with the nonce it is given and returns
+   *  the hash. Nonces are handed out one at a time: tracked here, not re-read from the RPC, because a node behind a
+   *  load balancer can still report the old pending count just after our last send ("nonce too low"). Only the
+   *  broadcast holds the lock; the wait for the receipt does not, so several transactions can be in flight at once
+   *  (callers cap that with `sampling.maxInFlight`). A failed broadcast drops the cached nonce, so the next send reads
+   *  it fresh. A receipt that does not come within `alerts.stuckTxSec` is reported as stuck. */
+  private async send(chain: ChainCfg, kind: TxKind, fn: (nonce: number) => Promise<Hex>): Promise<{ hash: Hex; rc: TransactionReceipt }> {
     const prev = this.sendLock.get(chain.name) ?? Promise.resolve();
-    const next = prev
+    const broadcast = prev
       .catch(() => undefined)
       .then(async () => {
         let n = this.nonces.get(chain.name);
@@ -242,18 +275,37 @@ export class Keeper {
           n = Math.max(pending, this.nonceFloor.get(chain.name) ?? 0);
         }
         try {
-          const out = await fn(n);
+          const hash = await fn(n);
           this.nonces.set(chain.name, n + 1);
           this.nonceFloor.set(chain.name, n + 1);
-          return out;
+          return hash;
         } catch (e) {
           this.nonces.delete(chain.name);
           if (/nonce too low/i.test((e as Error).message ?? "")) this.nonceFloor.set(chain.name, n + 1);
           throw e;
         }
       });
-    this.sendLock.set(chain.name, next.catch(() => undefined));
-    return next;
+    this.sendLock.set(chain.name, broadcast.catch(() => undefined));
+    const hash = await broadcast;
+    const h = this.health.chain(chain.name);
+    h.inFlight++;
+    try {
+      const rc = await this.c(chain).pub.waitForTransactionReceipt({ hash, timeout: this.cfg.alerts.stuckTxSec * 1000, pollingInterval: 2_000 });
+      this.health.tx(kind, rc.status === "success", rc.gasUsed * rc.effectiveGasPrice);
+      return { hash, rc };
+    } catch (e) {
+      // no receipt in time: the transaction may be stuck in the mempool (fee too low) and holds up every later nonce.
+      // Read the nonce fresh next time and tell a person.
+      this.nonces.delete(chain.name);
+      this.health.stuck++;
+      this.health.lastStuckAt = now();
+      const m = `${kind} tx ${hash} on ${chain.name} has no receipt after ${this.cfg.alerts.stuckTxSec}s: ${(e as Error).message?.split("\n")[0]}`;
+      this.log.warn(m);
+      await alert(`stuck:${chain.name}`, m, 1800);
+      throw e;
+    } finally {
+      h.inFlight--;
+    }
   }
 
   private async token(pub: PublicClient, t: Hex): Promise<{ symbol: string; decimals: number }> {
@@ -291,7 +343,14 @@ export class Keeper {
       const id = await this.c(c).pub.getChainId();
       if (id !== c.chainId) throw new Error(`${c.name}: RPC is chain ${id}, config says ${c.chainId}`);
       const bal = await this.c(c).pub.getBalance({ address: this.account.address });
+      this.health.chain(c.name).balanceEth = formatEther(bal);
       this.log.info(`${c.name}: keeper ${this.account.address} balance ${formatEther(bal)} ETH`);
+      // Multicall3 only where it is really deployed: otherwise every batched read would fail
+      const code = c.multicall3 ? await this.c(c).pub.getCode({ address: c.multicall3 }).catch(() => undefined) : undefined;
+      const on = !!code && code !== "0x";
+      this.health.multicall[c.name] = on;
+      if (on) this.clients.set(c.name, this.makeClients(c, true));
+      this.log.info(`${c.name}: multicall ${on ? `on (${c.multicall3})` : c.multicall3 ? `off, no code at ${c.multicall3}` : "off"}`);
     }
   }
 
@@ -325,19 +384,23 @@ export class Keeper {
   /** One same-chain round: every same-chain set. */
   async sampleTick(): Promise<void> {
     let ok = true;
+    let lastErr = "";
     for (const s of this.cfg.sameChain) {
       try {
+        await this.headDue(s.chain);
         await this.discoverSame(s);
         await this.sampleDue(s);
         if (s.abi === "carry") await this.sweepDue(s);
         if (s.abi === "carry" && s.stockQueue) await this.matchDue(s);
         if (s.abi === "carry") await this.settleDue(s);
         await this.balanceDue(s.chain);
+        await this.gapDue(s);
         if ((this.failures.get(s.name) ?? 0) >= this.cfg.alerts.errorsBeforeAlert) await alert(`fail:${s.name}`, `${s.name} is working again`, 0);
         this.failures.set(s.name, 0);
       } catch (e) {
         ok = false;
         const msg = (e as Error).message?.split("\n")[0] ?? String(e);
+        lastErr = `${s.name}: ${msg}`;
         this.log.warn(`${s.name}: ${msg}`);
         const n = (this.failures.get(s.name) ?? 0) + 1;
         this.failures.set(s.name, n);
@@ -346,7 +409,51 @@ export class Keeper {
         saveState(this.cfg.stateFile, this.state);
       }
     }
+    this.health.round(ok, lastErr);
+    this.health.write(this.cfg.healthFile);
     if (ok) await heartbeat();
+    await this.summaryDue();
+  }
+
+  /** Every 60 s per chain: the RPC's latest block must be recent. A node that is behind or stalled answers every
+   *  read with old state and would make the keeper act on it, so a stale head fails the round (no heartbeat, and
+   *  after errorsBeforeAlert rounds an alert). */
+  async headDue(chain: ChainCfg): Promise<void> {
+    const t = now();
+    if ((this.lastHeadCheck.get(chain.name) ?? 0) + 60 > t) return;
+    const blk = await this.c(chain).pub.getBlock({ blockTag: "latest" });
+    const h = this.health.chain(chain.name);
+    h.head = Number(blk.number);
+    h.headAt = Number(blk.timestamp);
+    const age = t - Number(blk.timestamp);
+    if (age > this.cfg.alerts.staleHeadSec) throw new Error(`${chain.name} RPC head ${blk.number} is ${age}s old (stale node?)`);
+    this.lastHeadCheck.set(chain.name, t);
+  }
+
+  /** Every `alerts.gapEverySec`: each pool's gap to its leader, for the health file, and an alert once a pool has
+   *  stayed `offLeaderBps` or more off for `offLeaderSec` (the keeper is not keeping it at the market). */
+  async gapDue(s: SameChainCfg): Promise<void> {
+    const al = this.cfg.alerts;
+    const t = now();
+    if (al.gapEverySec <= 0 || (this.lastGapCheck.get(s.name) ?? 0) + al.gapEverySec > t) return;
+    this.lastGapCheck.set(s.name, t);
+    const rs = routeState(this.state, s.name);
+    const ids = Object.keys(rs.pools) as Hex[];
+    const gaps = await Promise.all(ids.map((id) => this.leaderGapBps(s, id, rs.pools[id] as PoolSource).catch(() => 0)));
+    for (let i = 0; i < ids.length; i++) {
+      const off = this.health.gap(ids[i], s.name, gaps[i], al.offLeaderBps);
+      if (off >= al.offLeaderSec) {
+        await alert(`gap:${ids[i]}`, `${s.name}: pool ${ids[i].slice(0, 10)} has been ${gaps[i]} bps off its leader for ${Math.round(off / 60)} min`, 6 * 3600);
+      }
+    }
+  }
+
+  /** Every `alerts.summaryEverySec`: one message with the last day's transactions, gas, balance and pool gaps. */
+  async summaryDue(): Promise<void> {
+    const every = this.cfg.alerts.summaryEverySec;
+    if (every <= 0 || this.lastSummary + every > now()) return;
+    this.lastSummary = now();
+    await alert("summary", this.health.summary(), 0);
   }
 
   /** Every `alerts.balanceEverySec`: warn and alert when the keeper's ETH on `chain` is below `alerts.minEth`. */
@@ -355,6 +462,7 @@ export class Keeper {
     if ((this.lastBalanceCheck.get(chain.name) ?? 0) + this.cfg.alerts.balanceEverySec > t) return;
     this.lastBalanceCheck.set(chain.name, t);
     const bal = await this.c(chain).pub.getBalance({ address: this.account.address });
+    this.health.chain(chain.name).balanceEth = formatEther(bal);
     if (bal >= this.cfg.alerts.minEth) return;
     const m = `keeper ${this.account.address} has ${formatEther(bal)} ETH on ${chain.name}, below ${formatEther(this.cfg.alerts.minEth)}: top it up`;
     this.log.warn(m);
@@ -541,8 +649,8 @@ export class Keeper {
       this.log.warn(`${r.name}: push of ${ds.length} pools would cost ${formatEther(expected)} ETH, above maxPushCost`);
       return null;
     }
-    const { hash, rc } = await this.serial(r.home, async (nonce) => {
-      const hash = await wal.writeContract({
+    const { hash, rc } = await this.send(r.home, "push", (nonce) =>
+      wal.writeContract({
         chain,
         account: this.account,
         nonce,
@@ -554,9 +662,8 @@ export class Keeper {
         gas: (est * 6n) / 5n,
         maxFeePerGas: maxFee,
         maxPriorityFeePerGas: tip,
-      });
-      return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
-    });
+      }),
+    );
     if (rc.status !== "success") throw new Error(`push ${hash} reverted`);
     const pk = packetsFromLogs(rc.logs, r.home.endpoint).find((p) => p.receiver.toLowerCase() === r.receiver.toLowerCase());
     if (!pk) throw new Error(`push ${hash}: no PacketSent in receipt`);
@@ -651,8 +758,8 @@ export class Keeper {
       } catch {
         continue; // DVNs not done yet (or confirmations not reached)
       }
-      const { hash, rc } = await this.serial(r.dest, async (nonce) => {
-        const hash = await wal.writeContract({
+      const { hash, rc } = await this.send(r.dest, "commit", (nonce) =>
+        wal.writeContract({
           chain,
           account: this.account,
           nonce,
@@ -661,9 +768,8 @@ export class Keeper {
           functionName: "commitVerification",
           args: [p.header, ph],
           ...this.fees(r.dest),
-        });
-        return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
-      });
+        }),
+      );
       if (rc.status !== "success") throw new Error(`commit ${hash} reverted`);
       p.committed = true;
       p.spent = (BigInt(p.spent ?? "0") + rc.gasUsed * rc.effectiveGasPrice).toString();
@@ -686,8 +792,8 @@ export class Keeper {
         this.log.warn(`${r.name}: nonce ${p.nonce} cannot execute yet${blocked ? `: waiting for nonce ${blocked[1]}` : `: ${m.split("\n")[0]}`}`);
         break;
       }
-      const { hash, rc } = await this.serial(r.dest, async (nonce) => {
-        const hash = await wal.writeContract({
+      const { hash, rc } = await this.send(r.dest, "deliver", (nonce) =>
+        wal.writeContract({
           chain,
           account: this.account,
           nonce,
@@ -697,9 +803,8 @@ export class Keeper {
           args,
           gas: lzReceiveGas(n, est),
           ...this.fees(r.dest),
-        });
-        return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
-      });
+        }),
+      );
       if (rc.status !== "success") throw new Error(`lzReceive ${hash} reverted`);
       drop.add(p);
       const spent = BigInt(p.spent ?? "0") + rc.gasUsed * rc.effectiveGasPrice;
@@ -746,8 +851,8 @@ export class Keeper {
     for (const tk of toks) {
       const amt = await pub.readContract({ address: hook, abi: hookAbi, functionName: "owed", args: [this.account.address, tk] });
       if (amt === 0n) continue;
-      const { hash, rc } = await this.serial(r.dest, async (nonce) => {
-        const hash = await wal.writeContract({
+      const { hash, rc } = await this.send(r.dest, "collect", (nonce) =>
+        wal.writeContract({
           chain,
           account: this.account,
           nonce,
@@ -756,9 +861,8 @@ export class Keeper {
           functionName: "collect",
           args: [tk],
           ...this.fees(r.dest),
-        });
-        return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
-      });
+        }),
+      );
       if (rc.status !== "success") {
         this.log.warn(`${r.name}: collect ${tk} reverted (tx ${hash}); will retry next sweep`);
         continue;
@@ -821,21 +925,36 @@ export class Keeper {
         pub.readContract({ address: s.hook, abi: this.hAbi(s), functionName: "sampleDue", args: [id] }).catch(() => false),
       ),
     );
+    const sends: (() => Promise<void>)[] = [];
+    const selfPay = s.abi === "carry" ? sm.selfPayBpsCarry : sm.selfPayBps;
+    const maybe: Hex[] = [];
     for (let i = 0; i < open.length; i++) {
       const id = open[i];
-      if (due[i]) {
-        await this.sample(s, id);
-        continue;
-      }
-      const selfPay = s.abi === "carry" ? sm.selfPayBpsCarry : sm.selfPayBps;
-      if (selfPay <= 0 || !selfPayRoom(this.selfPaid, id, t, sm.selfPayMaxPerHour)) continue;
-      const gap = await this.leaderGapBps(s, id, rs.pools[id] as PoolSource);
-      if (gap >= selfPay) {
-        if (!this.selfPaid.has(id)) this.selfPaid.set(id, []);
-        this.selfPaid.get(id)!.push(t);
-        await this.sample(s, id, false);
-      }
+      if (due[i]) sends.push(() => this.sample(s, id));
+      else if (selfPay > 0 && selfPayRoom(this.selfPaid, id, t, sm.selfPayMaxPerHour)) maybe.push(id);
     }
+    // gaps for the self-pay candidates, read together (one multicall)
+    const gaps = await Promise.all(maybe.map((id) => this.leaderGapBps(s, id, rs.pools[id] as PoolSource)));
+    for (let i = 0; i < maybe.length; i++) {
+      if (gaps[i] < selfPay) continue;
+      const id = maybe[i];
+      if (!this.selfPaid.has(id)) this.selfPaid.set(id, []);
+      this.selfPaid.get(id)!.push(t);
+      sends.push(() => this.sample(s, id, false));
+    }
+    await this.parallel(s, "sample", sends);
+  }
+
+  /** Sends for different pools, at most `maxInFlight` at a time. One failing send is logged; the rest go on. */
+  /** Each failure is logged, and the first is thrown once all are done, so the round still counts as failed (and a
+   *  send that keeps failing still alerts after errorsBeforeAlert rounds). */
+  private async parallel(s: SameChainCfg, what: string, sends: (() => Promise<void>)[]): Promise<void> {
+    const errs: unknown[] = [];
+    await limit(this.cfg.sampling.maxInFlight, sends, (e) => {
+      errs.push(e);
+      if (sends.length > 1) this.log.warn(`${s.name}: ${what} failed: ${(e as Error).message?.split("\n")[0] ?? e}`);
+    });
+    if (errs.length) throw errs[0];
   }
 
   /** Carry: keep each pool's hot USDG near its target. Swaps only ever pull USDG out of Morpho (a sell that needs
@@ -848,18 +967,26 @@ export class Keeper {
     const rs = routeState(this.state, s.name);
     const { pub } = this.c(s.chain);
     const t = now();
-    for (const id of Object.keys(rs.pools) as Hex[]) {
-      if ((this.lastSweepCheck.get(id) ?? 0) + sm.sweepEverySec > t) continue;
-      this.lastSweepCheck.set(id, t);
-      const [v, ts] = await Promise.all([
-        pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "poolState", args: [id] }).catch(() => null),
-        pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "tailState", args: [id] }).catch(() => null),
-      ]);
-      if (!v || !ts || !v.live) continue;
+    const ids = (Object.keys(rs.pools) as Hex[]).filter((id) => (this.lastSweepCheck.get(id) ?? 0) + sm.sweepEverySec <= t);
+    for (const id of ids) this.lastSweepCheck.set(id, t);
+    // every pool's poolState + tailState in one go (one multicall)
+    const reads = await Promise.all(
+      ids.map((id) =>
+        Promise.all([
+          pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "poolState", args: [id] }).catch(() => null),
+          pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "tailState", args: [id] }).catch(() => null),
+        ]),
+      ),
+    );
+    const sends: (() => Promise<void>)[] = [];
+    ids.forEach((id, i) => {
+      const [v, ts] = reads[i];
+      if (!v || !ts || !v.live) return;
       const tail = ts[0];
-      if (!sweepNeeded(v.quoteReserve, tail.principal, tail.hotBps, tail.vault, sm.sweepBandBps)) continue;
-      await this.sweep(s, id, v.quoteReserve, tail.principal);
-    }
+      if (!sweepNeeded(v.quoteReserve, tail.principal, tail.hotBps, tail.vault, sm.sweepBandBps)) return;
+      sends.push(() => this.sweep(s, id, v.quoteReserve, tail.principal));
+    });
+    await this.parallel(s, "sweep", sends);
   }
 
   async sweep(s: SameChainCfg, id: Hex, y: bigint, principal: bigint): Promise<void> {
@@ -880,8 +1007,8 @@ export class Keeper {
     }
     const tip = s.chain.priorityFee;
     const maxFee = base * 2n + tip < s.chain.maxFee ? base * 2n + tip : s.chain.maxFee;
-    const { hash, rc } = await this.serial(s.chain, async (nonce) => {
-      const hash = await wal.writeContract({
+    const { hash, rc } = await this.send(s.chain, "sweep", (nonce) =>
+      wal.writeContract({
         chain,
         account: this.account,
         nonce,
@@ -892,9 +1019,8 @@ export class Keeper {
         gas: (est * 13n) / 10n,
         maxFeePerGas: maxFee,
         maxPriorityFeePerGas: tip,
-      });
-      return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
-    });
+      }),
+    );
     const spent = rc.gasUsed * rc.effectiveGasPrice;
     if (rc.status !== "success") {
       this.log.warn(`${s.name}: sweep ${id.slice(0, 10)} reverted, tx ${hash}, spent ${formatEther(spent)} ETH`);
@@ -996,8 +1122,8 @@ export class Keeper {
     }
     const tip = s.chain.priorityFee;
     const maxFee = base * 2n + tip < s.chain.maxFee ? base * 2n + tip : s.chain.maxFee;
-    const { hash, rc } = await this.serial(s.chain, async (nonce) => {
-      const hash = await wal.writeContract({
+    const { hash, rc } = await this.send(s.chain, "match", (nonce) =>
+      wal.writeContract({
         chain,
         account: this.account,
         nonce,
@@ -1010,9 +1136,8 @@ export class Keeper {
         gas: (est * 13n) / 10n > MATCH_GAS_FLOOR ? (est * 13n) / 10n : MATCH_GAS_FLOOR,
         maxFeePerGas: maxFee,
         maxPriorityFeePerGas: tip,
-      });
-      return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
-    });
+      }),
+    );
     const spent = rc.gasUsed * rc.effectiveGasPrice;
     if (rc.status !== "success") {
       this.log.warn(`${s.name}: matchOrders(${market}) reverted, tx ${hash}, spent ${formatEther(spent)} ETH`);
@@ -1076,40 +1201,49 @@ export class Keeper {
     const rs = routeState(this.state, s.name);
     const { pub } = this.c(s.chain);
     const t = now();
-    for (const id of Object.keys(rs.pools) as Hex[]) {
-      if ((this.noSettleUntil.get(id) ?? 0) > t) continue;
-      if ((this.lastSettleCheck.get(id) ?? 0) + sm.settleCheckSec > t) continue;
-      this.lastSettleCheck.set(id, t);
-      try {
-        await pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "settleEvery" });
-      } catch {
-        this.noSettleUntil.set(id, t + 6 * 3600); // launch hook: no epochs
-        continue;
-      }
-      // the hook's own answer when it has one (its hour, not settleEverySec); storage read only as a fallback
-      const due = await pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "settleDue", args: [id] }).catch(() => null);
-      if (due !== null) {
-        if (due) await this.settle(s, id);
-        continue;
-      }
-      let e;
-      try {
-        e = await readEpoch(pub, s.hook, id);
-      } catch (err) {
-        this.log.warn(`${s.name}: epoch read for ${id.slice(0, 10)} failed, next check: ${(err as Error).message?.split("\n")[0]}`);
-        this.lastSettleCheck.set(id, t - sm.settleCheckSec + 60); // retry in a minute
-        continue;
-      }
-      if (!e.layoutOk) {
-        this.log.warn(`${s.name}: pool ${id.slice(0, 10)} storage does not match the hook's poolState (layout changed?); not settling`);
-        await alert(`layout:${id}`, `${s.name}: pool ${id.slice(0, 10)} storage layout changed, hourly payout off until the keeper is updated`);
-        this.noSettleUntil.set(id, t + 3600);
-        continue;
-      }
-      if (e.dy === 0n) continue; // nothing earned since the last payout
-      if (BigInt(t) < e.settledAt + BigInt(sm.settleEverySec)) continue; // paid out within the epoch already
-      await this.settle(s, id);
+    const ids = (Object.keys(rs.pools) as Hex[]).filter(
+      (id) => (this.noSettleUntil.get(id) ?? 0) <= t && (this.lastSettleCheck.get(id) ?? 0) + sm.settleCheckSec <= t,
+    );
+    // every pool checked together, so their reads share multicalls; then the payouts, maxInFlight at a time
+    const due = await Promise.all(ids.map((id) => this.settleCheck(s, id, t)));
+    await this.parallel(
+      s,
+      "settle",
+      ids.filter((_, i) => due[i]).map((id) => () => this.settle(s, id)),
+    );
+  }
+
+  /** Whether pool `id` should be paid out now (see settleDue). */
+  private async settleCheck(s: SameChainCfg, id: Hex, t: number): Promise<boolean> {
+    const sm = this.cfg.sampling;
+    const { pub } = this.c(s.chain);
+    this.lastSettleCheck.set(id, t);
+    try {
+      await pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "settleEvery" });
+    } catch {
+      this.noSettleUntil.set(id, t + 6 * 3600); // launch hook: no epochs
+      return false;
     }
+    // the hook's own answer when it has one (its hour, not settleEverySec); storage read only as a fallback
+    const due = await pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "settleDue", args: [id] }).catch(() => null);
+    if (due !== null) return due;
+    let e;
+    try {
+      e = await readEpoch(pub, s.hook, id);
+    } catch (err) {
+      this.log.warn(`${s.name}: epoch read for ${id.slice(0, 10)} failed, next check: ${(err as Error).message?.split("\n")[0]}`);
+      this.lastSettleCheck.set(id, t - sm.settleCheckSec + 60); // retry in a minute
+      return false;
+    }
+    if (!e.layoutOk) {
+      this.log.warn(`${s.name}: pool ${id.slice(0, 10)} storage does not match the hook's poolState (layout changed?); not settling`);
+      await alert(`layout:${id}`, `${s.name}: pool ${id.slice(0, 10)} storage layout changed, hourly payout off until the keeper is updated`);
+      this.noSettleUntil.set(id, t + 3600);
+      return false;
+    }
+    if (e.dy === 0n) return false; // nothing earned since the last payout
+    if (BigInt(t) < e.settledAt + BigInt(sm.settleEverySec)) return false; // paid out within the epoch already
+    return true;
   }
 
   async settle(s: SameChainCfg, id: Hex): Promise<void> {
@@ -1130,8 +1264,8 @@ export class Keeper {
     }
     const tip = s.chain.priorityFee;
     const maxFee = base * 2n + tip < s.chain.maxFee ? base * 2n + tip : s.chain.maxFee;
-    const { hash, rc } = await this.serial(s.chain, async (nonce) => {
-      const hash = await wal.writeContract({
+    const { hash, rc } = await this.send(s.chain, "settle", (nonce) =>
+      wal.writeContract({
         chain,
         account: this.account,
         nonce,
@@ -1142,9 +1276,8 @@ export class Keeper {
         gas: (est * 13n) / 10n,
         maxFeePerGas: maxFee,
         maxPriorityFeePerGas: tip,
-      });
-      return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
-    });
+      }),
+    );
     const spent = rc.gasUsed * rc.effectiveGasPrice;
     if (rc.status !== "success") {
       this.log.warn(`${s.name}: settle ${id.slice(0, 10)} reverted, tx ${hash}, spent ${formatEther(spent)} ETH`);
@@ -1188,8 +1321,8 @@ export class Keeper {
     }
     const tip = s.chain.priorityFee;
     const maxFee = base * 2n + tip < s.chain.maxFee ? base * 2n + tip : s.chain.maxFee;
-    const { hash, rc } = await this.serial(s.chain, async (nonce) => {
-      const hash = await wal.writeContract({
+    const { hash, rc } = await this.send(s.chain, paid ? "sample" : "sample-unpaid", (nonce) =>
+      wal.writeContract({
         chain,
         account: this.account,
         nonce,
@@ -1200,9 +1333,8 @@ export class Keeper {
         gas: (est * 13n) / 10n,
         maxFeePerGas: maxFee,
         maxPriorityFeePerGas: tip,
-      });
-      return { hash, rc: await pub.waitForTransactionReceipt({ hash }) };
-    });
+      }),
+    );
     const spent = rc.gasUsed * rc.effectiveGasPrice;
     if (rc.status !== "success") {
       this.log.warn(`${s.name}: sample ${id.slice(0, 10)} reverted, tx ${hash}, spent ${formatEther(spent)} ETH`);

@@ -69,10 +69,28 @@ is being added to #132, its answer is used. The slot read is only a fallback for
 settle. Layout from `forge inspect CarryStrategy storageLayout` on #132. The launch hook has no `settleEvery()`, so it is
 left alone.
 
-**Alerts.** `ALERT_URL` (ntfy.sh topic, Discord or Slack webhook) gets: low gas (below `alerts.minEth`, default
-0.003 ETH, checked every `alerts.balanceEverySec`), `alerts.errorsBeforeAlert` failed rounds in a row (default 10) and
-the recovery, start, and a fatal stop. `HEARTBEAT_URL` (for example healthchecks.io) is pinged once a minute while rounds
-succeed, so it alerts when they stop. Both are optional. Running it on a server: [deploy/aws](deploy/aws/README.md).
+**Alerts.** `ALERT_URL` (ntfy.sh topic, Discord or Slack webhook) gets:
+- low gas (below `alerts.minEth`, default 0.003 ETH, checked every `alerts.balanceEverySec`), at most every 6 h
+- `alerts.errorsBeforeAlert` failed rounds in a row (default 10), and the recovery. A round fails when any read or send
+  in it fails, or when the RPC's latest block is older than `alerts.staleHeadSec` (300 s: a node that is behind)
+- a stuck transaction: no receipt within `alerts.stuckTxSec` (180 s)
+- a pool whose centre stays `alerts.offLeaderBps` (100) or more from its leader for `alerts.offLeaderSec` (30 min)
+- a stall: no round finished for `alerts.stallSec` (900 s). The keeper then exits, so systemd starts a fresh one
+- start, a fatal stop, and a daily summary (transactions by kind, gas spent, balance, each pool's gap to its leader)
+
+`HEARTBEAT_URL` (for example healthchecks.io) is pinged once a minute while rounds succeed, so it alerts when they stop,
+and is told `/fail` on a fatal stop. Both URLs are optional. Running it on a server: [deploy/aws](deploy/aws/README.md).
+
+**Health file.** After every round the keeper writes `<stateFile>.health.json` (or `healthFile`): last good round, last
+error, RPC head, balance, each pool's gap to its leader, and the last 24 h of transactions. `npm run health` (or
+`node src/main.ts --health`) reads it, needs no keys or RPC, prints a report and exits 1 when something is wrong.
+
+**Reads and sends.** View calls made together in one round (every pool's `sampleDue`, `poolState`, `tailState`, the
+leader prices) go out as one Multicall3 `aggregate3` eth_call, when Multicall3 has code on the chain (checked at start;
+it does on Robinhood). Storage reads, dry runs and gas estimates still go one by one. Transactions for different pools
+in one step (samples, sweeps, payouts) are sent together, at most `sampling.maxInFlight` (4) waiting for receipts at
+once. Nonces are still handed out one at a time from a local counter. Stock queue matches stay one at a time, since
+they share the vault's free USDG.
 
 On the local anvil test, with plain tokens, a tip came to about gas + 26% (the hook adds a fixed 90k for the gas
 it cannot measure, sized for heavier real tokens). The first tip in a token pays about gas + 10%, because the
@@ -236,6 +254,15 @@ on the Robinhood side, or use a plan with a larger range (and raise `logChunk`).
 | `sampling.matchSampleMaxPerHour` | 12 | Carry stock queue: most unpaid samples per pool per hour to unblock waiting stock (the vault takes deposits only while the pool's centre is within its fee, at most 0.25%, of the leader; 0 = never) |
 | `sampling.settleEverySec` | 3600 | Carry v0.3: pay a pool's fees out once nothing paid out for this long and it earned something (0 = never) |
 | `sampling.settleCheckSec` | 300 | Carry v0.3: how often to read each pool's epoch |
+| `sampling.maxInFlight` | 4 | most transactions waiting for a receipt at once per chain (1 = one at a time) |
+| `chains.<name>.multicall3` | `0xcA11…CA11` | Multicall3 address, used only if it has code; `"off"` sends every read on its own |
+| `healthFile` | `<stateFile>.health.json` | where the health report goes each round (`KEEPER_HEALTH` overrides) |
+| `alerts.stuckTxSec` | 180 | a transaction with no receipt after this long is stuck: alert |
+| `alerts.staleHeadSec` | 300 | the RPC's latest block older than this fails the round |
+| `alerts.stallSec` | 900 | no round finished for this long: alert and exit (systemd restarts it); 0 = off |
+| `alerts.offLeaderBps` / `offLeaderSec` | 100 / 1800 | alert when a pool's centre stays this far from its leader this long |
+| `alerts.gapEverySec` | 60 | how often to read each pool's gap to its leader |
+| `alerts.summaryEverySec` | 86400 | daily summary to `ALERT_URL`; 0 = off |
 | `alerts.minEth` | 0.003 | warn and alert (`ALERT_URL`) when the keeper's ETH on a chain is below this |
 | `alerts.balanceEverySec` | 600 | how often to read the keeper's balance |
 | `alerts.errorsBeforeAlert` | 10 | alert after this many failed same-chain rounds in a row |
