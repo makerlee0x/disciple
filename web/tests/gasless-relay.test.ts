@@ -64,6 +64,7 @@ async function wire(o: { signer?: typeof user; recipient?: Address; amountIn?: b
   return JSON.parse(JSON.stringify({ signer: o.signer && o.recipient === undefined ? s.address : user.address, permit, trade, signature }, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
 }
 beforeEach(() => {
+  vi.stubEnv("GASLESS_PRESIM", "1");   // these suites cover the pre-send simulation (off by default since 2026-11-21)
   vi.resetAllMocks(); delete process.env.VERCEL_ENV; delete process.env.VERCEL; process.env.GAS_SPONSORSHIP_MODE = "gasless";
   h.chain.mockResolvedValue(46630); h.block.mockResolvedValue({ timestamp: BigInt(NOW), baseFeePerGas: 10_000_000n });
   h.read.mockImplementation(async ({ functionName }) => functionName === "verifiedUntil" ? BigInt(NOW + 3600) : 0n);
@@ -92,6 +93,24 @@ describe("switch: GAS_SPONSORSHIP_MODE", () => {
   it("admitted in Production when the resolved mode is gasless", () => {
     vi.stubEnv("VERCEL_ENV", "production"); vi.stubEnv("VERCEL", "1"); vi.stubEnv("NODE_ENV", "production");
     expect(() => requireGaslessMode()).not.toThrow();
+  });
+});
+
+describe("default: no pre-send simulation (maker 2026-11-21)", () => {
+  it("admission → budget → send at the 3M cap, no eth_call", async () => {
+    vi.stubEnv("GASLESS_PRESIM", "");
+    const order: string[] = [];
+    h.call.mockImplementation(async () => { order.push("sim"); return { data: "0x" }; });
+    h.budget.mockImplementation(async () => { order.push("budget"); return 0; });
+    h.send.mockImplementation(async () => { order.push("send"); return okRc(); });
+    await expect(relayGaslessTrade(await wire())).resolves.toMatchObject({ success: true });
+    expect(order).toEqual(["budget", "send"]);
+  });
+  it("still refuses a struck sender before anything is sent", async () => {
+    vi.stubEnv("GASLESS_PRESIM", "");
+    h.mget.mockImplementation(async (ks: string[]) => ks.map(k => k.startsWith("relay:trust:") ? JSON.stringify({ strikeUntil: Date.now() + 60_000 }) : null));
+    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true });
+    expect(h.send).not.toHaveBeenCalled();
   });
 });
 
@@ -479,17 +498,19 @@ describe("play-test fixes (maker 2026-11-14: buys stuck on \"didn't go through\"
   });
 });
 
-describe("loss breaker (runs last: it stays open for this module)", () => {
-  it("included revert ⇒ loss breaker record; 2 reverts open the breaker ⇒ next request refused notSent", async () => {
+describe("loss breaker: never pauses every player (maker 2026-11-21)", () => {
+  it("reverts from two senders past the threshold ⇒ no all-player pause; the next player's trade still goes", async () => {
     h.send.mockResolvedValue(okRc("0x0"));
     const r = await relayGaslessTrade(await wire()); expect(r.success).toBe(false);
-    h.incr.mockImplementation(async (k: string) => (k.startsWith("relay:breaker:by:") ? 1 : 2));   // window revert count; first revert for this sender
-    TOKEN = session([other.address]).token;   // a different Privy user — the first signer (and their did) is struck
+    h.incr.mockImplementation(async (k: string) => (k.startsWith("relay:breaker:by:") ? 1 : 99));
+    TOKEN = session([other.address]).token;
     await relayGaslessTrade(await wire({ signer: other, isBuy: false, amountIn: 5n })).catch(() => undefined);
-    expect(h.setNX).toHaveBeenCalledWith("relay:breaker:open", expect.any(String), expect.any(Number));
-    expect(relayBreaker.isOpen()).toBe(true);
+    expect(h.setNX).not.toHaveBeenCalledWith("relay:breaker:open", expect.any(String), expect.any(Number));
+    expect(relayBreaker.isOpen()).toBe(false);
     const third = privateKeyToAccount(generatePrivateKey());
-    await expect(relayGaslessTrade(await wire({ signer: third }))).rejects.toMatchObject({ notSent: true, message: expect.stringContaining("relay paused") });
+    TOKEN = session([third.address]).token;
+    h.send.mockResolvedValue(okRc());
+    await expect(relayGaslessTrade(await wire({ signer: third }))).resolves.toMatchObject({ success: true });
   });
 });
 
@@ -505,6 +526,6 @@ describe("audit 2026-11-21 H-1: one sender can't trip the breaker alone", () => 
     expect(b.isOpen()).toBe(false);   // two reverts, one sender: still closed
     expect((await recordSenderRevert({ who, reverted: true, lossWei: 0n }, b, () => store as never)).tooMany).toBe(true);
     await recordSenderRevert({ who: "0x00000000000000000000000000000000000000b2", reverted: true, lossWei: 0n }, b, () => store as never);
-    expect(b.isOpen()).toBe(true);    // a second sender's revert trips it
+    expect(b.isOpen()).toBe(false);   // no all-player pause, ever (maker 2026-11-21)
   });
 });

@@ -153,6 +153,8 @@ async function gaslessFillsCurve(coin: Address, usdgIn: bigint, kvStatus?: strin
 /** coin:side → when a trade on it last needed the 3M gas cap (per process). */
 const needsBigGas = new Map<string, number>(), smallGasOk = new Map<string, number>();
 const BIG_GAS_MEMO_MS = 10 * 60_000;
+/** Pre-send eth_call of every trade: OFF unless GASLESS_PRESIM=1 (maker 2026-11-21). */
+const presimOn = () => process.env.GASLESS_PRESIM === "1";
 /** How long commit waits, after admission, for the graduation-fill answer before sending at the 3M cap. */
 const FILL_WAIT_MS = 150;
 
@@ -186,7 +188,12 @@ async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: 
   // eth_call round trip, not two), and a coin + side that needed 3M skips the 900k try for 10 minutes.
   // Speed (maker 2026-11-21 "even slower"): the eth_call needs only the relayer ADDRESS, not its base fee / nonce, so it
   // no longer waits on those reads (they still finish ∥ and are joined below).
-  const sim = Promise.all([directRelayerAddress(), session]).then(([address]) => timed(m, "simulate", async (): Promise<bigint> => {
+  // NO PRE-SEND SIMULATION (maker 2026-11-21, picked "Skip it for everyone": "chain is 93 ms and we're 900ms thats
+  // unacceptable"; the eth_call took 0.8-1.1 s on the STRATEGY route). Every trade is sent at the 3M cap (never out of
+  // gas; Arbitrum charges gas used). A trade that would fail is included as a revert: the relayer pays its gas, and the
+  // included-revert rules in commit() still strike the sender and feed the breaker. GASLESS_PRESIM=1 restores the check.
+  const sim = !presimOn() ? Promise.resolve(GASLESS_GRAD_GAS_LIMIT)
+    : Promise.all([directRelayerAddress(), session]).then(([address]) => timed(m, "simulate", async (): Promise<bigint> => {
     const r = { address };
     const key = `${coin.toLowerCase()}:${isBuy ? "b" : "s"}`, big = needsBigGas.get(key);
     const at3m = () => simulateDirect(r.address, to, data, GASLESS_GRAD_GAS_LIMIT).then(() => GASLESS_GRAD_GAS_LIMIT);
@@ -210,7 +217,7 @@ async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: 
   // NOT in the admission join any more (it took 2.1 s on maker's $SPACE buy, 2026-11-21): a 3M simulation already sends at
   // the 3M cap, and otherwise it gets FILL_WAIT_MS after admission; a late answer counts as "fills" (sends at the 3M cap,
   // which costs nothing extra on Arbitrum — gas is charged on gas used), so a graduating buy never runs out of gas.
-  const fillsP = !isBuy ? Promise.resolve(false)
+  const fillsP = !isBuy || !presimOn() ? Promise.resolve(false)
     : timed(m, "gradFillCheck", () => {
       if (memo !== undefined) return gaslessFillsCurve(coin, amountIn, memo);
       return gate.then(vals => gaslessFillsCurve(coin, amountIn, marketVal(vals))).catch(() => false);

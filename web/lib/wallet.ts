@@ -199,6 +199,7 @@ export async function warmGaslessBuy(): Promise<void> {
   if (!owner) return;
   const [{ deployment }, pc, { primePermit, permit2NonceBook }] = await Promise.all([import("./chains"), gaslessPc(), import("./trade/gaslessClient")]);
   await Promise.allSettled([
+    import("./aa/session").then(m => m.privyIdentityToken()),   // cached until near exp: the tap reuses it
     primePermit(pc as never, owner.address, deployment().usdg),
     permit2NonceBook(pc as never).prime(owner.address),
     warmGaslessRelay(owner.address),
@@ -279,6 +280,7 @@ export async function execGasless(a: { coin: Address; isBuy: boolean; amountIn: 
     return { txHash: r.txHash, logs: r.logs, gasMode: "gasless", pressId: a.pressId };
   } catch (e) {
     if (!(e instanceof GaslessError)) throw e;
+    if (/identity token|Privy session|session's wallet/i.test(e.message)) void import("./aa/session").then(m => m.forgetIdentityToken()).catch(() => undefined);
     if (e.data.unclear) throw new AAError("Timeout", e.message, { txHash: e.data.txHash });
     if (e.data.txHash && e.data.notSent !== true) throw new AAError("Reverted", e.message, { txHash: e.data.txHash, ...(e.data.revert ? { revertData: e.data.revert } : {}) });
     if (/InvalidNonce|0x756688fe/i.test(e.message + (e.data.revert ?? ""))) { resetGaslessNonces(owner.address); PRESIGNED.clear(); }

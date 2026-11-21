@@ -16,11 +16,11 @@ export const BREAKER_OPEN_KEY = "relay:breaker:open";
 const REVERTS_KEY = "relay:breaker:reverts", LOSS_KEY = "relay:breaker:lossGwei";
 export type BreakerConfig = { windowSec: number; pauseSec: number; revertTrip: number; lossTripGwei: number; refreshMs: number };
 const num = (v: string | undefined, d: number) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
-/** Defaults need no env: 2 included reverts, or 100,000 gwei (0.0001 ETH ≈ 12 trades' outer gas) net loss, within
- *  10 min ⇒ pause 15 min. RELAY_BREAKER_* only retunes the numbers (non-positive/invalid ⇒ default); there is no off switch. */
+/** Alert thresholds (no automatic pause since 2026-11-21, see record()): 10 included reverts (one per sender per window),
+ *  or 1,000,000 gwei (0.001 ETH) net loss, within 10 min. RELAY_BREAKER_* retunes them. */
 export function breakerConfig(env: Record<string, string | undefined> = process.env): BreakerConfig {
-  return { windowSec: num(env.RELAY_BREAKER_WINDOW_SEC, 600), pauseSec: num(env.RELAY_BREAKER_PAUSE_SEC, 900),
-    revertTrip: num(env.RELAY_BREAKER_REVERTS, 2), lossTripGwei: num(env.RELAY_BREAKER_LOSS_GWEI, 100_000), refreshMs: 2000 };
+  return { windowSec: num(env.RELAY_BREAKER_WINDOW_SEC, 600), pauseSec: num(env.RELAY_BREAKER_PAUSE_SEC, 120),
+    revertTrip: num(env.RELAY_BREAKER_REVERTS, 10), lossTripGwei: num(env.RELAY_BREAKER_LOSS_GWEI, 1_000_000), refreshMs: 2000 };
 }
 
 export class RelayBreaker {
@@ -53,10 +53,10 @@ export class RelayBreaker {
     const trip = reverts >= this.cfg.revertTrip || lossGwei >= this.cfg.lossTripGwei;
     console.warn("[disciple] relay breaker loss recorded", { reverted: o.reverted, lossGwei: loss, windowReverts: reverts, windowLossGwei: lossGwei, trip });
     if (!trip) return false;
-    const until = this.now() + this.cfg.pauseSec * 1000;
-    this.openUntil = Math.max(this.openUntil, until);   // this instance stops at once
-    await st.setNX(BREAKER_OPEN_KEY, String(until), this.cfg.pauseSec);
-    console.error("[disciple] relay breaker OPEN: self-mode sends paused", { untilMs: until, windowReverts: reverts, windowLossGwei: lossGwei });
+    // NO ALL-PLAYER PAUSE (maker 2026-11-21: "the all player pause should never happen. only hit the player."). Failed
+    // trades strike only their sender (recordSenderRevert → strikeSender). The threshold is still logged as an alert for
+    // the Team; the open key is never written by code (a manual relay:breaker:open in KV still pauses, as an operator switch).
+    console.error("[disciple] relay breaker threshold reached (all-player pause disabled; senders are struck instead)", { windowReverts: reverts, windowLossGwei: lossGwei });
     return true;
   }
 }
