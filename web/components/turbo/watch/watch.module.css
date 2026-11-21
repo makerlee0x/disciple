@@ -53,10 +53,12 @@
 .feed li.bomb { color: #FF6B8A; font-weight: 700; }
 .feed li.sys { color: #F2C14E; font-weight: 700; }
 .feed li.chat { color: #BCC0CA; }
-.result { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 8px 0; }
+.result { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 20px 0 8px; }
 .resultT { font: 800 34px / 1 var(--dsc-font-game); text-transform: uppercase; color: #F3DFA8; text-align: center; overflow-wrap: anywhere; }
 .acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; width: 100%; }
-.acts > * { flex: 1 1 160px; }
+.acts > * { flex: 1 1 160px; min-width: 0; }
+.acts > * > span, .acts > a { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.done .vsBig { margin-top: 24px; }
 
 /* /turbo/* is a game route: on phones the menu button floats top left (components/Sidebar), so the page starts below it */
 @media (max-width: 760px) { .page { padding-top: 72px; } }

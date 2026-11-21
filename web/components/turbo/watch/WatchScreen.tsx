@@ -209,7 +209,7 @@ function WatchDuel({ id }: { id: string }) {
   const left = room.startAt && now < room.startAt ? room.startAt - now : (room.endAt ?? now) - now;
   const counting = !!room.startAt && now < room.startAt;
   return (
-    <div className={`${s.page} ${s.watching}`} data-testid="watch-duel">
+    <div className={`${s.page} ${s.watching}${done ? ` ${s.done}` : ""}`} data-testid="watch-duel">
       <div className={s.bar}>
         <button type="button" className={s.back} onClick={() => router.push("/turbo/watch")} aria-label="Back">‹</button>
         {room.status === "live" ? <span className={s.live}><i aria-hidden />LIVE</span> : <span className={s.chip}>{done ? "Final" : "Lobby"}</span>}
@@ -218,7 +218,7 @@ function WatchDuel({ id }: { id: string }) {
         <button type="button" className={s.shareBtn} onClick={share} data-testid="watch-share">{copied ? "Copied" : "Share"}</button>
       </div>
 
-      <div className={s.clockBig} suppressHydrationWarning>{done ? "" : room.status === "live" ? (counting ? Math.ceil(left / 1000) : clock(left)) : ""}</div>
+      {!done && <div className={s.clockBig} suppressHydrationWarning>{room.status === "live" ? (counting ? Math.ceil(left / 1000) : clock(left)) : ""}</div>}
 
       <div className={s.vsBig}>
         {[a, b].filter(Boolean).map((p, i) => {
@@ -235,7 +235,7 @@ function WatchDuel({ id }: { id: string }) {
       </div>
       {b && <Tug a={profit[0]} b={profit[1]} fuel={fuel} />}
 
-      <PriceLine pts={pts} marks={marks} now={done ? (room.endAt ?? now) : now} />
+      {(!done || pts.length > 1) && <PriceLine pts={pts} marks={marks} now={done ? (room.endAt ?? now) : now} />}
 
       {done ? (
         <div className={s.result} data-testid="watch-result">
