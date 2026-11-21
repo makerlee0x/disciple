@@ -42,7 +42,7 @@ import { relaySendBudget, requireNotRevokedOrStruck } from "./relayLockdown";
 import { gaslessReferralHooks, referralDoneKey, referrerFromRaw, REFERRAL_DONE } from "./gaslessReferral";
 import { relayReadTransport } from "./relayReadTransport";
 import { requireSessionWallet, verifySessionToken } from "./gaslessSession";
-import { directRelayer, sendDirect, simulateDirect, strikeSender, type DirectRelayer, type OnPending } from "./fastRelay";
+import { directRelayer, directRelayerAddress, sendDirect, simulateDirect, strikeSender, type DirectRelayer, type OnPending } from "./fastRelay";
 import { relayBreaker } from "./relayBreaker";
 import type { RelayMetrics } from "./relayMetrics";
 import { kv } from "./kv";
@@ -152,6 +152,8 @@ async function gaslessFillsCurve(coin: Address, usdgIn: bigint, kvStatus?: strin
 /** coin:side → when a trade on it last needed the 3M gas cap (per process). */
 const needsBigGas = new Map<string, number>(), smallGasOk = new Map<string, number>();
 const BIG_GAS_MEMO_MS = 10 * 60_000;
+/** How long commit waits, after admission, for the graduation-fill answer before sending at the 3M cap. */
+const FILL_WAIT_MS = 150;
 
 async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: Address, isBuy: boolean, amountIn: bigint, extra: Promise<unknown>[] = []): Promise<{ relayer: DirectRelayer; did: string; fillsCurve: boolean; refDone: string | null; simGas: bigint }> {
   const m = d.metrics;
@@ -181,7 +183,10 @@ async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: 
   // too and is refused with that error.
   // Speed (maker 2026-11-20 "so slow"): the 3M simulation runs AT THE SAME TIME as the 900k one instead of after it (one
   // eth_call round trip, not two), and a coin + side that needed 3M skips the 900k try for 10 minutes.
-  const sim = Promise.all([relayer, session]).then(([r]) => timed(m, "simulate", async (): Promise<bigint> => {
+  // Speed (maker 2026-11-21 "even slower"): the eth_call needs only the relayer ADDRESS, not its base fee / nonce, so it
+  // no longer waits on those reads (they still finish ∥ and are joined below).
+  const sim = Promise.all([directRelayerAddress(), session]).then(([address]) => timed(m, "simulate", async (): Promise<bigint> => {
+    const r = { address };
     const key = `${coin.toLowerCase()}:${isBuy ? "b" : "s"}`, big = needsBigGas.get(key);
     const at3m = () => simulateDirect(r.address, to, data, GASLESS_GRAD_GAS_LIMIT).then(() => GASLESS_GRAD_GAS_LIMIT);
     if (big !== undefined && Date.now() - big < BIG_GAS_MEMO_MS) return at3m().catch(e2 => { throw legacyLogin(e2); });
@@ -201,21 +206,27 @@ async function admit(signer: Address, to: Hex, data: Hex, d: GaslessDeps, coin: 
   }));
   // Graduation-fill check ∥ sim. Starts after the gate MGET so a cached curve is reused (no extra curveOf).
   // Never fails admission. Sells and already-graduated markets skip the reads.
+  // NOT in the admission join any more (it took 2.1 s on maker's $SPACE buy, 2026-11-21): a 3M simulation already sends at
+  // the 3M cap, and otherwise it gets FILL_WAIT_MS after admission; a late answer counts as "fills" (sends at the 3M cap,
+  // which costs nothing extra on Arbitrum — gas is charged on gas used), so a graduating buy never runs out of gas.
   const fillsP = !isBuy ? Promise.resolve(false)
     : timed(m, "gradFillCheck", () => {
       if (memo !== undefined) return gaslessFillsCurve(coin, amountIn, memo);
       return gate.then(vals => gaslessFillsCurve(coin, amountIn, marketVal(vals))).catch(() => false);
     }).catch(() => false);
-  const all = [session, owner, gate, d.ipGate ?? Promise.resolve(), ...extra, sim, relayer, fillsP];
+  const all = [session, owner, gate, d.ipGate ?? Promise.resolve(), ...extra, sim, relayer];
   const res = await timed(m, "admissionSimulationWall", () => Promise.allSettled(all));
   for (const x of res) if (x.status === "rejected") throw notSent(x.reason);
   const gateVals = (res[all.indexOf(gate)] as PromiseFulfilledResult<string | (string | null)[] | null>).value;
+  const simGas = (res[all.indexOf(sim)] as PromiseFulfilledResult<bigint>).value;
+  const fillsCurve = simGas >= GASLESS_GRAD_GAS_LIMIT ? false
+    : await Promise.race([fillsP, new Promise<boolean>(ok => setTimeout(() => ok(true), FILL_WAIT_MS))]);
   return {
     relayer: (res[all.indexOf(relayer)] as PromiseFulfilledResult<DirectRelayer>).value,
     did: (res[all.indexOf(session)] as PromiseFulfilledResult<{ did: string }>).value.did,
-    fillsCurve: (res[all.indexOf(fillsP)] as PromiseFulfilledResult<boolean>).value,
+    fillsCurve,
     refDone: refVal(gateVals),
-    simGas: (res[all.indexOf(sim)] as PromiseFulfilledResult<bigint>).value,
+    simGas,
   };
 }
 
