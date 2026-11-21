@@ -15,6 +15,8 @@ import {
   type Hex,
   type PublicClient,
   type WalletClient,
+  BaseError,
+  ContractFunctionRevertedError,
 } from "viem";
 import { alert, heartbeat } from "./alert.ts";
 import { carryHookAbi, carryQueueAbi, carryVaultV2Abi, endpointAbi, erc20Abi, hookAbi, receiverAbi, senderAbi, ulnAbi } from "./abi.ts";
@@ -60,6 +62,19 @@ interface Clients {
 /** Carry: a pool's centre at least this far (bps) from its leader may fail the vault's deposit check (the pool fee,
  *  10 to 25 bps): below it a blocked match is some other cause (cap, paused) and is not worth a sample. */
 export const MATCH_SAMPLE_BPS = 10;
+/** The chain head not moving for this long counts as a failed round (Robinhood Chain makes ~10 blocks a second). */
+export const HEAD_STALL_SEC = 120;
+
+/** True only when `e` is the contract reverting (or the node saying so), not a transport error, timeout or 429. */
+export function isRevert(e: unknown): boolean {
+  if (e instanceof BaseError) {
+    if (e.walk((x) => x instanceof ContractFunctionRevertedError)) return true;
+    const msg = `${e.details ?? ""} ${e.shortMessage ?? ""}`.toLowerCase();
+    if (/execution reverted|revert/.test(msg) && !/http request failed|timed? ?out|429|rate limit/.test(msg)) return true;
+    return false;
+  }
+  return /execution reverted/i.test(String((e as Error)?.message ?? e));
+}
 /** Least gas a matchOrders transaction is sent with: the queue needs 3M left before each match (one match is ~1.9M on mainnet). */
 const MATCH_GAS_FLOOR = 5_000_000n;
 
@@ -194,6 +209,10 @@ export class Keeper {
   /** Failed same-chain rounds in a row, per entry; last balance read per chain. */
   private failures = new Map<string, number>();
   private lastBalanceCheck = new Map<string, number>();
+  /** Per chain: the last head block number seen and when it last advanced (liveness for alerts and heartbeat). */
+  private head = new Map<string, { n: bigint; at: number }>();
+  /** Per hook: true once settleEvery() answered, false once it reverted (launch hook). Unset until known. */
+  private hasSettle = new Map<string, boolean>();
 
   private cfg: Config;
   private state: State;
@@ -327,6 +346,9 @@ export class Keeper {
     let ok = true;
     for (const s of this.cfg.sameChain) {
       try {
+        // liveness first, uncaught: most reads below swallow their errors, so without this a dead RPC never reaches
+        // errorsBeforeAlert and the heartbeat keeps pinging (round-8 KEEPER-1)
+        await this.checkHead(s.chain);
         await this.discoverSame(s);
         await this.sampleDue(s);
         if (s.abi === "carry") await this.sweepDue(s);
@@ -347,6 +369,18 @@ export class Keeper {
       }
     }
     if (ok) await heartbeat();
+  }
+
+  /** Throws when the RPC can't give the head block, or the head hasn't moved for `HEAD_STALL_SEC`. */
+  async checkHead(chain: ChainCfg): Promise<void> {
+    const n = await this.c(chain).pub.getBlockNumber({ cacheTime: 0 });
+    const t = now();
+    const h = this.head.get(chain.name);
+    if (!h || n > h.n) {
+      this.head.set(chain.name, { n, at: t });
+      return;
+    }
+    if (t - h.at > HEAD_STALL_SEC) throw new Error(`${chain.name} head stuck at ${n} for ${t - h.at}s`);
   }
 
   /** Every `alerts.balanceEverySec`: warn and alert when the keeper's ETH on `chain` is below `alerts.minEth`. */
@@ -1080,9 +1114,18 @@ export class Keeper {
       if ((this.noSettleUntil.get(id) ?? 0) > t) continue;
       if ((this.lastSettleCheck.get(id) ?? 0) + sm.settleCheckSec > t) continue;
       this.lastSettleCheck.set(id, t);
-      try {
-        await pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "settleEvery" });
-      } catch {
+      let has = this.hasSettle.get(s.hook);
+      if (has === undefined) {
+        try {
+          await pub.readContract({ address: s.hook, abi: carryHookAbi, functionName: "settleEvery" });
+          has = true;
+        } catch (e) {
+          if (!isRevert(e)) throw e; // RPC trouble: try again next round, don't park settle for 6 h (KEEPER-2)
+          has = false;
+        }
+        this.hasSettle.set(s.hook, has);
+      }
+      if (!has) {
         this.noSettleUntil.set(id, t + 6 * 3600); // launch hook: no epochs
         continue;
       }
@@ -1182,6 +1225,7 @@ export class Keeper {
     try {
       est = await pub.estimateContractGas({ address: s.hook, abi: this.hAbi(s), functionName: "sample", args: [id], account: this.account });
     } catch (e) {
+      if (!isRevert(e)) throw e; // a flaky RPC answer is not the hook saying no: count it as a failed round (KEEPER-2)
       this.log.warn(`${s.name}: sample ${id.slice(0, 10)} would revert: ${(e as Error).message?.split("\n")[0]}`);
       this.rest(id, now());
       return;
