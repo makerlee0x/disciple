@@ -2,6 +2,7 @@
 import { privyAccessToken } from "@/lib/aa/sessionState";
 import type { LengthMs, TierId, TradeAction } from "./rules";
 import type { DuelEvent, DuelRoom } from "./types";
+import { backoffMs, onNetWake } from "@/lib/net/liveSocket";
 
 export type Res<T> = ({ ok: true } & T) | { ok: false; reason: string; status?: number };
 export interface RoomRes { room: DuelRoom; events: DuelEvent[]; now: number }
@@ -50,13 +51,22 @@ export function followRoom(id: string, onEvent: (e: DuelEvent) => void, onRoom: 
   };
   const openStream = () => {
     if (stopped || over || typeof EventSource === "undefined") return;
-    es = new EventSource(`/api/duel/room/${id}/stream?after=${seq}`);
-    es.onopen = () => { live = true; };
-    es.onerror = () => { live = false; };
+    const s = new EventSource(`/api/duel/room/${id}/stream?after=${seq}`);
+    es = s;
+    s.onopen = () => { live = true; tries = 0; };
+    // Safari gives up on a stream after a network drop (readyState CLOSED, no retry of its own): dial it again
+    s.onerror = () => { if (es !== s) return; live = false; if (s.readyState === 2) { es = null; reopen(); } };
     es.addEventListener("ev", (m) => { try { const e = JSON.parse((m as MessageEvent).data) as DuelEvent; seen(e); if (e.type === "start" || e.type === "join" || e.type === "ready" || e.type === "leave" || e.type === "rematch" || e.type === "end") void refresh(); } catch { /* bad frame */ } });
     es.addEventListener("price", (m) => { try { const j = JSON.parse((m as MessageEvent).data); onPrice?.(j.p, j.ts); } catch { /* bad frame */ } });
     es.addEventListener("end", () => { es?.close(); es = null; live = false; void refresh(); });
   };
+  let reopenTimer: ReturnType<typeof setTimeout> | null = null, tries = 0;
+  const reopen = (now = false) => {
+    if (stopped || over || reopenTimer) return;
+    reopenTimer = setTimeout(() => { reopenTimer = null; if (!es) { tries++; openStream(); } }, now ? 0 : backoffMs(tries, 10_000));
+  };
+  // back online or back to the front: catch up at once instead of waiting out the poll
+  const offWake = onNetWake(() => { if (stopped || over) return; tries = 0; void refresh(); if (!es) reopen(true); });
   // KV budget (2026-11-16): poll every 2.5 s only while the stream is down, 10 s while it's up; a finished room is polled
   // every 4 s (to catch a rematch) for 3 minutes, then not at all
   const loop = () => {
@@ -67,7 +77,7 @@ export function followRoom(id: string, onEvent: (e: DuelEvent) => void, onRoom: 
   void refresh().then(openStream);
   loop();
   return {
-    stop: () => { stopped = true; es?.close(); if (poll) clearTimeout(poll); },
+    stop: () => { stopped = true; es?.close(); if (poll) clearTimeout(poll); if (reopenTimer) clearTimeout(reopenTimer); offWake(); },
     seq: () => seq,
     ingest: (evs) => { if (!stopped) evs.forEach(seen); },
   };

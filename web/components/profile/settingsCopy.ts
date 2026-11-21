@@ -1,0 +1,40 @@
+/**
+ * Settings copy, on its own so a screen that only needs a few labels (the Turbo lobby's settings sheet) doesn't pull in the
+ * whole account Settings modal and its wallet code (perf pass 2026-11-21: that import put ~200 KB into /turbo/royale).
+ */
+/** Settings copy (profile r3 README copy list). */
+export const SETTINGS_TEXT = {
+  title: "Settings",
+  account: "Account",
+  trading: "Flying",
+  signedIn: (m: string) => `Signed in with ${m}`,
+  wallet: "Wallet",
+  oneTap: "One-tap boosts",
+  haptics: "Vibration",
+  sound: "Sound",
+  music: "Music",
+  sfx: "Sound effects",
+  menuMusic: "Menu music",
+  on: "ON",
+  maxMove: "Price protection",
+  maxMoveHelp: "Cancels a trade if the price moves more than this.",
+  security: "Security",
+  exportKey: "Export key",
+  exportBtn: "Export",
+  twoFa: "Two-factor",
+  twoFaHow: "Authenticator or passkey",
+  twoFaOff: "Off",
+  totp: "Authenticator app",
+  passkey: "Passkey",
+  privyOnly: "Available when you sign in with email, Google or X.",
+  logout: "Sign out",
+  deleteAcct: "Delete account",
+  deleteTitle: "Delete your account?",
+  deleteLead: "This removes your username, profile, X link and alerts, and closes your sign-in. It can't be undone.",
+  deleteWallet: "Your wallet lives on the blockchain, so anything in it stays there. Withdraw your cash or export your key first, or you lose access to it.",
+  deleteType: "Type DELETE to confirm",
+  deleteGo: "Delete my account",
+  deleteBusy: "Deleting…",
+  copy: "Copy", copied: "Copied",
+  signedOut: "Sign in to see your account settings.",
+} as const;

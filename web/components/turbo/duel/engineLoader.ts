@@ -1,5 +1,6 @@
-/** loads public/turbo/duel/engine.js (window.DuelEngine) once; the Trading Duel and Climb both mount it */
-export const ENGINE_SRC = "/turbo/duel/engine.js?v=84";
+/** loads public/turbo/duel/engine.js (window.DuelEngine) once; the Trading Duel and Climb both mount it. Production builds
+ *  load the minified copy (scripts/minify-engine.mjs, picked in next.config.mjs). Bump v when the engine changes. */
+export const ENGINE_SRC = `${process.env.NEXT_PUBLIC_DUEL_ENGINE || "/turbo/duel/engine.js"}?v=84`;
 
 export function loadDuelEngine(): Promise<void> {
   const w = window as unknown as { DuelEngine?: unknown };

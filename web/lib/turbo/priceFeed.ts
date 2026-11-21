@@ -10,6 +10,7 @@
  * Nova can later replace this stand-in by handing a PriceFeed + TradeFeed to getTurboAdapter() / the adapter hook.
  */
 import type { Market, MarketTrade, PriceFeed, TradeFeed } from "./types";
+import { liveSocket, type LiveSocket } from "@/lib/net/liveSocket";
 
 export const HYPERLIQUID_INFO_URL = "https://api.hyperliquid.xyz/info";
 export const HYPERLIQUID_WS_URL = "wss://api.hyperliquid.xyz/ws";
@@ -86,11 +87,8 @@ export function createHyperliquidStream(opts: HyperliquidStreamOptions = {}) {
   const priceSubs = new Set<PriceCb>();
   const tradeSubs = new Set<TradeCb>();
   let ws: WebSocket | null = null;
-  let pingTimer: ReturnType<typeof setInterval> | null = null;
-  let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let stopped = true;
-  let backoff = 500;
   const lastPrices: Partial<Record<Market, number>> = {};
 
   const WSImpl = () => opts.WebSocketImpl ?? (typeof WebSocket !== "undefined" ? WebSocket : null);
@@ -130,89 +128,62 @@ export function createHyperliquidStream(opts: HyperliquidStreamOptions = {}) {
     void loop();
   };
 
-  const closeSocket = () => {
-    if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
-    if (ws) {
-      try { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; ws.close(); } catch { /* ignore */ }
-      ws = null;
-    }
-  };
-
   const subscribeAll = (sock: WebSocket) => {
     const send = (sub: unknown) => { try { sock.send(JSON.stringify({ method: "subscribe", subscription: sub })); } catch { /* ignore */ } };
     send({ type: "allMids" });
     for (const coin of MARKETS) send({ type: "trades", coin });
   };
 
-  const connect = () => {
-    if (stopped) return;
-    const Impl = WSImpl();
-    if (!Impl) { startPoll(); return; }
-    closeSocket();
-    let sock: WebSocket;
-    try { sock = new Impl(wsUrl); } catch { startPoll(); scheduleReconnect(); return; }
-    ws = sock;
-    sock.onopen = () => {
-      backoff = 500;
-      stopPoll();
-      subscribeAll(sock);
-      if (pingTimer) clearInterval(pingTimer);
-      pingTimer = setInterval(() => { try { if (sock.readyState === 1) sock.send(JSON.stringify({ method: "ping" })); } catch { /* ignore */ } }, pingIntervalMs);
-    };
-    sock.onmessage = (ev) => {
-      const raw = typeof ev.data === "string" ? ev.data : "";
-      if (!raw) return;
-      let json: unknown;
-      try { json = JSON.parse(raw); } catch { return; }
-      if (!json || typeof json !== "object") return;
-      const ch = String((json as Record<string, unknown>).channel ?? "");
-      if (ch === "trades" || (Array.isArray((json as Record<string, unknown>).data) && (json as Record<string, unknown>).data)) {
-        const trades = parseTradesMessage(json);
-        if (trades.length) {
-          emitTrades(trades);
-          // tick on every print too (maker, Nov 13 2026: "it should be tick based"): the last traded price moves the
-          // rocket between allMids pushes. Liquidation on Nova uses its oracle mark; for the stand-in this is close enough.
-          const last: Partial<Record<Market, number>> = {};
-          for (const t of trades) if (t.price > 0) last[t.market] = t.price;
-          emitPrices(last);
-        }
+  const onFrame = (raw: string) => {
+    let json: unknown;
+    try { json = JSON.parse(raw); } catch { return; }
+    if (!json || typeof json !== "object") return;
+    const ch = String((json as Record<string, unknown>).channel ?? "");
+    if (ch === "trades" || (Array.isArray((json as Record<string, unknown>).data) && (json as Record<string, unknown>).data)) {
+      const trades = parseTradesMessage(json);
+      if (trades.length) {
+        emitTrades(trades);
+        // tick on every print too (maker, Nov 13 2026: "it should be tick based"): the last traded price moves the
+        // rocket between allMids pushes. Liquidation on Nova uses its oracle mark; for the stand-in this is close enough.
+        const last: Partial<Record<Market, number>> = {};
+        for (const t of trades) if (t.price > 0) last[t.market] = t.price;
+        emitPrices(last);
       }
-      if (ch === "allMids" || ch === "subscriptionResponse") {
-        const mids = parseAllMidsMessage(json);
-        if (Object.keys(mids).length) emitPrices(mids);
-      } else if (!ch) {
-        const mids = parseAllMidsMessage(json);
-        if (Object.keys(mids).length) emitPrices(mids);
-      }
-    };
-    sock.onerror = () => { /* onclose reconnects */ };
-    sock.onclose = () => {
-      if (ws === sock) ws = null;
-      if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
-      if (!stopped) { startPoll(); scheduleReconnect(); }
-    };
+    }
+    if (ch === "allMids" || ch === "subscriptionResponse" || !ch) {
+      const mids = parseAllMidsMessage(json);
+      if (Object.keys(mids).length) emitPrices(mids);
+    }
   };
 
-  const scheduleReconnect = () => {
-    if (stopped || retryTimer) return;
-    const wait = backoff;
-    backoff = Math.min(backoff * 2, 15_000);
-    retryTimer = setTimeout(() => { retryTimer = null; if (!stopped) connect(); }, wait);
+  // perf pass 2026-11-21: the socket lives in lib/net/liveSocket (stale-socket watchdog, jittered backoff, reconnect on
+  // online / back to the front), so a phone that hops networks mid-duel gets its feed back in seconds, not never
+  let live: LiveSocket | null = null;
+  const connect = () => {
+    if (stopped || live) return;
+    if (!WSImpl()) { startPoll(); return; }
+    live = liveSocket({
+      url: () => wsUrl,
+      WebSocketImpl: WSImpl() ?? undefined,
+      onOpen: (sock) => { ws = sock; stopPoll(); subscribeAll(sock); },
+      onMessage: onFrame,
+      onDown: () => { ws = null; if (!stopped) startPoll(); },
+      ping: JSON.stringify({ method: "ping" }),
+      pingMs: Math.min(pingIntervalMs, 15_000),
+      // allMids pushes every block (well under a second); 12 s of nothing is a dead socket
+      staleMs: 12_000,
+    });
   };
+  const closeSocket = () => { live?.stop(); live = null; ws = null; };
 
   const ensure = () => {
-    if (stopped) {
-      stopped = false;
-      connect();
-    } else if (!ws || (ws.readyState !== 0 && ws.readyState !== 1)) {
-      if (!retryTimer) connect();
-    }
+    if (stopped) { stopped = false; connect(); }
+    else live?.kick();
   };
 
   const maybeStop = () => {
     if (priceSubs.size || tradeSubs.size) return;
     stopped = true;
-    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
     stopPoll();
     closeSocket();
   };

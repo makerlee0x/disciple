@@ -8,6 +8,7 @@
  * Nothing is invented: a coin with no price from either is left out, and the game holds the drop until all four have one.
  */
 import { HYPERLIQUID_INFO_URL, HYPERLIQUID_WS_URL } from "./priceFeed";
+import { backoffMs, liveSocket, type LiveSocket } from "@/lib/net/liveSocket";
 
 export const ROYALE_COINS = ["HYPE", "SOL", "ETH", "BTC"] as const;
 export type RoyaleCoin = (typeof ROYALE_COINS)[number];
@@ -27,56 +28,37 @@ export function parseRoyaleMids(json: unknown): RoyaleMids {
   return out;
 }
 
-/** streams mids to `cb` (at most every `everyMs`); returns stop */
+/** streams mids to `cb` (at most every `everyMs`); returns stop. HTTP poll only while the socket is down. */
 export function streamRoyaleMids(cb: (m: RoyaleMids) => void, everyMs = 250): () => void {
-  let ws: WebSocket | null = null, stopped = false, backoff = 500, lastEmit = 0;
-  let poll: ReturnType<typeof setTimeout> | null = null, retry: ReturnType<typeof setTimeout> | null = null, ping: ReturnType<typeof setInterval> | null = null;
+  let stopped = false, lastEmit = 0, sock: LiveSocket | null = null;
+  let poll: ReturnType<typeof setTimeout> | null = null;
+  const up = () => !!sock?.open();
   const emit = (m: RoyaleMids) => {
     if (!Object.keys(m).length) return;
     const now = Date.now(); if (now - lastEmit < everyMs) return; lastEmit = now;
     try { cb(m); } catch { /* listener */ }
   };
+  let polling = false;
   const pollLoop = async () => {
     poll = null;
-    if (stopped || (ws && ws.readyState === 1)) return;
+    if (polling || stopped || up()) return;
+    polling = true;
     try {
       const r = await fetch(HYPERLIQUID_INFO_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "allMids" }) });
       if (r.ok) emit(parseRoyaleMids(await r.json()));
     } catch { /* keep the last price */ }
-    if (!stopped && !(ws && ws.readyState === 1)) poll = setTimeout(pollLoop, 1000);
+    polling = false;
+    if (!stopped && !up() && !poll) poll = setTimeout(pollLoop, typeof document !== "undefined" && document.hidden ? 5_000 : 1_000);
   };
-  const connect = () => {
-    if (stopped) return;
-    let sock: WebSocket;
-    try { sock = new WebSocket(HYPERLIQUID_WS_URL); } catch { if (!poll) void pollLoop(); reconnect(); return; }
-    ws = sock;
-    sock.onopen = () => {
-      backoff = 500;
-      sock.send(JSON.stringify({ method: "subscribe", subscription: { type: "allMids" } }));
-      ping = setInterval(() => { try { sock.send(JSON.stringify({ method: "ping" })); } catch { /* closed */ } }, 30_000);
-    };
-    sock.onmessage = (ev) => {
-      if (typeof ev.data !== "string") return;
-      try { const j = JSON.parse(ev.data) as { channel?: string }; if (j.channel === "allMids") emit(parseRoyaleMids(j)); } catch { /* not JSON */ }
-    };
-    sock.onclose = () => {
-      if (ping) { clearInterval(ping); ping = null; }
-      if (ws === sock) ws = null;
-      if (!stopped) { if (!poll) void pollLoop(); reconnect(); }
-    };
-  };
-  const reconnect = () => {
-    if (stopped || retry) return;
-    retry = setTimeout(() => { retry = null; connect(); }, backoff);
-    backoff = Math.min(backoff * 2, 15_000);
-  };
+  sock = liveSocket({
+    url: () => HYPERLIQUID_WS_URL,
+    onOpen: (ws) => { if (poll) { clearTimeout(poll); poll = null; } ws.send(JSON.stringify({ method: "subscribe", subscription: { type: "allMids" } })); },
+    onMessage: (raw) => { try { const j = JSON.parse(raw) as { channel?: string }; if (j.channel === "allMids") emit(parseRoyaleMids(j)); } catch { /* not JSON */ } },
+    onDown: () => { if (!poll) void pollLoop(); },
+    ping: JSON.stringify({ method: "ping" }), pingMs: 15_000, staleMs: 12_000,
+  });
   void pollLoop(); // a first price right away, before the socket is up
-  connect();
-  return () => {
-    stopped = true;
-    if (poll) clearTimeout(poll); if (retry) clearTimeout(retry); if (ping) clearInterval(ping);
-    if (ws) { ws.onclose = null; try { ws.close(); } catch { /* ignore */ } ws = null; }
-  };
+  return () => { stopped = true; if (poll) clearTimeout(poll); sock?.stop(); };
 }
 
 export const LIGHTER_PRICE_HOST = "mainnet.zklighter.elliot.ai";
@@ -100,57 +82,52 @@ export function parseLighterStats(json: unknown, ids: Map<number, RoyaleCoin>): 
   return out;
 }
 
-/** Lighter's market ids for the four coins (public order book list) */
-export async function lighterIds(host: string): Promise<Map<number, RoyaleCoin>> {
-  const ids = new Map<number, RoyaleCoin>();
-  try {
+/** Lighter's market ids for the four coins (public order book list). A good answer is kept for the page's life (ids don't
+ *  move), so Climb's two streams and every re-entry share one fetch; a failed one (flaky network) isn't kept. */
+const idCache = new Map<string, Promise<Map<number, RoyaleCoin>>>();
+export function lighterIds(host: string): Promise<Map<number, RoyaleCoin>> {
+  const hit = idCache.get(host); if (hit) return hit;
+  const p = (async () => {
+    const ids = new Map<number, RoyaleCoin>();
     const r = await fetch(`https://${host}/api/v1/orderBookDetails?filter=perp`);
     const j = (await r.json()) as { order_book_details?: { symbol?: string; market_id?: number }[] };
     for (const d of j.order_book_details ?? []) {
       const sym = String(d.symbol ?? "").toUpperCase();
       if ((ROYALE_COINS as readonly string[]).includes(sym) && Number.isSafeInteger(d.market_id)) ids.set(d.market_id as number, sym as RoyaleCoin);
     }
-  } catch { /* symbols in the stream may still name them; Hyperliquid covers the rest */ }
-  return ids;
+    if (!ids.size) throw new Error("no ids");
+    return ids;
+  })();
+  // symbols in the stream may still name them; Hyperliquid covers the rest. A failure is forgotten so the next ask retries.
+  const safe = p.catch(() => { if (idCache.get(host) === safe) idCache.delete(host); return new Map<number, RoyaleCoin>(); });
+  idCache.set(host, safe);
+  return safe;
+}
+
+/** ids, asked again on a backoff until Lighter answers (a phone that loads the page in a dead zone still gets a feed) */
+function idsUntil(host: string, ok: (m: Map<number, RoyaleCoin>) => boolean, cb: (m: Map<number, RoyaleCoin>) => void, stopped: () => boolean) {
+  let n = 0;
+  const go = () => void lighterIds(host).then((m) => {
+    if (stopped()) return;
+    cb(m);
+    if (!ok(m)) setTimeout(go, backoffMs(n++, 15_000));
+  });
+  go();
 }
 
 /** Lighter mark prices for the four coins; returns stop. `host`: the exchange whose prices (Climb on Lighter passes the
  *  one its orders go to, e.g. api.rh.lighter.xyz) */
 export function streamLighterMids(cb: (m: RoyaleMids) => void, host: string = LIGHTER_PRICE_HOST): () => void {
-  let ws: WebSocket | null = null, stopped = false, backoff = 500;
-  let retry: ReturnType<typeof setTimeout> | null = null, ping: ReturnType<typeof setInterval> | null = null;
-  let ids = new Map<number, RoyaleCoin>();
-  const connect = () => {
-    if (stopped) return;
-    let sock: WebSocket;
-    try { sock = new WebSocket(`wss://${host}/stream`); } catch { reconnect(); return; }
-    ws = sock;
-    sock.onopen = () => {
-      backoff = 500;
-      sock.send(JSON.stringify({ type: "subscribe", channel: "market_stats/all" }));
-      ping = setInterval(() => { try { sock.send(JSON.stringify({ type: "ping" })); } catch { /* closed */ } }, 20_000);
-    };
-    sock.onmessage = (ev) => {
-      if (typeof ev.data !== "string") return;
-      try { const m = parseLighterStats(JSON.parse(ev.data), ids); if (Object.keys(m).length) cb(m); } catch { /* not JSON */ }
-    };
-    sock.onclose = () => {
-      if (ping) { clearInterval(ping); ping = null; }
-      if (ws === sock) ws = null;
-      reconnect();
-    };
-  };
-  const reconnect = () => {
-    if (stopped || retry) return;
-    retry = setTimeout(() => { retry = null; connect(); }, backoff);
-    backoff = Math.min(backoff * 2, 15_000);
-  };
-  void lighterIds(host).then((m) => { ids = m; connect(); });
-  return () => {
-    stopped = true;
-    if (retry) clearTimeout(retry); if (ping) clearInterval(ping);
-    if (ws) { ws.onclose = null; try { ws.close(); } catch { /* ignore */ } ws = null; }
-  };
+  let ids = new Map<number, RoyaleCoin>(), sock: LiveSocket | null = null, stopped = false;
+  const start = () => liveSocket({
+    url: () => `wss://${host}/stream`,
+    onOpen: (ws) => ws.send(JSON.stringify({ type: "subscribe", channel: "market_stats/all" })),
+    onMessage: (raw) => { try { const m = parseLighterStats(JSON.parse(raw), ids); if (Object.keys(m).length) cb(m); } catch { /* not JSON */ } },
+    ping: JSON.stringify({ type: "ping" }), pingMs: 15_000, staleMs: 12_000,
+  });
+  // the socket starts on the first answer (symbols may name the coins even without ids); ids keep being asked for
+  idsUntil(host, (m) => m.size > 0, (m) => { if (m.size) ids = m; if (!sock) sock = start(); }, () => stopped);
+  return () => { stopped = true; sock?.stop(); sock = null; };
 }
 
 /** Royale's feed: Lighter's price per coin once it has one (for good), Hyperliquid's before that; at most every
@@ -191,8 +168,7 @@ export function royaleMerge() {
  * Returns stop.
  */
 export function streamLighterBook(coin: RoyaleCoin, cb: (mid: number) => void, host: string = LIGHTER_PRICE_HOST): () => void {
-  let ws: WebSocket | null = null, stopped = false, backoff = 500, id: number | null = null;
-  let retry: ReturnType<typeof setTimeout> | null = null, ping: ReturnType<typeof setInterval> | null = null;
+  let stopped = false, id: number | null = null, sock: LiveSocket | null = null;
   const bids = new Map<string, number>(), asks = new Map<string, number>();
   const apply = (side: Map<string, number>, rows: unknown) => {
     if (!Array.isArray(rows)) return;
@@ -210,41 +186,22 @@ export function streamLighterBook(coin: RoyaleCoin, cb: (mid: number) => void, h
     for (const k of asks.keys()) { const v = Number(k); if (v < a) a = v; }
     return b > 0 && Number.isFinite(a) && a > b ? (a + b) / 2 : null;
   };
-  const connect = () => {
-    if (stopped || id == null) return;
-    let sock: WebSocket;
-    try { sock = new WebSocket(`wss://${host}/stream`); } catch { reconnect(); return; }
-    ws = sock;
-    sock.onopen = () => {
-      backoff = 500; bids.clear(); asks.clear();
-      sock.send(JSON.stringify({ type: "subscribe", channel: `order_book/${id}` }));
-      ping = setInterval(() => { try { sock.send(JSON.stringify({ type: "ping" })); } catch { /* closed */ } }, 20_000);
-    };
-    sock.onmessage = (ev) => {
-      if (typeof ev.data !== "string") return;
+  const start = () => liveSocket({
+    url: () => `wss://${host}/stream`,
+    onOpen: (ws) => { bids.clear(); asks.clear(); ws.send(JSON.stringify({ type: "subscribe", channel: `order_book/${id}` })); },
+    onMessage: (raw) => {
       try {
-        const j = JSON.parse(ev.data) as { type?: string; order_book?: { asks?: unknown; bids?: unknown } };
+        const j = JSON.parse(raw) as { type?: string; order_book?: { asks?: unknown; bids?: unknown } };
         const ob = j.order_book; if (!ob) return;
         if (typeof j.type === "string" && j.type.startsWith("subscribed")) { bids.clear(); asks.clear(); }
         apply(bids, ob.bids); apply(asks, ob.asks);
         const m = mid(); if (m) cb(m);
       } catch { /* not JSON */ }
-    };
-    sock.onclose = () => {
-      if (ping) { clearInterval(ping); ping = null; }
-      if (ws === sock) ws = null;
-      reconnect();
-    };
-  };
-  const reconnect = () => {
-    if (stopped || retry) return;
-    retry = setTimeout(() => { retry = null; connect(); }, backoff);
-    backoff = Math.min(backoff * 2, 15_000);
-  };
-  void lighterIds(host).then((m) => { for (const [k, c] of m) if (c === coin) id = k; connect(); });
-  return () => {
-    stopped = true;
-    if (retry) clearTimeout(retry); if (ping) clearInterval(ping);
-    if (ws) { ws.onclose = null; try { ws.close(); } catch { /* ignore */ } ws = null; }
-  };
+    },
+    // a busy coin's book changes many times a second: quiet for 8 s means the socket is gone
+    ping: JSON.stringify({ type: "ping" }), pingMs: 15_000, staleMs: 8_000,
+  });
+  // before: a failed id lookup (flaky network at page load) left the book off for the whole visit
+  idsUntil(host, (m) => [...m.values()].includes(coin), (m) => { for (const [k, c] of m) if (c === coin) id = k; if (id != null && !sock) sock = start(); }, () => stopped);
+  return () => { stopped = true; sock?.stop(); sock = null; };
 }

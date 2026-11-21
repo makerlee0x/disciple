@@ -30,6 +30,10 @@ import s from "./appHome.module.css";
 import AnimClip from "@/components/ui/AnimClip";
 
 const POLL_MS = 30_000;
+/** the 768/512 px cuts of a mode plate (public/art/modes/<id>-512|768.webp). The featured and duel plates sit under a looping
+ *  clip with its own poster and the practice tiles are half the screen, so the 1024 px plate (~230 KB each) was mostly
+ *  wasted bytes on a phone network (perf pass 2026-11-21). */
+const plate = (id: string) => `${withBase(`/art/modes/${id}-512.webp`)} 512w, ${withBase(`/art/modes/${id}-768.webp`)} 768w`;
 const FREE_HREF = "/flight/sim";
 const DAILY_HREF = "/flight/sim?daily=1";
 const ROYALE_HREF = "/turbo/royale";
@@ -103,7 +107,7 @@ export default function AppHome({ initial }: { initial: HomeData }) {
 
       <Link href={FREE_HREF} className={s.feat} data-testid="app-featured">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={withBase("/art/modes/free.webp")} alt="" loading="lazy" decoding="async" />
+        <img src={withBase("/art/modes/free.webp")} srcSet={plate("free")} sizes="50vw" alt="" loading="lazy" decoding="async" />
         <AnimClip id="B6-daily-16x9" ratio="none" loop poster whenVisible className={s.clip} />
         <span className={s.featTag}>Solo</span>
         {ends && <span className={s.featTime} suppressHydrationWarning>Ends in {ends}</span>}
@@ -120,7 +124,7 @@ export default function AppHome({ initial }: { initial: HomeData }) {
         <h2 id="app-duel" className={s.secT}>Duel</h2>
         <Link href={DUEL_HREF} className={s.duel} data-testid="app-duel">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={withBase("/art/modes/duel.webp")} alt="" loading="lazy" decoding="async" />
+          <img src={withBase("/art/modes/duel.webp")} srcSet={plate("duel")} sizes="50vw" alt="" loading="lazy" decoding="async" />
           <AnimClip id="A3-mode-duel" ratio="none" loop poster whenVisible className={s.clip} />
           <span className={`${s.tileTag} ${s.turboTag}`}>Turbo</span>
           <span className={s.duelTx}>
@@ -160,14 +164,14 @@ export default function AppHome({ initial }: { initial: HomeData }) {
         <div className={ROYALE_ENABLED ? s.prac : `${s.prac} ${s.prac1}`}>
           <Link href={CLIMB_HREF} className={s.tile} data-testid="app-climb">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={withBase("/art/modes/live.webp")} alt="" loading="lazy" decoding="async" />
+            <img src={withBase("/art/modes/live.webp")} srcSet={plate("live")} sizes="50vw" alt="" loading="lazy" decoding="async" />
             <span className={s.tileTag} style={{ color: "#5FF0A0" }}>Solo</span>
             <span className={`${s.tileTag} ${s.turboTag}`}>Turbo</span>
             <span className={s.tileTx}><b>Climb</b></span>
           </Link>
           {ROYALE_ENABLED && <Link href={ROYALE_HREF} className={s.tile} data-testid="app-royale">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={withBase("/art/modes/last-pilot.webp")} alt="" loading="lazy" decoding="async" />
+            <img src={withBase("/art/modes/last-pilot.webp")} srcSet={plate("last-pilot")} sizes="50vw" alt="" loading="lazy" decoding="async" />
             <span className={s.tileTag} style={{ color: "#F2C14E" }}>Practice</span>
             <span className={`${s.tileTag} ${s.turboTag}`}>Turbo</span>
             <span className={s.tileTx}><b>Royale</b></span>
