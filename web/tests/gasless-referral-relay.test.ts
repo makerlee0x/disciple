@@ -57,6 +57,7 @@ async function wire(o: { referrer?: Address } = {}) {
 }
 const origAfter = gaslessReferralHooks.after, origAttach = gaslessReferralHooks.attach;
 beforeEach(() => {
+  vi.stubEnv("GASLESS_PRESIM", "1");   // these suites cover the pre-send simulation (off by default since 2026-11-21)
   vi.resetAllMocks(); delete process.env.VERCEL_ENV; delete process.env.VERCEL; process.env.GAS_SPONSORSHIP_MODE = "gasless";
   h.chain.mockResolvedValue(46630); h.block.mockResolvedValue({ timestamp: BigInt(NOW), baseFeePerGas: 10_000_000n });
   h.read.mockResolvedValue(0n); h.call.mockResolvedValue({ data: "0x" }); h.count.mockResolvedValue(5); h.balance.mockResolvedValue(0n);

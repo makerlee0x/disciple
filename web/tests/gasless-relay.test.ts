@@ -64,6 +64,7 @@ async function wire(o: { signer?: typeof user; recipient?: Address; amountIn?: b
   return JSON.parse(JSON.stringify({ signer: o.signer && o.recipient === undefined ? s.address : user.address, permit, trade, signature }, (_k, v) => (typeof v === "bigint" ? v.toString() : v)));
 }
 beforeEach(() => {
+  vi.stubEnv("GASLESS_PRESIM", "1");   // these suites cover the pre-send simulation (off by default since 2026-11-21)
   vi.resetAllMocks(); delete process.env.VERCEL_ENV; delete process.env.VERCEL; process.env.GAS_SPONSORSHIP_MODE = "gasless";
   h.chain.mockResolvedValue(46630); h.block.mockResolvedValue({ timestamp: BigInt(NOW), baseFeePerGas: 10_000_000n });
   h.read.mockImplementation(async ({ functionName }) => functionName === "verifiedUntil" ? BigInt(NOW + 3600) : 0n);
@@ -92,6 +93,24 @@ describe("switch: GAS_SPONSORSHIP_MODE", () => {
   it("admitted in Production when the resolved mode is gasless", () => {
     vi.stubEnv("VERCEL_ENV", "production"); vi.stubEnv("VERCEL", "1"); vi.stubEnv("NODE_ENV", "production");
     expect(() => requireGaslessMode()).not.toThrow();
+  });
+});
+
+describe("default: no pre-send simulation (maker 2026-11-21)", () => {
+  it("admission → budget → send at the 3M cap, no eth_call", async () => {
+    vi.stubEnv("GASLESS_PRESIM", "");
+    const order: string[] = [];
+    h.call.mockImplementation(async () => { order.push("sim"); return { data: "0x" }; });
+    h.budget.mockImplementation(async () => { order.push("budget"); return 0; });
+    h.send.mockImplementation(async () => { order.push("send"); return okRc(); });
+    await expect(relayGaslessTrade(await wire())).resolves.toMatchObject({ success: true });
+    expect(order).toEqual(["budget", "send"]);
+  });
+  it("still refuses a struck sender before anything is sent", async () => {
+    vi.stubEnv("GASLESS_PRESIM", "");
+    h.mget.mockImplementation(async (ks: string[]) => ks.map(k => k.startsWith("relay:trust:") ? JSON.stringify({ strikeUntil: Date.now() + 60_000 }) : null));
+    await expect(relayGaslessTrade(await wire())).rejects.toMatchObject({ notSent: true });
+    expect(h.send).not.toHaveBeenCalled();
   });
 });
 
