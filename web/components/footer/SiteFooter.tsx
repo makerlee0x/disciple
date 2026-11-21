@@ -29,6 +29,7 @@ const LEGAL: readonly L[] = [
   { href: "/terms", label: "Terms" },
   { href: "/privacy", label: "Privacy" },
   { href: "/risk", label: "Risk" },
+  { href: "/support", label: "Support" },
 ];
 
 export const X_URL = "https://x.com/disciplevip";

@@ -81,3 +81,10 @@ test("raw HTML is escaped, comments are dropped, and a placeholder cannot render
   assert.throws(() => renderLegal("# T\n\n[CONFIRM: A blank to be added]", "terms"));
   assert.throws(() => renderLegal("# T\n\nNo lawyer has read this.", "terms"));
 });
+
+test("/support gives a real contact (App Store Support URL)", () => {
+  const s = renderLegal(fs.readFileSync(new URL("../content/legal/support.md", import.meta.url), "utf8"), "support");
+  assert.equal(s.title, "Support");
+  assert.match(s.html, /href="mailto:hello@disciple\.vip"/);
+  assert.match(s.html, /Delete account/);
+});
